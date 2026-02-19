@@ -4,7 +4,7 @@ use tokio::sync::Mutex;
 use tracing::{error, info};
 
 use crate::config::AppConfig;
-use crate::ftp::{FtpServer, ServerConfig, ServerStateSnapshot};
+use crate::ftp::{DiagnosticInfo, FtpServer, ServerConfig, ServerStateSnapshot};
 use crate::network::NetworkManager;
 
 /// FTP 服务器状态（使用 Arc<Mutex> 包装以支持异步操作）
@@ -148,4 +148,17 @@ pub fn save_config(config: AppConfig) -> Result<(), String> {
 #[command]
 pub async fn check_port_available(port: u16) -> bool {
     NetworkManager::is_port_available(port).await
+}
+
+#[command]
+pub async fn get_diagnostic_info(
+    state: State<'_, FtpServerState>,
+) -> Result<Option<DiagnosticInfo>, String> {
+    let server_guard = state.0.lock().await;
+
+    if let Some(server) = server_guard.as_ref() {
+        Ok(Some(server.get_diagnostic_info()))
+    } else {
+        Ok(None)
+    }
 }

@@ -2,13 +2,13 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
-use dashmap::DashMap;
+use dashmap::DashSet;
 use libunftp::notification::{DataEvent, DataListener, EventMeta, PresenceEvent, PresenceListener};
 use libunftp::options::Shutdown;
 use libunftp::ServerBuilder;
 use serde::{Deserialize, Serialize};
 use tokio::sync::{oneshot, RwLock};
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
 /// FTP 服务器统计数据快照
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -52,7 +52,7 @@ pub struct FtpServer {
     config: ServerConfig,
     shutdown_tx: Option<oneshot::Sender<()>>,
     stats: Arc<RwLock<ServerStats>>,
-    sessions: Arc<DashMap<String, ()>>,
+    sessions: Arc<DashSet<String>>,
     is_running: bool,
 }
 
@@ -62,7 +62,7 @@ impl FtpServer {
             config,
             shutdown_tx: None,
             stats: Arc::new(RwLock::new(ServerStats::default())),
-            sessions: Arc::new(DashMap::new()),
+            sessions: Arc::new(DashSet::new()),
             is_running: false,
         }
     }
@@ -140,21 +140,23 @@ impl FtpServer {
 
     /// 获取服务器状态快照
     pub fn state_snapshot(&self) -> ServerStateSnapshot {
-        // 使用 block_on 可能有问题，但由于这是同步调用，我们需要另一种方式
-        // 这里使用 try_read 避免阻塞
+        // 直接从 sessions DashSet 获取连接数（线程安全，无需锁）
+        let connected_clients = self.sessions.len();
+        
+        // 从 stats 获取其他统计信息
         let stats = self.stats.try_read();
         
         match stats {
             Ok(s) => ServerStateSnapshot {
                 is_running: self.is_running,
-                connected_clients: s.active_connections as usize,
+                connected_clients,
                 files_received: s.total_uploads,
                 bytes_received: s.total_bytes_received,
                 last_file: s.last_uploaded_file.clone(),
             },
             Err(_) => ServerStateSnapshot {
                 is_running: self.is_running,
-                connected_clients: 0,
+                connected_clients,
                 files_received: 0,
                 bytes_received: 0,
                 last_file: None,
@@ -171,6 +173,24 @@ impl FtpServer {
     pub fn config(&self) -> &ServerConfig {
         &self.config
     }
+
+    /// 获取诊断信息（用于调试连接数问题）
+    pub fn get_diagnostic_info(&self) -> DiagnosticInfo {
+        let sessions: Vec<String> = self.sessions.iter().map(|s| s.clone()).collect();
+        DiagnosticInfo {
+            total_sessions: sessions.len(),
+            session_ids: sessions,
+            is_running: self.is_running,
+        }
+    }
+}
+
+/// 诊断信息（用于调试）
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct DiagnosticInfo {
+    pub total_sessions: usize,
+    pub session_ids: Vec<String>,
+    pub is_running: bool,
 }
 
 /// 数据事件监听器（上传、下载等）
@@ -222,7 +242,7 @@ impl DataListener for FtpDataListener {
 #[derive(Debug)]
 struct FtpPresenceListener {
     stats: Arc<RwLock<ServerStats>>,
-    sessions: Arc<DashMap<String, ()>>,
+    sessions: Arc<DashSet<String>>,
 }
 
 impl PresenceListener for FtpPresenceListener {
@@ -239,22 +259,42 @@ impl PresenceListener for FtpPresenceListener {
         Box::pin(async move {
             match event {
                 PresenceEvent::LoggedIn => {
-                    sessions.insert(meta.trace_id.clone(), ());
+                    let is_new = sessions.insert(meta.trace_id.clone());
+                    let count = sessions.len();
+                    
+                    if is_new {
+                        info!(
+                            "✅ User logged in: {} (trace_id: {}, total connections: {})",
+                            meta.username, meta.trace_id, count
+                        );
+                    } else {
+                        warn!(
+                            "⚠️ Duplicate LoggedIn event: {} (trace_id: {}) already exists",
+                            meta.username, meta.trace_id
+                        );
+                    }
+                    
                     let mut s = stats.write().await;
-                    s.active_connections = sessions.len() as u64;
-                    info!(
-                        "User logged in: {} (session: {})",
-                        meta.username, meta.trace_id
-                    );
+                    s.active_connections = count as u64;
                 }
                 PresenceEvent::LoggedOut => {
-                    sessions.remove(&meta.trace_id);
+                    let existed = sessions.remove(&meta.trace_id).is_some();
+                    let count = sessions.len();
+                    
+                    if existed {
+                        info!(
+                            "❌ User logged out: {} (trace_id: {}, total connections: {})",
+                            meta.username, meta.trace_id, count
+                        );
+                    } else {
+                        warn!(
+                            "⚠️ LoggedOut for unknown trace_id: {} (trace_id: {})",
+                            meta.username, meta.trace_id
+                        );
+                    }
+                    
                     let mut s = stats.write().await;
-                    s.active_connections = sessions.len() as u64;
-                    info!(
-                        "User logged out: {} (session: {})",
-                        meta.username, meta.trace_id
-                    );
+                    s.active_connections = count as u64;
                 }
             }
         })
