@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { exit } from '@tauri-apps/plugin-process';
+import { invoke } from '@tauri-apps/api/core';
 import { ServerCard } from './components/ServerCard';
 import { StatsCard } from './components/StatsCard';
 import { InfoCard } from './components/InfoCard';
@@ -9,13 +9,15 @@ import { useServerStore } from './stores/serverStore';
 import { Camera } from 'lucide-react';
 
 function App() {
-  const { initializeListeners } = useServerStore();
+  const { initializeListeners, startServer, stopServer } = useServerStore();
   const [showQuitDialog, setShowQuitDialog] = useState(false);
 
   useEffect(() => {
     // 初始化事件监听器
     let cleanup: (() => Promise<void>) | null = null;
     let trayQuitUnlisten: (() => void) | null = null;
+    let trayStartUnlisten: (() => void) | null = null;
+    let trayStopUnlisten: (() => void) | null = null;
     
     const setupListeners = async () => {
       cleanup = await initializeListeners();
@@ -23,6 +25,16 @@ function App() {
       // 监听托盘退出请求
       trayQuitUnlisten = await listen('tray-quit-request', () => {
         setShowQuitDialog(true);
+      });
+      
+      // 监听托盘启动服务器请求
+      trayStartUnlisten = await listen('tray-start-server', () => {
+        startServer().catch(console.error);
+      });
+      
+      // 监听托盘停止服务器请求
+      trayStopUnlisten = await listen('tray-stop-server', () => {
+        stopServer().catch(console.error);
       });
     };
     
@@ -35,12 +47,19 @@ function App() {
       if (trayQuitUnlisten) {
         trayQuitUnlisten();
       }
+      if (trayStartUnlisten) {
+        trayStartUnlisten();
+      }
+      if (trayStopUnlisten) {
+        trayStopUnlisten();
+      }
     };
-  }, [initializeListeners]);
+  }, [initializeListeners, startServer, stopServer]);
 
   const handleQuitConfirm = async (quit: boolean) => {
     if (quit) {
-      await exit(0);
+      // 通过Rust命令退出程序
+      await invoke('quit_application');
     } else {
       const window = getCurrentWindow();
       await window.hide();

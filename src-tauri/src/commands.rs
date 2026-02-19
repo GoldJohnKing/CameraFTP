@@ -256,3 +256,10 @@ pub fn get_autostart_status() -> Result<bool, String> {
         Ok(false)
     }
 }
+
+/// 退出应用程序
+#[tauri::command]
+pub fn quit_application(app: tauri::AppHandle) {
+    tracing::info!("Application quit requested");
+    app.exit(0);
+}

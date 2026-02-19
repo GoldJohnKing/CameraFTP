@@ -1,4 +1,4 @@
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Manager, Emitter};
 use tauri::menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconEvent};
 use crate::commands::FtpServerState;
@@ -47,34 +47,10 @@ pub fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
                     }
                 }
                 "start" => {
-                    let app_handle = app.clone();
-                    tauri::async_runtime::spawn(async move {
-                        let state: tauri::State<'_, FtpServerState> = app_handle.state();
-                        let mut server_guard = state.0.lock().await;
-                        if server_guard.is_none() {
-                            let config = crate::config::AppConfig::load().unwrap_or_default();
-                            match crate::ftp::FtpServerHandle::start(config.ftp).await {
-                                Ok(handle) => {
-                                    *server_guard = Some(handle);
-                                    let _ = app_handle.emit("server-started", ());
-                                }
-                                Err(e) => {
-                                    tracing::error!("Failed to start server: {}", e);
-                                }
-                            }
-                        }
-                    });
+                    let _ = app.emit("tray-start-server", ());
                 }
                 "stop" => {
-                    let app_handle = app.clone();
-                    tauri::async_runtime::spawn(async move {
-                        let state: tauri::State<'_, FtpServerState> = app_handle.state();
-                        let mut server_guard = state.0.lock().await;
-                        if let Some(server) = server_guard.take() {
-                            let _ = server.stop().await;
-                            let _ = app_handle.emit("server-stopped", ());
-                        }
-                    });
+                    let _ = app.emit("tray-stop-server", ());
                 }
                 "quit" => {
                     let _ = app.emit("tray-quit-request", ());

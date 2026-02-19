@@ -12,7 +12,7 @@ use tokio::sync::Mutex;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use tauri::{Manager, Emitter};
 
-use commands::{check_port_available, get_autostart_status, get_diagnostic_info, get_network_info, get_server_status, load_config, save_config, set_autostart_command, start_server, stop_server, FtpServerState};
+use commands::{check_port_available, get_autostart_status, get_diagnostic_info, get_network_info, get_server_status, load_config, quit_application, save_config, set_autostart_command, start_server, stop_server, FtpServerState};
 use ftp::types::ServerStateSnapshot;
 
 fn setup_logging() {
@@ -93,8 +93,8 @@ pub fn run() {
                     let mut server_guard = state.0.lock().await;
 
                     if server_guard.is_none() {
-                        let config = crate::config::AppConfig::load().unwrap_or_default();
-                        match crate::ftp::FtpServerHandle::start(config.ftp).await {
+                        let config = crate::config::AppConfig::load();
+                        match crate::ftp::FtpServerHandle::start(&config.ftp).await {
                             Ok(handle) => {
                                 *server_guard = Some(handle);
                                 let _ = app_handle.emit("server-started", ());
@@ -158,6 +158,7 @@ pub fn run() {
             get_diagnostic_info,
             set_autostart_command,
             get_autostart_status,
+            quit_application,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
