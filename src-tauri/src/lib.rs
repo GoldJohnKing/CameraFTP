@@ -86,23 +86,92 @@ pub fn run() {
             if is_autostart {
                 let app_handle = app.handle().clone();
                 tauri::async_runtime::spawn(async move {
-                    // 延迟一点时间确保配置加载完成
                     tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
 
                     let state: tauri::State<'_, FtpServerState> = app_handle.state();
-                    let mut server_guard = state.0.lock().await;
 
-                    if server_guard.is_none() {
-                        let config = crate::config::AppConfig::load();
-                        match crate::ftp::FtpServerHandle::start(&config.ftp).await {
-                            Ok(handle) => {
-                                *server_guard = Some(handle);
-                                let _ = app_handle.emit("server-started", ());
-                                tracing::info!("Server auto-started on autostart");
+                    // 检查是否已在运行
+                    {
+                        let server_guard = state.0.lock().await;
+                        if server_guard.is_some() {
+                            return;
+                        }
+                    }
+
+                    let config = crate::config::AppConfig::load();
+
+                    // 确保保存目录存在
+                    if let Err(e) = tokio::fs::create_dir_all(&config.save_path).await {
+                        tracing::error!("Failed to create save directory: {}", e);
+                        return;
+                    }
+
+                    // 查找可用端口
+                    let port = if crate::network::NetworkManager::is_port_available(config.port).await {
+                        config.port
+                    } else {
+                        match crate::network::NetworkManager::find_available_port(1025).await {
+                            Some(p) => p,
+                            None => {
+                                tracing::error!("No available port found");
+                                return;
                             }
-                            Err(e) => {
-                                tracing::error!("Failed to auto-start server: {}", e);
+                        }
+                    };
+
+                    // 获取推荐 IP
+                    let ip = match crate::network::NetworkManager::recommended_ip() {
+                        Some(ip) => ip,
+                        None => {
+                            tracing::error!("No network interface available");
+                            return;
+                        }
+                    };
+
+                    // 创建服务器配置
+                    let server_config = crate::ftp::types::ServerConfig {
+                        port,
+                        root_path: config.save_path.clone(),
+                        allow_anonymous: true,
+                        passive_port_range: (50000, 50100),
+                        idle_timeout_seconds: 600,
+                    };
+
+                    // 创建FTP服务器Actor
+                    let (server_handle, server_actor, _stats_worker, event_bus) =
+                        crate::ftp::create_ftp_server();
+
+                    // 在后台运行服务器Actor
+                    let actor_handle = tokio::spawn(async move {
+                        server_actor.run().await;
+                    });
+
+                    // 启动服务器
+                    match server_handle.start(server_config).await {
+                        Ok(bind_addr) => {
+                            tracing::info!("FTP server auto-started on {}", bind_addr);
+
+                            // 存储服务器句柄
+                            {
+                                let mut server_guard = state.0.lock().await;
+                                *server_guard = Some(server_handle.clone());
                             }
+
+                            // 启动事件处理器
+                            let app_handle_clone = app_handle.clone();
+                            tokio::spawn(async move {
+                                let processor = crate::ftp::EventProcessor::new(&event_bus)
+                                    .register(crate::ftp::StatsEventHandler::new(app_handle_clone, 500));
+                                processor.run().await;
+                            });
+
+                            // 发送事件给前端
+                            let _ = app_handle.emit("server-started", (ip, port));
+                            tracing::info!("Server auto-started on autostart");
+                        }
+                        Err(e) => {
+                            tracing::error!("Failed to auto-start server: {}", e);
+                            actor_handle.abort();
                         }
                     }
                 });
