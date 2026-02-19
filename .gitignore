@@ -1,0 +1,86 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+target/
+*.exe
+*.msi
+*.dmg
+*.app
+
+# Build cache
+.build-cache/
+
+# ts-rs generated bindings (regenerated on each build)
+src-tauri/bindings/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+*.iml
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Testing
+coverage/
+*.lcov
+
+# Rust
+*.rs.bk
+
+# Android (Tauri gen)
+*.apk
+*.aab
+*.keystore
+src-tauri/gen/schemas/
+*.backup.*/
+src-tauri/gen/android/.*
+src-tauri/gen/android/**/build/
+src-tauri/gen/android/local.properties
+src-tauri/gen/android/keystore.properties
+src-tauri/gen/android/tauri.settings.gradle
+src-tauri/gen/android/buildSrc/
+src-tauri/gen/android/captures/
+src-tauri/gen/android/app/src/main/assets/
+src-tauri/gen/android/app/src/main/jniLibs/
+src-tauri/gen/android/app/src/main/java/com/gjk/cameraftpcompanion/generated/
+src-tauri/gen/android/app/src/main/res/drawable-v24/
+src-tauri/gen/android/app/src/main/res/layout/
+src-tauri/gen/android/app/src/main/res/mipmap-*/
+src-tauri/gen/android/app/tauri.build.gradle.kts
+src-tauri/gen/android/app/tauri.properties
+src-tauri/gen/android/app/proguard-tauri.pro
+
+# Tauri
+release/
+
+# Temp
+tmp/
+temp/
+*.tmp
+
+# Worktrees
+.worktrees/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+.ruff_cache/

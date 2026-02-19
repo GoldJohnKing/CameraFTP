@@ -1,0 +1,10 @@
+<resources>
+    <string name="app_name">图传伴侣</string>
+    <string name="main_activity_title">图传伴侣</string>
+    <string name="ftp_service_channel_name">FTP Service</string>
+    <string name="ftp_service_channel_description">FTP Server Status</string>
+    <string name="notification_title_running">图传伴侣 | 运行中</string>
+    <string name="status_connected">已连接</string>
+    <string name="status_disconnected">未连接</string>
+    <string name="status_format">%1$s | %2$d张 | %3$s</string>
+</resources>

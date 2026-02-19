@@ -1,0 +1,57 @@
+[package]
+name = "cameraftp"
+version = "1.0.0"
+description = "Cross-platform FTP companion for camera photo transfer"
+authors = ["GoldJohnKing <GoldJohnKing@Live.cn>"]
+repository = "https://github.com/GoldJohnKing/CameraFTP"
+license = "AGPL-3.0-or-later"
+edition = "2021"
+
+[lib]
+name = "camera_ftp_companion_lib"
+crate-type = ["lib", "cdylib", "staticlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon", "protocol-asset"] }
+tauri-plugin-dialog = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["full"] }
+tracing = "0.1"
+tracing-subscriber = "0.3"
+dirs = "5.0"
+# FTP 服务器
+libunftp = { version = "0.23.0", default-features = false, features = ["ring"] }
+unftp-sbe-fs = "0.4.0"
+unftp-core = "0.1.0"
+dashmap = "6.0"
+# 类型生成
+ts-rs = "10.1"
+thiserror = "2.0"
+# 网络检测
+local-ip-address = "0.6"
+# 异步trait
+async-trait = "0.1"
+# 图像处理（用于托盘图标）
+image = { version = "0.25", default-features = false, features = ["png"] }
+# EXIF 元数据读取 - 使用 nom-exif 支持全格式 (JPG/RAW/CR3/NEF等)
+nom-exif = "2.7"
+chrono = "0.4"
+# 文件系统监听（桌面平台）
+notify = { version = "8.0", default-features = false, features = ["macos_fsevent"] }
+# 密码哈希
+argon2 = "0.5"
+rand = "0.8"  # 提供 rand_core/getrandom feature，argon2 依赖需要
+zeroize = "1.8"  # 内存安全：密码使用后自动清零
+
+[target.'cfg(windows)'.dependencies]
+winreg = "0.52"
+windows = { version = "0.58", features = [
+    "Win32_System_Com",
+    "Win32_UI_Shell",
+    "Win32_UI_Shell_Common",
+    "Win32_UI_WindowsAndMessaging",
+] }

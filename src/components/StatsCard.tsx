@@ -1,0 +1,59 @@
+/**
+ * CameraFTP - A Cross-platform FTP companion for camera photo transfer
+ * Copyright (C) 2026 GoldJohnKing <GoldJohnKing@Live.cn>
+ * SPDX-License-Identifier: AGPL-3.0-or-later
+ */
+
+import { memo } from 'react';
+import { Camera, Image, HardDrive } from 'lucide-react';
+import { useServerStore } from '../stores/serverStore';
+import { formatBytes } from '../utils/format';
+import { Card, IconContainer } from './ui';
+
+export const StatsCard = memo(function StatsCard() {
+  const { stats } = useServerStore();
+
+  return (
+    <Card className="p-6">
+      <h2 className="text-lg font-semibold text-gray-800 mb-4">传输统计</h2>
+
+      <div className="space-y-4">
+        <div className="flex items-center gap-3">
+          <IconContainer color="blue">
+            <Camera className="w-5 h-5 text-blue-600" />
+          </IconContainer>
+          <div>
+            <p className="text-sm text-gray-500">相机状态</p>
+            <p className="text-lg font-semibold text-gray-900">
+              {stats.connectedClients > 0 ? '已连接' : '未连接'}
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-3">
+          <IconContainer color="green">
+            <Image className="w-5 h-5 text-green-600" />
+          </IconContainer>
+          <div>
+            <p className="text-sm text-gray-500">已接收照片</p>
+            <p className="text-lg font-semibold text-gray-800">
+              {stats.filesReceived} 张
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-3">
+          <IconContainer color="purple">
+            <HardDrive className="w-5 h-5 text-purple-600" />
+          </IconContainer>
+          <div>
+            <p className="text-sm text-gray-500">总数据量</p>
+            <p className="text-lg font-semibold text-gray-800">
+              {formatBytes(stats.bytesReceived)}
+            </p>
+          </div>
+        </div>
+      </div>
+    </Card>
+  );
+});

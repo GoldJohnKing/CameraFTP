@@ -1,0 +1,45 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "com.gjk.cameraftpcompanion",
+  "productName": "图传伴侣",
+  "version": "0.1.0",
+  "build": {
+    "beforeDevCommand": "bun dev",
+    "beforeBuildCommand": "./scripts/build-frontend.sh",
+    "frontendDist": "../dist",
+    "devUrl": null
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "图传伴侣",
+        "width": 400,
+        "height": 700,
+        "resizable": true,
+        "fullscreen": false,
+        "visible": true,
+        "skipTaskbar": false
+      }
+    ],
+    "security": {
+      "csp": null,
+      "assetProtocol": {
+        "enable": true,
+        "scope": {
+          "allow": ["**"],
+          "deny": []
+        }
+      }
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/icon.ico",
+      "icons/icon.png"
+    ]
+  }
+}
