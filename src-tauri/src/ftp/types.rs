@@ -1,0 +1,150 @@
+use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
+
+/// FTP 服务器统计数据快照
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+pub struct ServerStats {
+    pub active_connections: u64,
+    pub total_uploads: u64,
+    pub total_bytes_received: u64,
+    pub last_uploaded_file: Option<String>,
+}
+
+impl ServerStats {
+    /// 创建空统计
+    pub fn empty() -> Self {
+        Self::default()
+    }
+
+    /// 检查是否与另一个统计对象不同（用于增量更新）
+    pub fn has_changed(&self, other: &Self) -> bool {
+        self.active_connections != other.active_connections
+            || self.total_uploads != other.total_uploads
+            || self.total_bytes_received != other.total_bytes_received
+            || self.last_uploaded_file != other.last_uploaded_file
+    }
+}
+
+/// FTP 服务器配置
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ServerConfig {
+    pub port: u16,
+    pub root_path: PathBuf,
+    pub allow_anonymous: bool,
+    pub passive_port_range: (u16, u16),
+    pub idle_timeout_seconds: u64,
+}
+
+impl Default for ServerConfig {
+    fn default() -> Self {
+        Self {
+            port: 21,
+            root_path: PathBuf::from("./ftp_root"),
+            allow_anonymous: true,
+            passive_port_range: (50000, 50100),
+            idle_timeout_seconds: 600,
+        }
+    }
+}
+
+/// FTP 服务器状态快照（用于前端展示）
+#[derive(Debug, Clone, serde::Serialize, ts_rs::TS)]
+#[ts(export)]
+pub struct ServerStateSnapshot {
+    pub is_running: bool,
+    pub connected_clients: usize,
+    pub files_received: u64,
+    pub bytes_received: u64,
+    pub last_file: Option<String>,
+}
+
+impl From<&ServerStats> for ServerStateSnapshot {
+    fn from(stats: &ServerStats) -> Self {
+        Self {
+            is_running: true,
+            connected_clients: stats.active_connections as usize,
+            files_received: stats.total_uploads,
+            bytes_received: stats.total_bytes_received,
+            last_file: stats.last_uploaded_file.clone(),
+        }
+    }
+}
+
+/// 服务器运行状态
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+pub enum ServerStatus {
+    Stopped,
+    Starting,
+    Running,
+    Stopping,
+}
+
+impl ServerStatus {
+    pub fn is_running(&self) -> bool {
+        matches!(self, Self::Running)
+    }
+
+    pub fn can_start(&self) -> bool {
+        matches!(self, Self::Stopped)
+    }
+
+    pub fn can_stop(&self) -> bool {
+        matches!(self, Self::Running)
+    }
+}
+
+/// 诊断信息（用于调试）
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct DiagnosticInfo {
+    pub total_sessions: usize,
+    pub session_ids: Vec<String>,
+    pub status: ServerStatus,
+}
+
+/// 领域事件 - 用于事件驱动架构
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(tag = "type", content = "data")]
+pub enum DomainEvent {
+    ServerStarted { bind_addr: String },
+    ServerStopped { reason: StopReason },
+    ServerFailed { error: String },
+    FileUploaded { path: String, size: u64 },
+    FileDownloaded { path: String, size: u64 },
+    FileDeleted { path: String },
+    DirectoryCreated { path: String },
+    DirectoryRemoved { path: String },
+    FileRenamed { from: String, to: String },
+    SessionConnected { id: String, username: String },
+    SessionDisconnected { id: String },
+    StatsUpdated(ServerStats),
+}
+
+/// 服务器停止原因
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+pub enum StopReason {
+    UserRequest,
+    Error,
+    Shutdown,
+}
+
+/// 会话信息
+#[derive(Debug, Clone)]
+pub struct SessionInfo {
+    pub id: String,
+    pub username: String,
+    pub connected_at: std::time::Instant,
+}
+
+/// 文件传输信息
+#[derive(Debug, Clone)]
+pub struct TransferInfo {
+    pub path: String,
+    pub size: u64,
+    pub direction: TransferDirection,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TransferDirection {
+    Upload,
+    Download,
+}

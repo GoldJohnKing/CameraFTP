@@ -1,0 +1,458 @@
+use crate::ftp::error::{FtpError, FtpResult};
+use crate::ftp::events::EventBus;
+use crate::ftp::listeners::{FtpDataListener, FtpPresenceListener};
+use crate::ftp::stats::{StatsActor, StatsActorWorker};
+use crate::ftp::types::{
+    DiagnosticInfo, DomainEvent, ServerConfig, ServerStateSnapshot, ServerStatus, ServerStats,
+    StopReason,
+};
+use dashmap::DashSet;
+use libunftp::options::Shutdown;
+use libunftp::ServerBuilder;
+use std::net::SocketAddr;
+use std::path::PathBuf;
+use std::sync::Arc;
+use tokio::sync::{mpsc, oneshot, RwLock};
+use tracing::{debug, error, info, instrument, trace, warn};
+
+/// FTP服务器Actor命令
+#[derive(Debug)]
+pub enum ServerCommand {
+    Start {
+        config: ServerConfig,
+        respond_to: oneshot::Sender<FtpResult<SocketAddr>>,
+    },
+    Stop {
+        respond_to: oneshot::Sender<FtpResult<()>>,
+    },
+    GetStatus {
+        respond_to: oneshot::Sender<ServerStatus>,
+    },
+    GetStats {
+        respond_to: oneshot::Sender<Option<ServerStats>>,
+    },
+    GetSnapshot {
+        respond_to: oneshot::Sender<ServerStateSnapshot>,
+    },
+    GetDiagnosticInfo {
+        respond_to: oneshot::Sender<DiagnosticInfo>,
+    },
+}
+
+/// FTP服务器Actor句柄
+#[derive(Debug, Clone)]
+pub struct FtpServerHandle {
+    tx: mpsc::Sender<ServerCommand>,
+}
+
+impl FtpServerHandle {
+    /// 启动服务器
+    #[instrument(skip(self))]
+    pub async fn start(
+        &self,
+        config: ServerConfig,
+    ) -> FtpResult<SocketAddr> {
+        let (tx, rx) = oneshot::channel();
+        let cmd = ServerCommand::Start {
+            config,
+            respond_to: tx,
+        };
+
+        if self.tx.send(cmd).await.is_err() {
+            return Err(FtpError::ServerNotRunning);
+        }
+
+        match rx.await {
+            Ok(result) => result,
+            Err(_) => Err(FtpError::ServerNotRunning),
+        }
+    }
+
+    /// 停止服务器
+    #[instrument(skip(self))]
+    pub async fn stop(&self) -> FtpResult<()> {
+        let (tx, rx) = oneshot::channel();
+        let cmd = ServerCommand::Stop { respond_to: tx };
+
+        if self.tx.send(cmd).await.is_err() {
+            return Err(FtpError::ServerNotRunning);
+        }
+
+        match rx.await {
+            Ok(result) => result,
+            Err(_) => Err(FtpError::ServerNotRunning),
+        }
+    }
+
+    /// 获取服务器状态
+    pub async fn get_status(&self) -> ServerStatus {
+        let (tx, rx) = oneshot::channel();
+        let cmd = ServerCommand::GetStatus { respond_to: tx };
+
+        if self.tx.send(cmd).await.is_err() {
+            return ServerStatus::Stopped;
+        }
+
+        rx.await.unwrap_or(ServerStatus::Stopped)
+    }
+
+    /// 获取统计数据
+    pub async fn get_stats(&self) -> Option<ServerStats> {
+        let (tx, rx) = oneshot::channel();
+        let cmd = ServerCommand::GetStats { respond_to: tx };
+
+        if self.tx.send(cmd).await.is_err() {
+            return None;
+        }
+
+        rx.await.ok().flatten()
+    }
+
+    /// 获取状态快照
+    pub async fn get_snapshot(&self) -> ServerStateSnapshot {
+        let (tx, rx) = oneshot::channel();
+        let cmd = ServerCommand::GetSnapshot { respond_to: tx };
+
+        if self.tx.send(cmd).await.is_err() {
+            return ServerStateSnapshot {
+                is_running: false,
+                connected_clients: 0,
+                files_received: 0,
+                bytes_received: 0,
+                last_file: None,
+            };
+        }
+
+        rx.await.unwrap_or_else(|_| ServerStateSnapshot {
+            is_running: false,
+            connected_clients: 0,
+            files_received: 0,
+            bytes_received: 0,
+            last_file: None,
+        })
+    }
+
+    /// 获取诊断信息
+    pub async fn get_diagnostic_info(&self) -> DiagnosticInfo {
+        let (tx, rx) = oneshot::channel();
+        let cmd = ServerCommand::GetDiagnosticInfo { respond_to: tx };
+
+        if self.tx.send(cmd).await.is_err() {
+            return DiagnosticInfo {
+                total_sessions: 0,
+                session_ids: vec![],
+                status: ServerStatus::Stopped,
+            };
+        }
+
+        rx.await.unwrap_or_else(|_| DiagnosticInfo {
+            total_sessions: 0,
+            session_ids: vec![],
+            status: ServerStatus::Stopped,
+        })
+    }
+
+    /// 检查服务器是否运行中
+    pub async fn is_running(&self) -> bool {
+        self.get_status().await.is_running()
+    }
+}
+
+/// FTP服务器Actor
+pub struct FtpServerActor {
+    rx: mpsc::Receiver<ServerCommand>,
+    status: Arc<RwLock<ServerStatus>>,
+    config: Option<ServerConfig>,
+    shutdown_tx: Option<oneshot::Sender<()>>,
+    stats_actor: StatsActor,
+    event_bus: EventBus,
+    sessions: Arc<DashSet<String>>,
+    bind_addr: Option<SocketAddr>,
+}
+
+impl FtpServerActor {
+    /// 创建新的FTP服务器Actor
+    pub fn new(stats_actor: StatsActor, event_bus: EventBus) -> (FtpServerHandle, Self) {
+        let (tx, rx) = mpsc::channel(32);
+        let handle = FtpServerHandle { tx };
+
+        let actor = Self {
+            rx,
+            status: Arc::new(RwLock::new(ServerStatus::Stopped)),
+            config: None,
+            shutdown_tx: None,
+            stats_actor,
+            event_bus,
+            sessions: Arc::new(DashSet::new()),
+            bind_addr: None,
+        };
+
+        (handle, actor)
+    }
+
+    /// 运行Actor主循环
+    pub async fn run(mut self) {
+        info!("FTP Server Actor started");
+
+        while let Some(cmd) = self.rx.recv().await {
+            self.handle_command(cmd).await;
+        }
+
+        info!("FTP Server Actor stopped");
+    }
+
+    /// 处理命令
+    #[instrument(skip(self, cmd))]
+    async fn handle_command(&mut self,
+        cmd: ServerCommand,
+    ) {
+        match cmd {
+            ServerCommand::Start { config, respond_to } => {
+                let result = self.do_start(config).await;
+                let _ = respond_to.send(result);
+            }
+            ServerCommand::Stop { respond_to } => {
+                let result = self.do_stop().await;
+                let _ = respond_to.send(result);
+            }
+            ServerCommand::GetStatus { respond_to } => {
+                let status = self.get_current_status().await;
+                let _ = respond_to.send(status);
+            }
+            ServerCommand::GetStats { respond_to } => {
+                let stats = self.stats_actor.get_stats().await;
+                let _ = respond_to.send(stats);
+            }
+            ServerCommand::GetSnapshot { respond_to } => {
+                let snapshot = self.get_current_snapshot().await;
+                let _ = respond_to.send(snapshot);
+            }
+            ServerCommand::GetDiagnosticInfo { respond_to } => {
+                let info = self.get_diagnostic_info().await;
+                let _ = respond_to.send(info);
+            }
+        }
+    }
+
+    /// 执行启动
+    #[instrument(skip(self, config))]
+    async fn do_start(
+        &mut self,
+        config: ServerConfig,
+    ) -> FtpResult<SocketAddr> {
+        // 检查状态
+        {
+            let status = self.status.read().await;
+            if status.is_running() {
+                return Err(FtpError::ServerAlreadyRunning);
+            }
+        }
+
+        // 更新状态为启动中
+        {
+            let mut status = self.status.write().await;
+            *status = ServerStatus::Starting;
+        }
+
+        info!(
+            port = config.port,
+            root_path = %config.root_path.display(),
+            "Starting FTP server"
+        );
+
+        // 确保目录存在
+        if let Err(e) = tokio::fs::create_dir_all(&config.root_path).await {
+            error!(error = %e, "Failed to create root directory");
+            {
+                let mut status = self.status.write().await;
+                *status = ServerStatus::Stopped;
+            }
+            return Err(FtpError::Io(e));
+        }
+
+        // 创建监听器
+        let data_listener = FtpDataListener::new(self.stats_actor.clone());
+        let presence_listener =
+            FtpPresenceListener::new(self.stats_actor.clone(), self.sessions.clone());
+
+        // 创建关闭通道
+        let (shutdown_tx, shutdown_rx) = oneshot::channel();
+        self.shutdown_tx = Some(shutdown_tx);
+
+        let root_path = config.root_path.clone();
+        let port = config.port;
+        let (start_tx, start_rx) = oneshot::channel::<FtpResult<SocketAddr>>();
+
+        // 构建并启动服务器
+        let result = ServerBuilder::new(Box::new(move || {
+            unftp_sbe_fs::Filesystem::new(root_path.clone()).expect("Failed to create filesystem")
+        }))
+        .greeting("Camera FTP Companion Ready")
+        .passive_ports(config.passive_port_range.0..=config.passive_port_range.1)
+        .idle_session_timeout(config.idle_timeout_seconds)
+        .notify_data(data_listener)
+        .notify_presence(presence_listener)
+        .shutdown_indicator(async move {
+            let _ = shutdown_rx.await;
+            info!("Shutdown signal received");
+            Shutdown::new().grace_period(std::time::Duration::from_secs(5))
+        })
+        .build();
+
+        let server = match result {
+            Ok(s) => s,
+            Err(e) => {
+                error!(error = %e, "Failed to build FTP server");
+                {
+                    let mut status = self.status.write().await;
+                    *status = ServerStatus::Stopped;
+                }
+                return Err(FtpError::Other(e.to_string()));
+            }
+        };
+
+        let bind_addr: SocketAddr = ([0, 0, 0, 0], port).into();
+        let bind_str = bind_addr.to_string();
+
+        // 启动服务器任务
+        let status = self.status.clone();
+        let event_bus = self.event_bus.clone();
+        let start_tx = Arc::new(RwLock::new(Some(start_tx)));
+
+        tokio::spawn(async move {
+            info!(bind_addr = %bind_str, "FTP server starting");
+
+            match server.listen(bind_str.clone()).await {
+                Ok(_) => {
+                    info!("FTP server stopped normally");
+                }
+                Err(e) => {
+                    error!(error = %e, "FTP server error");
+                    if let Some(tx) = start_tx.write().await.take() {
+                        let _ = tx.send(Err(FtpError::BindFailed {
+                            addr: bind_str,
+                            source: std::io::Error::new(
+                                std::io::ErrorKind::Other,
+                                e.to_string(),
+                            ),
+                        }));
+                    }
+                }
+            }
+        });
+
+        // 等待启动确认
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
+        // 更新状态
+        {
+            let mut s = self.status.write().await;
+            *s = ServerStatus::Running;
+        }
+        self.config = Some(config);
+        self.bind_addr = Some(bind_addr);
+
+        // 发布事件
+        self.event_bus.emit_server_started(bind_addr.to_string());
+
+        info!(bind_addr = %bind_addr, "FTP server started successfully");
+
+        Ok(bind_addr)
+    }
+
+    /// 执行停止
+    #[instrument(skip(self))]
+    async fn do_stop(&mut self) -> FtpResult<()> {
+        {
+            let status = self.status.read().await;
+            if !status.is_running() {
+                return Err(FtpError::ServerNotRunning);
+            }
+        }
+
+        info!("Stopping FTP server");
+
+        // 发送关闭信号
+        if let Some(tx) = self.shutdown_tx.take() {
+            let _ = tx.send(());
+        }
+
+        // 更新状态
+        {
+            let mut status = self.status.write().await;
+            *status = ServerStatus::Stopping;
+        }
+
+        // 等待停止
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
+        {
+            let mut status = self.status.write().await;
+            *status = ServerStatus::Stopped;
+        }
+
+        self.config = None;
+        self.bind_addr = None;
+
+        // 发布事件
+        self.event_bus.emit_server_stopped(StopReason::UserRequest);
+
+        info!("FTP server stopped");
+
+        Ok(())
+    }
+
+    /// 获取当前状态
+    async fn get_current_status(&self) -> ServerStatus {
+        *self.status.read().await
+    }
+
+    /// 获取当前快照
+    async fn get_current_snapshot(&self) -> ServerStateSnapshot {
+        let status = self.get_current_status().await;
+        let is_running = status.is_running();
+
+        let mut snapshot = if let Some(stats) = self.stats_actor.get_snapshot().await {
+            ServerStateSnapshot::from(&stats)
+        } else {
+            ServerStateSnapshot {
+                is_running,
+                connected_clients: 0,
+                files_received: 0,
+                bytes_received: 0,
+                last_file: None,
+            }
+        };
+
+        snapshot.is_running = is_running;
+        snapshot
+    }
+
+    /// 获取诊断信息
+    async fn get_diagnostic_info(&self) -> DiagnosticInfo {
+        let session_ids: Vec<String> =
+            self.sessions.iter().map(|s| s.clone()).collect();
+
+        DiagnosticInfo {
+            total_sessions: session_ids.len(),
+            session_ids,
+            status: self.get_current_status().await,
+        }
+    }
+}
+
+/// 创建FTP服务器Actor系统
+pub fn create_ftp_server() -> (
+    FtpServerHandle,
+    FtpServerActor,
+    StatsActorWorker,
+    EventBus,
+) {
+    let (stats_handle, stats_worker) = StatsActor::new();
+    let event_bus = EventBus::new();
+
+    let (server_handle, server_actor) =
+        FtpServerActor::new(stats_handle, event_bus.clone());
+
+    (server_handle, server_actor, stats_worker, event_bus)
+}

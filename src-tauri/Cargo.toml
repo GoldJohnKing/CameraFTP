@@ -30,3 +30,5 @@ ts-rs = "10.1"
 thiserror = "2.0"
 # 网络检测
 local-ip-address = "0.6"
+# 异步trait
+async-trait = "0.1"

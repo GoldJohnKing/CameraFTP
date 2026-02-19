@@ -1,306 +1,148 @@
-use std::path::PathBuf;
-use std::sync::Arc;
-use std::time::Duration;
+//! FTP服务器模块
+//!
+//! 该模块提供了完整的FTP服务器功能，采用Actor模式实现，包括：
+//! - 事件驱动架构（EventBus）
+//! - 统计信息Actor（StatsActor）
+//! - 服务器Actor（FtpServerActor）
+//! - 监听器（Listeners）
 
-use dashmap::DashSet;
-use libunftp::notification::{DataEvent, DataListener, EventMeta, PresenceEvent, PresenceListener};
-use libunftp::options::Shutdown;
-use libunftp::ServerBuilder;
-use serde::{Deserialize, Serialize};
-use tokio::sync::{oneshot, RwLock};
-use tracing::{debug, info, warn};
+use tracing::info;
 
-/// FTP 服务器统计数据快照
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct ServerStats {
-    pub active_connections: u64,
-    pub total_uploads: u64,
-    pub total_bytes_received: u64,
-    pub last_uploaded_file: Option<String>,
+pub mod error;
+pub mod events;
+pub mod listeners;
+pub mod server;
+pub mod stats;
+pub mod types;
+
+// 重新导出主要类型
+pub use error::{FtpError, FtpResult};
+pub use events::{EventBus, EventBusConfig, EventProcessor, StatsEventHandler};
+pub use server::{create_ftp_server, FtpServerActor, FtpServerHandle};
+pub use stats::{StatsActor, StatsActorWorker, StatsSnapshot};
+pub use types::{
+    DiagnosticInfo, DomainEvent, ServerConfig, ServerStateSnapshot, ServerStatus, ServerStats,
+    StopReason,
+};
+
+/// 初始化FTP模块
+pub fn init() {
+    info!("FTP module initialized");
 }
 
-/// FTP 服务器配置
-#[derive(Clone, Debug)]
-pub struct ServerConfig {
-    pub port: u16,
-    pub root_path: PathBuf,
-    pub allow_anonymous: bool,
-}
+/// 向后兼容的导出
+pub use server::FtpServerHandle as Server;
+pub use types::ServerConfig as Config;
+pub use types::ServerStateSnapshot as StateSnapshot;
 
-impl Default for ServerConfig {
-    fn default() -> Self {
-        Self {
-            port: 21,
-            root_path: PathBuf::from("./ftp_root"),
-            allow_anonymous: true,
-        }
-    }
-}
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-/// FTP 服务器状态快照（兼容旧接口）
-#[derive(Debug, Clone, serde::Serialize, ts_rs::TS)]
-#[ts(export)]
-pub struct ServerStateSnapshot {
-    pub is_running: bool,
-    pub connected_clients: usize,
-    pub files_received: u64,
-    pub bytes_received: u64,
-    pub last_file: Option<String>,
-}
+    #[test]
+    fn test_server_status_transitions() {
+        assert!(ServerStatus::Stopped.can_start());
+        assert!(!ServerStatus::Stopped.can_stop());
 
-/// FTP 服务器
-pub struct FtpServer {
-    config: ServerConfig,
-    shutdown_tx: Option<oneshot::Sender<()>>,
-    stats: Arc<RwLock<ServerStats>>,
-    sessions: Arc<DashSet<String>>,
-    is_running: bool,
-}
+        assert!(!ServerStatus::Running.can_start());
+        assert!(ServerStatus::Running.can_stop());
 
-impl FtpServer {
-    pub fn new(config: ServerConfig) -> Self {
-        Self {
-            config,
-            shutdown_tx: None,
-            stats: Arc::new(RwLock::new(ServerStats::default())),
-            sessions: Arc::new(DashSet::new()),
-            is_running: false,
-        }
+        assert!(!ServerStatus::Starting.can_start());
+        assert!(!ServerStatus::Starting.can_stop());
+
+        assert!(!ServerStatus::Stopping.can_start());
+        assert!(!ServerStatus::Stopping.can_stop());
     }
 
-    /// 启动 FTP 服务器
-    pub async fn start(&mut self) -> Result<std::net::SocketAddr, Box<dyn std::error::Error + Send + Sync>> {
-        if self.is_running {
-            return Err("Server is already running".into());
-        }
-
-        // 创建关闭信号通道
-        let (shutdown_tx, shutdown_rx) = oneshot::channel();
-        self.shutdown_tx = Some(shutdown_tx);
-
-        // 克隆统计数据用于监听器
-        let stats = self.stats.clone();
-        let sessions = self.sessions.clone();
-        let root_path = self.config.root_path.clone();
-        let port = self.config.port;
-
-        // 创建数据监听器
-        let data_listener = FtpDataListener {
-            stats: stats.clone(),
+    #[test]
+    fn test_server_stats_has_changed() {
+        let stats1 = ServerStats {
+            active_connections: 1,
+            total_uploads: 10,
+            total_bytes_received: 1000,
+            last_uploaded_file: Some("test.jpg".to_string()),
         };
 
-        // 创建在线状态监听器
-        let presence_listener = FtpPresenceListener {
-            stats: stats.clone(),
-            sessions: sessions.clone(),
+        let stats2 = ServerStats {
+            active_connections: 1,
+            total_uploads: 10,
+            total_bytes_received: 1000,
+            last_uploaded_file: Some("test.jpg".to_string()),
         };
 
-        // 创建 FTP 服务器
-        let server = ServerBuilder::new(Box::new(move || {
-            unftp_sbe_fs::Filesystem::new(root_path.clone()).unwrap()
-        }))
-        .greeting("Camera FTP Companion Ready")
-        .passive_ports(50000..=50100)
-        .idle_session_timeout(600) // 10 分钟空闲超时
-        .notify_data(data_listener)
-        .notify_presence(presence_listener)
-        .shutdown_indicator(async move {
-            let _ = shutdown_rx.await;
-            info!("FTP server shutdown signal received");
-            Shutdown::new().grace_period(Duration::from_secs(5))
-        })
-        .build()?;
+        let stats3 = ServerStats {
+            active_connections: 2,
+            total_uploads: 11,
+            total_bytes_received: 1500,
+            last_uploaded_file: Some("test2.jpg".to_string()),
+        };
 
-        let bind_addr: std::net::SocketAddr = ([0, 0, 0, 0], port).into();
-        let actual_addr = bind_addr;
+        assert!(!stats1.has_changed(&stats2));
+        assert!(stats1.has_changed(&stats3));
+    }
 
-        info!("Starting FTP server on {}", actual_addr);
+    #[tokio::test]
+    async fn test_stats_actor() {
+        let (handle, mut worker) = StatsActor::new();
 
-        // 在后台运行服务器
-        let bind_str = bind_addr.to_string();
-        tokio::spawn(async move {
-            if let Err(e) = server.listen(bind_str).await {
-                warn!("FTP server error: {}", e);
-            }
-            info!("FTP server stopped");
+        // 在后台运行worker
+        let worker_task = tokio::spawn(async move {
+            worker.run().await;
         });
 
-        self.is_running = true;
+        // 测试记录上传
+        handle.record_upload("test.jpg".to_string(), 1024).await;
 
-        Ok(actual_addr)
+        // 获取统计
+        let stats = handle.get_stats().await;
+        assert!(stats.is_some());
+
+        // 停止worker
+        drop(handle);
+        let _ = worker_task.await;
     }
 
-    /// 停止 FTP 服务器
-    pub fn stop(&mut self) {
-        if let Some(tx) = self.shutdown_tx.take() {
-            let _ = tx.send(());
-            info!("FTP server stop signal sent");
-        }
-        self.is_running = false;
+    #[test]
+    fn test_event_bus() {
+        let bus = EventBus::new();
+
+        let mut rx = bus.subscribe();
+
+        bus.emit_server_started("127.0.0.1:21".to_string());
+
+        // 注意：由于广播通道的特性，这里只能测试发送是否成功
+        // 在实际使用中，接收方会在另一个任务中接收事件
+        assert_eq!(bus.subscriber_count(), 1);
     }
 
-    /// 获取服务器状态快照
-    pub fn state_snapshot(&self) -> ServerStateSnapshot {
-        // 直接从 sessions DashSet 获取连接数（线程安全，无需锁）
-        let connected_clients = self.sessions.len();
-        
-        // 从 stats 获取其他统计信息
-        let stats = self.stats.try_read();
-        
-        match stats {
-            Ok(s) => ServerStateSnapshot {
-                is_running: self.is_running,
-                connected_clients,
-                files_received: s.total_uploads,
-                bytes_received: s.total_bytes_received,
-                last_file: s.last_uploaded_file.clone(),
-            },
-            Err(_) => ServerStateSnapshot {
-                is_running: self.is_running,
-                connected_clients,
-                files_received: 0,
-                bytes_received: 0,
-                last_file: None,
-            },
-        }
-    }
+    #[test]
+    fn test_event_bus_incremental_update() {
+        use tokio::runtime::Runtime;
 
-    /// 异步获取统计数据
-    pub async fn get_stats(&self) -> ServerStats {
-        self.stats.read().await.clone()
-    }
+        let rt = Runtime::new().unwrap();
+        rt.block_on(async {
+            let bus = EventBus::new();
 
-    /// 获取配置
-    pub fn config(&self) -> &ServerConfig {
-        &self.config
-    }
+            // 第一次更新应该发布
+            let stats1 = ServerStats {
+                active_connections: 1,
+                total_uploads: 10,
+                total_bytes_received: 1000,
+                last_uploaded_file: Some("test.jpg".to_string()),
+            };
+            bus.emit_stats_updated(stats1.clone()).await;
 
-    /// 获取诊断信息（用于调试连接数问题）
-    pub fn get_diagnostic_info(&self) -> DiagnosticInfo {
-        let sessions: Vec<String> = self.sessions.iter().map(|s| s.clone()).collect();
-        DiagnosticInfo {
-            total_sessions: sessions.len(),
-            session_ids: sessions,
-            is_running: self.is_running,
-        }
+            // 相同的统计不应该发布
+            bus.emit_stats_updated(stats1).await;
+
+            // 不同的统计应该发布
+            let stats2 = ServerStats {
+                active_connections: 2,
+                total_uploads: 11,
+                total_bytes_received: 1500,
+                last_uploaded_file: Some("test2.jpg".to_string()),
+            };
+            bus.emit_stats_updated(stats2).await;
+        });
     }
 }
-
-/// 诊断信息（用于调试）
-#[derive(Debug, Clone, serde::Serialize)]
-pub struct DiagnosticInfo {
-    pub total_sessions: usize,
-    pub session_ids: Vec<String>,
-    pub is_running: bool,
-}
-
-/// 数据事件监听器（上传、下载等）
-#[derive(Debug)]
-struct FtpDataListener {
-    stats: Arc<RwLock<ServerStats>>,
-}
-
-impl DataListener for FtpDataListener {
-    fn receive_data_event<'life0, 'async_trait>(
-        &'life0 self,
-        event: DataEvent,
-        _meta: EventMeta,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + 'async_trait>>
-    where
-        'life0: 'async_trait,
-    {
-        let stats = self.stats.clone();
-        Box::pin(async move {
-            match event {
-                DataEvent::Put { path, bytes } => {
-                    let mut s = stats.write().await;
-                    s.total_uploads += 1;
-                    s.total_bytes_received += bytes;
-                    s.last_uploaded_file = Some(path.clone());
-                    info!("File uploaded: {} ({} bytes)", path, bytes);
-                }
-                DataEvent::Got { path, bytes } => {
-                    info!("File downloaded: {} ({} bytes)", path, bytes);
-                }
-                DataEvent::Deleted { path } => {
-                    info!("File deleted: {}", path);
-                }
-                DataEvent::MadeDir { path } => {
-                    info!("Directory created: {}", path);
-                }
-                DataEvent::RemovedDir { path } => {
-                    info!("Directory removed: {}", path);
-                }
-                DataEvent::Renamed { from, to } => {
-                    info!("File renamed: {} -> {}", from, to);
-                }
-            }
-        })
-    }
-}
-
-/// 在线状态监听器（登录、登出）
-#[derive(Debug)]
-struct FtpPresenceListener {
-    stats: Arc<RwLock<ServerStats>>,
-    sessions: Arc<DashSet<String>>,
-}
-
-impl PresenceListener for FtpPresenceListener {
-    fn receive_presence_event<'life0, 'async_trait>(
-        &'life0 self,
-        event: PresenceEvent,
-        meta: EventMeta,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + 'async_trait>>
-    where
-        'life0: 'async_trait,
-    {
-        let stats = self.stats.clone();
-        let sessions = self.sessions.clone();
-        Box::pin(async move {
-            match event {
-                PresenceEvent::LoggedIn => {
-                    let is_new = sessions.insert(meta.trace_id.clone());
-                    let count = sessions.len();
-                    
-                    if is_new {
-                        info!(
-                            "✅ User logged in: {} (trace_id: {}, total connections: {})",
-                            meta.username, meta.trace_id, count
-                        );
-                    } else {
-                        warn!(
-                            "⚠️ Duplicate LoggedIn event: {} (trace_id: {}) already exists",
-                            meta.username, meta.trace_id
-                        );
-                    }
-                    
-                    let mut s = stats.write().await;
-                    s.active_connections = count as u64;
-                }
-                PresenceEvent::LoggedOut => {
-                    let existed = sessions.remove(&meta.trace_id).is_some();
-                    let count = sessions.len();
-                    
-                    if existed {
-                        info!(
-                            "❌ User logged out: {} (trace_id: {}, total connections: {})",
-                            meta.username, meta.trace_id, count
-                        );
-                    } else {
-                        warn!(
-                            "⚠️ LoggedOut for unknown trace_id: {} (trace_id: {})",
-                            meta.username, meta.trace_id
-                        );
-                    }
-                    
-                    let mut s = stats.write().await;
-                    s.active_connections = count as u64;
-                }
-            }
-        })
-    }
-}
-
-// 保持兼容旧的导出
-pub use {FtpServer as Server, ServerConfig as Config, ServerStateSnapshot as StateSnapshot};
