@@ -1,4 +1,7 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
+import { listen } from '@tauri-apps/api/event';
+import { getCurrentWindow } from '@tauri-apps/api/window';
+import { exit } from '@tauri-apps/plugin-process';
 import { ServerCard } from './components/ServerCard';
 import { StatsCard } from './components/StatsCard';
 import { InfoCard } from './components/InfoCard';
@@ -7,13 +10,20 @@ import { Camera } from 'lucide-react';
 
 function App() {
   const { initializeListeners } = useServerStore();
+  const [showQuitDialog, setShowQuitDialog] = useState(false);
 
   useEffect(() => {
     // 初始化事件监听器
     let cleanup: (() => Promise<void>) | null = null;
+    let trayQuitUnlisten: (() => void) | null = null;
     
     const setupListeners = async () => {
       cleanup = await initializeListeners();
+      
+      // 监听托盘退出请求
+      trayQuitUnlisten = await listen('tray-quit-request', () => {
+        setShowQuitDialog(true);
+      });
     };
     
     setupListeners();
@@ -22,11 +32,52 @@ function App() {
       if (cleanup) {
         cleanup();
       }
+      if (trayQuitUnlisten) {
+        trayQuitUnlisten();
+      }
     };
   }, [initializeListeners]);
 
+  const handleQuitConfirm = async (quit: boolean) => {
+    if (quit) {
+      await exit(0);
+    } else {
+      const window = getCurrentWindow();
+      await window.hide();
+      setShowQuitDialog(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gray-50">
+      {/* 退出确认对话框 */}
+      {showQuitDialog && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 max-w-sm mx-4 shadow-xl">
+            <h3 className="text-lg font-semibold text-gray-900 mb-2">
+              确认退出
+            </h3>
+            <p className="text-gray-600 mb-4">
+              您是要退出程序还是最小化到系统托盘？
+            </p>
+            <div className="flex gap-3 justify-end">
+              <button
+                onClick={() => handleQuitConfirm(false)}
+                className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+              >
+                最小化到托盘
+              </button>
+              <button
+                onClick={() => handleQuitConfirm(true)}
+                className="px-4 py-2 text-white bg-red-600 rounded-lg hover:bg-red-700 transition-colors"
+              >
+                退出程序
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="max-w-md mx-auto p-4">
         {/* Header */}
         <header className="text-center py-6">

@@ -14,7 +14,9 @@
         "width": 400,
         "height": 700,
         "resizable": true,
-        "fullscreen": false
+        "fullscreen": false,
+        "visible": true,
+        "skipTaskbar": false
       }
     ],
     "security": {

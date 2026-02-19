@@ -12,7 +12,7 @@ use tokio::sync::Mutex;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use tauri::{Manager, Emitter};
 
-use commands::{check_port_available, get_diagnostic_info, get_network_info, get_server_status, load_config, save_config, start_server, stop_server, FtpServerState};
+use commands::{check_port_available, get_autostart_status, get_diagnostic_info, get_network_info, get_server_status, load_config, save_config, set_autostart_command, start_server, stop_server, FtpServerState};
 use ftp::types::ServerStateSnapshot;
 
 fn setup_logging() {
@@ -54,15 +54,58 @@ pub fn run() {
     // Initialize logging to file
     setup_logging();
 
+    // 检查是否是开机启动模式
+    let is_autostart = cfg!(target_os = "windows") 
+        && crate::platform::windows::is_autostart_mode();
+
+    if is_autostart {
+        tracing::info!("Running in autostart mode - window will be hidden");
+    }
+
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .manage(FtpServerState(Arc::new(Mutex::new(None))))
-        .setup(|app| {
+        .setup(move |app| {
             #[cfg(target_os = "windows")]
             {
                 if let Err(e) = platform::windows::setup_tray(app.handle()) {
                     eprintln!("Failed to setup tray: {}", e);
                 }
+            }
+
+            // 获取主窗口并控制显示
+            if let Some(window) = app.get_webview_window("main") {
+                if is_autostart {
+                    // 开机启动模式：隐藏窗口
+                    let _ = window.hide();
+                    let _ = window.set_skip_taskbar(true);
+                }
+            }
+
+            // 如果是开机启动模式，自动启动服务器
+            if is_autostart {
+                let app_handle = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    // 延迟一点时间确保配置加载完成
+                    tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+
+                    let state: tauri::State<'_, FtpServerState> = app_handle.state();
+                    let mut server_guard = state.0.lock().await;
+
+                    if server_guard.is_none() {
+                        let config = crate::config::AppConfig::load().unwrap_or_default();
+                        match crate::ftp::FtpServerHandle::start(config.ftp).await {
+                            Ok(handle) => {
+                                *server_guard = Some(handle);
+                                let _ = app_handle.emit("server-started", ());
+                                tracing::info!("Server auto-started on autostart");
+                            }
+                            Err(e) => {
+                                tracing::error!("Failed to auto-start server: {}", e);
+                            }
+                        }
+                    }
+                });
             }
 
             // 启动统计信息推送定时器（优化：只在有变化时推送）
@@ -113,6 +156,8 @@ pub fn run() {
             save_config,
             check_port_available,
             get_diagnostic_info,
+            set_autostart_command,
+            get_autostart_status,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

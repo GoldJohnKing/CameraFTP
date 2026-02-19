@@ -228,3 +228,31 @@ pub async fn get_diagnostic_info(
         Ok(None)
     }
 }
+
+/// 设置开机自启
+#[tauri::command]
+pub fn set_autostart_command(enable: bool) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        crate::platform::windows::set_autostart(enable)
+            .map_err(|e| format!("Failed to set autostart: {}", e))
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        Err("Autostart is only supported on Windows".to_string())
+    }
+}
+
+/// 获取开机自启状态
+#[tauri::command]
+pub fn get_autostart_status() -> Result<bool, String> {
+    #[cfg(target_os = "windows")]
+    {
+        crate::platform::windows::is_autostart_enabled()
+            .map_err(|e| format!("Failed to get autostart status: {}", e))
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        Ok(false)
+    }
+}
