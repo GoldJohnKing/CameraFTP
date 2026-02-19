@@ -41,13 +41,14 @@ export const useServerStore = create<ServerState>((set, get) => ({
     set({ isLoading: true, error: null });
     try {
       const info = await invoke<ServerInfo>('start_server');
-      set({ 
-        isRunning: true, 
+      set({
+        isRunning: true,
         serverInfo: info,
         stats: { ...get().stats, is_running: true }
       });
-    } catch (err) {
-      set({ error: String(err) });
+    } catch (err: any) {
+      const errorMessage = err?.message || String(err);
+      set({ error: errorMessage });
       throw err;
     } finally {
       set({ isLoading: false });
@@ -58,13 +59,14 @@ export const useServerStore = create<ServerState>((set, get) => ({
     set({ isLoading: true, error: null });
     try {
       await invoke('stop_server');
-      set({ 
-        isRunning: false, 
+      set({
+        isRunning: false,
         serverInfo: null,
         stats: defaultStats
       });
-    } catch (err) {
-      set({ error: String(err) });
+    } catch (err: any) {
+      const errorMessage = err?.message || String(err);
+      set({ error: errorMessage });
       throw err;
     } finally {
       set({ isLoading: false });
@@ -81,10 +83,22 @@ export const useServerStore = create<ServerState>((set, get) => ({
   initializeListeners: async () => {
     const listeners: UnlistenFn[] = [];
 
-    // 监听服务器启动事件
-    const unlistenStarted = await listen<[string, number]>('server-started', () => {
-      // 服务器已启动，可以在这里做额外处理
-      console.log('Server started event received');
+    // 监听服务器启动事件（当从托盘菜单启动时，更新前端状态）
+    const unlistenStarted = await listen<[string, number]>('server-started', (event) => {
+      console.log('Server started event received:', event.payload);
+      const [ip, port] = event.payload;
+      set({
+        isRunning: true,
+        serverInfo: {
+          is_running: true,
+          ip,
+          port,
+          url: `ftp://${ip}:${port}`,
+          username: 'anonymous',
+          password_info: '(任意密码)',
+        },
+        stats: { ...get().stats, is_running: true }
+      });
     });
     listeners.push(unlistenStarted);
 
