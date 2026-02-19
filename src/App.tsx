@@ -15,18 +15,12 @@ function App() {
   useEffect(() => {
     // 初始化事件监听器
     let cleanup: (() => Promise<void>) | null = null;
-    let trayQuitUnlisten: (() => void) | null = null;
     let trayStartUnlisten: (() => void) | null = null;
     let trayStopUnlisten: (() => void) | null = null;
     let windowCloseUnlisten: (() => void) | null = null;
     
     const setupListeners = async () => {
       cleanup = await initializeListeners();
-      
-      // 监听托盘退出请求
-      trayQuitUnlisten = await listen('tray-quit-request', () => {
-        setShowQuitDialog(true);
-      });
       
       // 监听托盘启动服务器请求
       trayStartUnlisten = await listen('tray-start-server', () => {
@@ -38,7 +32,7 @@ function App() {
         stopServer().catch(console.error);
       });
       
-      // 监听窗口关闭请求（点击X号）
+      // 监听窗口关闭请求（点击X号）- 只有X号才显示确认弹窗
       windowCloseUnlisten = await listen('window-close-requested', () => {
         setShowQuitDialog(true);
       });
@@ -49,9 +43,6 @@ function App() {
     return () => {
       if (cleanup) {
         cleanup();
-      }
-      if (trayQuitUnlisten) {
-        trayQuitUnlisten();
       }
       if (trayStartUnlisten) {
         trayStartUnlisten();
@@ -70,10 +61,17 @@ function App() {
       // 通过Rust命令退出程序
       await invoke('quit_application');
     } else {
-      // 先关闭弹窗，再隐藏窗口
+      // 先关闭弹窗
       setShowQuitDialog(false);
-      const window = getCurrentWindow();
-      await window.hide();
+      // 短暂延迟确保弹窗关闭后再隐藏窗口
+      setTimeout(async () => {
+        try {
+          const window = getCurrentWindow();
+          await window.hide();
+        } catch (err) {
+          console.error('Failed to hide window:', err);
+        }
+      }, 10);
     }
   };
 

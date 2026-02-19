@@ -72,7 +72,8 @@ pub fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
                     });
                 }
                 "quit" => {
-                    let _ = app.emit("tray-quit-request", ());
+                    // 托盘菜单退出直接退出程序，不显示确认弹窗
+                    app.exit(0);
                 }
                 _ => {}
             }
