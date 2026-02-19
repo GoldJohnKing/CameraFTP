@@ -1,0 +1,86 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ========================================
+   全局光标样式 - 解决 WebView2 光标渲染 Bug
+   平台自适应：仅 Windows 使用自定义 SVG 光标
+   使用外部 SVG 文件，Windows 原生风格（黑色填充+白色描边）
+   ======================================== */
+
+/* 文本输入区域 - 强制使用文本光标 */
+input[type="text"],
+input[type="number"],
+input[type="password"],
+input[type="email"],
+input[type="search"],
+input[type="tel"],
+input[type="url"],
+textarea,
+[contenteditable="true"] {
+  cursor: text !important;
+}
+
+/* 按钮和可点击元素 */
+button,
+a,
+[role="button"],
+input[type="submit"],
+input[type="reset"],
+input[type="button"] {
+  cursor: pointer !important;
+}
+
+/* 禁用状态 - 显式设置禁止光标 */
+button:disabled,
+input:disabled,
+textarea:disabled,
+select:disabled,
+[disabled] {
+  cursor: not-allowed !important;
+}
+
+/* ========================================
+   平台自适应自定义光标（仅 Windows）
+   使用外部 PNG 文件（由 CUR 转换而来）
+   ======================================== */
+
+/* 抓手光标 - 张开 */
+html.platform-windows .cursor-grab {
+  cursor: url('/cursors/grab.png') 16 16, grab !important;
+}
+
+html:not(.platform-windows) .cursor-grab {
+  cursor: grab !important;
+}
+
+/* 抓手光标 - 握紧 */
+html.platform-windows .cursor-grabbing {
+  cursor: url('/cursors/grabbing.png') 16 16, grabbing !important;
+}
+
+html:not(.platform-windows) .cursor-grabbing {
+  cursor: grabbing !important;
+}
+
+/* 工字光标 - 文本输入 */
+html.platform-windows input[type="text"],
+html.platform-windows input[type="number"],
+html.platform-windows input[type="password"],
+html.platform-windows input[type="email"],
+html.platform-windows input[type="search"],
+html.platform-windows input[type="tel"],
+html.platform-windows input[type="url"],
+html.platform-windows textarea,
+html.platform-windows [contenteditable="true"] {
+  cursor: url('/cursors/ibeam.png') 13 15, text !important;
+}
+
+/* ========================================
+   隐藏 Windows Edge/WebView2 密码显示按钮
+   避免与我们自定义的眼睛图标冲突
+   ======================================== */
+input[type="password"]::-ms-reveal,
+input[type="password"]::-webkit-credentials-auto-fill-button {
+  display: none;
+}
