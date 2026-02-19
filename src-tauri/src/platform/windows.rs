@@ -1,7 +1,6 @@
 use tauri::{AppHandle, Manager, Emitter};
 use tauri::menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconEvent};
-use crate::commands::FtpServerState;
 
 pub fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
     // 创建菜单项
@@ -47,10 +46,30 @@ pub fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
                     }
                 }
                 "start" => {
-                    let _ = app.emit("tray-start-server", ());
+                    let app_handle = app.clone();
+                    tauri::async_runtime::spawn(async move {
+                        match crate::commands::start_server(app_handle.state(), app_handle.clone()).await {
+                            Ok(info) => {
+                                tracing::info!("Server started from tray: {:?}", info);
+                            }
+                            Err(e) => {
+                                tracing::error!("Failed to start server from tray: {}", e);
+                            }
+                        }
+                    });
                 }
                 "stop" => {
-                    let _ = app.emit("tray-stop-server", ());
+                    let app_handle = app.clone();
+                    tauri::async_runtime::spawn(async move {
+                        match crate::commands::stop_server(app_handle.state(), app_handle.clone()).await {
+                            Ok(_) => {
+                                tracing::info!("Server stopped from tray");
+                            }
+                            Err(e) => {
+                                tracing::error!("Failed to stop server from tray: {}", e);
+                            }
+                        }
+                    });
                 }
                 "quit" => {
                     let _ = app.emit("tray-quit-request", ());
