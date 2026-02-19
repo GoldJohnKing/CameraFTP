@@ -46,3 +46,6 @@ release/
 tmp/
 temp/
 *.tmp
+
+# Worktrees
+.worktrees/
