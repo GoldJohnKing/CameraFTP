@@ -63,15 +63,11 @@ function App() {
     } else {
       // 先关闭弹窗
       setShowQuitDialog(false);
-      // 短暂延迟确保弹窗关闭后再隐藏窗口
-      setTimeout(async () => {
-        try {
-          const window = getCurrentWindow();
-          await window.hide();
-        } catch (err) {
-          console.error('Failed to hide window:', err);
-        }
-      }, 10);
+      // 使用 requestAnimationFrame 确保DOM更新后再隐藏窗口
+      requestAnimationFrame(() => {
+        const window = getCurrentWindow();
+        window.hide().catch((err: Error) => console.error('Failed to hide window:', err));
+      });
     }
   };
 
