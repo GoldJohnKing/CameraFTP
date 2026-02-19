@@ -1,5 +1,6 @@
 pub mod commands;
 pub mod config;
+pub mod error;
 pub mod ftp;
 pub mod network;
 pub mod platform;
@@ -9,8 +10,10 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+use tauri::{Manager, Emitter};
 
 use commands::{check_port_available, get_diagnostic_info, get_network_info, get_server_status, load_config, save_config, start_server, stop_server, FtpServerState};
+use ftp::ServerStateSnapshot;
 
 fn setup_logging() {
     // 获取日志目录
@@ -58,6 +61,28 @@ pub fn run() {
                     eprintln!("Failed to setup tray: {}", e);
                 }
             }
+            
+            // 启动统计信息推送定时器
+            let app_handle = app.handle().clone();
+            let state: tauri::State<'_, FtpServerState> = app.state();
+            let state_clone: std::sync::Arc<tokio::sync::Mutex<Option<crate::ftp::FtpServer>>> = state.0.clone();
+            
+            tauri::async_runtime::spawn(async move {
+                let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(1));
+                loop {
+                    interval.tick().await;
+                    
+                    let server_guard: tokio::sync::MutexGuard<'_, Option<crate::ftp::FtpServer>> = state_clone.lock().await;
+                    if let Some(server) = server_guard.as_ref() {
+                        let snapshot: ServerStateSnapshot = server.state_snapshot();
+                        // 只推送有变化时的状态，或者服务器正在运行时
+                        if snapshot.is_running {
+                            let _ = app_handle.emit("stats-update", snapshot);
+                        }
+                    }
+                }
+            });
+            
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

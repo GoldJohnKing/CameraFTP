@@ -38,7 +38,8 @@ impl Default for ServerConfig {
 }
 
 /// FTP 服务器状态快照（兼容旧接口）
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize, ts_rs::TS)]
+#[ts(export)]
 pub struct ServerStateSnapshot {
     pub is_running: bool,
     pub connected_clients: usize,

@@ -1,38 +1,26 @@
-import { useState } from 'react';
 import { Power, Loader2 } from 'lucide-react';
-import { invoke } from '@tauri-apps/api/core';
-import { ServerInfo } from '../types';
+import { useServerStore } from '../stores/serverStore';
 
-interface ServerCardProps {
-  onStatusChange: (info: ServerInfo | null) => void;
-}
-
-export function ServerCard({ onStatusChange }: ServerCardProps) {
-  const [isRunning, setIsRunning] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
-  const [serverInfo, setServerInfo] = useState<ServerInfo | null>(null);
-  const [error, setError] = useState<string | null>(null);
+export function ServerCard() {
+  const { 
+    isRunning, 
+    serverInfo, 
+    isLoading, 
+    error,
+    startServer, 
+    stopServer 
+  } = useServerStore();
 
   const handleToggle = async () => {
-    setIsLoading(true);
-    setError(null);
-
     try {
       if (isRunning) {
-        await invoke('stop_server');
-        setIsRunning(false);
-        setServerInfo(null);
-        onStatusChange(null);
+        await stopServer();
       } else {
-        const info = await invoke<ServerInfo>('start_server');
-        setIsRunning(true);
-        setServerInfo(info);
-        onStatusChange(info);
+        await startServer();
       }
     } catch (err) {
-      setError(err as string);
-    } finally {
-      setIsLoading(false);
+      // 错误已在 store 中处理
+      console.error('Server toggle failed:', err);
     }
   };
 

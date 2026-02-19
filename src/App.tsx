@@ -1,12 +1,29 @@
-import { useState } from 'react';
+import { useEffect } from 'react';
 import { ServerCard } from './components/ServerCard';
 import { StatsCard } from './components/StatsCard';
 import { InfoCard } from './components/InfoCard';
-import { ServerInfo } from './types';
+import { useServerStore } from './stores/serverStore';
 import { Camera } from 'lucide-react';
 
 function App() {
-  const [serverInfo, setServerInfo] = useState<ServerInfo | null>(null);
+  const { initializeListeners } = useServerStore();
+
+  useEffect(() => {
+    // 初始化事件监听器
+    let cleanup: (() => Promise<void>) | null = null;
+    
+    const setupListeners = async () => {
+      cleanup = await initializeListeners();
+    };
+    
+    setupListeners();
+    
+    return () => {
+      if (cleanup) {
+        cleanup();
+      }
+    };
+  }, [initializeListeners]);
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -26,9 +43,9 @@ function App() {
 
         {/* Main Content */}
         <div className="space-y-4">
-          <ServerCard onStatusChange={setServerInfo} />
+          <ServerCard />
           <StatsCard />
-          <InfoCard serverInfo={serverInfo} />
+          <InfoCard />
         </div>
 
         {/* Footer */}

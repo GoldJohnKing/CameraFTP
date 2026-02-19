@@ -2,8 +2,10 @@ use tauri::{command, AppHandle, Emitter, State};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tracing::{error, info};
+use ts_rs::TS;
 
 use crate::config::AppConfig;
+use crate::error::AppError;
 use crate::ftp::{DiagnosticInfo, FtpServer, ServerConfig, ServerStateSnapshot};
 use crate::network::NetworkManager;
 
@@ -11,7 +13,8 @@ use crate::network::NetworkManager;
 pub struct FtpServerState(pub Arc<Mutex<Option<FtpServer>>>);
 
 /// 服务器信息（返回给前端）
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize, TS)]
+#[ts(export)]
 pub struct ServerInfo {
     pub is_running: bool,
     pub ip: String,
@@ -34,7 +37,7 @@ pub struct StatsUpdate {
 pub async fn start_server(
     state: State<'_, FtpServerState>,
     app: AppHandle,
-) -> Result<ServerInfo, String> {
+) -> Result<ServerInfo, AppError> {
     info!("Starting FTP server...");
 
     let config = AppConfig::load();
@@ -43,14 +46,12 @@ pub async fn start_server(
     {
         let server_guard = state.0.lock().await;
         if server_guard.is_some() {
-            return Err("Server is already running".to_string());
+            return Err(AppError::ServerAlreadyRunning);
         }
     }
 
     // 确保保存目录存在
-    if let Err(e) = tokio::fs::create_dir_all(&config.save_path).await {
-        return Err(format!("Failed to create save directory: {}", e));
-    }
+    tokio::fs::create_dir_all(&config.save_path).await?;
 
     // 查找可用端口
     let port = if NetworkManager::is_port_available(config.port).await {
@@ -58,11 +59,12 @@ pub async fn start_server(
     } else {
         NetworkManager::find_available_port(1025)
             .await
-            .ok_or("No available port found")?
+            .ok_or(AppError::NoAvailablePort)?
     };
 
     // 获取推荐 IP
-    let ip = NetworkManager::recommended_ip().ok_or("No network interface available")?;
+    let ip = NetworkManager::recommended_ip()
+        .ok_or(AppError::NoNetworkInterface)?;
 
     // 创建并启动服务器
     let server_config = ServerConfig {
@@ -73,7 +75,7 @@ pub async fn start_server(
 
     let mut server = FtpServer::new(server_config);
     match server.start().await {
-        Ok(addr) => {
+        Ok(_addr) => {
             info!("FTP server started on {}:{}", ip, port);
 
             // 存储服务器实例
@@ -96,13 +98,16 @@ pub async fn start_server(
         }
         Err(e) => {
             error!("Failed to start server: {}", e);
-            Err(format!("Failed to start server: {}", e))
+            Err(AppError::FtpServerError(e.to_string()))
         }
     }
 }
 
 #[command]
-pub async fn stop_server(state: State<'_, FtpServerState>, app: AppHandle) -> Result<(), String> {
+pub async fn stop_server(
+    state: State<'_, FtpServerState>,
+    app: AppHandle,
+) -> Result<(), AppError> {
     info!("Stopping FTP server...");
 
     let mut server_guard = state.0.lock().await;
@@ -113,14 +118,14 @@ pub async fn stop_server(state: State<'_, FtpServerState>, app: AppHandle) -> Re
         info!("FTP server stopped");
         Ok(())
     } else {
-        Err("Server is not running".to_string())
+        Err(AppError::ServerNotRunning)
     }
 }
 
 #[command]
 pub async fn get_server_status(
     state: State<'_, FtpServerState>,
-) -> Result<Option<ServerStateSnapshot>, String> {
+) -> Result<Option<ServerStateSnapshot>, AppError> {
     let server_guard = state.0.lock().await;
 
     if let Some(server) = server_guard.as_ref() {
@@ -131,7 +136,7 @@ pub async fn get_server_status(
 }
 
 #[command]
-pub fn get_network_info() -> Result<Vec<crate::network::NetworkInterface>, String> {
+pub fn get_network_info() -> Result<Vec<crate::network::NetworkInterface>, AppError> {
     Ok(NetworkManager::list_interfaces())
 }
 
@@ -141,8 +146,9 @@ pub fn load_config() -> AppConfig {
 }
 
 #[command]
-pub fn save_config(config: AppConfig) -> Result<(), String> {
-    config.save().map_err(|e| e.to_string())
+pub fn save_config(config: AppConfig) -> Result<(), AppError> {
+    config.save()?;
+    Ok(())
 }
 
 #[command]
@@ -153,7 +159,7 @@ pub async fn check_port_available(port: u16) -> bool {
 #[command]
 pub async fn get_diagnostic_info(
     state: State<'_, FtpServerState>,
-) -> Result<Option<DiagnosticInfo>, String> {
+) -> Result<Option<DiagnosticInfo>, AppError> {
     let server_guard = state.0.lock().await;
 
     if let Some(server) = server_guard.as_ref() {

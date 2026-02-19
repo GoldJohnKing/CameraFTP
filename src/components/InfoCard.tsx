@@ -1,12 +1,9 @@
 import { useState } from 'react';
 import { Wifi, Copy, Check } from 'lucide-react';
-import { ServerInfo } from '../types';
+import { useServerStore } from '../stores/serverStore';
 
-interface InfoCardProps {
-  serverInfo: ServerInfo | null;
-}
-
-export function InfoCard({ serverInfo }: InfoCardProps) {
+export function InfoCard() {
+  const { serverInfo, isRunning } = useServerStore();
   const [copied, setCopied] = useState(false);
 
   const copyConnectionInfo = () => {
@@ -19,7 +16,7 @@ export function InfoCard({ serverInfo }: InfoCardProps) {
     setTimeout(() => setCopied(false), 2000);
   };
 
-  if (!serverInfo) {
+  if (!isRunning || !serverInfo) {
     return (
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
         <h2 className="text-lg font-semibold text-gray-800 mb-4">连接信息</h2>

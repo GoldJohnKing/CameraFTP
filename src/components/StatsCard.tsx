@@ -1,46 +1,8 @@
-import { useEffect, useState } from 'react';
 import { Camera, Image, HardDrive, Clock } from 'lucide-react';
-import { invoke } from '@tauri-apps/api/core';
-import { listen } from '@tauri-apps/api/event';
-import { ServerStatus } from '../types';
+import { useServerStore } from '../stores/serverStore';
 
 export function StatsCard() {
-  const [stats, setStats] = useState<ServerStatus>({
-    is_running: false,
-    connected_clients: 0,
-    files_received: 0,
-    bytes_received: 0,
-    last_file: null,
-  });
-
-  useEffect(() => {
-    // Initial load
-    loadStats();
-
-    // Set up polling
-    const interval = setInterval(loadStats, 1000);
-
-    // Listen for events
-    const unlisten = listen('server-started', () => {
-      loadStats();
-    });
-
-    return () => {
-      clearInterval(interval);
-      unlisten.then(f => f());
-    };
-  }, []);
-
-  const loadStats = async () => {
-    try {
-      const status = await invoke<ServerStatus | null>('get_server_status');
-      if (status) {
-        setStats(status);
-      }
-    } catch (err) {
-      console.error('Failed to load stats:', err);
-    }
-  };
+  const { stats } = useServerStore();
 
   const formatBytes = (bytes: number): string => {
     if (bytes === 0) return '0 MB';

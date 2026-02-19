@@ -2,8 +2,10 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::fs;
 use tracing::{error, info};
+use ts_rs::TS;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
 pub struct AppConfig {
     pub save_path: PathBuf,
     pub auto_open: bool,
