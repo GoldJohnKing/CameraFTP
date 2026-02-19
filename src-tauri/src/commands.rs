@@ -1,4 +1,4 @@
-use tauri::{command, AppHandle, Emitter, State};
+use tauri::{command, AppHandle, Emitter, Manager, State};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tracing::{error, info, instrument, warn};
@@ -262,4 +262,17 @@ pub fn get_autostart_status() -> Result<bool, String> {
 pub fn quit_application(app: tauri::AppHandle) {
     tracing::info!("Application quit requested");
     app.exit(0);
+}
+
+/// 隐藏主窗口
+#[tauri::command]
+pub fn hide_main_window(app: tauri::AppHandle) -> Result<(), String> {
+    tracing::info!("Hiding main window");
+    if let Some(window) = app.get_webview_window("main") {
+        window.hide().map_err(|e| format!("Failed to hide window: {}", e))?;
+        tracing::info!("Main window hidden successfully");
+        Ok(())
+    } else {
+        Err("Main window not found".to_string())
+    }
 }

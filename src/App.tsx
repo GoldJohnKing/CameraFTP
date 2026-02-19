@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
 import { listen } from '@tauri-apps/api/event';
-import { getCurrentWindow } from '@tauri-apps/api/window';
 import { invoke } from '@tauri-apps/api/core';
 import { ServerCard } from './components/ServerCard';
 import { StatsCard } from './components/StatsCard';
@@ -63,11 +62,12 @@ function App() {
     } else {
       // 先关闭弹窗
       setShowQuitDialog(false);
-      // 使用 requestAnimationFrame 确保DOM更新后再隐藏窗口
-      requestAnimationFrame(() => {
-        const window = getCurrentWindow();
-        window.hide().catch((err: Error) => console.error('Failed to hide window:', err));
-      });
+      // 通过Rust命令隐藏窗口
+      try {
+        await invoke('hide_main_window');
+      } catch (err) {
+        console.error('Failed to hide window:', err);
+      }
     }
   };
 
