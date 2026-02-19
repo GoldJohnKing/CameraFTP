@@ -19,9 +19,9 @@ pub fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
         &quit_i,
     ])?;
 
-    let _tray = tauri::tray::TrayIconBuilder::new()
+    let _tray = tauri::tray::TrayIconBuilder::with_id("main")
         .menu(&menu)
-        .menu_on_left_click(false)
+        .show_menu_on_left_click(false)
         .icon(app.default_window_icon().unwrap().clone())
         .icon_as_template(false)
         .on_tray_icon_event(|tray, event| {
