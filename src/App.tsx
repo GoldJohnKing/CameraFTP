@@ -18,6 +18,7 @@ function App() {
     let trayQuitUnlisten: (() => void) | null = null;
     let trayStartUnlisten: (() => void) | null = null;
     let trayStopUnlisten: (() => void) | null = null;
+    let windowCloseUnlisten: (() => void) | null = null;
     
     const setupListeners = async () => {
       cleanup = await initializeListeners();
@@ -36,6 +37,11 @@ function App() {
       trayStopUnlisten = await listen('tray-stop-server', () => {
         stopServer().catch(console.error);
       });
+      
+      // 监听窗口关闭请求（点击X号）
+      windowCloseUnlisten = await listen('window-close-requested', () => {
+        setShowQuitDialog(true);
+      });
     };
     
     setupListeners();
@@ -53,6 +59,9 @@ function App() {
       if (trayStopUnlisten) {
         trayStopUnlisten();
       }
+      if (windowCloseUnlisten) {
+        windowCloseUnlisten();
+      }
     };
   }, [initializeListeners, startServer, stopServer]);
 
@@ -61,9 +70,10 @@ function App() {
       // 通过Rust命令退出程序
       await invoke('quit_application');
     } else {
+      // 先关闭弹窗，再隐藏窗口
+      setShowQuitDialog(false);
       const window = getCurrentWindow();
       await window.hide();
-      setShowQuitDialog(false);
     }
   };
 

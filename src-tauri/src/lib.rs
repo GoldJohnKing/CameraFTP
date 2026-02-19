@@ -80,6 +80,17 @@ pub fn run() {
                     let _ = window.hide();
                     let _ = window.set_skip_taskbar(true);
                 }
+                
+                // 监听窗口关闭请求（点击X号）
+                let app_handle = app.handle().clone();
+                window.on_window_event(move |event| {
+                    if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                        // 阻止默认关闭行为
+                        api.prevent_close();
+                        // 发送事件给前端显示确认对话框
+                        let _ = app_handle.emit("window-close-requested", ());
+                    }
+                });
             }
 
             // 如果是开机启动模式，自动启动服务器
