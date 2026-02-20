@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react';
-import { listen } from '@tauri-apps/api/event';
 import { invoke } from '@tauri-apps/api/core';
 import { Camera } from 'lucide-react';
 import { ServerCard } from './components/ServerCard';
@@ -9,55 +8,50 @@ import { ConfigCard } from './components/ConfigCard';
 import { BottomNav } from './components/BottomNav';
 import { useServerStore } from './stores/serverStore';
 import { useConfigStore } from './stores/configStore';
+import { useTauriListeners } from './hooks/useTauriListeners';
 
 function App() {
   const { initializeListeners, startServer, stopServer } = useServerStore();
   const { activeTab, loadConfig } = useConfigStore();
   const [showQuitDialog, setShowQuitDialog] = useState(false);
 
+  // 初始化 store 的监听器
   useEffect(() => {
-    // 初始化事件监听器
-    let cleanup: (() => Promise<void>) | null = null;
-    let trayStartUnlisten: (() => void) | null = null;
-    let trayStopUnlisten: (() => void) | null = null;
-    let windowCloseUnlisten: (() => void) | null = null;
-    
-    const setupListeners = async () => {
-      cleanup = await initializeListeners();
-      
-      // 监听托盘启动服务器请求
-      trayStartUnlisten = await listen('tray-start-server', () => {
-        startServer().catch(console.error);
-      });
-      
-      // 监听托盘停止服务器请求
-      trayStopUnlisten = await listen('tray-stop-server', () => {
-        stopServer().catch(console.error);
-      });
-      
-      // 监听窗口关闭请求（点击X号）- 只有X号才显示确认弹窗
-      windowCloseUnlisten = await listen('window-close-requested', () => {
-        setShowQuitDialog(true);
-      });
+    const setup = async () => {
+      const cleanup = await initializeListeners();
+      return cleanup;
     };
     
-    setupListeners();
+    let cleanupFn: (() => void) | undefined;
+    setup().then(cleanup => {
+      cleanupFn = cleanup;
+    });
     
     return () => {
-      if (cleanup) {
-        cleanup();
-      }
-      if (trayStartUnlisten) {
-        trayStartUnlisten();
-      }
-      if (trayStopUnlisten) {
-        trayStopUnlisten();
-      }
-      if (windowCloseUnlisten) {
-        windowCloseUnlisten();
-      }
+      cleanupFn?.();
     };
-  }, [initializeListeners, startServer, stopServer, loadConfig]);
+  }, [initializeListeners]);
+
+  // 使用自定义 hook 管理其他监听器
+  useTauriListeners([
+    { 
+      event: 'tray-start-server', 
+      handler: () => startServer().catch(console.error) 
+    },
+    { 
+      event: 'tray-stop-server', 
+      handler: () => stopServer().catch(console.error) 
+    },
+    { 
+      event: 'window-close-requested', 
+      handler: () => setShowQuitDialog(true) 
+    },
+  ]);
+
+  // 加载配置
+  useEffect(() => {
+    loadConfig();
+  }, [loadConfig]);
 
   const handleQuitConfirm = async (quit: boolean) => {
     if (quit) {
