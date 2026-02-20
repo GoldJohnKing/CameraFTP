@@ -1,0 +1,36 @@
+import { Home, Settings } from 'lucide-react';
+import { useConfigStore } from '../stores/configStore';
+
+export function BottomNav() {
+  const { activeTab, setActiveTab } = useConfigStore();
+
+  return (
+    <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 safe-area-pb">
+      <div className="max-w-md mx-auto flex">
+        <button
+          onClick={() => setActiveTab('home')}
+          className={`flex-1 flex flex-col items-center py-3 px-4 transition-colors ${
+            activeTab === 'home'
+              ? 'text-blue-600'
+              : 'text-gray-500 hover:text-gray-700'
+          }`}
+        >
+          <Home className="w-6 h-6" />
+          <span className="text-xs mt-1 font-medium">主页</span>
+        </button>
+        
+        <button
+          onClick={() => setActiveTab('config')}
+          className={`flex-1 flex flex-col items-center py-3 px-4 transition-colors ${
+            activeTab === 'config'
+              ? 'text-blue-600'
+              : 'text-gray-500 hover:text-gray-700'
+          }`}
+        >
+          <Settings className="w-6 h-6" />
+          <span className="text-xs mt-1 font-medium">配置</span>
+        </button>
+      </div>
+    </nav>
+  );
+}

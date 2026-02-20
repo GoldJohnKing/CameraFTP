@@ -276,3 +276,17 @@ pub fn hide_main_window(app: tauri::AppHandle) -> Result<(), String> {
         Err("Main window not found".to_string())
     }
 }
+
+/// 选择目录对话框
+#[tauri::command]
+pub async fn select_directory(app: tauri::AppHandle) -> Result<Option<String>, String> {
+    use tauri_plugin_dialog::DialogExt;
+
+    let folder_path = app
+        .dialog()
+        .file()
+        .set_title("选择存储路径")
+        .blocking_pick_folder();
+
+    Ok(folder_path.and_then(|p| p.as_path().map(|path| path.to_string_lossy().to_string())))
+}

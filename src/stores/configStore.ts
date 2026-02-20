@@ -1,0 +1,78 @@
+import { create } from 'zustand';
+import { invoke } from '@tauri-apps/api/core';
+import type { AppConfig } from '../types';
+
+interface ConfigState {
+  config: AppConfig | null;
+  isLoading: boolean;
+  error: string | null;
+  activeTab: 'home' | 'config';
+  
+  // Actions
+  loadConfig: () => Promise<void>;
+  saveConfig: (config: AppConfig) => Promise<void>;
+  updateSavePath: (path: string) => Promise<void>;
+  setAutostart: (enabled: boolean) => Promise<void>;
+  setActiveTab: (tab: 'home' | 'config') => void;
+  selectDirectory: () => Promise<string | null>;
+}
+
+export const useConfigStore = create<ConfigState>((set, get) => ({
+  config: null,
+  isLoading: false,
+  error: null,
+  activeTab: 'home',
+
+  loadConfig: async () => {
+    set({ isLoading: true, error: null });
+    try {
+      const config = await invoke<AppConfig>('load_config');
+      set({ config, isLoading: false });
+    } catch (err: any) {
+      set({ error: err?.message || 'Failed to load config', isLoading: false });
+    }
+  },
+
+  saveConfig: async (config: AppConfig) => {
+    set({ isLoading: true, error: null });
+    try {
+      await invoke('save_config', { config });
+      set({ config, isLoading: false });
+    } catch (err: any) {
+      set({ error: err?.message || 'Failed to save config', isLoading: false });
+      throw err;
+    }
+  },
+
+  updateSavePath: async (path: string) => {
+    const { config, saveConfig } = get();
+    if (!config) return;
+    const newConfig = { ...config, save_path: path };
+    await saveConfig(newConfig);
+  },
+
+  setAutostart: async (enabled: boolean) => {
+    set({ isLoading: true, error: null });
+    try {
+      await invoke('set_autostart_command', { enable: enabled });
+      set({ isLoading: false });
+    } catch (err: any) {
+      set({ error: err?.message || 'Failed to set autostart', isLoading: false });
+      throw err;
+    }
+  },
+
+  setActiveTab: (tab: 'home' | 'config') => {
+    set({ activeTab: tab });
+  },
+
+  selectDirectory: async () => {
+    try {
+      const selected = await invoke<string | null>('select_directory');
+      return selected;
+    } catch (err) {
+      console.error('Failed to select directory:', err);
+      return null;
+    }
+  },
+}));
