@@ -55,6 +55,14 @@ pub async fn start_server(
         "FTP server started successfully"
     );
 
+    // 更新托盘图标为绿色（服务器运行中）
+    #[cfg(target_os = "windows")]
+    {
+        if let Err(e) = crate::platform::windows::update_tray_icon(&app, true) {
+            warn!(error = %e, "Failed to update tray icon to green");
+        }
+    }
+
     Ok(ServerInfo {
         is_running: true,
         ip: ctx.ip.clone(),
@@ -79,6 +87,15 @@ pub async fn stop_server(
         match server.stop().await {
             Ok(_) => {
                 let _ = app.emit("server-stopped", ());
+                
+                // 更新托盘图标为蓝色（服务器停止）
+                #[cfg(target_os = "windows")]
+                {
+                    if let Err(e) = crate::platform::windows::update_tray_icon(&app, false) {
+                        warn!(error = %e, "Failed to update tray icon to blue");
+                    }
+                }
+                
                 info!("FTP server stopped successfully");
                 Ok(())
             }

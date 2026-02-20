@@ -2,6 +2,40 @@ use tauri::{AppHandle, Manager};
 use tauri::menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconEvent};
 
+/// 绿色托盘图标数据（编译时嵌入）
+const TRAY_ACTIVE_PNG: &[u8] = include_bytes!("../../icons/tray-active.png");
+
+/// 从嵌入的PNG数据创建图标
+fn create_green_icon() -> Result<tauri::image::Image<'static>, Box<dyn std::error::Error>> {
+    let img = image::load_from_memory_with_format(TRAY_ACTIVE_PNG, image::ImageFormat::Png)?;
+    let rgba = img.to_rgba8();
+    let (width, height) = rgba.dimensions();
+    
+    let icon = tauri::image::Image::new_owned(rgba.into_raw(), width, height);
+    Ok(icon)
+}
+
+/// 更新托盘图标
+/// - running: true 使用绿色图标（服务器运行中）
+/// - running: false 使用默认蓝色图标（服务器停止）
+pub fn update_tray_icon(app: &AppHandle, running: bool) -> Result<(), Box<dyn std::error::Error>> {
+    if let Some(tray) = app.tray_by_id("main") {
+        if running {
+            // 使用绿色图标（服务器运行）- 从嵌入数据创建
+            let icon = create_green_icon()?;
+            tray.set_icon(Some(icon))?;
+            tracing::info!("Tray icon updated to green (server running)");
+        } else {
+            // 使用默认蓝色图标（服务器停止）
+            if let Some(default_icon) = app.default_window_icon() {
+                tray.set_icon(Some(default_icon.clone()))?;
+                tracing::info!("Tray icon updated to blue (server stopped)");
+            }
+        }
+    }
+    Ok(())
+}
+
 pub fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
     // 创建菜单项
     let show_i = MenuItem::with_id(app, "show", "显示主窗口", true, None::<&str>)?;

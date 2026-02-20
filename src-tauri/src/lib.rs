@@ -116,6 +116,11 @@ pub fn run() {
                             // 发送事件给前端
                             crate::ftp::server_factory::emit_server_started(&app_handle, &ctx.ip, ctx.port);
                             tracing::info!("Server auto-started on autostart");
+
+                            // 更新托盘图标为绿色
+                            if let Err(e) = crate::platform::windows::update_tray_icon(&app_handle, true) {
+                                tracing::warn!("Failed to update tray icon on autostart: {}", e);
+                            }
                         }
                         Err(e) => {
                             tracing::error!("Failed to auto-start server: {}", e);
