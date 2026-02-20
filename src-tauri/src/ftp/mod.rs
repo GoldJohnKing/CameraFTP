@@ -12,6 +12,7 @@ pub mod error;
 pub mod events;
 pub mod listeners;
 pub mod server;
+pub mod server_factory;
 pub mod stats;
 pub mod types;
 
@@ -19,6 +20,10 @@ pub mod types;
 pub use error::{FtpError, FtpResult};
 pub use events::{EventBus, EventBusConfig, EventProcessor, StatsEventHandler};
 pub use server::{create_ftp_server, FtpServerActor, FtpServerHandle};
+pub use server_factory::{
+    emit_server_started, emit_server_stopped, spawn_event_processor, start_ftp_server,
+    ServerStartupContext, ServerStartupOptions,
+};
 pub use stats::{StatsActor, StatsActorWorker};
 pub use types::{
     DiagnosticInfo, DomainEvent, ServerConfig, ServerStateSnapshot, ServerStatus, ServerStats,
