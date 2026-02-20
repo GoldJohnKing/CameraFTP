@@ -6,7 +6,7 @@ use ts_rs::TS;
 
 use crate::config::AppConfig;
 use crate::error::AppError;
-use crate::ftp::types::{ServerConfig, ServerStateSnapshot};
+use crate::ftp::types::ServerStateSnapshot;
 use crate::ftp::FtpServerHandle;
 use crate::network::NetworkManager;
 
@@ -25,15 +25,6 @@ pub struct ServerInfo {
     pub password_info: String,
 }
 
-/// 统计更新（推送到前端）
-#[derive(Debug, Clone, serde::Serialize)]
-pub struct StatsUpdate {
-    pub connected_clients: usize,
-    pub files_received: u64,
-    pub bytes_received: u64,
-    pub last_file: Option<String>,
-}
-
 #[command]
 #[instrument(skip(state, app))]
 pub async fn start_server(
@@ -42,107 +33,36 @@ pub async fn start_server(
 ) -> Result<ServerInfo, AppError> {
     info!("Starting FTP server...");
 
-    let config = AppConfig::load();
+    // 使用 server_factory 启动服务器
+    let ctx = crate::ftp::server_factory::start_ftp_server(
+        &state.0,
+        Default::default()
+    ).await?;
 
-    // 检查是否已在运行
-    {
-        let server_guard = state.0.lock().await;
-        if server_guard.is_some() {
-            warn!("Server already running");
-            return Err(AppError::ServerAlreadyRunning);
-        }
-    }
+    // 启动事件处理器
+    crate::ftp::server_factory::spawn_event_processor(
+        app.clone(),
+        ctx.event_bus,
+        500
+    );
 
-    // 确保保存目录存在
-    if let Err(e) = tokio::fs::create_dir_all(&config.save_path).await {
-        error!(error = %e, path = %config.save_path.display(), "Failed to create save directory");
-        return Err(AppError::from(e));
-    }
+    // 发送启动事件
+    crate::ftp::server_factory::emit_server_started(&app, &ctx.ip, ctx.port);
 
-    // 查找可用端口
-    let port = if NetworkManager::is_port_available(config.port).await {
-        config.port
-    } else {
-        warn!(requested_port = config.port, "Port not available, searching for alternative");
-        NetworkManager::find_available_port(1025)
-            .await
-            .ok_or_else(|| {
-                error!("No available port found");
-                AppError::NoAvailablePort
-            })?
-    };
+    info!(
+        ip = %ctx.ip,
+        port = ctx.port,
+        "FTP server started successfully"
+    );
 
-    // 获取推荐 IP
-    let ip = NetworkManager::recommended_ip()
-        .ok_or_else(|| {
-            error!("No network interface available");
-            AppError::NoNetworkInterface
-        })?;
-
-    // 创建并启动服务器
-    let server_config = ServerConfig {
-        port,
-        root_path: config.save_path.clone(),
-        allow_anonymous: true,
-        passive_port_range: (50000, 50100),
-        idle_timeout_seconds: 600,
-    };
-
-    // 创建FTP服务器Actor
-    let (server_handle, server_actor, _stats_worker, event_bus) =
-        crate::ftp::create_ftp_server();
-
-    // 在后台运行服务器Actor
-    let actor_handle = tokio::spawn(async move {
-        server_actor.run().await;
-    });
-
-    // 启动服务器
-    match server_handle.start(server_config).await {
-        Ok(bind_addr) => {
-            info!(
-                bind_addr = %bind_addr,
-                ip = %ip,
-                port = port,
-                "FTP server started successfully"
-            );
-
-            // 存储服务器句柄
-            {
-                let mut server_guard = state.0.lock().await;
-                *server_guard = Some(server_handle.clone());
-            }
-
-            // 启动事件处理器（将领域事件转换为前端事件）
-            let app_handle = app.clone();
-            tokio::spawn(async move {
-                let processor = crate::ftp::EventProcessor::new(&event_bus,
-                ).register(crate::ftp::StatsEventHandler::new(app_handle, 500));
-
-                processor.run().await;
-            });
-
-            // 发送兼容旧版本的事件
-            let _ = app.emit("server-started", (ip.clone(), port));
-
-            Ok(ServerInfo {
-                is_running: true,
-                ip: ip.clone(),
-                port,
-                url: format!("ftp://{}:{}", ip, port),
-                username: "anonymous".to_string(),
-                password_info: "(任意密码)".to_string(),
-            })
-        }
-        Err(e) => {
-            error!(error = %e, "Failed to start FTP server");
-
-            // 清理Actor任务
-            actor_handle.abort();
-
-            Err(e.into())
-        }
-    }
+    Ok(ServerInfo {
+        is_running: true,
+        ip: ctx.ip.clone(),
+        port: ctx.port,
+        url: format!("ftp://{}:{}", ctx.ip, ctx.port),
+        username: "anonymous".to_string(),
+        password_info: "(任意密码)".to_string(),
+    })
 }
 
 #[command]
