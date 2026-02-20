@@ -59,11 +59,6 @@ impl EventBus {
         let _ = self.tx.send(event);
     }
 
-    /// 异步发布事件
-    pub async fn emit_async(&self, event: DomainEvent) {
-        let _ = self.tx.send(event);
-    }
-
     /// 发布服务器启动事件
     pub fn emit_server_started(&self, bind_addr: impl Into<String>) {
         self.emit(DomainEvent::ServerStarted {
