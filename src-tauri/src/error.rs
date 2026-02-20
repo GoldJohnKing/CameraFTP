@@ -1,7 +1,6 @@
 use serde::Serialize;
-use std::fmt;
 use thiserror::Error;
-use tracing::{debug, error, info, instrument, warn};
+use tracing::{error, instrument, warn};
 
 /// 应用统一错误类型
 #[derive(Error, Debug, Clone)]

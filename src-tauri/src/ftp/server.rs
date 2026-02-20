@@ -3,17 +3,16 @@ use crate::ftp::events::EventBus;
 use crate::ftp::listeners::{FtpDataListener, FtpPresenceListener};
 use crate::ftp::stats::{StatsActor, StatsActorWorker};
 use crate::ftp::types::{
-    DiagnosticInfo, DomainEvent, ServerConfig, ServerStateSnapshot, ServerStatus, ServerStats,
+    DiagnosticInfo, ServerConfig, ServerStateSnapshot, ServerStatus, ServerStats,
     StopReason,
 };
 use dashmap::DashSet;
 use libunftp::options::Shutdown;
 use libunftp::ServerBuilder;
 use std::net::SocketAddr;
-use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::{mpsc, oneshot, RwLock};
-use tracing::{debug, error, info, instrument, trace, warn};
+use tracing::{error, info, instrument};
 
 /// FTP服务器Actor命令
 #[derive(Debug)]
@@ -281,7 +280,7 @@ impl FtpServerActor {
 
         let root_path = config.root_path.clone();
         let port = config.port;
-        let (start_tx, start_rx) = oneshot::channel::<FtpResult<SocketAddr>>();
+        let (start_tx, _start_rx) = oneshot::channel::<FtpResult<SocketAddr>>();
 
         // 构建并启动服务器
         let result = ServerBuilder::new(Box::new(move || {
@@ -315,8 +314,8 @@ impl FtpServerActor {
         let bind_str = bind_addr.to_string();
 
         // 启动服务器任务
-        let status = self.status.clone();
-        let event_bus = self.event_bus.clone();
+        let _status = self.status.clone();
+        let _event_bus = self.event_bus.clone();
         let start_tx = Arc::new(RwLock::new(Some(start_tx)));
 
         tokio::spawn(async move {

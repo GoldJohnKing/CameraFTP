@@ -1,4 +1,4 @@
-use crate::ftp::types::{ServerStats, TransferDirection};
+use crate::ftp::types::ServerStats;
 use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};
 use tracing::{debug, trace};
