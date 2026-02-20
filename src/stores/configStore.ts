@@ -15,6 +15,8 @@ interface ConfigState {
   setAutostart: (enabled: boolean) => Promise<void>;
   setActiveTab: (tab: 'home' | 'config') => void;
   selectDirectory: () => Promise<string | null>;
+  updatePort: (port: number) => Promise<void>;
+  updateAutoSelectPort: (autoSelect: boolean) => Promise<void>;
 }
 
 export const useConfigStore = create<ConfigState>((set, get) => ({
@@ -74,5 +76,19 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
       console.error('Failed to select directory:', err);
       return null;
     }
+  },
+
+  updatePort: async (port: number) => {
+    const { config, saveConfig } = get();
+    if (!config) return;
+    const newConfig = { ...config, port };
+    await saveConfig(newConfig);
+  },
+
+  updateAutoSelectPort: async (autoSelect: boolean) => {
+    const { config, saveConfig } = get();
+    if (!config) return;
+    const newConfig = { ...config, auto_select_port: autoSelect };
+    await saveConfig(newConfig);
   },
 }));

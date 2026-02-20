@@ -20,9 +20,9 @@ export function StatsCard() {
             <Camera className="w-5 h-5 text-blue-600" />
           </div>
           <div>
-            <p className="text-sm text-gray-500">已连接相机</p>
-            <p className="text-lg font-semibold text-gray-800">
-              {stats.connected_clients} 台
+            <p className="text-sm text-gray-500">相机状态</p>
+            <p className="text-lg font-semibold text-gray-900">
+              {stats.connected_clients > 0 ? '已连接' : '未连接'}
             </p>
           </div>
         </div>

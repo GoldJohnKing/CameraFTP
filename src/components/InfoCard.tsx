@@ -1,27 +1,8 @@
-import { useEffect, useState } from 'react';
-import { invoke } from '@tauri-apps/api/core';
-import { Wifi, Power } from 'lucide-react';
+import { Wifi } from 'lucide-react';
 import { useServerStore } from '../stores/serverStore';
 
 export function InfoCard() {
   const { serverInfo, isRunning } = useServerStore();
-  const [autostartEnabled, setAutostartEnabled] = useState(false);
-
-  useEffect(() => {
-    // 获取当前自启状态
-    invoke('get_autostart_status')
-      .then(status => setAutostartEnabled(status as boolean))
-      .catch(console.error);
-  }, []);
-
-  const toggleAutostart = async () => {
-    try {
-      await invoke('set_autostart_command', { enable: !autostartEnabled });
-      setAutostartEnabled(!autostartEnabled);
-    } catch (e) {
-      console.error('Failed to toggle autostart:', e);
-    }
-  };
 
   if (!isRunning || !serverInfo) {
     return (
@@ -68,28 +49,6 @@ export function InfoCard() {
           <span className="font-medium text-gray-800">
             {serverInfo.username === 'anonymous' ? '匿名登陆 (任意用户名/密码)' : serverInfo.username}
           </span>
-        </div>
-      </div>
-
-      {/* 自启动设置 */}
-      <div className="mt-4 pt-4 border-t border-gray-200">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Power className="w-4 h-4 text-gray-500" />
-            <span className="text-sm text-gray-600">开机自启动</span>
-          </div>
-          <button
-            onClick={toggleAutostart}
-            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-              autostartEnabled ? 'bg-blue-600' : 'bg-gray-200'
-            }`}
-          >
-            <span
-              className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                autostartEnabled ? 'translate-x-6' : 'translate-x-1'
-              }`}
-            />
-          </button>
         </div>
       </div>
     </div>

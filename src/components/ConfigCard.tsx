@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Folder, Check, Loader2 } from 'lucide-react';
+import { Folder, Loader2 } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { useConfigStore } from '../stores/configStore';
 
@@ -12,16 +12,27 @@ export function ConfigCard() {
     updateSavePath,
     setAutostart,
     selectDirectory,
+    updatePort,
+    updateAutoSelectPort,
   } = useConfigStore();
 
   const [autostartEnabled, setAutostartEnabled] = useState(false);
-  const [saveSuccess, setSaveSuccess] = useState(false);
   const [isLoadingAutostart, setIsLoadingAutostart] = useState(false);
+  const [portInput, setPortInput] = useState('2121');
+  const [portError, setPortError] = useState<string | null>(null);
+  const [isCheckingPort, setIsCheckingPort] = useState(false);
 
   useEffect(() => {
     loadConfig();
     loadAutostartStatus();
   }, []);
+
+  // 当配置加载后，同步端口输入值
+  useEffect(() => {
+    if (config) {
+      setPortInput(config.port.toString());
+    }
+  }, [config?.port]);
 
   const loadAutostartStatus = async () => {
     try {
@@ -36,7 +47,6 @@ export function ConfigCard() {
     const selected = await selectDirectory();
     if (selected) {
       await updateSavePath(selected);
-      showSaveSuccess();
     }
   };
 
@@ -46,15 +56,59 @@ export function ConfigCard() {
       const newValue = !autostartEnabled;
       await setAutostart(newValue);
       setAutostartEnabled(newValue);
-      showSaveSuccess();
     } finally {
       setIsLoadingAutostart(false);
     }
   };
 
-  const showSaveSuccess = () => {
-    setSaveSuccess(true);
-    setTimeout(() => setSaveSuccess(false), 2000);
+  const handleAutoSelectToggle = async () => {
+    if (!config) return;
+    const newValue = !config.auto_select_port;
+    await updateAutoSelectPort(newValue);
+  };
+
+  const validatePort = (value: string): number | null => {
+    const port = parseInt(value, 10);
+    if (isNaN(port) || port < 1024 || port > 65535) {
+      return null;
+    }
+    return port;
+  };
+
+  const handlePortChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value;
+    setPortInput(value);
+
+    const port = validatePort(value);
+    if (port === null) {
+      setPortError('端口号必须在 1024-65535 之间');
+    } else {
+      setPortError(null);
+    }
+  };
+
+  const handlePortBlur = async () => {
+    const port = validatePort(portInput);
+    if (port === null || !config) return;
+
+    if (port === config.port) return;
+
+    setIsCheckingPort(true);
+    try {
+      const isAvailable = await invoke<boolean>('check_port_available', { port });
+      if (!isAvailable) {
+        setPortError(`端口 ${port} 已被占用`);
+        setIsCheckingPort(false);
+        return;
+      }
+
+      await updatePort(port);
+    } catch (err) {
+      console.error('Failed to check port:', err);
+      setPortError('检查端口时出错');
+    } finally {
+      setIsCheckingPort(false);
+    }
   };
 
   return (
@@ -119,13 +173,66 @@ export function ConfigCard() {
           </button>
         </div>
 
-        {/* 保存成功提示 */}
-        {saveSuccess && (
-          <div className="flex items-center gap-2 text-green-600 text-sm">
-            <Check className="w-4 h-4" />
-            <span>设置已保存</span>
+        {/* 端口配置 */}
+        <div className="space-y-3">
+          <div className="flex items-center justify-between py-2">
+            <div>
+              <label className="block text-sm font-medium text-gray-700">
+                自动选择端口
+              </label>
+              <p className="text-xs text-gray-500 mt-1">
+                自动寻找可用端口（推荐）
+              </p>
+            </div>
+            <button
+              onClick={handleAutoSelectToggle}
+              disabled={isLoading}
+              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                config?.auto_select_port ? 'bg-blue-600' : 'bg-gray-200'
+              } disabled:opacity-50 disabled:cursor-not-allowed`}
+            >
+              <span
+                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                  config?.auto_select_port ? 'translate-x-6' : 'translate-x-1'
+                }`}
+              />
+            </button>
           </div>
-        )}
+
+          {/* 手动端口输入 */}
+          {!config?.auto_select_port && (
+            <div className="pl-4 border-l-2 border-gray-200">
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                端口号
+              </label>
+              <div className="relative">
+                <input
+                  type="number"
+                  value={portInput}
+                  onChange={handlePortChange}
+                  onBlur={handlePortBlur}
+                  placeholder="1024-65535"
+                  disabled={isLoading || isCheckingPort}
+                  className={`w-full px-3 py-2 border rounded-lg text-sm transition-colors ${
+                    portError
+                      ? 'border-red-300 bg-red-50 text-red-700'
+                      : 'border-gray-200 bg-white text-gray-700'
+                  } disabled:opacity-50 disabled:cursor-not-allowed`}
+                />
+                {isCheckingPort && (
+                  <Loader2 className="w-4 h-4 animate-spin text-gray-400 absolute right-3 top-1/2 -translate-y-1/2" />
+                )}
+              </div>
+              {portError ? (
+                <p className="text-xs text-red-600 mt-1">{portError}</p>
+              ) : (
+                <p className="text-xs text-gray-500 mt-1">
+                  设置 FTP 服务器监听的端口号（1024-65535）
+                </p>
+              )}
+            </div>
+          )}
+        </div>
 
         {/* 错误提示 */}
         {error && (

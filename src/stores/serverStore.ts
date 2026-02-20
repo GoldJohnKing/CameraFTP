@@ -114,6 +114,7 @@ export const useServerStore = create<ServerState>((set, get) => ({
 
     // 监听统计更新事件（用于替代轮询）
     const unlistenStats = await listen<ServerStatus>('stats-update', (event) => {
+      console.log('Stats update received:', event.payload);
       set({ stats: event.payload });
     });
     listeners.push(unlistenStats);

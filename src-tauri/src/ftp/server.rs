@@ -424,6 +424,8 @@ impl FtpServerActor {
             }
         };
 
+        // 使用 sessions 集合的大小作为连接数（更可靠）
+        snapshot.connected_clients = self.sessions.len();
         snapshot.is_running = is_running;
         snapshot
     }

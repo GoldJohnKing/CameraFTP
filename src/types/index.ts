@@ -20,6 +20,7 @@ export interface AppConfig {
   auto_open: boolean;
   auto_open_program: string | null;
   port: number;
+  auto_select_port: boolean;
   file_extensions: string[];
 }
 
