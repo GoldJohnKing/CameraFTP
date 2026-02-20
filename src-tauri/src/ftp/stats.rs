@@ -172,38 +172,4 @@ impl StatsActorWorker {
     }
 }
 
-/// 同步统计快照（用于快速读取，无需等待）
-#[derive(Debug, Clone)]
-pub struct StatsSnapshot {
-    inner: Arc<RwLock<ServerStats>>,
-}
 
-impl StatsSnapshot {
-    pub fn new() -> Self {
-        Self {
-            inner: Arc::new(RwLock::new(ServerStats::default())),
-        }
-    }
-
-    /// 尝试获取统计（非阻塞）
-    pub fn try_get(&self) -> Option<ServerStats> {
-        self.inner.try_read().ok().map(|g| g.clone())
-    }
-
-    /// 异步获取统计
-    pub async fn get(&self) -> ServerStats {
-        self.inner.read().await.clone()
-    }
-
-    /// 更新统计（内部使用）
-    pub async fn update(&self, stats: ServerStats) {
-        let mut guard = self.inner.write().await;
-        *guard = stats;
-    }
-}
-
-impl Default for StatsSnapshot {
-    fn default() -> Self {
-        Self::new()
-    }
-}
