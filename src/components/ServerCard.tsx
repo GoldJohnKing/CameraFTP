@@ -4,7 +4,6 @@ import { useServerStore } from '../stores/serverStore';
 export function ServerCard() {
   const { 
     isRunning, 
-    serverInfo, 
     isLoading, 
     error,
     startServer, 
@@ -25,21 +24,7 @@ export function ServerCard() {
   };
 
   return (
-    <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-      <div className="flex items-center justify-between mb-4">
-        <h2 className="text-lg font-semibold text-gray-800">FTP服务器</h2>
-        <div className={`w-3 h-3 rounded-full ${
-          isRunning ? 'bg-green-500 animate-pulse' : 'bg-red-500'
-        }`} />
-      </div>
-
-      <p className="text-gray-600 mb-6">
-        {isRunning 
-          ? `运行中 - ${serverInfo?.ip}:${serverInfo?.port}`
-          : '服务器已停止，点击启动接收照片'
-        }
-      </p>
-
+    <div>
       <button
         onClick={handleToggle}
         disabled={isLoading}

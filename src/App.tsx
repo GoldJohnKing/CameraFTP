@@ -118,8 +118,8 @@ function App() {
         {/* Main Content */}
         <div className="space-y-4">
           <ServerCard />
-          <StatsCard />
           <InfoCard />
+          <StatsCard />
         </div>
 
         {/* Footer */}

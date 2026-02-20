@@ -1,11 +1,10 @@
 import { useEffect, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { Wifi, Copy, Check, Power } from 'lucide-react';
+import { Wifi, Power } from 'lucide-react';
 import { useServerStore } from '../stores/serverStore';
 
 export function InfoCard() {
   const { serverInfo, isRunning } = useServerStore();
-  const [copied, setCopied] = useState(false);
   const [autostartEnabled, setAutostartEnabled] = useState(false);
 
   useEffect(() => {
@@ -24,20 +23,13 @@ export function InfoCard() {
     }
   };
 
-  const copyConnectionInfo = () => {
-    if (!serverInfo) return;
-    
-    const info = `协议: FTP (被动模式)\n地址: ${serverInfo.url}\n用户名: ${serverInfo.username}\n密码: ${serverInfo.password_info}`;
-    
-    navigator.clipboard.writeText(info);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
-
   if (!isRunning || !serverInfo) {
     return (
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-        <h2 className="text-lg font-semibold text-gray-800 mb-4">连接信息</h2>
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-semibold text-gray-800">连接信息</h2>
+          <div className="w-3 h-3 rounded-full bg-red-500" />
+        </div>
         <p className="text-gray-500 text-center py-4">
           启动服务器后显示连接信息
         </p>
@@ -57,44 +49,27 @@ export function InfoCard() {
       <div className="space-y-3 text-sm">
         <div className="flex justify-between">
           <span className="text-gray-500">协议</span>
-          <span className="font-medium text-gray-800">FTP (被动模式)</span>
+          <span className="font-medium text-gray-800">FTP (PASV 模式 / 被动模式)</span>
         </div>
         <div className="flex justify-between">
-          <span className="text-gray-500">地址</span>
+          <span className="text-gray-500">IP 地址</span>
           <span className="font-medium text-gray-800 font-mono">
-            {serverInfo.url}
+            {serverInfo.ip}
           </span>
         </div>
         <div className="flex justify-between">
-          <span className="text-gray-500">用户名</span>
-          <span className="font-medium text-gray-800">
-            {serverInfo.username}
+          <span className="text-gray-500">端口</span>
+          <span className="font-medium text-gray-800 font-mono">
+            {serverInfo.port}
           </span>
         </div>
         <div className="flex justify-between">
-          <span className="text-gray-500">密码</span>
+          <span className="text-gray-500">用户名 / 密码</span>
           <span className="font-medium text-gray-800">
-            {serverInfo.password_info}
+            {serverInfo.username === 'anonymous' ? '匿名登陆 (任意用户名/密码)' : serverInfo.username}
           </span>
         </div>
       </div>
-
-      <button
-        onClick={copyConnectionInfo}
-        className="mt-4 w-full py-2 px-4 bg-gray-50 text-gray-700 rounded-lg flex items-center justify-center gap-2 hover:bg-gray-100 transition-colors"
-      >
-        {copied ? (
-          <>
-            <Check className="w-4 h-4" />
-            已复制
-          </>
-        ) : (
-          <>
-            <Copy className="w-4 h-4" />
-            复制连接信息
-          </>
-        )}
-      </button>
 
       {/* 自启动设置 */}
       <div className="mt-4 pt-4 border-t border-gray-200">
