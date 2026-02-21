@@ -143,34 +143,33 @@ export function ConfigCard() {
 
       <div className="p-4 space-y-6">
         {/* 存储路径配置 */}
-        <div className="bg-white rounded-lg p-4 shadow-sm">
-          <h3 className="text-lg font-semibold mb-4">存储设置</h3>
-
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <span className="text-gray-600">当前路径</span>
+        <div className="space-y-3">
+          <div className="flex items-center justify-between py-2">
+            <div className="flex-1 min-w-0">
+              <label className="block text-sm font-medium text-gray-700">
+                存储路径
+              </label>
               {isLoadingPath ? (
-                <span className="text-gray-400">加载中...</span>
+                <p className="text-xs text-gray-400 mt-1">加载中...</p>
               ) : pathInfo ? (
-                <span className="flex items-center gap-2">
-                  <span className="text-gray-900">{pathInfo.path_name}</span>
+                <p className="text-xs mt-1 flex items-center gap-1">
+                  <span className="text-gray-500 truncate">{pathInfo.path_name}</span>
                   {pathInfo.is_valid ? (
-                    <span className="text-green-500">✅</span>
+                    <span className="text-green-500 shrink-0">正常</span>
                   ) : (
-                    <span className="text-red-500">❌ 权限失效</span>
+                    <span className="text-red-500 shrink-0">权限失效</span>
                   )}
-                </span>
+                </p>
               ) : (
-                <span className="text-gray-400">未配置</span>
+                <p className="text-xs text-gray-400 mt-1">未配置</p>
               )}
             </div>
-
             <button
               onClick={handleChangePath}
               disabled={isLoadingPath}
-              className="w-full py-2 px-4 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              className="ml-3 shrink-0 px-3 py-1.5 text-sm bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
-              {pathInfo ? '更改存储路径' : '选择存储路径'}
+              {pathInfo ? '更改' : '选择'}
             </button>
           </div>
         </div>

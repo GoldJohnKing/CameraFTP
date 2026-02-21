@@ -14,7 +14,7 @@ export function ServerCard() {
     startServer, 
     stopServer 
   } = useServerStore();
-  const { pathInfo, isChecking, checkPrerequisites, saveStoragePath, getLastUri } = useStoragePermission();
+  const { isChecking, checkPrerequisites, saveStoragePath, getLastUri } = useStoragePermission();
   const { openPicker } = useSAFPicker();
 
   const handleStartServer = useCallback(async () => {
@@ -110,12 +110,6 @@ export function ServerCard() {
 
       {error && (
         <p className="mt-3 text-sm text-red-600 text-center">{error}</p>
-      )}
-
-      {pathInfo && (
-        <div className="text-sm text-gray-500 mt-2 text-center">
-          存储路径：{pathInfo.path_name} {pathInfo.is_valid ? '✅' : '❌'}
-        </div>
       )}
     </div>
   );
