@@ -34,17 +34,30 @@ function App() {
 
   // 使用自定义 hook 管理其他监听器
   useTauriListeners([
-    { 
-      event: 'tray-start-server', 
-      handler: () => startServer().catch(console.error) 
+    {
+      event: 'tray-start-server',
+      handler: () => startServer().catch(console.error)
     },
-    { 
-      event: 'tray-stop-server', 
-      handler: () => stopServer().catch(console.error) 
+    {
+      event: 'tray-stop-server',
+      handler: () => stopServer().catch(console.error)
     },
-    { 
-      event: 'window-close-requested', 
-      handler: () => setShowQuitDialog(true) 
+    {
+      event: 'window-close-requested',
+      handler: () => setShowQuitDialog(true)
+    },
+    {
+      event: 'android-open-settings',
+      handler: () => {
+        // Android: 跳转到设置页面开启所有文件访问权限
+        if ((window as any).MainActivity?.openAllFilesAccessSettings) {
+          (window as any).MainActivity.openAllFilesAccessSettings();
+        } else {
+          console.warn('MainActivity.openAllFilesAccessSettings not available');
+          // 备用方案：提示用户手动开启
+          alert('请手动前往 设置 > 应用 > 图传伴侣 > 权限 > 开启"所有文件访问权限"');
+        }
+      }
     },
   ]);
 

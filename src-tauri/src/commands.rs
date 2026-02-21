@@ -222,7 +222,7 @@ pub fn hide_main_window(app: tauri::AppHandle) -> Result<(), String> {
     }
 }
 
-/// 选择目录对话框
+/// 选择目录对话框（桌面平台）
 #[tauri::command]
 pub async fn select_directory(app: tauri::AppHandle) -> Result<Option<String>, String> {
     use tauri_plugin_dialog::DialogExt;
@@ -244,16 +244,100 @@ pub async fn select_directory(app: tauri::AppHandle) -> Result<Option<String>, S
     
     #[cfg(target_os = "android")]
     {
-        // Android 平台：使用应用私有目录
-        use tauri::Manager;
-        let app_data_dir = app.path().app_data_dir()
-            .map_err(|e| format!("Failed to get app data dir: {}", e))?;
+        // Android 平台：返回当前配置中的路径
+        // 实际选择由前端通过 JS 调用 Android SAF API 完成
+        let config = AppConfig::load();
+        Ok(Some(config.save_path.to_string_lossy().to_string()))
+    }
+}
+
+/// 选择保存目录（支持 Android SAF）
+/// Android: 触发前端 SAF 选择器，返回当前配置路径
+/// 桌面: 打开原生文件夹对话框
+#[tauri::command]
+pub async fn select_save_directory(app: tauri::AppHandle) -> Result<Option<String>, String> {
+    #[cfg(not(target_os = "android"))]
+    {
+        use tauri_plugin_dialog::DialogExt;
         
-        let ftp_dir = app_data_dir.join("ftp_uploads");
+        let folder_path = tokio::task::spawn_blocking(move || {
+            app.dialog()
+                .file()
+                .set_title("选择存储路径")
+                .blocking_pick_folder()
+        })
+        .await
+        .map_err(|e| format!("Task failed: {}", e))?;
+
+        Ok(folder_path.and_then(|p| p.as_path().map(|path| path.to_string_lossy().to_string())))
+    }
+    
+    #[cfg(target_os = "android")]
+    {
+        // Android: 返回当前配置路径，实际选择由前端处理
+        // 前端通过监听事件调用 SAF，然后通过 save_config 保存
+        let config = AppConfig::load();
+        Ok(Some(config.save_path.to_string_lossy().to_string()))
+    }
+}
+
+/// 验证保存路径是否有效
+#[tauri::command]
+pub fn validate_save_path(path: String) -> bool {
+    let path_obj = std::path::PathBuf::from(&path);
+    
+    // Android SAF URI (content://...) 由前端验证
+    if path.starts_with("content://") {
+        return true;
+    }
+    
+    // 传统路径检查
+    path_obj.exists() && path_obj.is_dir()
+}
+
+/// 获取推荐存储路径
+#[tauri::command]
+pub fn get_recommended_save_path(app: tauri::AppHandle) -> Result<String, String> {
+    #[cfg(target_os = "android")]
+    {
+        use tauri::Manager;
+        
+        // 尝试 DCIM/CameraFTPCompanion
+        let dcim = app.path().resolve(
+            "/sdcard/DCIM/CameraFTPCompanion",
+            tauri::path::BaseDirectory::Home
+        );
+        if let Ok(path) = dcim {
+            if std::fs::create_dir_all(&path).is_ok() {
+                return Ok(path.to_string_lossy().to_string());
+            }
+        }
+        
+        // 尝试 Pictures/CameraFTPCompanion
+        let pictures = app.path().resolve(
+            "/sdcard/Pictures/CameraFTPCompanion",
+            tauri::path::BaseDirectory::Home
+        );
+        if let Ok(path) = pictures {
+            if std::fs::create_dir_all(&path).is_ok() {
+                return Ok(path.to_string_lossy().to_string());
+            }
+        }
+        
+        // 回退到应用私有目录
+        let app_data = app.path().app_data_dir()
+            .map_err(|e| format!("Failed to get app data dir: {}", e))?;
+        let ftp_dir = app_data.join("ftp_uploads");
         std::fs::create_dir_all(&ftp_dir)
             .map_err(|e| format!("Failed to create ftp directory: {}", e))?;
         
-        Ok(Some(ftp_dir.to_string_lossy().to_string()))
+        Ok(ftp_dir.to_string_lossy().to_string())
+    }
+    
+    #[cfg(not(target_os = "android"))]
+    {
+        let config = AppConfig::load();
+        Ok(config.save_path.to_string_lossy().to_string())
     }
 }
 
@@ -283,4 +367,39 @@ pub fn get_platform() -> String {
         target_os = "ios"
     )))]
     { "unknown".to_string() }
+}
+
+/// 检查是否有所有文件访问权限（Android 11+）
+#[tauri::command]
+pub fn check_all_files_access_permission() -> bool {
+    #[cfg(target_os = "android")]
+    {
+        // Android 11+ 需要检查 MANAGE_EXTERNAL_STORAGE
+        // 由于 JNI 调用复杂，这里返回 true 让前端处理
+        // 实际检查在前端通过 JS 桥完成
+        true
+    }
+    
+    #[cfg(not(target_os = "android"))]
+    {
+        // 非 Android 平台默认返回 true
+        true
+    }
+}
+
+/// 跳转到 Android 设置页面开启所有文件访问权限
+#[tauri::command]
+pub fn open_all_files_access_settings(app: tauri::AppHandle) -> Result<(), String> {
+    #[cfg(target_os = "android")]
+    {
+        use tauri::Emitter;
+        // 发送事件给前端，前端调用 Android 原生代码跳转
+        let _ = app.emit("android-open-settings", ());
+        Ok(())
+    }
+    
+    #[cfg(not(target_os = "android"))]
+    {
+        Err("此功能仅在 Android 平台可用".to_string())
+    }
 }

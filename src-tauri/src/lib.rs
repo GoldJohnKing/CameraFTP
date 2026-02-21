@@ -12,7 +12,7 @@ use tokio::sync::Mutex;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use tauri::{Manager, Emitter};
 
-use commands::{check_port_available, get_autostart_status, get_diagnostic_info, get_network_info, get_platform, get_server_status, hide_main_window, load_config, quit_application, save_config, select_directory, set_autostart_command, start_server, stop_server, FtpServerState};
+use commands::{check_all_files_access_permission, check_port_available, get_autostart_status, get_diagnostic_info, get_network_info, get_platform, get_recommended_save_path, get_server_status, hide_main_window, load_config, open_all_files_access_settings, quit_application, save_config, select_directory, select_save_directory, set_autostart_command, start_server, stop_server, validate_save_path, FtpServerState};
 use ftp::types::ServerStateSnapshot;
 
 fn setup_logging() {
@@ -224,7 +224,12 @@ pub fn run() {
             quit_application,
             hide_main_window,
             select_directory,
+            select_save_directory,
+            validate_save_path,
+            get_recommended_save_path,
             get_platform,
+            check_all_files_access_permission,
+            open_all_files_access_settings,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -52,8 +52,28 @@ pub async fn start_ftp_server(
     // 确保保存目录存在
     tokio::fs::create_dir_all(&config.save_path).await.map_err(|e| {
         error!(error = %e, path = %config.save_path.display(), "Failed to create save directory");
-        AppError::from(e)
+        AppError::Other(format!(
+            "无法创建保存目录 '{}': {}。请检查存储权限或更改保存路径。",
+            config.save_path.display(),
+            e
+        ))
     })?;
+
+    // 检查目录是否可写
+    let test_file = config.save_path.join(".write_test");
+    match tokio::fs::write(&test_file, b"test").await {
+        Ok(_) => {
+            let _ = tokio::fs::remove_file(&test_file).await;
+        }
+        Err(e) => {
+            error!(error = %e, path = %config.save_path.display(), "Save directory is not writable");
+            return Err(AppError::Other(format!(
+                "保存目录 '{}' 没有写入权限 ({})。Android 用户请使用应用私有目录，或在系统设置中开启'所有文件访问权限'。",
+                config.save_path.display(),
+                e
+            )));
+        }
+    }
 
     // 查找可用端口
     let port = if NetworkManager::is_port_available(config.port).await {

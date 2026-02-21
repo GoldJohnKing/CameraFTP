@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
 use std::sync::Mutex;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 use ts_rs::TS;
 
 /// Android 存储路径（在应用初始化时设置）
@@ -158,21 +158,56 @@ impl AppConfig {
 pub fn init_android_paths(app_handle: &tauri::AppHandle) {
     use tauri::Manager;
 
-    // 获取应用外部存储目录: /sdcard/Android/data/com.gjk.cameraftpcompanion/files/
-    let external_dir = app_handle
+    // Android 11+ 对外部存储目录(/sdcard/Android/data/)访问受限
+    // 使用应用内部存储目录 /data/data/<package>/files/ 确保始终可访问
+    let internal_dir = app_handle
         .path()
-        .app_data_dir()
-        .unwrap_or_else(|_| PathBuf::from("/sdcard/Android/data/com.gjk.cameraftpcompanion/files"));
+        .data_dir()
+        .unwrap_or_else(|_| PathBuf::from("/data/data/com.gjk.cameraftpcompanion/files"));
 
-    let save_path = external_dir.join("ftp_uploads");
-    let config_path = external_dir.join("config.json");
+    let default_save_path = internal_dir.join("ftp_uploads");
+    let config_path = internal_dir.join("config.json");
 
     // 确保目录存在
-    let _ = fs::create_dir_all(&save_path);
-    let _ = fs::create_dir_all(external_dir);
+    let _ = fs::create_dir_all(&default_save_path);
+    let _ = fs::create_dir_all(&internal_dir);
 
-    set_android_paths(save_path, config_path);
-    info!("Android paths initialized");
+    // 尝试加载现有配置
+    let mut config = AppConfig::load();
+
+    // Android 10+ (API 29+) 引入 Scoped Storage，应用不能直接写入公共目录
+    // 默认使用应用私有目录（不需要特殊权限）
+    // 如果用户想要使用公共目录（如 DCIM），需要在设置中手动选择并开启权限
+    if config.save_path.to_string_lossy().is_empty() {
+        config.save_path = default_save_path.clone();
+        let _ = config.save();
+    } else {
+        // 验证现有路径是否可写
+        let test_file = config.save_path.join(".write_test");
+        match fs::File::create(&test_file) {
+            Ok(_) => {
+                let _ = fs::remove_file(&test_file);
+            }
+            Err(_) => {
+                // 路径不可写，回退到应用私有目录
+                warn!("Save path is not writable, falling back to app private directory");
+                config.save_path = default_save_path.clone();
+                let _ = config.save();
+            }
+        }
+    }
+
+    let final_save_path = if config.save_path.to_string_lossy().is_empty() {
+        default_save_path
+    } else {
+        config.save_path.clone()
+    };
+
+    set_android_paths(final_save_path.clone(), config_path.clone());
+    info!(
+        "Android paths initialized: save={:?}, config={:?}",
+        final_save_path, config_path
+    );
 }
 
 #[cfg(not(target_os = "android"))]

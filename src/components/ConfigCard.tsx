@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Folder, Loader2 } from 'lucide-react';
+import { Folder, Loader2, AlertCircle, CheckCircle, ExternalLink } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { useConfigStore } from '../stores/configStore';
 
@@ -23,9 +23,11 @@ export function ConfigCard() {
   const [portInput, setPortInput] = useState('2121');
   const [portError, setPortError] = useState<string | null>(null);
   const [isCheckingPort, setIsCheckingPort] = useState(false);
+  const [pathStatus, setPathStatus] = useState<'valid' | 'invalid' | 'checking'>('checking');
 
   // 是否是桌面平台（显示开机自启动选项）
   const isDesktop = platform === 'windows' || platform === 'macos' || platform === 'linux';
+  const isAndroid = platform === 'android';
 
   useEffect(() => {
     loadConfig();
@@ -33,12 +35,23 @@ export function ConfigCard() {
     loadAutostartStatus();
   }, []);
 
-  // 当配置加载后，同步端口输入值
+  // 当配置加载后，同步端口输入值和检查路径状态
   useEffect(() => {
     if (config) {
       setPortInput(config.port.toString());
+      checkPathStatus(config.save_path);
     }
-  }, [config?.port]);
+  }, [config?.port, config?.save_path]);
+
+  const checkPathStatus = async (path: string) => {
+    setPathStatus('checking');
+    try {
+      const isValid = await invoke<boolean>('validate_save_path', { path });
+      setPathStatus(isValid ? 'valid' : 'invalid');
+    } catch (e) {
+      setPathStatus('invalid');
+    }
+  };
 
   const loadAutostartStatus = async () => {
     try {
@@ -53,6 +66,18 @@ export function ConfigCard() {
     const selected = await selectDirectory();
     if (selected) {
       await updateSavePath(selected);
+    }
+  };
+
+  const handleOpenSettings = async () => {
+    try {
+      await invoke('open_all_files_access_settings');
+    } catch (err) {
+      console.error('Failed to open settings:', err);
+      // 如果命令失败，尝试使用浏览器打开设置页面
+      if (isAndroid && (window as any).MainActivity?.openAllFilesAccessSettings) {
+        (window as any).MainActivity.openAllFilesAccessSettings();
+      }
     }
   };
 
@@ -132,11 +157,13 @@ export function ConfigCard() {
           </label>
           <div className="flex gap-2">
             <div className="flex-1 min-w-0">
-              <div className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-700 truncate">
-                {config?.save_path || '未设置'}
+              <div className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-700 truncate flex items-center gap-2">
+                <span className="flex-1">{config?.save_path || '未设置'}</span>
+                {pathStatus === 'valid' && <CheckCircle className="w-4 h-4 text-green-500 flex-shrink-0" />}
+                {pathStatus === 'invalid' && <AlertCircle className="w-4 h-4 text-red-500 flex-shrink-0" />}
               </div>
             </div>
-            {isDesktop && (
+            {(isDesktop || isAndroid) && (
               <button
                 onClick={handleSelectDirectory}
                 disabled={isLoading}
@@ -147,10 +174,28 @@ export function ConfigCard() {
               </button>
             )}
           </div>
+          {pathStatus === 'invalid' && (
+            <div className="mt-2 space-y-2">
+              <p className="text-xs text-red-500">
+                路径无效或权限不足。{isAndroid ? '请使用应用私有目录，或在系统设置中开启存储权限。' : '请选择其他目录。'}
+              </p>
+              {isAndroid && (
+                <button
+                  onClick={handleOpenSettings}
+                  className="flex items-center gap-1 px-3 py-1.5 bg-orange-100 text-orange-700 rounded-md hover:bg-orange-200 transition-colors text-xs"
+                >
+                  <ExternalLink className="w-3 h-3" />
+                  <span>开启"所有文件访问权限"</span>
+                </button>
+              )}
+            </div>
+          )}
           <p className="text-xs text-gray-500 mt-2">
-            {isDesktop 
-              ? '相机上传的文件将保存到此目录' 
-              : 'Android平台使用应用私有目录存储文件'}
+            {isDesktop
+              ? '相机上传的文件将保存到此目录'
+              : isAndroid
+                ? 'Android 10+ 请使用应用私有目录，或点击"开启所有文件访问权限"按钮'
+                : '使用应用私有目录存储文件'}
           </p>
         </div>
 
