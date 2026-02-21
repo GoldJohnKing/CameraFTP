@@ -60,13 +60,8 @@ pub async fn save_storage_path(
     {
         use crate::platform::android;
         
-        // First, persist the SAF permission
-        let persisted = android::persist_saf_permission(&app, &uri);
-        if !persisted {
-            warn!("Failed to persist SAF permission for URI: {}", uri);
-            return Err("Failed to persist storage permission".to_string());
-        }
-        info!("SAF permission persisted successfully");
+        // Persist the SAF permission (best effort)
+        let _persisted = android::persist_saf_permission(&app, &uri);
         
         // Try to convert URI to file path
         let raw_path = android::uri_to_file_path(&app, &uri);
@@ -75,13 +70,30 @@ pub async fn save_storage_path(
         let mut config = AppConfig::load();
         
         // Use raw_path for save_path (actual filesystem path for FTP server)
-        // Fall back to path_name if conversion fails
+        // If conversion fails, we need all files access permission
         if let Some(ref raw) = raw_path {
-            config.save_path = PathBuf::from(raw);
+            // Check if the path is actually accessible
+            let path = PathBuf::from(raw);
+            let parent = path.parent();
+            let is_accessible = parent.map(|p| p.exists()).unwrap_or(false);
+            
+            if is_accessible {
+                config.save_path = path;
+                info!("Using converted path: {}", raw);
+            } else {
+                // Path conversion succeeded but directory not accessible
+                // User needs to grant MANAGE_EXTERNAL_STORAGE permission
+                warn!("Path conversion succeeded but directory not accessible: {}", raw);
+                return Err(
+                    "无法访问所选目录。请前往系统设置开启'所有文件访问权限'后重试。".to_string()
+                );
+            }
         } else {
-            // If we can't convert URI to path, this is an error on Android
+            // Cannot convert URI to path - need all files access
             warn!("Could not convert SAF URI to file path: {}", uri);
-            return Err("无法解析存储路径。请选择其他目录。".to_string());
+            return Err(
+                "无法解析存储路径。请前往系统设置开启'所有文件访问权限'后重试。".to_string()
+            );
         }
         
         config.save_path_uri = Some(uri.clone());
@@ -90,7 +102,7 @@ pub async fn save_storage_path(
         config.save_path_display = Some(path_name.clone());
         
         config.save().map_err(|e| format!("Failed to save config: {}", e))?;
-        info!("Storage path saved: display={}, raw_path={:?}", path_name, raw_path);
+        info!("Storage path saved successfully: display={}", path_name);
     }
 
     #[cfg(not(target_os = "android"))]
