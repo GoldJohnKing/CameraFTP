@@ -1,71 +1,94 @@
 package com.gjk.cameraftpcompanion
 
+import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import android.util.Log
+import android.webkit.JavascriptInterface
 import androidx.activity.enableEdgeToEdge
-import androidx.activity.result.ActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 
-class MainActivity : TauriActivity() {
-
+/**
+ * JavaScript Bridge 接口
+ * 允许前端JavaScript直接调用Android方法
+ */
+class SAFPickerBridge(private val activity: MainActivity) {
+    
     companion object {
-        // 存储选择的回调，供 Rust 调用
-        @JvmStatic
-        var directoryPickerCallback: ((String?) -> Unit)? = null
+        private const val TAG = "SAFPickerBridge"
+    }
+    
+    private var callbackId: String? = null
+    
+    /**
+     * 打开SAF目录选择器
+     * @param initialUri 初始URI（可选）
+     * @param callback JavaScript回调函数名
+     */
+    @JavascriptInterface
+    fun openPicker(initialUri: String?, callback: String): Boolean {
+        Log.d(TAG, "openPicker called from JavaScript, callback: $callback")
+        callbackId = callback
+        
+        activity.runOnUiThread {
+            activity.openSAFPicker(initialUri) { uri ->
+                // 调用JavaScript回调
+                val jsCode = if (uri != null) {
+                    "$callback('$uri')"
+                } else {
+                    "$callback(null)"
+                }
+                
+                activity.evaluateJavascript(jsCode)
+            }
+        }
+        
+        return true
+    }
+}
 
-        // 静态引用当前 Activity
+class MainActivity : TauriActivity() {
+    
+    companion object {
+        private const val TAG = "MainActivity"
         @JvmStatic
         var currentActivity: MainActivity? = null
     }
+    
+    private var pickerCallback: ((String?) -> Unit)? = null
+    private var safBridge: SAFPickerBridge? = null
 
     // SAF 目录选择器回调
     private val safPickerLauncher = registerForActivityResult(
         ActivityResultContracts.OpenDocumentTree()
     ) { uri: Uri? ->
+        Log.d(TAG, "SAF Picker result: $uri")
+        
         if (uri != null) {
-            // 持久化权限和 URI
+            // 持久化权限
             val success = StorageHelper.persistDirectoryUri(this, uri)
             val uriString = if (success) uri.toString() else null
-
-            // 发送结果给前端/JavaScript
-            emitSAFPickerResult(uriString)
-
-            // 同时回调传统方式
-            directoryPickerCallback?.invoke(uriString)
+            pickerCallback?.invoke(uriString)
         } else {
-            // 用户取消了选择
-            emitSAFPickerResult(null)
-            directoryPickerCallback?.invoke(null)
+            // 用户取消
+            pickerCallback?.invoke(null)
         }
+        pickerCallback = null
     }
 
-    // 传统方式的 SAF 选择器
-    private val directoryPickerLauncher = registerForActivityResult(
-        ActivityResultContracts.StartActivityForResult()
-    ) { result: ActivityResult ->
-        if (result.resultCode == Activity.RESULT_OK) {
-            val uri = result.data?.data
-            if (uri != null) {
-                val success = StorageHelper.persistDirectoryUri(this, uri)
-                if (success) {
-                    directoryPickerCallback?.invoke(uri.toString())
-                } else {
-                    directoryPickerCallback?.invoke(null)
-                }
-            } else {
-                directoryPickerCallback?.invoke(null)
-            }
-        } else {
-            directoryPickerCallback?.invoke(null)
-        }
-    }
-
+    @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         currentActivity = this
+        Log.d(TAG, "MainActivity created")
+        
+        // 添加JavaScript Bridge
+        safBridge = SAFPickerBridge(this)
+        webView?.addJavascriptInterface(safBridge!!, "SAFPickerAndroid")
+        Log.d(TAG, "JavaScript Bridge added")
     }
 
     override fun onDestroy() {
@@ -78,44 +101,55 @@ class MainActivity : TauriActivity() {
     /**
      * 启动 SAF 目录选择器
      */
-    fun openSAFPicker(initialUri: String? = null) {
+    fun openSAFPicker(initialUri: String?, callback: (String?) -> Unit) {
+        Log.d(TAG, "Opening SAF picker, initialUri: $initialUri")
+        
+        pickerCallback = callback
+        
         val uri = initialUri?.let { Uri.parse(it) }
-        safPickerLauncher.launch(uri)
-    }
-
-    /**
-     * 启动 SAF 目录选择器（传统方式）
-     */
-    fun openDirectoryPicker(callback: (String?) -> Unit) {
-        directoryPickerCallback = callback
-        val intent = StorageHelper.createDirectoryPickerIntent()
-        directoryPickerLauncher.launch(intent)
-    }
-
-    /**
-     * 发送 SAF 选择器结果给前端
-     * 通过 Tauri 事件桥
-     */
-    private fun emitSAFPickerResult(uri: String?) {
-        // 使用 Tauri 的事件系统发送结果给前端
-        // 前端需要监听 "saf-picker-result" 事件
-        val intent = Intent("saf-picker-result").apply {
-            putExtra("uri", uri)
+        try {
+            safPickerLauncher.launch(uri)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to launch SAF picker", e)
+            callback(null)
+            pickerCallback = null
         }
-        sendBroadcast(intent)
     }
-
+    
     /**
-     * 检查是否有所有文件访问权限
+     * 在WebView中执行JavaScript
      */
-    fun hasAllFilesAccessPermission(): Boolean {
-        return StorageHelper.hasManageExternalStoragePermission(this)
+    fun evaluateJavascript(jsCode: String) {
+        webView?.evaluateJavascript(jsCode, null)
     }
-
+    
     /**
-     * 跳转到设置页面开启所有文件访问权限
+     * 获取WebView实例（供bridge使用）
      */
-    fun openAllFilesAccessSettings() {
-        StorageHelper.openManageStorageSettings(this)
+    val webView: android.webkit.WebView?
+        get() {
+            // 在TauriActivity中找到WebView
+            return findWebView(this)
+        }
+    
+    private fun findWebView(activity: Activity): android.webkit.WebView? {
+        val rootView = activity.window.decorView.rootView as? android.view.ViewGroup
+        return findWebViewInViewGroup(rootView)
+    }
+    
+    private fun findWebViewInViewGroup(viewGroup: android.view.ViewGroup?): android.webkit.WebView? {
+        if (viewGroup == null) return null
+        
+        for (i in 0 until viewGroup.childCount) {
+            val child = viewGroup.getChildAt(i)
+            if (child is android.webkit.WebView) {
+                return child
+            }
+            if (child is android.view.ViewGroup) {
+                val result = findWebViewInViewGroup(child)
+                if (result != null) return result
+            }
+        }
+        return null
     }
 }
