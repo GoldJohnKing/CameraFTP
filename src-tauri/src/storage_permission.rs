@@ -87,7 +87,7 @@ pub async fn save_storage_path(
         config.save_path_uri = Some(uri.clone());
         config.save_path_raw = raw_path.clone();
         // Store display name separately for UI
-        config.save_path_display = Some(path_name);
+        config.save_path_display = Some(path_name.clone());
         
         config.save().map_err(|e| format!("Failed to save config: {}", e))?;
         info!("Storage path saved: display={}, raw_path={:?}", path_name, raw_path);
