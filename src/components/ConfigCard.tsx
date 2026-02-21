@@ -1,7 +1,10 @@
-import { useEffect, useState } from 'react';
-import { Folder, Loader2, AlertCircle, CheckCircle, ExternalLink } from 'lucide-react';
+import { useEffect, useState, useCallback } from 'react';
+import { Loader2 } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
+import { toast } from 'sonner';
 import { useConfigStore } from '../stores/configStore';
+import { useStoragePermission } from '../hooks/useStoragePermission';
+import { useSAFPicker } from '../hooks/useSAFPicker';
 
 export function ConfigCard() {
   const {
@@ -11,23 +14,42 @@ export function ConfigCard() {
     platform,
     loadConfig,
     loadPlatform,
-    updateSavePath,
     setAutostart,
-    selectDirectory,
     updatePort,
     updateAutoSelectPort,
   } = useConfigStore();
+
+  const { pathInfo, isLoading: isLoadingPath, saveStoragePath, getLastUri } = useStoragePermission();
+  const { openPicker } = useSAFPicker();
 
   const [autostartEnabled, setAutostartEnabled] = useState(false);
   const [isLoadingAutostart, setIsLoadingAutostart] = useState(false);
   const [portInput, setPortInput] = useState('2121');
   const [portError, setPortError] = useState<string | null>(null);
   const [isCheckingPort, setIsCheckingPort] = useState(false);
-  const [pathStatus, setPathStatus] = useState<'valid' | 'invalid' | 'checking'>('checking');
 
   // 是否是桌面平台（显示开机自启动选项）
   const isDesktop = platform === 'windows' || platform === 'macos' || platform === 'linux';
-  const isAndroid = platform === 'android';
+
+  const handleChangePath = useCallback(async () => {
+    // Directly open SAF picker - no dialog
+    const lastUri = await getLastUri();
+    const result = await openPicker(lastUri || undefined);
+
+    if (!result) {
+      // User cancelled - no toast, just return
+      return;
+    }
+
+    // Save new path
+    const saved = await saveStoragePath(result.name, result.uri);
+
+    if (saved) {
+      toast.success(`存储路径已更新为：${result.name}`);
+    } else {
+      toast.error('更新存储路径失败');
+    }
+  }, [openPicker, saveStoragePath, getLastUri]);
 
   useEffect(() => {
     loadConfig();
@@ -35,23 +57,12 @@ export function ConfigCard() {
     loadAutostartStatus();
   }, []);
 
-  // 当配置加载后，同步端口输入值和检查路径状态
+  // 当配置加载后，同步端口输入值
   useEffect(() => {
     if (config) {
       setPortInput(config.port.toString());
-      checkPathStatus(config.save_path);
     }
-  }, [config?.port, config?.save_path]);
-
-  const checkPathStatus = async (path: string) => {
-    setPathStatus('checking');
-    try {
-      const isValid = await invoke<boolean>('validate_save_path', { path });
-      setPathStatus(isValid ? 'valid' : 'invalid');
-    } catch (e) {
-      setPathStatus('invalid');
-    }
-  };
+  }, [config?.port]);
 
   const loadAutostartStatus = async () => {
     try {
@@ -59,25 +70,6 @@ export function ConfigCard() {
       setAutostartEnabled(status);
     } catch (err) {
       console.error('Failed to load autostart status:', err);
-    }
-  };
-
-  const handleSelectDirectory = async () => {
-    const selected = await selectDirectory();
-    if (selected) {
-      await updateSavePath(selected);
-    }
-  };
-
-  const handleOpenSettings = async () => {
-    try {
-      await invoke('open_all_files_access_settings');
-    } catch (err) {
-      console.error('Failed to open settings:', err);
-      // 如果命令失败，尝试使用浏览器打开设置页面
-      if (isAndroid && (window as any).MainActivity?.openAllFilesAccessSettings) {
-        (window as any).MainActivity.openAllFilesAccessSettings();
-      }
     }
   };
 
@@ -151,52 +143,36 @@ export function ConfigCard() {
 
       <div className="p-4 space-y-6">
         {/* 存储路径配置 */}
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
-            存储路径
-          </label>
-          <div className="flex gap-2">
-            <div className="flex-1 min-w-0">
-              <div className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-700 truncate flex items-center gap-2">
-                <span className="flex-1">{config?.save_path || '未设置'}</span>
-                {pathStatus === 'valid' && <CheckCircle className="w-4 h-4 text-green-500 flex-shrink-0" />}
-                {pathStatus === 'invalid' && <AlertCircle className="w-4 h-4 text-red-500 flex-shrink-0" />}
-              </div>
-            </div>
-            {(isDesktop || isAndroid) && (
-              <button
-                onClick={handleSelectDirectory}
-                disabled={isLoading}
-                className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <Folder className="w-4 h-4" />
-                <span className="text-sm">选择</span>
-              </button>
-            )}
-          </div>
-          {pathStatus === 'invalid' && (
-            <div className="mt-2 space-y-2">
-              <p className="text-xs text-red-500">
-                路径无效或权限不足。{isAndroid ? '请使用应用私有目录，或在系统设置中开启存储权限。' : '请选择其他目录。'}
-              </p>
-              {isAndroid && (
-                <button
-                  onClick={handleOpenSettings}
-                  className="flex items-center gap-1 px-3 py-1.5 bg-orange-100 text-orange-700 rounded-md hover:bg-orange-200 transition-colors text-xs"
-                >
-                  <ExternalLink className="w-3 h-3" />
-                  <span>开启"所有文件访问权限"</span>
-                </button>
+        <div className="bg-white rounded-lg p-4 shadow-sm">
+          <h3 className="text-lg font-semibold mb-4">存储设置</h3>
+
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-gray-600">当前路径</span>
+              {isLoadingPath ? (
+                <span className="text-gray-400">加载中...</span>
+              ) : pathInfo ? (
+                <span className="flex items-center gap-2">
+                  <span className="text-gray-900">{pathInfo.path_name}</span>
+                  {pathInfo.is_valid ? (
+                    <span className="text-green-500">✅</span>
+                  ) : (
+                    <span className="text-red-500">❌ 权限失效</span>
+                  )}
+                </span>
+              ) : (
+                <span className="text-gray-400">未配置</span>
               )}
             </div>
-          )}
-          <p className="text-xs text-gray-500 mt-2">
-            {isDesktop
-              ? '相机上传的文件将保存到此目录'
-              : isAndroid
-                ? 'Android 10+ 请使用应用私有目录，或点击"开启所有文件访问权限"按钮'
-                : '使用应用私有目录存储文件'}
-          </p>
+
+            <button
+              onClick={handleChangePath}
+              disabled={isLoadingPath}
+              className="w-full py-2 px-4 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              {pathInfo ? '更改存储路径' : '选择存储路径'}
+            </button>
+          </div>
         </div>
 
         {/* 开机自启动配置 - 仅在桌面平台显示 */}
