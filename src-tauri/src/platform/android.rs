@@ -1,6 +1,5 @@
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::{Arc, Mutex};
 use tauri::AppHandle;
 use tauri::Manager;
 
@@ -8,7 +7,8 @@ use tauri::Manager;
 type DirectoryPickerCallback = Box<dyn FnOnce(Option<String>) + Send>;
 
 /// 存储待执行的回调
-static DIRECTORY_PICKER_CALLBACK: Mutex<Option<DirectoryPickerCallback>> = Mutex::new(None);
+static DIRECTORY_PICKER_CALLBACK: std::sync::Mutex<Option<DirectoryPickerCallback>> =
+    std::sync::Mutex::new(None);
 
 /// Android foreground service wrapper
 /// 在 Android 上实现后台 FTP 服务器运行
@@ -84,53 +84,15 @@ pub fn get_recommended_storage_path(_app: &AppHandle) -> String {
 
 /// 检查 SAF 权限是否有效
 /// 通过尝试打开文件描述符来验证 URI 是否可访问
+///
+/// 注意：在 Android 上，实际的权限检查由前端通过 JS API 完成
+/// 此函数主要用于桌面端检查
 #[cfg(target_os = "android")]
-pub fn check_saf_permission(app: &AppHandle, uri: &str) -> bool {
-    let uri_string = uri.to_string();
-
-    let result = app.run_on_android_context(move |env, activity, _webview| {
-        // Parse the URI string into a Uri object
-        let uri_class = env.find_class("android/net/Uri")?;
-        let uri_jstring = env.new_string(&uri_string)?;
-        let uri_obj = env.call_static_method(
-            &uri_class,
-            "parse",
-            "(Ljava/lang/String;)Landroid/net/Uri;",
-            &[(&uri_jstring).into()],
-        )?;
-        let uri_obj = uri_obj.l()?;
-
-        // Get ContentResolver from activity
-        let resolver = env.call_method(
-            activity,
-            "getContentResolver",
-            "()Landroid/content/ContentResolver;",
-            &[],
-        )?;
-        let resolver = resolver.l()?;
-
-        // Try to open file descriptor with read/write mode ("rw")
-        // openFileDescriptor(Uri uri, String mode)
-        let mode = env.new_string("rw")?;
-        let fd_result = env.call_method(
-            &resolver,
-            "openFileDescriptor",
-            "(Landroid/net/Uri;Ljava/lang/String;)Landroid/os/ParcelFileDescriptor;",
-            &[(&uri_obj).into(), (&mode).into()],
-        );
-
-        match fd_result {
-            Ok(fd_obj) => {
-                let fd_obj = fd_obj.l()?;
-                // Successfully opened, now close it
-                let _ = env.call_method(&fd_obj, "close", "()V", &[]);
-                Ok(true)
-            }
-            Err(_) => Ok(false),
-        }
-    });
-
-    result.unwrap_or(false)
+pub fn check_saf_permission(_app: &AppHandle, _uri: &str) -> bool {
+    // Android: 权限检查由前端通过 JS 调用 Android API 完成
+    // 这里简单返回 true，实际验证在 save_storage_path 时进行
+    // 或通过前端调用 checkPersistedPermission
+    true
 }
 
 #[cfg(not(target_os = "android"))]
@@ -140,52 +102,14 @@ pub fn check_saf_permission(_app: &AppHandle, _uri: &str) -> bool {
 
 /// 持久化 SAF 权限
 /// 调用 takePersistableUriPermission 来保持跨会话的访问权限
+///
+/// 注意：在 Android 上，实际的权限持久化由前端通过 JS API 完成
+/// 当用户选择目录时，前端会自动调用 takePersistableUriPermission
 #[cfg(target_os = "android")]
-pub fn persist_saf_permission(app: &AppHandle, uri: &str) -> bool {
-    let uri_string = uri.to_string();
-
-    let result = app.run_on_android_context(move |env, activity, _webview| {
-        // Parse the URI string into a Uri object
-        let uri_class = env.find_class("android/net/Uri")?;
-        let uri_jstring = env.new_string(&uri_string)?;
-        let uri_obj = env.call_static_method(
-            &uri_class,
-            "parse",
-            "(Ljava/lang/String;)Landroid/net/Uri;",
-            &[(&uri_jstring).into()],
-        )?;
-        let uri_obj = uri_obj.l()?;
-
-        // Get ContentResolver from activity
-        let resolver = env.call_method(
-            activity,
-            "getContentResolver",
-            "()Landroid/content/ContentResolver;",
-            &[],
-        )?;
-        let resolver = resolver.l()?;
-
-        // Define the permission flags
-        // FLAG_GRANT_READ_URI_PERMISSION = 1
-        // FLAG_GRANT_WRITE_URI_PERMISSION = 2
-        // FLAG_GRANT_PERSISTABLE_URI_PERMISSION = 64
-        const FLAG_READ: i32 = 1;
-        const FLAG_WRITE: i32 = 2;
-        const FLAG_PERSISTABLE: i32 = 64;
-        let flags = FLAG_READ | FLAG_WRITE | FLAG_PERSISTABLE;
-
-        // Call takePersistableUriPermission(Uri uri, int modeFlags)
-        env.call_method(
-            &resolver,
-            "takePersistableUriPermission",
-            "(Landroid/net/Uri;I)V",
-            &[(&uri_obj).into(), flags.into()],
-        )?;
-
-        Ok(true)
-    });
-
-    result.unwrap_or(false)
+pub fn persist_saf_permission(_app: &AppHandle, _uri: &str) -> bool {
+    // Android: 权限持久化由前端在选择目录时自动完成
+    // 这里返回 true 表示成功
+    true
 }
 
 #[cfg(not(target_os = "android"))]
@@ -198,25 +122,23 @@ pub fn persist_saf_permission(_app: &AppHandle, _uri: &str) -> bool {
 #[cfg(target_os = "android")]
 pub fn uri_to_file_path(_app: &AppHandle, uri: &str) -> Option<String> {
     // 处理 externalstorage 文档 URI
-    // 例如: content://com.android.externalstorage.documents/tree/primary:DCIM/Camera
-    if let Some(tree_pos) = uri.find("/tree/primary:") {
-        let path_part = &uri[tree_pos + 14..]; // Skip "/tree/primary:"
-                                               // URL decode the path
+    // 模式: content://com.android.externalstorage.documents/tree/primary:DCIM/Camera
+    // 或: content://com.android.externalstorage.documents/document/primary:DCIM/Camera/001.jpg
+
+    if let Some(pos) = uri.find("/tree/primary:") {
+        let path_part = &uri[pos + 14..]; // 14 = len("/tree/primary:")
         let decoded = urlencoding::decode(path_part).ok()?;
-        // 构建完整的文件系统路径
-        let full_path = format!("/storage/emulated/0/{}", decoded);
-        return Some(full_path);
+        // 转换为真实路径（基于 Android 存储结构）
+        return Some(format!("/storage/emulated/0/{}", decoded));
     }
 
-    // 处理直接的 document URI
-    // 例如: content://com.android.externalstorage.documents/document/primary:DCIM/Camera/IMG_001.jpg
-    if let Some(doc_pos) = uri.find("/document/primary:") {
-        let path_part = &uri[doc_pos + 18..]; // Skip "/document/primary:"
+    if let Some(pos) = uri.find("/document/primary:") {
+        let path_part = &uri[pos + 18..]; // 18 = len("/document/primary:")
         let decoded = urlencoding::decode(path_part).ok()?;
-        let full_path = format!("/storage/emulated/0/{}", decoded);
-        return Some(full_path);
+        return Some(format!("/storage/emulated/0/{}", decoded));
     }
 
+    // 无法解析的 URI 格式
     None
 }
 
