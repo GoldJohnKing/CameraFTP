@@ -62,6 +62,8 @@ pub struct AppConfig {
     pub save_path_uri: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub save_path_raw: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub save_path_display: Option<String>,
 }
 
 impl Default for AppConfig {
@@ -85,6 +87,7 @@ impl Default for AppConfig {
             ],
             save_path_uri: None,
             save_path_raw: None,
+            save_path_display: None,
         }
     }
 }

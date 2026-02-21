@@ -68,17 +68,29 @@ pub async fn save_storage_path(
         }
         info!("SAF permission persisted successfully");
         
-        // Try to convert URI to file path for reference
+        // Try to convert URI to file path
         let raw_path = android::uri_to_file_path(&app, &uri);
         
         // Load current config and update
         let mut config = AppConfig::load();
-        config.save_path = PathBuf::from(&path_name);
+        
+        // Use raw_path for save_path (actual filesystem path for FTP server)
+        // Fall back to path_name if conversion fails
+        if let Some(ref raw) = raw_path {
+            config.save_path = PathBuf::from(raw);
+        } else {
+            // If we can't convert URI to path, this is an error on Android
+            warn!("Could not convert SAF URI to file path: {}", uri);
+            return Err("无法解析存储路径。请选择其他目录。".to_string());
+        }
+        
         config.save_path_uri = Some(uri.clone());
         config.save_path_raw = raw_path.clone();
+        // Store display name separately for UI
+        config.save_path_display = Some(path_name);
         
         config.save().map_err(|e| format!("Failed to save config: {}", e))?;
-        info!("Storage path saved: name={}, uri={}, raw_path={:?}", path_name, uri, raw_path);
+        info!("Storage path saved: display={}, raw_path={:?}", path_name, raw_path);
     }
 
     #[cfg(not(target_os = "android"))]
@@ -109,8 +121,13 @@ pub async fn get_storage_path(app: AppHandle) -> Result<Option<StoragePathInfo>,
             use crate::platform::android;
             let is_valid = android::check_saf_permission(&app, uri);
             
+            // Use display name if available, otherwise use raw path
+            let display_name = config.save_path_display
+                .clone()
+                .unwrap_or_else(|| config.save_path.to_string_lossy().to_string());
+            
             let path_info = StoragePathInfo {
-                path_name: config.save_path.to_string_lossy().to_string(),
+                path_name: display_name,
                 uri: uri.clone(),
                 raw_path: config.save_path_raw.clone(),
                 is_valid,
@@ -164,8 +181,13 @@ pub async fn check_server_start_prerequisites(
             use crate::platform::android;
             let is_valid = android::check_saf_permission(&app, uri);
             
+            // Use display name if available
+            let display_name = config.save_path_display
+                .clone()
+                .unwrap_or_else(|| config.save_path.to_string_lossy().to_string());
+            
             Some(StoragePathInfo {
-                path_name: config.save_path.to_string_lossy().to_string(),
+                path_name: display_name,
                 uri: uri.clone(),
                 raw_path: config.save_path_raw.clone(),
                 is_valid,
