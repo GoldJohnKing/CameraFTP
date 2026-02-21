@@ -7,6 +7,7 @@ import android.net.Uri
 import android.os.Bundle
 import android.util.Log
 import android.webkit.JavascriptInterface
+import android.webkit.WebView
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 
@@ -59,6 +60,7 @@ class MainActivity : TauriActivity() {
     
     private var pickerCallback: ((String?) -> Unit)? = null
     private var safBridge: SAFPickerBridge? = null
+    private var webViewRef: WebView? = null
 
     // SAF 目录选择器回调
     private val safPickerLauncher = registerForActivityResult(
@@ -85,14 +87,31 @@ class MainActivity : TauriActivity() {
         currentActivity = this
         Log.d(TAG, "MainActivity created")
         
-        // 添加JavaScript Bridge
+        // 初始化Bridge
         safBridge = SAFPickerBridge(this)
-        webView?.addJavascriptInterface(safBridge!!, "SAFPickerAndroid")
-        Log.d(TAG, "JavaScript Bridge added")
+    }
+
+    /**
+     * WebView创建完成时调用（由WryActivity触发）
+     * 这是添加JavaScript Bridge的正确时机
+     */
+    override fun onWebViewCreate(webView: WebView) {
+        super.onWebViewCreate(webView)
+        Log.d(TAG, "WebView created, setting up JavaScript Bridge")
+        
+        // 保存WebView引用
+        webViewRef = webView
+        
+        // 添加JavaScript Bridge - 此时WebView已创建完成
+        safBridge?.let { bridge ->
+            webView.addJavascriptInterface(bridge, "SAFPickerAndroid")
+            Log.d(TAG, "JavaScript Bridge 'SAFPickerAndroid' added to WebView")
+        }
     }
 
     override fun onDestroy() {
         super.onDestroy()
+        webViewRef = null
         if (currentActivity == this) {
             currentActivity = null
         }
@@ -118,38 +137,16 @@ class MainActivity : TauriActivity() {
     
     /**
      * 在WebView中执行JavaScript
+     * 使用保存的WebView引用
      */
     fun evaluateJavascript(jsCode: String) {
-        webView?.evaluateJavascript(jsCode, null)
-    }
-    
-    /**
-     * 获取WebView实例（供bridge使用）
-     */
-    val webView: android.webkit.WebView?
-        get() {
-            // 在TauriActivity中找到WebView
-            return findWebView(this)
-        }
-    
-    private fun findWebView(activity: Activity): android.webkit.WebView? {
-        val rootView = activity.window.decorView.rootView as? android.view.ViewGroup
-        return findWebViewInViewGroup(rootView)
-    }
-    
-    private fun findWebViewInViewGroup(viewGroup: android.view.ViewGroup?): android.webkit.WebView? {
-        if (viewGroup == null) return null
-        
-        for (i in 0 until viewGroup.childCount) {
-            val child = viewGroup.getChildAt(i)
-            if (child is android.webkit.WebView) {
-                return child
-            }
-            if (child is android.view.ViewGroup) {
-                val result = findWebViewInViewGroup(child)
-                if (result != null) return result
+        runOnUiThread {
+            try {
+                webViewRef?.evaluateJavascript(jsCode, null)
+                    ?: Log.e(TAG, "WebView reference is null, cannot execute: $jsCode")
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to execute JavaScript", e)
             }
         }
-        return null
     }
 }
