@@ -58,6 +58,10 @@ pub struct AppConfig {
     pub port: u16,
     pub auto_select_port: bool,
     pub file_extensions: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub save_path_uri: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub save_path_raw: Option<String>,
 }
 
 impl Default for AppConfig {
@@ -79,6 +83,8 @@ impl Default for AppConfig {
                 "orf".to_string(),
                 "rw2".to_string(),
             ],
+            save_path_uri: None,
+            save_path_raw: None,
         }
     }
 }
