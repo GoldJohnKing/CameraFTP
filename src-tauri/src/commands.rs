@@ -10,6 +10,61 @@ use crate::ftp::types::ServerStateSnapshot;
 use crate::ftp::FtpServerHandle;
 use crate::network::NetworkManager;
 
+/// 请求打开 SAF 目录选择器（Android）或目录对话框（桌面）
+/// 通过 Tauri 事件与前端/Android 进行异步通信
+#[tauri::command]
+pub fn request_saf_picker(app: AppHandle, initial_uri: Option<String>) {
+    #[cfg(target_os = "android")]
+    {
+        // 发送事件给前端，前端再调用 Android SAF 选择器
+        let _ = app.emit("android-open-saf-picker", serde_json::json!({
+            "initial_uri": initial_uri,
+        }));
+        info!("Emitted android-open-saf-picker event");
+    }
+
+    #[cfg(not(target_os = "android"))]
+    {
+        // 桌面端：直接打开对话框并发送结果
+        let app_clone = app.clone();
+        tauri::async_runtime::spawn(async move {
+            let result = select_save_directory_impl(app_clone.clone()).await;
+            let uri = result.ok().flatten();
+            let _ = app_clone.emit("saf-picker-result", serde_json::json!({
+                "uri": uri,
+            }));
+            info!("Emitted saf-picker-result event for desktop");
+        });
+    }
+}
+
+/// 接收来自 Android 的 SAF 选择器结果
+/// 由前端调用，将结果传回 Rust
+#[tauri::command]
+pub fn on_saf_picker_result(app: AppHandle, uri: Option<String>) {
+    let _ = app.emit("saf-picker-result", serde_json::json!({
+        "uri": uri,
+    }));
+    info!(uri = ?uri, "Received SAF picker result from Android, emitted event");
+}
+
+/// 桌面端选择保存目录的内部实现
+#[cfg(not(target_os = "android"))]
+async fn select_save_directory_impl(app: AppHandle) -> Result<Option<String>, String> {
+    use tauri_plugin_dialog::DialogExt;
+
+    let folder_path = tokio::task::spawn_blocking(move || {
+        app.dialog()
+            .file()
+            .set_title("选择存储路径")
+            .blocking_pick_folder()
+    })
+    .await
+    .map_err(|e| format!("Task failed: {}", e))?;
+
+    Ok(folder_path.and_then(|p| p.as_path().map(|path| path.to_string_lossy().to_string())))
+}
+
 /// FTP 服务器状态（使用 Arc<Mutex> 包装以支持异步操作）
 pub struct FtpServerState(pub Arc<Mutex<Option<FtpServerHandle>>>);
 
@@ -255,27 +310,16 @@ pub async fn select_directory(app: tauri::AppHandle) -> Result<Option<String>, S
 /// Android: 触发前端 SAF 选择器，返回当前配置路径
 /// 桌面: 打开原生文件夹对话框
 #[tauri::command]
-pub async fn select_save_directory(app: tauri::AppHandle) -> Result<Option<String>, String> {
+pub async fn select_save_directory(app: AppHandle) -> Result<Option<String>, String> {
     #[cfg(not(target_os = "android"))]
     {
-        use tauri_plugin_dialog::DialogExt;
-        
-        let folder_path = tokio::task::spawn_blocking(move || {
-            app.dialog()
-                .file()
-                .set_title("选择存储路径")
-                .blocking_pick_folder()
-        })
-        .await
-        .map_err(|e| format!("Task failed: {}", e))?;
-
-        Ok(folder_path.and_then(|p| p.as_path().map(|path| path.to_string_lossy().to_string())))
+        select_save_directory_impl(app).await
     }
-    
+
     #[cfg(target_os = "android")]
     {
         // Android: 返回当前配置路径，实际选择由前端处理
-        // 前端通过监听事件调用 SAF，然后通过 save_config 保存
+        // 前端通过 request_saf_picker 和监听 saf-picker-result 事件获取结果
         let config = AppConfig::load();
         Ok(Some(config.save_path.to_string_lossy().to_string()))
     }
