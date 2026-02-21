@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 
 export interface StoragePathInfo {
@@ -29,12 +29,23 @@ export function useStoragePermission() {
     error: null,
   });
 
+  const mountedRef = useRef(true);
+
+  // Set mounted flag
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
   // Load current storage path info
   const loadStoragePath = useCallback(async () => {
     setState(prev => ({ ...prev, isLoading: true, error: null }));
     
     try {
       const info = await invoke<StoragePathInfo | null>('get_storage_path');
+      if (!mountedRef.current) return null;
       setState(prev => ({
         ...prev,
         pathInfo: info,
@@ -42,6 +53,7 @@ export function useStoragePermission() {
       }));
       return info;
     } catch (err) {
+      if (!mountedRef.current) return null;
       const errorMsg = err instanceof Error ? err.message : String(err);
       setState(prev => ({
         ...prev,
@@ -54,25 +66,36 @@ export function useStoragePermission() {
 
   // Check server start prerequisites
   const checkPrerequisites = useCallback(async (): Promise<ServerStartCheckResult> => {
-    setState(prev => ({ ...prev, isChecking: true }));
+    setState(prev => ({ ...prev, isChecking: true, error: null }));
     
     try {
       const result = await invoke<ServerStartCheckResult>('check_server_start_prerequisites');
       
+      if (!mountedRef.current) return result;
+
       if (result.current_path) {
         setState(prev => ({
           ...prev,
           pathInfo: result.current_path || null,
           isChecking: false,
         }));
+      } else {
+        setState(prev => ({ ...prev, isChecking: false }));
       }
       
       return result;
     } catch (err) {
-      setState(prev => ({ ...prev, isChecking: false }));
+      const errorMsg = err instanceof Error ? err.message : String(err);
+      if (mountedRef.current) {
+        setState(prev => ({
+          ...prev,
+          isChecking: false,
+          error: errorMsg,
+        }));
+      }
       return {
         can_start: false,
-        reason: err instanceof Error ? err.message : String(err),
+        reason: errorMsg,
       };
     }
   }, []);
