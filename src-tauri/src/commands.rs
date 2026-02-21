@@ -55,11 +55,11 @@ pub async fn start_server(
         "FTP server started successfully"
     );
 
-    // 更新托盘图标为绿色（服务器运行中）
+    // 更新托盘图标为 idle 状态（服务器运行中，但还没有设备连接）
     #[cfg(target_os = "windows")]
     {
-        if let Err(e) = crate::platform::windows::update_tray_icon(&app, true) {
-            warn!(error = %e, "Failed to update tray icon to green");
+        if let Err(e) = crate::platform::windows::update_tray_icon(&app, crate::platform::windows::TrayIconState::Idle) {
+            warn!(error = %e, "Failed to update tray icon to idle");
         }
     }
 
@@ -88,11 +88,11 @@ pub async fn stop_server(
             Ok(_) => {
                 let _ = app.emit("server-stopped", ());
                 
-                // 更新托盘图标为蓝色（服务器停止）
+                // 更新托盘图标为 stopped 状态（服务器停止）
                 #[cfg(target_os = "windows")]
                 {
-                    if let Err(e) = crate::platform::windows::update_tray_icon(&app, false) {
-                        warn!(error = %e, "Failed to update tray icon to blue");
+                    if let Err(e) = crate::platform::windows::update_tray_icon(&app, crate::platform::windows::TrayIconState::Stopped) {
+                        warn!(error = %e, "Failed to update tray icon to stopped");
                     }
                 }
                 

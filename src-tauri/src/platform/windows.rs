@@ -2,12 +2,25 @@ use tauri::{AppHandle, Manager};
 use tauri::menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconEvent};
 
-/// 绿色托盘图标数据（编译时嵌入）
+/// 托盘图标状态枚举
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum TrayIconState {
+    /// 服务器未启动 - 红色圆点
+    Stopped,
+    /// 服务器运行但无设备连接 - 黄色圆点
+    Idle,
+    /// 服务器运行且有设备连接 - 绿色圆点
+    Active,
+}
+
+/// 托盘图标数据（编译时嵌入）
+const TRAY_STOPPED_PNG: &[u8] = include_bytes!("../../icons/tray-stopped.png");
+const TRAY_IDLE_PNG: &[u8] = include_bytes!("../../icons/tray-idle.png");
 const TRAY_ACTIVE_PNG: &[u8] = include_bytes!("../../icons/tray-active.png");
 
 /// 从嵌入的PNG数据创建图标
-fn create_green_icon() -> Result<tauri::image::Image<'static>, Box<dyn std::error::Error>> {
-    let img = image::load_from_memory_with_format(TRAY_ACTIVE_PNG, image::ImageFormat::Png)?;
+fn create_icon_from_bytes(data: &[u8]) -> Result<tauri::image::Image<'static>, Box<dyn std::error::Error>> {
+    let img = image::load_from_memory_with_format(data, image::ImageFormat::Png)?;
     let rgba = img.to_rgba8();
     let (width, height) = rgba.dimensions();
     
@@ -16,22 +29,21 @@ fn create_green_icon() -> Result<tauri::image::Image<'static>, Box<dyn std::erro
 }
 
 /// 更新托盘图标
-/// - running: true 使用绿色图标（服务器运行中）
-/// - running: false 使用默认蓝色图标（服务器停止）
-pub fn update_tray_icon(app: &AppHandle, running: bool) -> Result<(), Box<dyn std::error::Error>> {
+/// 
+/// # Arguments
+/// * `app` - Tauri 应用句柄
+/// * `state` - 托盘图标状态（Stopped/Idle/Active）
+pub fn update_tray_icon(app: &AppHandle, state: TrayIconState) -> Result<(), Box<dyn std::error::Error>> {
     if let Some(tray) = app.tray_by_id("main") {
-        if running {
-            // 使用绿色图标（服务器运行）- 从嵌入数据创建
-            let icon = create_green_icon()?;
-            tray.set_icon(Some(icon))?;
-            tracing::info!("Tray icon updated to green (server running)");
-        } else {
-            // 使用默认蓝色图标（服务器停止）
-            if let Some(default_icon) = app.default_window_icon() {
-                tray.set_icon(Some(default_icon.clone()))?;
-                tracing::info!("Tray icon updated to blue (server stopped)");
-            }
-        }
+        let (icon_data, state_name) = match state {
+            TrayIconState::Stopped => (TRAY_STOPPED_PNG, "stopped (red dot)"),
+            TrayIconState::Idle => (TRAY_IDLE_PNG, "idle (yellow dot)"),
+            TrayIconState::Active => (TRAY_ACTIVE_PNG, "active (green dot)"),
+        };
+        
+        let icon = create_icon_from_bytes(icon_data)?;
+        tray.set_icon(Some(icon))?;
+        tracing::info!("Tray icon updated to {}", state_name);
     }
     Ok(())
 }
@@ -52,10 +64,13 @@ pub fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
         &quit_i,
     ])?;
 
+    // 初始状态使用 stopped 图标（红色圆点）
+    let initial_icon = create_icon_from_bytes(TRAY_STOPPED_PNG)?;
+
     let _tray = tauri::tray::TrayIconBuilder::with_id("main")
         .menu(&menu)
         .show_menu_on_left_click(false)
-        .icon(app.default_window_icon().unwrap().clone())
+        .icon(initial_icon)
         .icon_as_template(false)
         .on_tray_icon_event(|tray, event| {
             if let TrayIconEvent::Click {

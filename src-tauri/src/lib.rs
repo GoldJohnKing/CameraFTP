@@ -117,8 +117,11 @@ pub fn run() {
                             crate::ftp::server_factory::emit_server_started(&app_handle, &ctx.ip, ctx.port);
                             tracing::info!("Server auto-started on autostart");
 
-                            // 更新托盘图标为绿色
-                            if let Err(e) = crate::platform::windows::update_tray_icon(&app_handle, true) {
+                            // 更新托盘图标为 idle 状态（服务器运行但无连接）
+                            if let Err(e) = crate::platform::windows::update_tray_icon(
+                                &app_handle,
+                                crate::platform::windows::TrayIconState::Idle
+                            ) {
                                 tracing::warn!("Failed to update tray icon on autostart: {}", e);
                             }
                         }
@@ -134,9 +137,15 @@ pub fn run() {
             let state: tauri::State<'_, FtpServerState> = app.state();
             let state_clone: std::sync::Arc<tokio::sync::Mutex<Option<crate::ftp::FtpServerHandle>>> = state.0.clone();
 
+            #[cfg(target_os = "windows")]
+            let tray_app_handle = app.handle().clone();
+
             tauri::async_runtime::spawn(async move {
                 let mut interval = tokio::time::interval(tokio::time::Duration::from_millis(500)); // 改为500ms
                 let mut last_snapshot: Option<ServerStateSnapshot> = None;
+
+                #[cfg(target_os = "windows")]
+                let mut last_tray_state: Option<crate::platform::windows::TrayIconState> = None;
 
                 loop {
                     interval.tick().await;
@@ -159,6 +168,28 @@ pub fn run() {
 
                             if should_emit {
                                 let _ = app_handle.emit("stats-update", &snapshot);
+
+                                // 根据连接数更新托盘图标状态
+                                #[cfg(target_os = "windows")]
+                                {
+                                    let new_tray_state = if snapshot.connected_clients > 0 {
+                                        crate::platform::windows::TrayIconState::Active
+                                    } else {
+                                        crate::platform::windows::TrayIconState::Idle
+                                    };
+
+                                    // 只在状态变化时更新图标
+                                    if last_tray_state != Some(new_tray_state) {
+                                        if let Err(e) = crate::platform::windows::update_tray_icon(
+                                            &tray_app_handle,
+                                            new_tray_state
+                                        ) {
+                                            tracing::warn!("Failed to update tray icon: {}", e);
+                                        }
+                                        last_tray_state = Some(new_tray_state);
+                                    }
+                                }
+
                                 last_snapshot = Some(snapshot);
                             }
                         }
