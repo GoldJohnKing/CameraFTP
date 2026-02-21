@@ -4,6 +4,7 @@ pub mod error;
 pub mod ftp;
 pub mod network;
 pub mod platform;
+pub mod storage_permission;
 
 use std::fs;
 use std::path::PathBuf;
@@ -13,6 +14,13 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use tauri::{Manager, Emitter};
 
 use commands::{check_all_files_access_permission, check_port_available, get_autostart_status, get_diagnostic_info, get_network_info, get_platform, get_recommended_save_path, get_server_status, hide_main_window, load_config, open_all_files_access_settings, quit_application, save_config, select_directory, select_save_directory, set_autostart_command, start_server, stop_server, validate_save_path, FtpServerState};
+use storage_permission::{
+    check_server_start_prerequisites,
+    get_last_storage_uri,
+    get_storage_path,
+    save_storage_path,
+    validate_storage_permission,
+};
 use ftp::types::ServerStateSnapshot;
 
 fn setup_logging() {
@@ -230,6 +238,11 @@ pub fn run() {
             get_platform,
             check_all_files_access_permission,
             open_all_files_access_settings,
+            validate_storage_permission,
+            save_storage_path,
+            get_storage_path,
+            check_server_start_prerequisites,
+            get_last_storage_uri,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
