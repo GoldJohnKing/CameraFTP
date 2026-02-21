@@ -206,8 +206,16 @@ pub fn quit_application(app: tauri::AppHandle) {
 pub fn hide_main_window(app: tauri::AppHandle) -> Result<(), String> {
     tracing::info!("Hiding main window");
     if let Some(window) = app.get_webview_window("main") {
-        window.hide().map_err(|e| format!("Failed to hide window: {}", e))?;
-        tracing::info!("Main window hidden successfully");
+        #[cfg(target_os = "windows")]
+        {
+            window.hide().map_err(|e| format!("Failed to hide window: {}", e))?;
+            tracing::info!("Main window hidden successfully");
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            // 移动端不支持 hide，使用最小化或后台运行
+            tracing::info!("Hide not supported on mobile, window stays visible");
+        }
         Ok(())
     } else {
         Err("Main window not found".to_string())
@@ -218,12 +226,61 @@ pub fn hide_main_window(app: tauri::AppHandle) -> Result<(), String> {
 #[tauri::command]
 pub async fn select_directory(app: tauri::AppHandle) -> Result<Option<String>, String> {
     use tauri_plugin_dialog::DialogExt;
+    
+    #[cfg(not(target_os = "android"))]
+    {
+        // 桌面平台：使用文件夹选择对话框
+        let folder_path = tokio::task::spawn_blocking(move || {
+            app.dialog()
+                .file()
+                .set_title("选择存储路径")
+                .blocking_pick_folder()
+        })
+        .await
+        .map_err(|e| format!("Task failed: {}", e))?;
 
-    let folder_path = app
-        .dialog()
-        .file()
-        .set_title("选择存储路径")
-        .blocking_pick_folder();
+        Ok(folder_path.and_then(|p| p.as_path().map(|path| path.to_string_lossy().to_string())))
+    }
+    
+    #[cfg(target_os = "android")]
+    {
+        // Android 平台：使用应用私有目录
+        use tauri::Manager;
+        let app_data_dir = app.path().app_data_dir()
+            .map_err(|e| format!("Failed to get app data dir: {}", e))?;
+        
+        let ftp_dir = app_data_dir.join("ftp_uploads");
+        std::fs::create_dir_all(&ftp_dir)
+            .map_err(|e| format!("Failed to create ftp directory: {}", e))?;
+        
+        Ok(Some(ftp_dir.to_string_lossy().to_string()))
+    }
+}
 
-    Ok(folder_path.and_then(|p| p.as_path().map(|path| path.to_string_lossy().to_string())))
+/// 获取当前平台名称
+#[tauri::command]
+pub fn get_platform() -> String {
+    #[cfg(target_os = "windows")]
+    { "windows".to_string() }
+    
+    #[cfg(target_os = "macos")]
+    { "macos".to_string() }
+    
+    #[cfg(target_os = "linux")]
+    { "linux".to_string() }
+    
+    #[cfg(target_os = "android")]
+    { "android".to_string() }
+    
+    #[cfg(target_os = "ios")]
+    { "ios".to_string() }
+    
+    #[cfg(not(any(
+        target_os = "windows",
+        target_os = "macos",
+        target_os = "linux",
+        target_os = "android",
+        target_os = "ios"
+    )))]
+    { "unknown".to_string() }
 }

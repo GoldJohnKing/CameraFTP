@@ -8,7 +8,9 @@ export function ConfigCard() {
     config,
     isLoading,
     error,
+    platform,
     loadConfig,
+    loadPlatform,
     updateSavePath,
     setAutostart,
     selectDirectory,
@@ -22,8 +24,12 @@ export function ConfigCard() {
   const [portError, setPortError] = useState<string | null>(null);
   const [isCheckingPort, setIsCheckingPort] = useState(false);
 
+  // 是否是桌面平台（显示开机自启动选项）
+  const isDesktop = platform === 'windows' || platform === 'macos' || platform === 'linux';
+
   useEffect(() => {
     loadConfig();
+    loadPlatform();
     loadAutostartStatus();
   }, []);
 
@@ -130,48 +136,54 @@ export function ConfigCard() {
                 {config?.save_path || '未设置'}
               </div>
             </div>
-            <button
-              onClick={handleSelectDirectory}
-              disabled={isLoading}
-              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <Folder className="w-4 h-4" />
-              <span className="text-sm">选择</span>
-            </button>
+            {isDesktop && (
+              <button
+                onClick={handleSelectDirectory}
+                disabled={isLoading}
+                className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <Folder className="w-4 h-4" />
+                <span className="text-sm">选择</span>
+              </button>
+            )}
           </div>
           <p className="text-xs text-gray-500 mt-2">
-            相机上传的文件将保存到此目录
+            {isDesktop 
+              ? '相机上传的文件将保存到此目录' 
+              : 'Android平台使用应用私有目录存储文件'}
           </p>
         </div>
 
-        {/* 开机自启动配置 */}
-        <div className="flex items-center justify-between py-2">
-          <div>
-            <label className="block text-sm font-medium text-gray-700">
-              开机自启动
-            </label>
-            <p className="text-xs text-gray-500 mt-1">
-              系统启动时自动运行图传伴侣
-            </p>
+        {/* 开机自启动配置 - 仅在桌面平台显示 */}
+        {isDesktop && (
+          <div className="flex items-center justify-between py-2">
+            <div>
+              <label className="block text-sm font-medium text-gray-700">
+                开机自启动
+              </label>
+              <p className="text-xs text-gray-500 mt-1">
+                系统启动时自动运行图传伴侣
+              </p>
+            </div>
+            <button
+              onClick={handleAutostartToggle}
+              disabled={isLoadingAutostart}
+              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                autostartEnabled ? 'bg-blue-600' : 'bg-gray-200'
+              } disabled:opacity-50 disabled:cursor-not-allowed`}
+            >
+              {isLoadingAutostart ? (
+                <Loader2 className="w-4 h-4 animate-spin text-white absolute left-1" />
+              ) : (
+                <span
+                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                    autostartEnabled ? 'translate-x-6' : 'translate-x-1'
+                  }`}
+                />
+              )}
+            </button>
           </div>
-          <button
-            onClick={handleAutostartToggle}
-            disabled={isLoadingAutostart}
-            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-              autostartEnabled ? 'bg-blue-600' : 'bg-gray-200'
-            } disabled:opacity-50 disabled:cursor-not-allowed`}
-          >
-            {isLoadingAutostart ? (
-              <Loader2 className="w-4 h-4 animate-spin text-white absolute left-1" />
-            ) : (
-              <span
-                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                  autostartEnabled ? 'translate-x-6' : 'translate-x-1'
-                }`}
-              />
-            )}
-          </button>
-        </div>
+        )}
 
         {/* 端口配置 */}
         <div className="space-y-3">

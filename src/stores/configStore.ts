@@ -7,6 +7,7 @@ interface ConfigState {
   isLoading: boolean;
   error: string | null;
   activeTab: 'home' | 'config';
+  platform: string;
   
   // Actions
   loadConfig: () => Promise<void>;
@@ -17,6 +18,7 @@ interface ConfigState {
   selectDirectory: () => Promise<string | null>;
   updatePort: (port: number) => Promise<void>;
   updateAutoSelectPort: (autoSelect: boolean) => Promise<void>;
+  loadPlatform: () => Promise<void>;
 }
 
 export const useConfigStore = create<ConfigState>((set, get) => ({
@@ -24,6 +26,17 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
   isLoading: false,
   error: null,
   activeTab: 'home',
+  platform: 'unknown',
+
+  loadPlatform: async () => {
+    try {
+      const platform = await invoke<string>('get_platform');
+      set({ platform });
+    } catch (err) {
+      console.error('Failed to load platform:', err);
+      set({ platform: 'unknown' });
+    }
+  },
 
   loadConfig: async () => {
     set({ isLoading: true, error: null });

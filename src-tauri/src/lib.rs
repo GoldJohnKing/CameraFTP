@@ -12,7 +12,7 @@ use tokio::sync::Mutex;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use tauri::{Manager, Emitter};
 
-use commands::{check_port_available, get_autostart_status, get_diagnostic_info, get_network_info, get_server_status, hide_main_window, load_config, quit_application, save_config, select_directory, set_autostart_command, start_server, stop_server, FtpServerState};
+use commands::{check_port_available, get_autostart_status, get_diagnostic_info, get_network_info, get_platform, get_server_status, hide_main_window, load_config, quit_application, save_config, select_directory, set_autostart_command, start_server, stop_server, FtpServerState};
 use ftp::types::ServerStateSnapshot;
 
 fn setup_logging() {
@@ -54,9 +54,12 @@ pub fn run() {
     // Initialize logging to file
     setup_logging();
 
-    // 检查是否是开机启动模式
-    let is_autostart = cfg!(target_os = "windows") 
-        && crate::platform::windows::is_autostart_mode();
+    // 检查是否是开机启动模式（仅在 Windows 上）
+    #[cfg(target_os = "windows")]
+    let is_autostart = crate::platform::windows::is_autostart_mode();
+    
+    #[cfg(not(target_os = "windows"))]
+    let is_autostart = false;
 
     if is_autostart {
         tracing::info!("Running in autostart mode - window will be hidden");
@@ -67,6 +70,12 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .manage(FtpServerState(Arc::new(Mutex::new(None))))
         .setup(move |app| {
+            // 初始化 Android 路径（如果是 Android 平台）
+            #[cfg(target_os = "android")]
+            {
+                config::init_android_paths(app.handle());
+            }
+
             #[cfg(target_os = "windows")]
             {
                 if let Err(e) = platform::windows::setup_tray(app.handle()) {
@@ -76,8 +85,9 @@ pub fn run() {
 
             // 获取主窗口并控制显示
             if let Some(window) = app.get_webview_window("main") {
+                #[cfg(target_os = "windows")]
                 if is_autostart {
-                    // 开机启动模式：隐藏窗口
+                    // 开机启动模式：隐藏窗口（仅 Windows）
                     let _ = window.hide();
                     let _ = window.set_skip_taskbar(true);
                 }
@@ -95,6 +105,7 @@ pub fn run() {
             }
 
             // 如果是开机启动模式，自动启动服务器
+            #[cfg(target_os = "windows")]
             if is_autostart {
                 let app_handle = app.handle().clone();
                 tauri::async_runtime::spawn(async move {
@@ -141,7 +152,7 @@ pub fn run() {
             let tray_app_handle = app.handle().clone();
 
             tauri::async_runtime::spawn(async move {
-                let mut interval = tokio::time::interval(tokio::time::Duration::from_millis(500)); // 改为500ms
+                let mut interval = tokio::time::interval(tokio::time::Duration::from_millis(500));
                 let mut last_snapshot: Option<ServerStateSnapshot> = None;
 
                 #[cfg(target_os = "windows")]
@@ -169,7 +180,7 @@ pub fn run() {
                             if should_emit {
                                 let _ = app_handle.emit("stats-update", &snapshot);
 
-                                // 根据连接数更新托盘图标状态
+                                // 根据连接数更新托盘图标状态（仅在 Windows）
                                 #[cfg(target_os = "windows")]
                                 {
                                     let new_tray_state = if snapshot.connected_clients > 0 {
@@ -213,6 +224,7 @@ pub fn run() {
             quit_application,
             hide_main_window,
             select_directory,
+            get_platform,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

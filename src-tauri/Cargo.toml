@@ -33,7 +33,8 @@ thiserror = "2.0"
 local-ip-address = "0.6"
 # 异步trait
 async-trait = "0.1"
-# Windows注册表
-winreg = "0.52"
 # 图像处理（用于托盘图标）
 image = { version = "0.25", default-features = false, features = ["png"] }
+
+[target.'cfg(windows)'.dependencies]
+winreg = "0.52"
