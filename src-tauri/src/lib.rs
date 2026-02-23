@@ -6,8 +6,6 @@ pub mod network;
 pub mod platform;
 pub mod storage_permission;
 
-use std::fs;
-use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
@@ -44,50 +42,54 @@ use storage_permission::{
 use ftp::types::ServerStateSnapshot;
 
 fn setup_logging() {
-    // 获取日志目录 - Android 使用外部存储以便用户可以访问
-    #[cfg(target_os = "android")]
-    let log_dir = PathBuf::from("/storage/emulated/0/DCIM/CameraFTP/logs");
-    
-    #[cfg(not(target_os = "android"))]
-    let log_dir = dirs::data_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join("camera-ftp-companion/logs");
+    // Debug 模式：写入日志文件 + 控制台
+    // Release 模式：不输出任何日志
+    #[cfg(debug_assertions)]
+    {
+        use std::fs;
+        use std::path::PathBuf;
+        
+        // 获取日志目录 - Android 使用外部存储以便用户可以访问
+        #[cfg(target_os = "android")]
+        let log_dir = PathBuf::from("/storage/emulated/0/DCIM/CameraFTP/logs");
+        
+        #[cfg(not(target_os = "android"))]
+        let log_dir = dirs::data_dir()
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join("camera-ftp-companion/logs");
 
-    let log_file = log_dir.join("app.log");
-    let log_file_for_writer = log_file.clone();
-    
-    // 尝试创建日志目录
-    if let Err(e) = fs::create_dir_all(&log_dir) {
-        eprintln!("Failed to create log directory {:?}: {}", log_dir, e);
+        let log_file = log_dir.join("app.log");
+        let log_file_for_writer = log_file.clone();
+        
+        // 尝试创建日志目录
+        if let Err(e) = fs::create_dir_all(&log_dir) {
+            eprintln!("Failed to create log directory {:?}: {}", log_dir, e);
+        }
+
+        // 创建文件追加器
+        let file_appender = tracing_subscriber::fmt::layer()
+            .with_writer(move || {
+                std::fs::OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(&log_file_for_writer)
+                    .unwrap_or_else(|_| std::fs::File::create("/dev/null").unwrap())
+            })
+            .with_ansi(false)
+            .with_thread_ids(true)
+            .with_thread_names(true)
+            .with_target(true);
+
+        // 初始化订阅器（同时输出到控制台和文件）
+        tracing_subscriber::registry()
+            .with(file_appender)
+            .with(tracing_subscriber::fmt::layer().with_ansi(false))
+            .init();
+
+        tracing::info!(log_file = ?log_file, "Logging initialized (debug mode)");
     }
-
-    // 创建文件追加器
-    let file_appender = tracing_subscriber::fmt::layer()
-        .with_writer(move || {
-            std::fs::OpenOptions::new()
-                .create(true)
-                .append(true)
-                .open(&log_file_for_writer)
-                .unwrap_or_else(|e| {
-                    eprintln!("Failed to open log file: {}", e);
-                    std::fs::File::create("/dev/null").unwrap()
-                })
-        })
-        .with_ansi(false)
-        .with_thread_ids(true)
-        .with_thread_names(true)
-        .with_target(true);
-
-    // 初始化订阅器（同时输出到控制台和文件）
-    tracing_subscriber::registry()
-        .with(file_appender)
-        .with(tracing_subscriber::fmt::layer().with_ansi(false))
-        .init();
-
-    tracing::info!("========================================");
-    tracing::info!("Logging initialized");
-    tracing::info!(log_file = ?log_file, "Log file location");
-    tracing::info!("========================================");
+    
+    // Release 模式：不初始化日志系统，不输出任何日志
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
