@@ -1,14 +1,9 @@
 import { Camera, Image, HardDrive, Clock } from 'lucide-react';
 import { useServerStore } from '../stores/serverStore';
+import { formatBytes } from '../utils/format';
 
 export function StatsCard() {
   const { stats } = useServerStore();
-
-  const formatBytes = (bytes: number): string => {
-    if (bytes === 0) return '0 MB';
-    const mb = bytes / (1024 * 1024);
-    return `${mb.toFixed(1)} MB`;
-  };
 
   return (
     <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
