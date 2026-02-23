@@ -32,9 +32,9 @@ export function ServerCard() {
       
       if (!check.can_start) {
         if (needsPermission) {
-          // 需要权限
-          toast.error('需要授予"所有文件访问权限"才能启动服务器');
-          await requestAllFilesPermission();
+          // 需要权限 - 显示原因并直接跳转到设置页面
+          toast.error('需要"所有文件访问权限"才能启动服务器，即将跳转到设置');
+          await requestAllFilesPermission(false); // 跳转到设置，不再显示第二个 toast
           setIsStarting(false);
           return;
         }

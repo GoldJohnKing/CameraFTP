@@ -118,10 +118,13 @@ export function useStoragePermission() {
   }, []);
 
   /// 请求所有文件访问权限
-  const requestAllFilesPermission = useCallback(async () => {
+  /// 会直接跳转到系统设置中的权限开关页面
+  const requestAllFilesPermission = useCallback(async (showToast: boolean = true) => {
     try {
       await invoke('request_all_files_permission');
-      toast.info('请在设置中授予"所有文件访问权限"，然后返回此应用');
+      if (showToast) {
+        toast.info('即将跳转到设置页面，请开启"所有文件访问权限"后返回');
+      }
     } catch (err) {
       console.error('Failed to request permission:', err);
       toast.error('无法打开设置页面');

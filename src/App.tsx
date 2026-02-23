@@ -47,13 +47,13 @@ function App() {
       handler: () => setShowQuitDialog(true)
     },
     {
-      event: 'android-open-settings',
+      event: 'android-open-manage-storage-settings',
       handler: () => {
         // Android: 跳转到设置页面开启所有文件访问权限
-        if ((window as any).MainActivity?.openAllFilesAccessSettings) {
-          (window as any).MainActivity.openAllFilesAccessSettings();
+        if ((window as any).SAFPickerAndroid?.openAllFilesAccessSettings) {
+          (window as any).SAFPickerAndroid.openAllFilesAccessSettings();
         } else {
-          console.warn('MainActivity.openAllFilesAccessSettings not available');
+          console.warn('SAFPickerAndroid.openAllFilesAccessSettings not available');
           // 备用方案：提示用户手动开启
           alert('请手动前往 设置 > 应用 > 图传伴侣 > 权限 > 开启"所有文件访问权限"');
         }

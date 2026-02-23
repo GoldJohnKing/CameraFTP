@@ -70,6 +70,21 @@ class SAFPickerBridge(private val activity: MainActivity) {
         
         return true
     }
+    
+    /**
+     * 打开所有文件访问权限设置页面
+     * 直接跳转到系统设置中的权限开关页面
+     */
+    @JavascriptInterface
+    fun openAllFilesAccessSettings(): Boolean {
+        Log.d(TAG, "openAllFilesAccessSettings called from JavaScript")
+        
+        activity.runOnUiThread {
+            StorageHelper.openManageStorageSettings(activity)
+        }
+        
+        return true
+    }
 }
 
 class MainActivity : TauriActivity() {
