@@ -1,4 +1,5 @@
-use crate::ftp::error::{FtpError, FtpResult};
+use crate::error::{AppError, AppResult};
+use crate::ftp::error::FtpError;
 use crate::ftp::events::EventBus;
 use crate::ftp::listeners::{FtpDataListener, FtpPresenceListener};
 use crate::ftp::stats::{StatsActor, StatsActorWorker};
@@ -19,10 +20,10 @@ use tracing::{error, info, instrument};
 pub enum ServerCommand {
     Start {
         config: ServerConfig,
-        respond_to: oneshot::Sender<FtpResult<SocketAddr>>,
+        respond_to: oneshot::Sender<AppResult<SocketAddr>>,
     },
     Stop {
-        respond_to: oneshot::Sender<FtpResult<()>>,
+        respond_to: oneshot::Sender<AppResult<()>>,
     },
     GetStatus {
         respond_to: oneshot::Sender<ServerStatus>,
@@ -50,7 +51,7 @@ impl FtpServerHandle {
     pub async fn start(
         &self,
         config: ServerConfig,
-    ) -> FtpResult<SocketAddr> {
+    ) -> AppResult<SocketAddr> {
         let (tx, rx) = oneshot::channel();
         let cmd = ServerCommand::Start {
             config,
@@ -58,28 +59,28 @@ impl FtpServerHandle {
         };
 
         if self.tx.send(cmd).await.is_err() {
-            return Err(FtpError::ServerNotRunning);
+            return Err(AppError::ServerNotRunning);
         }
 
         match rx.await {
             Ok(result) => result,
-            Err(_) => Err(FtpError::ServerNotRunning),
+            Err(_) => Err(AppError::ServerNotRunning),
         }
     }
 
     /// 停止服务器
     #[instrument(skip(self))]
-    pub async fn stop(&self) -> FtpResult<()> {
+    pub async fn stop(&self) -> AppResult<()> {
         let (tx, rx) = oneshot::channel();
         let cmd = ServerCommand::Stop { respond_to: tx };
 
         if self.tx.send(cmd).await.is_err() {
-            return Err(FtpError::ServerNotRunning);
+            return Err(AppError::ServerNotRunning);
         }
 
         match rx.await {
             Ok(result) => result,
-            Err(_) => Err(FtpError::ServerNotRunning),
+            Err(_) => Err(AppError::ServerNotRunning),
         }
     }
 
@@ -238,12 +239,12 @@ impl FtpServerActor {
     async fn do_start(
         &mut self,
         config: ServerConfig,
-    ) -> FtpResult<SocketAddr> {
+    ) -> AppResult<SocketAddr> {
         // 检查状态
         {
             let status = self.status.read().await;
             if status.is_running() {
-                return Err(FtpError::ServerAlreadyRunning);
+                return Err(AppError::ServerAlreadyRunning);
             }
         }
 
@@ -266,7 +267,7 @@ impl FtpServerActor {
                 let mut status = self.status.write().await;
                 *status = ServerStatus::Stopped;
             }
-            return Err(FtpError::Io(e));
+            return Err(AppError::Io(e.to_string()));
         }
 
         // 创建监听器
@@ -280,7 +281,7 @@ impl FtpServerActor {
 
         let root_path = config.root_path.clone();
         let port = config.port;
-        let (start_tx, _start_rx) = oneshot::channel::<FtpResult<SocketAddr>>();
+        let (start_tx, _start_rx) = oneshot::channel::<AppResult<SocketAddr>>();
 
         // 构建并启动服务器
         let result = ServerBuilder::new(Box::new(move || {
@@ -306,7 +307,7 @@ impl FtpServerActor {
                     let mut status = self.status.write().await;
                     *status = ServerStatus::Stopped;
                 }
-                return Err(FtpError::Other(e.to_string()));
+                return Err(AppError::Other(e.to_string()));
             }
         };
 
@@ -334,7 +335,7 @@ impl FtpServerActor {
                                 std::io::ErrorKind::Other,
                                 e.to_string(),
                             ),
-                        }));
+                        }.into()));
                     }
                 }
             }
@@ -361,11 +362,11 @@ impl FtpServerActor {
 
     /// 执行停止
     #[instrument(skip(self))]
-    async fn do_stop(&mut self) -> FtpResult<()> {
+    async fn do_stop(&mut self) -> AppResult<()> {
         {
             let status = self.status.read().await;
             if !status.is_running() {
-                return Err(FtpError::ServerNotRunning);
+                return Err(AppError::ServerNotRunning);
             }
         }
 

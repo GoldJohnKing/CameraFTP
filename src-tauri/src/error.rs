@@ -254,23 +254,10 @@ impl From<Box<dyn std::error::Error>> for AppError {
 impl From<crate::ftp::FtpError> for AppError {
     fn from(err: crate::ftp::FtpError) -> Self {
         match err {
-            crate::ftp::FtpError::ServerAlreadyRunning => {
-                AppError::ServerAlreadyRunning
-            }
-            crate::ftp::FtpError::ServerNotRunning => {
-                AppError::ServerNotRunning
-            }
             crate::ftp::FtpError::BindFailed { addr, source } => {
                 AppError::NetworkError(format!("Failed to bind to {}: {}", addr, source))
             }
-            crate::ftp::FtpError::InvalidConfiguration(msg) => {
-                AppError::ConfigError(msg)
-            }
-            crate::ftp::FtpError::StorageBackendError(msg) => {
-                AppError::Io(msg)
-            }
             crate::ftp::FtpError::Io(io_err) => AppError::from(io_err),
-            crate::ftp::FtpError::Other(msg) => AppError::Other(msg),
         }
     }
 }
