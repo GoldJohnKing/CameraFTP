@@ -37,8 +37,15 @@ interface FileUploadAndroid {
   onFileUploaded: (path: string | null, size: number) => void;
 }
 
+interface SAFPickerAndroid {
+  openAllFilesAccessSettings: () => void;
+}
+
 declare global {
   interface Window {
     FileUploadAndroid?: FileUploadAndroid;
+    SAFPickerAndroid?: SAFPickerAndroid;
   }
 }
+
+export {};

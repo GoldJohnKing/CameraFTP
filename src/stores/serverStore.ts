@@ -83,6 +83,8 @@ export const useServerStore = create<ServerState>((set, get) => ({
   initializeListeners: async () => {
     const listeners: UnlistenFn[] = [];
 
+    // === 核心服务器事件 ===
+
     // 监听服务器启动事件（当从托盘菜单启动时，更新前端状态）
     const unlistenStarted = await listen<[string, number]>('server-started', (event) => {
       console.log('Server started event received:', event.payload);
@@ -136,6 +138,51 @@ export const useServerStore = create<ServerState>((set, get) => ({
       }
     });
     listeners.push(unlistenFileUploaded);
+
+    // === UI事件（托盘、窗口等）===
+
+    // 托盘菜单启动服务器
+    const unlistenTrayStart = await listen('tray-start-server', async () => {
+      try {
+        await get().startServer();
+      } catch (err) {
+        console.error('Failed to start server from tray:', err);
+      }
+    });
+    listeners.push(unlistenTrayStart);
+
+    // 托盘菜单停止服务器
+    const unlistenTrayStop = await listen('tray-stop-server', async () => {
+      try {
+        await get().stopServer();
+      } catch (err) {
+        console.error('Failed to stop server from tray:', err);
+      }
+    });
+    listeners.push(unlistenTrayStop);
+
+    // 窗口关闭请求（显示退出对话框）
+    const unlistenCloseRequested = await listen('window-close-requested', () => {
+      // 通过自定义事件通知 App.tsx 显示退出对话框
+      window.dispatchEvent(new CustomEvent('app-quit-requested'));
+    });
+    listeners.push(unlistenCloseRequested);
+
+    // Android 设置页面请求
+    const unlistenOpenSettings = await listen('android-open-manage-storage-settings', () => {
+      // @ts-ignore - SAFPickerAndroid是Android注入的JS Bridge
+      if (window.SAFPickerAndroid?.openAllFilesAccessSettings) {
+        try {
+          // @ts-ignore
+          window.SAFPickerAndroid.openAllFilesAccessSettings();
+        } catch (err) {
+          console.error('Failed to open settings:', err);
+        }
+      } else {
+        console.warn('SAFPickerAndroid.openAllFilesAccessSettings not available');
+      }
+    });
+    listeners.push(unlistenOpenSettings);
 
     // 返回清理函数
     return async () => {

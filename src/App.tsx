@@ -8,10 +8,9 @@ import { ConfigCard } from './components/ConfigCard';
 import { BottomNav } from './components/BottomNav';
 import { useServerStore } from './stores/serverStore';
 import { useConfigStore } from './stores/configStore';
-import { useTauriListeners } from './hooks/useTauriListeners';
 
 function App() {
-  const { initializeListeners, startServer, stopServer } = useServerStore();
+  const { initializeListeners } = useServerStore();
   const { activeTab, loadConfig } = useConfigStore();
   const [showQuitDialog, setShowQuitDialog] = useState(false);
 
@@ -32,34 +31,16 @@ function App() {
     };
   }, [initializeListeners]);
 
-  // 使用自定义 hook 管理其他监听器
-  useTauriListeners([
-    {
-      event: 'tray-start-server',
-      handler: () => startServer().catch(console.error)
-    },
-    {
-      event: 'tray-stop-server',
-      handler: () => stopServer().catch(console.error)
-    },
-    {
-      event: 'window-close-requested',
-      handler: () => setShowQuitDialog(true)
-    },
-    {
-      event: 'android-open-manage-storage-settings',
-      handler: () => {
-        // Android: 跳转到设置页面开启所有文件访问权限
-        if ((window as any).SAFPickerAndroid?.openAllFilesAccessSettings) {
-          (window as any).SAFPickerAndroid.openAllFilesAccessSettings();
-        } else {
-          console.warn('SAFPickerAndroid.openAllFilesAccessSettings not available');
-          // 备用方案：提示用户手动开启
-          alert('请手动前往 设置 > 应用 > 图传伴侣 > 权限 > 开启"所有文件访问权限"');
-        }
-      }
-    },
-  ]);
+  // 监听退出请求自定义事件（由 serverStore 中的 window-close-requested 触发）
+  useEffect(() => {
+    const handleQuitRequest = () => {
+      setShowQuitDialog(true);
+    };
+    window.addEventListener('app-quit-requested', handleQuitRequest);
+    return () => {
+      window.removeEventListener('app-quit-requested', handleQuitRequest);
+    };
+  }, []);
 
   // 加载配置
   useEffect(() => {
