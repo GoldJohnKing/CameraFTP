@@ -10,61 +10,6 @@ use crate::ftp::types::ServerStateSnapshot;
 use crate::ftp::FtpServerHandle;
 use crate::network::NetworkManager;
 
-/// 请求打开 SAF 目录选择器（Android）或目录对话框（桌面）
-/// 通过 Tauri 事件与前端/Android 进行异步通信
-#[tauri::command]
-pub fn request_saf_picker(app: AppHandle, initial_uri: Option<String>) {
-    #[cfg(target_os = "android")]
-    {
-        // 发送事件给前端，前端再调用 Android SAF 选择器
-        let _ = app.emit("android-open-saf-picker", serde_json::json!({
-            "initial_uri": initial_uri,
-        }));
-        info!("Emitted android-open-saf-picker event");
-    }
-
-    #[cfg(not(target_os = "android"))]
-    {
-        // 桌面端：直接打开对话框并发送结果
-        let app_clone = app.clone();
-        tauri::async_runtime::spawn(async move {
-            let result = select_save_directory_impl(app_clone.clone()).await;
-            let uri = result.ok().flatten();
-            let _ = app_clone.emit("saf-picker-result", serde_json::json!({
-                "uri": uri,
-            }));
-            info!("Emitted saf-picker-result event for desktop");
-        });
-    }
-}
-
-/// 接收来自 Android 的 SAF 选择器结果
-/// 由前端调用，将结果传回 Rust
-#[tauri::command]
-pub fn on_saf_picker_result(app: AppHandle, uri: Option<String>) {
-    let _ = app.emit("saf-picker-result", serde_json::json!({
-        "uri": uri,
-    }));
-    info!(uri = ?uri, "Received SAF picker result from Android, emitted event");
-}
-
-/// 桌面端选择保存目录的内部实现
-#[cfg(not(target_os = "android"))]
-async fn select_save_directory_impl(app: AppHandle) -> Result<Option<String>, String> {
-    use tauri_plugin_dialog::DialogExt;
-
-    let folder_path = tokio::task::spawn_blocking(move || {
-        app.dialog()
-            .file()
-            .set_title("选择存储路径")
-            .blocking_pick_folder()
-    })
-    .await
-    .map_err(|e| format!("Task failed: {}", e))?;
-
-    Ok(folder_path.and_then(|p| p.as_path().map(|path| path.to_string_lossy().to_string())))
-}
-
 /// FTP 服务器状态（使用 Arc<Mutex> 包装以支持异步操作）
 pub struct FtpServerState(pub Arc<Mutex<Option<FtpServerHandle>>>);
 
@@ -223,10 +168,10 @@ pub async fn get_diagnostic_info(
 
 /// 设置开机自启
 #[tauri::command]
-pub fn set_autostart_command(enable: bool) -> Result<(), String> {
+pub fn set_autostart_command(_enable: bool) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     {
-        crate::platform::windows::set_autostart(enable)
+        crate::platform::windows::set_autostart(_enable)
             .map_err(|e| format!("Failed to set autostart: {}", e))
     }
     #[cfg(not(target_os = "windows"))]
@@ -260,10 +205,10 @@ pub fn quit_application(app: tauri::AppHandle) {
 #[tauri::command]
 pub fn hide_main_window(app: tauri::AppHandle) -> Result<(), String> {
     tracing::info!("Hiding main window");
-    if let Some(window) = app.get_webview_window("main") {
+    if let Some(_window) = app.get_webview_window("main") {
         #[cfg(target_os = "windows")]
         {
-            window.hide().map_err(|e| format!("Failed to hide window: {}", e))?;
+            _window.hide().map_err(|e| format!("Failed to hide window: {}", e))?;
             tracing::info!("Main window hidden successfully");
         }
         #[cfg(not(target_os = "windows"))]
@@ -277,14 +222,13 @@ pub fn hide_main_window(app: tauri::AppHandle) -> Result<(), String> {
     }
 }
 
-/// 选择目录对话框（桌面平台）
+/// 选择保存目录（仅桌面平台）
 #[tauri::command]
-pub async fn select_directory(app: tauri::AppHandle) -> Result<Option<String>, String> {
-    use tauri_plugin_dialog::DialogExt;
-    
+pub async fn select_save_directory(app: AppHandle) -> Result<Option<String>, String> {
     #[cfg(not(target_os = "android"))]
     {
-        // 桌面平台：使用文件夹选择对话框
+        use tauri_plugin_dialog::DialogExt;
+
         let folder_path = tokio::task::spawn_blocking(move || {
             app.dialog()
                 .file()
@@ -296,32 +240,12 @@ pub async fn select_directory(app: tauri::AppHandle) -> Result<Option<String>, S
 
         Ok(folder_path.and_then(|p| p.as_path().map(|path| path.to_string_lossy().to_string())))
     }
-    
-    #[cfg(target_os = "android")]
-    {
-        // Android 平台：返回当前配置中的路径
-        // 实际选择由前端通过 JS 调用 Android SAF API 完成
-        let config = AppConfig::load();
-        Ok(Some(config.save_path.to_string_lossy().to_string()))
-    }
-}
-
-/// 选择保存目录（支持 Android SAF）
-/// Android: 触发前端 SAF 选择器，返回当前配置路径
-/// 桌面: 打开原生文件夹对话框
-#[tauri::command]
-pub async fn select_save_directory(app: AppHandle) -> Result<Option<String>, String> {
-    #[cfg(not(target_os = "android"))]
-    {
-        select_save_directory_impl(app).await
-    }
 
     #[cfg(target_os = "android")]
     {
-        // Android: 返回当前配置路径，实际选择由前端处理
-        // 前端通过 request_saf_picker 和监听 saf-picker-result 事件获取结果
-        let config = AppConfig::load();
-        Ok(Some(config.save_path.to_string_lossy().to_string()))
+        // Android: 使用固定路径，不允许用户选择
+        let _ = app;
+        Ok(Some(crate::platform::android::get_default_storage_path()))
     }
 }
 
@@ -329,53 +253,15 @@ pub async fn select_save_directory(app: AppHandle) -> Result<Option<String>, Str
 #[tauri::command]
 pub fn validate_save_path(path: String) -> bool {
     let path_obj = std::path::PathBuf::from(&path);
-    
-    // Android SAF URI (content://...) 由前端验证
-    if path.starts_with("content://") {
-        return true;
-    }
-    
-    // 传统路径检查
     path_obj.exists() && path_obj.is_dir()
 }
 
-/// 获取推荐存储路径
+/// 获取固定存储路径（Android）或当前配置路径（桌面）
 #[tauri::command]
-pub fn get_recommended_save_path(app: tauri::AppHandle) -> Result<String, String> {
+pub fn get_storage_path() -> Result<String, String> {
     #[cfg(target_os = "android")]
     {
-        use tauri::Manager;
-        
-        // 尝试 DCIM/CameraFTPCompanion
-        let dcim = app.path().resolve(
-            "/sdcard/DCIM/CameraFTPCompanion",
-            tauri::path::BaseDirectory::Home
-        );
-        if let Ok(path) = dcim {
-            if std::fs::create_dir_all(&path).is_ok() {
-                return Ok(path.to_string_lossy().to_string());
-            }
-        }
-        
-        // 尝试 Pictures/CameraFTPCompanion
-        let pictures = app.path().resolve(
-            "/sdcard/Pictures/CameraFTPCompanion",
-            tauri::path::BaseDirectory::Home
-        );
-        if let Ok(path) = pictures {
-            if std::fs::create_dir_all(&path).is_ok() {
-                return Ok(path.to_string_lossy().to_string());
-            }
-        }
-        
-        // 回退到应用私有目录
-        let app_data = app.path().app_data_dir()
-            .map_err(|e| format!("Failed to get app data dir: {}", e))?;
-        let ftp_dir = app_data.join("ftp_uploads");
-        std::fs::create_dir_all(&ftp_dir)
-            .map_err(|e| format!("Failed to create ftp directory: {}", e))?;
-        
-        Ok(ftp_dir.to_string_lossy().to_string())
+        Ok(crate::platform::android::get_default_storage_path())
     }
     
     #[cfg(not(target_os = "android"))]
@@ -413,37 +299,18 @@ pub fn get_platform() -> String {
     { "unknown".to_string() }
 }
 
-/// 检查是否有所有文件访问权限（Android 11+）
-#[tauri::command]
-pub fn check_all_files_access_permission() -> bool {
-    #[cfg(target_os = "android")]
-    {
-        // Android 11+ 需要检查 MANAGE_EXTERNAL_STORAGE
-        // 由于 JNI 调用复杂，这里返回 true 让前端处理
-        // 实际检查在前端通过 JS 桥完成
-        true
-    }
-    
-    #[cfg(not(target_os = "android"))]
-    {
-        // 非 Android 平台默认返回 true
-        true
-    }
-}
-
-/// 跳转到 Android 设置页面开启所有文件访问权限
+/// 打开"所有文件访问权限"设置页面（Android）
 #[tauri::command]
 pub fn open_all_files_access_settings(app: tauri::AppHandle) -> Result<(), String> {
     #[cfg(target_os = "android")]
     {
-        use tauri::Emitter;
-        // 发送事件给前端，前端调用 Android 原生代码跳转
-        let _ = app.emit("android-open-settings", ());
+        crate::platform::android::open_manage_storage_settings(&app);
         Ok(())
     }
     
     #[cfg(not(target_os = "android"))]
     {
+        let _ = app;
         Err("此功能仅在 Android 平台可用".to_string())
     }
 }

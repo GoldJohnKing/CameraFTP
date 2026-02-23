@@ -3,7 +3,7 @@ import { useState, useCallback } from 'react';
 import { toast } from 'sonner';
 import { useServerStore } from '../stores/serverStore';
 import { useStoragePermission } from '../hooks/useStoragePermission';
-import { useSAFPicker } from '../hooks/useSAFPicker';
+
 
 export function ServerCard() {
   const [isStarting, setIsStarting] = useState(false);
@@ -14,11 +14,15 @@ export function ServerCard() {
     startServer, 
     stopServer 
   } = useServerStore();
-  const { isChecking, checkPrerequisites, saveStoragePath, getLastUri } = useStoragePermission();
-  const { openPicker } = useSAFPicker();
+  const { 
+    needsPermission, 
+    checkPrerequisites, 
+    requestAllFilesPermission, 
+    ensureStorageReady 
+  } = useStoragePermission();
 
   const handleStartServer = useCallback(async () => {
-    if (isStarting || isChecking) return;
+    if (isStarting) return;
     
     setIsStarting(true);
     
@@ -27,37 +31,23 @@ export function ServerCard() {
       const check = await checkPrerequisites();
       
       if (!check.can_start) {
-        // Show toast with reason
-        const reason = check.reason || '需要配置存储路径';
-        toast.info(`${reason}，请选择存储目录`);
-        
-        // 2. Get last URI for pre-selection
-        const lastUri = await getLastUri();
-        
-        // 3. Open SAF picker
-        const pickerResult = await openPicker(lastUri || undefined);
-        
-        if (!pickerResult) {
-          // User cancelled
-          toast.warning('未选择存储路径，服务器未启动');
+        if (needsPermission) {
+          // 需要权限
+          toast.error('需要授予"所有文件访问权限"才能启动服务器');
+          await requestAllFilesPermission();
           setIsStarting(false);
           return;
         }
         
-        // 4. Save the selected path
-        const saved = await saveStoragePath(pickerResult.name, pickerResult.uri);
-        
-        if (!saved) {
-          toast.error('保存存储路径失败，请重试');
+        // 尝试创建目录
+        const result = await ensureStorageReady();
+        if (!result.success) {
           setIsStarting(false);
           return;
         }
-        
-        // 5. Show success toast
-        toast.success(`存储路径已设置为：${pickerResult.name}`);
       }
       
-      // 6. Start the server
+      // 启动服务器
       await startServer();
       toast.success('FTP服务器已启动');
       
@@ -67,7 +57,7 @@ export function ServerCard() {
     } finally {
       setIsStarting(false);
     }
-  }, [isStarting, isChecking, checkPrerequisites, saveStoragePath, getLastUri, openPicker, startServer]);
+  }, [isStarting, checkPrerequisites, needsPermission, requestAllFilesPermission, ensureStorageReady, startServer]);
 
   const handleToggle = async () => {
     try {
@@ -86,14 +76,14 @@ export function ServerCard() {
     <div>
       <button
         onClick={handleToggle}
-        disabled={isLoading || isStarting || isChecking}
+        disabled={isLoading || isStarting}
         className={`w-full py-3 px-4 rounded-lg font-medium flex items-center justify-center gap-2 transition-colors ${
           isRunning
             ? 'bg-red-50 text-red-600 hover:bg-red-100'
             : 'bg-blue-600 text-white hover:bg-blue-700'
         } disabled:opacity-50 disabled:cursor-not-allowed`}
       >
-        {isLoading || isStarting || isChecking ? (
+        {isLoading || isStarting ? (
           <Loader2 className="w-5 h-5 animate-spin" />
         ) : (
           <Power className="w-5 h-5" />
@@ -102,9 +92,7 @@ export function ServerCard() {
           ? '停止服务器' 
           : isStarting 
             ? '启动中...' 
-            : isChecking 
-              ? '检查中...' 
-              : '启动服务器'
+            : '启动服务器'
         }
       </button>
 

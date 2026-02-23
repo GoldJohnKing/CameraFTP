@@ -13,13 +13,33 @@ use tokio::sync::Mutex;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use tauri::{Manager, Emitter};
 
-use commands::{check_all_files_access_permission, check_port_available, get_autostart_status, get_diagnostic_info, get_network_info, get_platform, get_recommended_save_path, get_server_status, hide_main_window, load_config, on_saf_picker_result, open_all_files_access_settings, quit_application, request_saf_picker, save_config, select_directory, select_save_directory, set_autostart_command, start_server, stop_server, validate_save_path, FtpServerState};
-use storage_permission::{
-    check_server_start_prerequisites,
-    get_last_storage_uri,
+use commands::{
+    check_port_available, 
+    get_autostart_status, 
+    get_diagnostic_info, 
+    get_network_info, 
+    get_platform, 
+    get_server_status, 
     get_storage_path,
-    save_storage_path,
-    validate_storage_permission,
+    hide_main_window, 
+    load_config, 
+    open_all_files_access_settings, 
+    quit_application, 
+    save_config, 
+    select_save_directory, 
+    set_autostart_command, 
+    start_server, 
+    stop_server, 
+    validate_save_path,
+    FtpServerState
+};
+use storage_permission::{
+    check_permission_status,
+    check_server_start_prerequisites,
+    check_storage_permission,
+    ensure_storage_ready,
+    get_storage_info,
+    request_all_files_permission,
 };
 use ftp::types::ServerStateSnapshot;
 
@@ -219,32 +239,44 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            // 服务器控制
             start_server,
             stop_server,
             get_server_status,
-            get_network_info,
+            
+            // 配置管理
             load_config,
             save_config,
-            check_port_available,
-            get_diagnostic_info,
-            set_autostart_command,
-            get_autostart_status,
-            quit_application,
-            hide_main_window,
-            select_directory,
+            get_storage_path,
             select_save_directory,
             validate_save_path,
-            get_recommended_save_path,
+            
+            // 网络
+            get_network_info,
+            check_port_available,
+            
+            // 诊断
+            get_diagnostic_info,
             get_platform,
-            check_all_files_access_permission,
+            
+            // 自动启动（Windows）
+            set_autostart_command,
+            get_autostart_status,
+            
+            // 应用控制
+            quit_application,
+            hide_main_window,
+            
+            // Android 权限管理
             open_all_files_access_settings,
-            validate_storage_permission,
-            save_storage_path,
-            get_storage_path,
+            
+            // 存储权限（新 API）
+            get_storage_info,
+            check_permission_status,
+            request_all_files_permission,
+            ensure_storage_ready,
+            check_storage_permission,
             check_server_start_prerequisites,
-            get_last_storage_uri,
-            request_saf_picker,
-            on_saf_picker_result,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

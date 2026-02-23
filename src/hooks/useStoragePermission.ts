@@ -1,37 +1,53 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { toast } from 'sonner';
 
-export interface StoragePathInfo {
-  path_name: string;
-  uri: string;
-  raw_path?: string;
-  is_valid: boolean;
+/// 存储路径信息（与后端 StorageInfo 对应）
+export interface StorageInfo {
+  display_name: string;
+  path: string;
+  exists: boolean;
+  writable: boolean;
+  has_all_files_access: boolean;
 }
 
+/// 权限状态（与后端 PermissionStatus 对应）
+export interface PermissionStatus {
+  has_all_files_access: boolean;
+  needs_user_action: boolean;
+}
+
+/// 服务器启动检查结果
 export interface ServerStartCheckResult {
   can_start: boolean;
   reason?: string;
-  current_path?: StoragePathInfo;
+  storage_info?: StorageInfo;
 }
 
 interface StoragePermissionState {
-  pathInfo: StoragePathInfo | null;
+  storageInfo: StorageInfo | null;
+  permissionStatus: PermissionStatus | null;
   isLoading: boolean;
-  isChecking: boolean;
   error: string | null;
 }
 
+/**
+ * 存储权限管理 Hook
+ * 
+ * 用于 Android 平台的存储权限管理。
+ * - 存储路径固定为 DCIM/CameraFTP
+ * - 用户只需授予"所有文件访问权限"
+ */
 export function useStoragePermission() {
   const [state, setState] = useState<StoragePermissionState>({
-    pathInfo: null,
+    storageInfo: null,
+    permissionStatus: null,
     isLoading: false,
-    isChecking: false,
     error: null,
   });
 
   const mountedRef = useRef(true);
 
-  // Set mounted flag
   useEffect(() => {
     mountedRef.current = true;
     return () => {
@@ -39,16 +55,17 @@ export function useStoragePermission() {
     };
   }, []);
 
-  // Load current storage path info
-  const loadStoragePath = useCallback(async () => {
+  /// 加载存储信息
+  const loadStorageInfo = useCallback(async () => {
     setState(prev => ({ ...prev, isLoading: true, error: null }));
     
     try {
-      const info = await invoke<StoragePathInfo | null>('get_storage_path');
+      const info = await invoke<StorageInfo>('get_storage_info');
       if (!mountedRef.current) return null;
+      
       setState(prev => ({
         ...prev,
-        pathInfo: info,
+        storageInfo: info,
         isLoading: false,
       }));
       return info;
@@ -64,35 +81,35 @@ export function useStoragePermission() {
     }
   }, []);
 
-  // Check server start prerequisites
+  /// 检查权限状态
+  const checkPermissionStatus = useCallback(async () => {
+    try {
+      const status = await invoke<PermissionStatus>('check_permission_status');
+      if (mountedRef.current) {
+        setState(prev => ({ ...prev, permissionStatus: status }));
+      }
+      return status;
+    } catch (err) {
+      console.error('Failed to check permission status:', err);
+      return null;
+    }
+  }, []);
+
+  /// 检查服务器启动前提条件
   const checkPrerequisites = useCallback(async (): Promise<ServerStartCheckResult> => {
-    setState(prev => ({ ...prev, isChecking: true, error: null }));
-    
     try {
       const result = await invoke<ServerStartCheckResult>('check_server_start_prerequisites');
       
-      if (!mountedRef.current) return result;
-
-      if (result.current_path) {
+      if (mountedRef.current && result.storage_info) {
         setState(prev => ({
           ...prev,
-          pathInfo: result.current_path || null,
-          isChecking: false,
+          storageInfo: result.storage_info || null,
         }));
-      } else {
-        setState(prev => ({ ...prev, isChecking: false }));
       }
       
       return result;
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : String(err);
-      if (mountedRef.current) {
-        setState(prev => ({
-          ...prev,
-          isChecking: false,
-          error: errorMsg,
-        }));
-      }
       return {
         can_start: false,
         reason: errorMsg,
@@ -100,38 +117,59 @@ export function useStoragePermission() {
     }
   }, []);
 
-  // Save storage path
-  const saveStoragePath = useCallback(async (pathName: string, uri: string): Promise<boolean> => {
+  /// 请求所有文件访问权限
+  const requestAllFilesPermission = useCallback(async () => {
     try {
-      await invoke('save_storage_path', { pathName, uri });
-      await loadStoragePath();
-      return true;
+      await invoke('request_all_files_permission');
+      toast.info('请在设置中授予"所有文件访问权限"，然后返回此应用');
     } catch (err) {
-      console.error('Failed to save storage path:', err);
-      return false;
-    }
-  }, [loadStoragePath]);
-
-  // Get last URI for picker pre-selection
-  const getLastUri = useCallback(async (): Promise<string | null> => {
-    try {
-      const uri = await invoke<string | null>('get_last_storage_uri');
-      return uri;
-    } catch {
-      return null;
+      console.error('Failed to request permission:', err);
+      toast.error('无法打开设置页面');
     }
   }, []);
 
-  // Initialize on mount
+  /// 确保存储就绪
+  const ensureStorageReady = useCallback(async (): Promise<{ success: boolean; error?: string }> => {
+    try {
+      const path = await invoke<string>('ensure_storage_ready');
+      toast.success(`存储已就绪: ${path}`);
+      await loadStorageInfo();
+      return { success: true };
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : String(err);
+      toast.error(errorMsg);
+      return { success: false, error: errorMsg };
+    }
+  }, [loadStorageInfo]);
+
+  /// 检查存储权限
+  const checkStoragePermission = useCallback(async (): Promise<boolean> => {
+    try {
+      return await invoke<boolean>('check_storage_permission');
+    } catch {
+      return false;
+    }
+  }, []);
+
+  /// 初始化
   useEffect(() => {
-    loadStoragePath();
-  }, [loadStoragePath]);
+    loadStorageInfo();
+    checkPermissionStatus();
+  }, [loadStorageInfo, checkPermissionStatus]);
 
   return {
     ...state,
-    loadStoragePath,
+    loadStorageInfo,
+    checkPermissionStatus,
     checkPrerequisites,
-    saveStoragePath,
-    getLastUri,
+    requestAllFilesPermission,
+    ensureStorageReady,
+    checkStoragePermission,
+    
+    /// 便捷属性
+    isReady: state.storageInfo?.writable ?? false,
+    needsPermission: state.permissionStatus?.needs_user_action ?? false,
+    displayName: state.storageInfo?.display_name ?? 'DCIM/CameraFTP',
+    storagePath: state.storageInfo?.path ?? '',
   };
 }

@@ -1,159 +1,228 @@
-use std::future::Future;
-use std::pin::Pin;
 use tauri::AppHandle;
-use tauri::Manager;
+use tracing::{debug, error, info};
 
-/// 目录选择回调类型
-type DirectoryPickerCallback = Box<dyn FnOnce(Option<String>) + Send>;
+/// 默认存储目录名称
+pub const DEFAULT_STORAGE_DIR_NAME: &str = "CameraFTP";
 
-/// 存储待执行的回调
-static DIRECTORY_PICKER_CALLBACK: std::sync::Mutex<Option<DirectoryPickerCallback>> =
-    std::sync::Mutex::new(None);
+/// 默认存储路径：DCIM/CameraFTP
+/// 这是固定路径，用户不能更改
+pub const DEFAULT_STORAGE_PATH: &str = "/storage/emulated/0/DCIM/CameraFTP";
 
-/// Android foreground service wrapper
-/// 在 Android 上实现后台 FTP 服务器运行
+/// 显示名称
+pub const STORAGE_DISPLAY_NAME: &str = "DCIM/CameraFTP";
 
-/// 请求 Android SAF 目录选择器
-/// 返回选择的目录 URI (content://...)
-#[cfg(target_os = "android")]
-pub fn request_directory_picker<F>(app: &AppHandle, callback: F)
-where
-    F: FnOnce(Option<String>) + Send + 'static,
-{
-    use tauri::Emitter;
-
-    // 存储回调
-    if let Ok(mut cb) = DIRECTORY_PICKER_CALLBACK.lock() {
-        *cb = Some(Box::new(callback));
-    }
-
-    // 发送事件给前端，前端调用 Android 的 SAF 选择器
-    let _ = app.emit("android-request-directory-picker", ());
+/// 存储路径信息
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct StorageInfo {
+    /// 显示名称
+    pub display_name: String,
+    /// 完整文件系统路径
+    pub path: String,
+    /// 路径是否存在
+    pub exists: bool,
+    /// 是否可写
+    pub writable: bool,
+    /// 是否有所有文件访问权限
+    pub has_all_files_access: bool,
 }
 
-/// Android 选择器返回结果时调用
+/// 权限状态
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct PermissionStatus {
+    /// 是否有"所有文件访问权限"
+    pub has_all_files_access: bool,
+    /// 是否需要用户操作
+    pub needs_user_action: bool,
+}
+
+/// 获取默认存储路径
+pub fn get_default_storage_path() -> String {
+    DEFAULT_STORAGE_PATH.to_string()
+}
+
+/// 获取存储路径显示名称
+pub fn get_storage_display_name() -> String {
+    STORAGE_DISPLAY_NAME.to_string()
+}
+
+/// 获取存储路径信息
 #[cfg(target_os = "android")]
-pub fn on_directory_selected(uri: Option<String>) {
-    if let Ok(mut cb) = DIRECTORY_PICKER_CALLBACK.lock() {
-        if let Some(callback) = cb.take() {
-            callback(uri);
+pub fn get_storage_info() -> StorageInfo {
+    let path = DEFAULT_STORAGE_PATH;
+    let path_buf = std::path::PathBuf::from(path);
+
+    let exists = path_buf.exists();
+    let writable = if exists {
+        validate_path_writable(path)
+    } else {
+        false
+    };
+
+    // 检查权限：如果能写入，就认为有权限
+    let has_all_files_access = writable || (exists && can_write_to_dcim());
+
+    StorageInfo {
+        display_name: STORAGE_DISPLAY_NAME.to_string(),
+        path: path.to_string(),
+        exists,
+        writable,
+        has_all_files_access,
+    }
+}
+
+#[cfg(not(target_os = "android"))]
+pub fn get_storage_info() -> StorageInfo {
+    StorageInfo {
+        display_name: "本地存储".to_string(),
+        path: "./ftp_uploads".to_string(),
+        exists: true,
+        writable: true,
+        has_all_files_access: true,
+    }
+}
+
+/// 检查权限状态
+#[cfg(target_os = "android")]
+pub fn check_permission_status() -> PermissionStatus {
+    let has_access = check_all_files_permission();
+    PermissionStatus {
+        has_all_files_access: has_access,
+        needs_user_action: !has_access,
+    }
+}
+
+#[cfg(not(target_os = "android"))]
+pub fn check_permission_status() -> PermissionStatus {
+    PermissionStatus {
+        has_all_files_access: true,
+        needs_user_action: false,
+    }
+}
+
+/// 检查是否有"所有文件访问权限"
+/// 通过尝试写入 DCIM 目录来判断
+#[cfg(target_os = "android")]
+pub fn check_all_files_permission() -> bool {
+    can_write_to_dcim()
+}
+
+#[cfg(not(target_os = "android"))]
+pub fn check_all_files_permission() -> bool {
+    true
+}
+
+/// 尝试写入 DCIM 目录来检查权限
+#[cfg(target_os = "android")]
+fn can_write_to_dcim() -> bool {
+    let dcim_path = "/storage/emulated/0/DCIM";
+    let test_file = format!("{}/.permission_test_{}", dcim_path, std::process::id());
+
+    // 尝试创建测试文件
+    match std::fs::File::create(&test_file) {
+        Ok(_) => {
+            let _ = std::fs::remove_file(&test_file);
+            debug!("All files access permission: granted (DCIM writable)");
+            true
+        }
+        Err(e) => {
+            debug!("All files access permission: denied ({})", e);
+            false
+        }
+    }
+}
+
+/// 验证路径是否可写
+#[cfg(target_os = "android")]
+pub fn validate_path_writable(path: &str) -> bool {
+    let path_buf = std::path::PathBuf::from(path);
+
+    // 如果路径不存在，尝试创建
+    if !path_buf.exists() {
+        debug!("Path does not exist, attempting to create: {:?}", path_buf);
+        match std::fs::create_dir_all(&path_buf) {
+            Ok(_) => {
+                info!("Successfully created directory: {:?}", path_buf);
+            }
+            Err(e) => {
+                error!("Failed to create directory {:?}: {}", path_buf, e);
+                return false;
+            }
+        }
+    }
+
+    // 确保是目录
+    if !path_buf.is_dir() {
+        error!("Path exists but is not a directory: {:?}", path_buf);
+        return false;
+    }
+
+    // 尝试写入测试文件
+    let test_file = path_buf.join(".ftp_write_test");
+    match std::fs::File::create(&test_file) {
+        Ok(_) => {
+            let _ = std::fs::remove_file(&test_file);
+            debug!("Path is writable: {:?}", path_buf);
+            true
+        }
+        Err(e) => {
+            error!("Path is not writable: {:?}, error: {}", path_buf, e);
+            false
         }
     }
 }
 
 #[cfg(not(target_os = "android"))]
-pub fn request_directory_picker<F>(_app: &AppHandle, _callback: F)
-where
-    F: FnOnce(Option<String>) + Send + 'static,
-{
-    // 非 Android 平台直接返回 None
-    _callback(None);
-}
-
-/// 获取持久化的存储目录 URI（从 Android SharedPreferences）
-#[cfg(target_os = "android")]
-pub fn get_persisted_directory_uri(_app: &AppHandle) -> Option<String> {
-    // 注意：实际实现需要通过 JNI 读取 SharedPreferences
-    // 这里返回 None，由前端通过 JS 桥获取后传回
-    None
-}
-
-#[cfg(not(target_os = "android"))]
-pub fn get_persisted_directory_uri(_app: &AppHandle) -> Option<String> {
-    None
-}
-
-/// 获取推荐存储路径
-#[cfg(target_os = "android")]
-pub fn get_recommended_storage_path(_app: &AppHandle) -> String {
-    // 优先级：
-    // 1. 持久化的 SAF URI
-    // 2. /DCIM/CameraFTPCompanion
-    // 3. /Pictures/CameraFTPCompanion
-    // 4. 应用私有目录
-
-    // 注意：实际路径由前端通过 JS 获取后传回
-    // 这里返回空字符串表示使用默认逻辑
-    String::new()
-}
-
-#[cfg(not(target_os = "android"))]
-pub fn get_recommended_storage_path(_app: &AppHandle) -> String {
-    String::new()
-}
-
-/// 检查 SAF 权限是否有效
-/// 通过尝试打开文件描述符来验证 URI 是否可访问
-///
-/// 注意：在 Android 上，实际的权限检查由前端通过 JS API 完成
-/// 此函数主要用于桌面端检查
-#[cfg(target_os = "android")]
-pub fn check_saf_permission(_app: &AppHandle, _uri: &str) -> bool {
-    // Android: 权限检查由前端通过 JS 调用 Android API 完成
-    // 这里简单返回 true，实际验证在 save_storage_path 时进行
-    // 或通过前端调用 checkPersistedPermission
+pub fn validate_path_writable(_path: &str) -> bool {
     true
 }
 
-#[cfg(not(target_os = "android"))]
-pub fn check_saf_permission(_app: &AppHandle, _uri: &str) -> bool {
-    false
-}
-
-/// 持久化 SAF 权限
-/// 调用 takePersistableUriPermission 来保持跨会话的访问权限
-///
-/// 注意：在 Android 上，实际的权限持久化由前端通过 JS API 完成
-/// 当用户选择目录时，前端会自动调用 takePersistableUriPermission
+/// 确保存储目录存在且可写
 #[cfg(target_os = "android")]
-pub fn persist_saf_permission(_app: &AppHandle, _uri: &str) -> bool {
-    // Android: 权限持久化由前端在选择目录时自动完成
-    // 这里返回 true 表示成功
-    true
-}
+pub fn ensure_storage_ready() -> Result<String, String> {
+    let path = DEFAULT_STORAGE_PATH;
+    let path_buf = std::path::PathBuf::from(path);
 
-#[cfg(not(target_os = "android"))]
-pub fn persist_saf_permission(_app: &AppHandle, _uri: &str) -> bool {
-    false
-}
-
-/// 将 content:// URI 转换为文件路径（最佳努力）
-/// 支持 externalstorage 文档提供者的 URI 模式
-#[cfg(target_os = "android")]
-pub fn uri_to_file_path(_app: &AppHandle, uri: &str) -> Option<String> {
-    // 处理 externalstorage 文档 URI
-    // 模式: content://com.android.externalstorage.documents/tree/primary:DCIM/Camera
-    // 或: content://com.android.externalstorage.documents/document/primary:DCIM/Camera/001.jpg
-
-    if let Some(pos) = uri.find("/tree/primary:") {
-        let path_part = &uri[pos + 14..]; // 14 = len("/tree/primary:")
-        let decoded = urlencoding::decode(path_part).ok()?;
-        // 转换为真实路径（基于 Android 存储结构）
-        return Some(format!("/storage/emulated/0/{}", decoded));
+    // 检查权限
+    if !check_all_files_permission() {
+        return Err(
+            "需要授予\"所有文件访问权限\"才能使用存储功能。请在设置中开启权限。".to_string(),
+        );
     }
 
-    if let Some(pos) = uri.find("/document/primary:") {
-        let path_part = &uri[pos + 18..]; // 18 = len("/document/primary:")
-        let decoded = urlencoding::decode(path_part).ok()?;
-        return Some(format!("/storage/emulated/0/{}", decoded));
+    // 创建目录（如果不存在）
+    if !path_buf.exists() {
+        std::fs::create_dir_all(&path_buf).map_err(|e| format!("无法创建存储目录: {}", e))?;
+        info!("Created storage directory: {}", path);
     }
 
-    // 无法解析的 URI 格式
-    None
+    // 验证可写
+    if !validate_path_writable(path) {
+        return Err("存储目录不可写，请检查权限设置".to_string());
+    }
+
+    Ok(path.to_string())
 }
 
 #[cfg(not(target_os = "android"))]
-pub fn uri_to_file_path(_app: &AppHandle, _uri: &str) -> Option<String> {
-    None
+pub fn ensure_storage_ready() -> Result<String, String> {
+    Ok("./ftp_uploads".to_string())
+}
+
+/// 打开"所有文件访问权限"设置页面
+pub fn open_manage_storage_settings(app: &AppHandle) {
+    #[cfg(target_os = "android")]
+    {
+        use tauri::Emitter;
+        let _ = app.emit("android-open-manage-storage-settings", ());
+        info!("Requesting to open manage storage settings");
+    }
 }
 
 /// 启动前台服务
-/// 这会让应用在后台继续运行 FTP 服务器
 pub fn start_foreground_service(app: &AppHandle) {
     #[cfg(target_os = "android")]
     {
         use tauri::Emitter;
-        // 发送事件给前端，由前端调用 Android 原生插件
         let _ = app.emit("android-start-foreground-service", ());
     }
 }
@@ -167,29 +236,26 @@ pub fn stop_foreground_service(app: &AppHandle) {
     }
 }
 
-/// 检查是否有后台运行权限
-pub fn has_background_permission(_app: &AppHandle) -> bool {
-    // Android 13+ 需要特殊权限
-    // 实际检查需要在前端通过 Capacitor/Cordova 插件完成
-    true
-}
+/// 获取 Android 设备信息
+#[cfg(target_os = "android")]
+pub fn get_device_info() -> DeviceInfo {
+    // 尝试从系统属性获取设备信息
+    let version = get_android_version();
+    let model = get_device_model();
 
-/// 请求后台运行权限
-pub fn request_background_permission(app: &AppHandle) {
-    #[cfg(target_os = "android")]
-    {
-        use tauri::Emitter;
-        let _ = app.emit("android-request-background-permission", ());
+    DeviceInfo {
+        platform: "android".to_string(),
+        version,
+        model,
     }
 }
 
-/// 获取 Android 设备信息
+#[cfg(not(target_os = "android"))]
 pub fn get_device_info() -> DeviceInfo {
     DeviceInfo {
-        platform: "android".to_string(),
-        // 实际版本号需要从 Android 系统获取
-        version: "14".to_string(),
-        model: "Unknown".to_string(),
+        platform: "unknown".to_string(),
+        version: "unknown".to_string(),
+        model: "unknown".to_string(),
     }
 }
 
@@ -198,6 +264,34 @@ pub struct DeviceInfo {
     pub platform: String,
     pub version: String,
     pub model: String,
+}
+
+/// 获取 Android 版本
+#[cfg(target_os = "android")]
+fn get_android_version() -> String {
+    std::fs::read_to_string("/system/build.prop")
+        .ok()
+        .and_then(|content| {
+            content
+                .lines()
+                .find(|line| line.starts_with("ro.build.version.release="))
+                .map(|line| line.split('=').nth(1).unwrap_or("unknown").to_string())
+        })
+        .unwrap_or_else(|| "unknown".to_string())
+}
+
+/// 获取设备型号
+#[cfg(target_os = "android")]
+fn get_device_model() -> String {
+    std::fs::read_to_string("/system/build.prop")
+        .ok()
+        .and_then(|content| {
+            content
+                .lines()
+                .find(|line| line.starts_with("ro.product.model="))
+                .map(|line| line.split('=').nth(1).unwrap_or("unknown").to_string())
+        })
+        .unwrap_or_else(|| "unknown".to_string())
 }
 
 /// 显示本地通知

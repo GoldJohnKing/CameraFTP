@@ -48,6 +48,28 @@ class SAFPickerBridge(private val activity: MainActivity) {
         
         return true
     }
+    
+    /**
+     * 检查是否拥有所有文件访问权限
+     */
+    @JavascriptInterface
+    fun hasAllFilesAccess(): Boolean {
+        return StorageHelper.hasManageExternalStoragePermission(activity)
+    }
+    
+    /**
+     * 打开权限设置页面
+     */
+    @JavascriptInterface
+    fun openPermissionSettings(): Boolean {
+        Log.d(TAG, "openPermissionSettings called from JavaScript")
+        
+        activity.runOnUiThread {
+            StorageHelper.openManageStorageSettings(activity)
+        }
+        
+        return true
+    }
 }
 
 class MainActivity : TauriActivity() {

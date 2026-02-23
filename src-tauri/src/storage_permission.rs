@@ -1,282 +1,73 @@
-use std::path::PathBuf;
 use tauri::AppHandle;
-use tracing::{info, warn};
+use tracing::info;
 
-use crate::config::AppConfig;
+use crate::platform::android;
 
-/// Storage path information struct
-#[derive(Debug, Clone, serde::Serialize)]
-pub struct StoragePathInfo {
-    pub path_name: String,
-    pub uri: String,
-    pub raw_path: Option<String>,
-    pub is_valid: bool,
-}
+// Re-export types from android module for convenience
+pub use crate::platform::android::{StorageInfo, PermissionStatus};
 
-/// Server start prerequisites check result
-#[derive(Debug, Clone, serde::Serialize)]
-pub struct ServerStartCheckResult {
-    pub can_start: bool,
-    pub reason: Option<String>,
-    pub current_path: Option<StoragePathInfo>,
-}
-
-/// Validate storage permission for a given URI
-/// On Android: checks SAF permission
-/// On Desktop: checks if path exists and is a directory
+/// 获取固定存储路径信息
 #[tauri::command]
-pub async fn validate_storage_permission(
-    app: AppHandle,
-    uri: String,
-) -> Result<bool, String> {
-    #[cfg(target_os = "android")]
-    {
-        use crate::platform::android;
-        let is_valid = android::check_saf_permission(&app, &uri);
-        info!("Validated SAF permission for URI: valid={}", is_valid);
-        Ok(is_valid)
-    }
-
-    #[cfg(not(target_os = "android"))]
-    {
-        // On desktop, treat URI as a file path
-        let path = PathBuf::from(&uri);
-        let is_valid = path.exists() && path.is_dir();
-        info!("Validated storage path on desktop: path={:?}, valid={}", path, is_valid);
-        Ok(is_valid)
-    }
+pub async fn get_storage_info() -> Result<StorageInfo, String> {
+    Ok(android::get_storage_info())
 }
 
-/// Save storage path to configuration
-/// On Android: persists SAF permission and saves URI
-/// On Desktop: just updates the save_path
+/// 检查权限状态
 #[tauri::command]
-pub async fn save_storage_path(
-    app: AppHandle,
-    path_name: String,
-    uri: String,
-) -> Result<(), String> {
-    #[cfg(target_os = "android")]
-    {
-        use crate::platform::android;
-        
-        // Persist the SAF permission (best effort)
-        let _persisted = android::persist_saf_permission(&app, &uri);
-        
-        // Try to convert URI to file path
-        let raw_path = android::uri_to_file_path(&app, &uri);
-        
-        // Load current config and update
-        let mut config = AppConfig::load();
-        
-        // Use raw_path for save_path (actual filesystem path for FTP server)
-        // If conversion fails, we need all files access permission
-        if let Some(ref raw) = raw_path {
-            // Check if the path is actually accessible
-            let path = PathBuf::from(raw);
-            let parent = path.parent();
-            let is_accessible = parent.map(|p| p.exists()).unwrap_or(false);
-            
-            if is_accessible {
-                config.save_path = path;
-                info!("Using converted path: {}", raw);
-            } else {
-                // Path conversion succeeded but directory not accessible
-                // User needs to grant MANAGE_EXTERNAL_STORAGE permission
-                warn!("Path conversion succeeded but directory not accessible: {}", raw);
-                return Err(
-                    "无法访问所选目录。请前往系统设置开启'所有文件访问权限'后重试。".to_string()
-                );
-            }
-        } else {
-            // Cannot convert URI to path - need all files access
-            warn!("Could not convert SAF URI to file path: {}", uri);
-            return Err(
-                "无法解析存储路径。请前往系统设置开启'所有文件访问权限'后重试。".to_string()
-            );
-        }
-        
-        config.save_path_uri = Some(uri.clone());
-        config.save_path_raw = raw_path.clone();
-        // Store display name separately for UI
-        config.save_path_display = Some(path_name.clone());
-        
-        config.save().map_err(|e| format!("Failed to save config: {}", e))?;
-        info!("Storage path saved successfully: display={}", path_name);
-    }
+pub async fn check_permission_status() -> Result<PermissionStatus, String> {
+    Ok(android::check_permission_status())
+}
 
-    #[cfg(not(target_os = "android"))]
-    {
-        // On desktop, just update the save_path
-        let mut config = AppConfig::load();
-        config.save_path = PathBuf::from(&path_name);
-        // Also store URI for consistency (though it's just the path on desktop)
-        config.save_path_uri = Some(uri);
-        
-        config.save().map_err(|e| format!("Failed to save config: {}", e))?;
-        info!("Storage path saved on desktop: path={}", path_name);
-    }
-
+/// 请求"所有文件访问权限"
+/// 这会触发前端打开系统设置页面
+#[tauri::command]
+pub async fn request_all_files_permission(app: AppHandle) -> Result<(), String> {
+    android::open_manage_storage_settings(&app);
+    info!("Requested all files access permission");
     Ok(())
 }
 
-/// Get current storage path information from config
-/// Validates permission if on Android
+/// 确保存储目录存在且可写
 #[tauri::command]
-pub async fn get_storage_path(app: AppHandle) -> Result<Option<StoragePathInfo>, String> {
-    let config = AppConfig::load();
-    
-    // If we have a URI stored, use that for validation
-    if let Some(uri) = &config.save_path_uri {
-        #[cfg(target_os = "android")]
-        {
-            use crate::platform::android;
-            let is_valid = android::check_saf_permission(&app, uri);
-            
-            // Use display name if available, otherwise use raw path
-            let display_name = config.save_path_display
-                .clone()
-                .unwrap_or_else(|| config.save_path.to_string_lossy().to_string());
-            
-            let path_info = StoragePathInfo {
-                path_name: display_name,
-                uri: uri.clone(),
-                raw_path: config.save_path_raw.clone(),
-                is_valid,
-            };
-            
-            info!("Retrieved storage path: valid={}", is_valid);
-            return Ok(Some(path_info));
-        }
-        
-        #[cfg(not(target_os = "android"))]
-        {
-            let is_valid = config.save_path.exists() && config.save_path.is_dir();
-            
-            let path_info = StoragePathInfo {
-                path_name: config.save_path.to_string_lossy().to_string(),
-                uri: uri.clone(),
-                raw_path: Some(config.save_path.to_string_lossy().to_string()),
-                is_valid,
-            };
-            
-            info!("Retrieved storage path on desktop: valid={}", is_valid);
-            return Ok(Some(path_info));
-        }
-    }
-    
-    // No URI stored, just return the path without URI info
-    let is_valid = config.save_path.exists() && config.save_path.is_dir();
-    
-    let path_info = StoragePathInfo {
-        path_name: config.save_path.to_string_lossy().to_string(),
-        uri: config.save_path.to_string_lossy().to_string(),
-        raw_path: Some(config.save_path.to_string_lossy().to_string()),
-        is_valid,
-    };
-    
-    Ok(Some(path_info))
+pub async fn ensure_storage_ready() -> Result<String, String> {
+    android::ensure_storage_ready()
 }
 
-/// Check server start prerequisites
-/// Verifies that storage path is valid and ready for server to start
+/// 检查存储权限（兼容旧接口）
 #[tauri::command]
-pub async fn check_server_start_prerequisites(
-    app: AppHandle,
-) -> Result<ServerStartCheckResult, String> {
-    let config = AppConfig::load();
+pub async fn check_storage_permission() -> Result<bool, String> {
+    Ok(android::check_all_files_permission())
+}
+
+/// 检查服务器启动前提条件
+#[tauri::command]
+pub async fn check_server_start_prerequisites() -> Result<ServerStartCheckResult, String> {
+    let storage_info = android::get_storage_info();
     
-    // Check if we have a valid storage path
-    let path_info = if let Some(uri) = &config.save_path_uri {
-        #[cfg(target_os = "android")]
-        {
-            use crate::platform::android;
-            let is_valid = android::check_saf_permission(&app, uri);
-            
-            // Use display name if available
-            let display_name = config.save_path_display
-                .clone()
-                .unwrap_or_else(|| config.save_path.to_string_lossy().to_string());
-            
-            Some(StoragePathInfo {
-                path_name: display_name,
-                uri: uri.clone(),
-                raw_path: config.save_path_raw.clone(),
-                is_valid,
-            })
-        }
-        
-        #[cfg(not(target_os = "android"))]
-        {
-            let is_valid = config.save_path.exists() && config.save_path.is_dir();
-            
-            Some(StoragePathInfo {
-                path_name: config.save_path.to_string_lossy().to_string(),
-                uri: uri.clone(),
-                raw_path: Some(config.save_path.to_string_lossy().to_string()),
-                is_valid,
-            })
-        }
-    } else {
-        // No URI stored, check if desktop path is valid
-        #[cfg(not(target_os = "android"))]
-        {
-            let is_valid = config.save_path.exists() && config.save_path.is_dir();
-            
-            Some(StoragePathInfo {
-                path_name: config.save_path.to_string_lossy().to_string(),
-                uri: config.save_path.to_string_lossy().to_string(),
-                raw_path: Some(config.save_path.to_string_lossy().to_string()),
-                is_valid,
-            })
-        }
-        
-        #[cfg(target_os = "android")]
-        {
-            // On Android, we really need a URI
-            None
-        }
-    };
-    
-    // Determine if server can start
-    let can_start = match &path_info {
-        Some(info) if info.is_valid => true,
-        Some(_) => {
-            warn!("Storage path exists but permission is not valid");
-            false
-        }
-        None => {
-            warn!("No storage path configured");
-            false
-        }
-    };
+    let can_start = storage_info.writable || 
+        (android::check_all_files_permission() && !storage_info.exists);
     
     let reason = if !can_start {
-        Some(match &path_info {
-            Some(info) if !info.is_valid => {
-                "Storage permission is not valid. Please reselect the storage folder.".to_string()
-            }
-            None => "No storage path configured. Please select a storage folder first.".to_string(),
-            _ => "Unknown error".to_string(),
-        })
+        if !storage_info.has_all_files_access {
+            Some("需要授予\"所有文件访问权限\"才能启动服务器。请在设置中开启权限。".to_string())
+        } else {
+            Some("存储路径不可写，请检查权限设置".to_string())
+        }
     } else {
         None
     };
     
-    let result = ServerStartCheckResult {
+    Ok(ServerStartCheckResult {
         can_start,
         reason,
-        current_path: path_info,
-    };
-    
-    info!("Server start prerequisites check: can_start={}", can_start);
-    Ok(result)
+        storage_info: Some(storage_info),
+    })
 }
 
-/// Get the last saved storage URI from config
-/// Used for pre-selecting the folder in the SAF picker
-#[tauri::command]
-pub async fn get_last_storage_uri() -> Result<Option<String>, String> {
-    let config = AppConfig::load();
-    Ok(config.save_path_uri)
+/// 服务器启动检查结果
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ServerStartCheckResult {
+    pub can_start: bool,
+    pub reason: Option<String>,
+    pub storage_info: Option<StorageInfo>,
 }

@@ -5,36 +5,16 @@ use std::sync::Mutex;
 use tracing::{error, info, warn};
 use ts_rs::TS;
 
-/// Android 存储路径（在应用初始化时设置）
-#[cfg(target_os = "android")]
-static ANDROID_SAVE_PATH: Mutex<Option<PathBuf>> = Mutex::new(None);
-
+/// Android 配置路径（在应用初始化时设置）
 #[cfg(target_os = "android")]
 static ANDROID_CONFIG_PATH: Mutex<Option<PathBuf>> = Mutex::new(None);
 
-/// 设置 Android 存储路径（在应用初始化时调用）
+/// 设置 Android 配置路径（在应用初始化时调用）
 #[cfg(target_os = "android")]
-pub fn set_android_paths(save_path: PathBuf, config_path: PathBuf) {
-    let mut save_guard = ANDROID_SAVE_PATH.lock().unwrap();
+pub fn set_android_config_path(config_path: PathBuf) {
     let mut config_guard = ANDROID_CONFIG_PATH.lock().unwrap();
-    *save_guard = Some(save_path);
     *config_guard = Some(config_path);
-    info!(
-        "Android paths set: save={:?}, config={:?}",
-        save_guard, config_guard
-    );
-}
-
-/// 获取 Android 保存路径
-#[cfg(target_os = "android")]
-fn get_android_save_path() -> PathBuf {
-    ANDROID_SAVE_PATH
-        .lock()
-        .unwrap()
-        .clone()
-        .unwrap_or_else(|| {
-            PathBuf::from("/sdcard/Android/data/com.gjk.cameraftpcompanion/files/ftp_uploads")
-        })
+    info!("Android config path set: {:?}", config_guard);
 }
 
 /// 获取 Android 配置路径
@@ -52,18 +32,18 @@ fn get_android_config_path() -> PathBuf {
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct AppConfig {
+    /// 存储路径（桌面端可自定义，Android 端固定为 DCIM/CameraFTP）
     pub save_path: PathBuf,
+    /// 自动打开接收的文件
     pub auto_open: bool,
+    /// 自动打开程序路径
     pub auto_open_program: Option<String>,
+    /// FTP 端口
     pub port: u16,
+    /// 自动选择端口
     pub auto_select_port: bool,
+    /// 支持的文件扩展名
     pub file_extensions: Vec<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub save_path_uri: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub save_path_raw: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub save_path_display: Option<String>,
 }
 
 impl Default for AppConfig {
@@ -85,9 +65,6 @@ impl Default for AppConfig {
                 "orf".to_string(),
                 "rw2".to_string(),
             ],
-            save_path_uri: None,
-            save_path_raw: None,
-            save_path_display: None,
         }
     }
 }
@@ -96,7 +73,8 @@ impl AppConfig {
     fn default_pictures_dir() -> PathBuf {
         #[cfg(target_os = "android")]
         {
-            get_android_save_path()
+            // Android: 使用固定的 DCIM/CameraFTP 路径
+            PathBuf::from("/storage/emulated/0/DCIM/CameraFTP")
         }
         #[cfg(not(target_os = "android"))]
         {
@@ -167,56 +145,33 @@ impl AppConfig {
 pub fn init_android_paths(app_handle: &tauri::AppHandle) {
     use tauri::Manager;
 
-    // Android 11+ 对外部存储目录(/sdcard/Android/data/)访问受限
-    // 使用应用内部存储目录 /data/data/<package>/files/ 确保始终可访问
-    let internal_dir = app_handle
+    // 配置文件存储在应用私有目录
+    let config_path = app_handle
         .path()
         .data_dir()
-        .unwrap_or_else(|_| PathBuf::from("/data/data/com.gjk.cameraftpcompanion/files"));
+        .unwrap_or_else(|_| PathBuf::from("/data/data/com.gjk.cameraftpcompanion/files"))
+        .join("config.json");
 
-    let default_save_path = internal_dir.join("ftp_uploads");
-    let config_path = internal_dir.join("config.json");
-
-    // 确保目录存在
-    let _ = fs::create_dir_all(&default_save_path);
-    let _ = fs::create_dir_all(&internal_dir);
-
-    // 尝试加载现有配置
-    let mut config = AppConfig::load();
-
-    // Android 10+ (API 29+) 引入 Scoped Storage，应用不能直接写入公共目录
-    // 默认使用应用私有目录（不需要特殊权限）
-    // 如果用户想要使用公共目录（如 DCIM），需要在设置中手动选择并开启权限
-    if config.save_path.to_string_lossy().is_empty() {
-        config.save_path = default_save_path.clone();
-        let _ = config.save();
-    } else {
-        // 验证现有路径是否可写
-        let test_file = config.save_path.join(".write_test");
-        match fs::File::create(&test_file) {
-            Ok(_) => {
-                let _ = fs::remove_file(&test_file);
-            }
-            Err(_) => {
-                // 路径不可写，回退到应用私有目录
-                warn!("Save path is not writable, falling back to app private directory");
-                config.save_path = default_save_path.clone();
-                let _ = config.save();
-            }
-        }
+    // 确保配置目录存在
+    if let Some(parent) = config_path.parent() {
+        let _ = fs::create_dir_all(parent);
     }
 
-    let final_save_path = if config.save_path.to_string_lossy().is_empty() {
-        default_save_path
-    } else {
-        config.save_path.clone()
-    };
+    set_android_config_path(config_path.clone());
+    info!("Android config path initialized: {:?}", config_path);
 
-    set_android_paths(final_save_path.clone(), config_path.clone());
-    info!(
-        "Android paths initialized: save={:?}, config={:?}",
-        final_save_path, config_path
-    );
+    // 存储路径固定为 DCIM/CameraFTP，不需要初始化
+    // 如果有权限，尝试创建存储目录
+    let save_path = PathBuf::from("/storage/emulated/0/DCIM/CameraFTP");
+    if !save_path.exists() {
+        match fs::create_dir_all(&save_path) {
+            Ok(_) => info!("Created storage directory: {:?}", save_path),
+            Err(e) => warn!(
+                "Could not create storage directory (permission may be required): {}",
+                e
+            ),
+        }
+    }
 }
 
 #[cfg(not(target_os = "android"))]
