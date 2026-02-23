@@ -52,6 +52,7 @@ camera-ftp-companion/
 │   ├── vite.config.ts            # Vite构建配置
 │   ├── tailwind.config.js        # TailwindCSS配置
 │   ├── index.html                # HTML入口
+│   ├── build.sh                  # ⭐ 统一构建入口（推荐使用）
 │   ├── build-full.sh             # 完整构建脚本（Windows+前端）
 │   ├── build-windows.sh          # Windows构建脚本
 │   ├── build-windows-bundle.sh   # Windows安装包构建
@@ -63,25 +64,26 @@ camera-ftp-companion/
 │   ├── index.css                 # 全局样式
 │   ├── types/
 │   │   └── index.ts              # TypeScript类型定义
+│   ├── utils/
+│   │   └── format.ts             # 共享工具函数（formatBytes等）
 │   ├── components/
 │   │   ├── ServerCard.tsx        # 服务器控制卡片（启动/停止）
 │   │   ├── StatsCard.tsx         # 统计显示卡片
 │   │   ├── InfoCard.tsx          # 连接信息卡片
-│   │   ├── ConfigCard.tsx        # 配置管理卡片
-│   │   ├── BottomNav.tsx         # 底部导航栏
-│   │   └── StorageSettings.tsx   # 存储设置组件
+│   │   ├── ConfigCard.tsx        # 配置管理卡片（含存储设置）
+│   │   └── BottomNav.tsx         # 底部导航栏
 │   ├── stores/
-│   │   ├── serverStore.ts        # 服务器状态管理（Zustand）
+│   │   ├── serverStore.ts        # 服务器状态管理 + 统一事件监听
 │   │   └── configStore.ts        # 配置状态管理
 │   └── hooks/
-│       ├── useTauriListeners.ts  # Tauri事件监听Hook
+│       ├── useTauriListeners.ts  # Tauri事件监听Hook（可选使用）
 │       └── useStoragePermission.ts # 存储权限管理Hook
 │
 ├── 📁 src-tauri/                 # Rust后端源码
 │   ├── Cargo.toml                # Rust依赖配置
 │   ├── tauri.conf.json           # Tauri配置
 │   ├── build.rs                  # Rust构建脚本
-│   ├── mobile.toml               # 移动端Tauri配置
+│   ├── mobile.toml               # 移动端Tauri配置（minSdk=30）
 │   ├── icons/                    # 应用图标
 │   │   ├── tray-stopped.png      # 托盘图标-停止（红点）
 │   │   ├── tray-idle.png         # 托盘图标-空闲（黄点）
@@ -94,8 +96,8 @@ camera-ftp-companion/
 │       ├── commands.rs           # Tauri命令定义（IPC接口）
 │       ├── config.rs             # 应用配置管理
 │       ├── network.rs            # 网络管理（IP/端口检测）
-│       ├── error.rs              # 错误类型定义
-│       ├── storage_permission.rs # 存储权限管理
+│       ├── error.rs              # 统一错误类型（AppError）
+│       ├── storage_permission.rs # 存储权限管理命令
 │       ├── saf_picker.rs         # Android SAF文件选择器
 │       ├── ftp/                  # FTP模块
 │       │   ├── mod.rs            # 模块入口与测试
@@ -105,11 +107,13 @@ camera-ftp-companion/
 │       │   ├── listeners.rs      # FTP事件监听器
 │       │   ├── stats.rs          # 统计信息Actor
 │       │   ├── types.rs          # 类型定义（Config/Stats/Event）
-│       │   └── error.rs          # FTP错误类型
-│       └── platform/             # 平台适配
-│           ├── mod.rs            # 平台模块入口
-│           ├── windows.rs        # Windows平台（托盘/自启）
-│           └── android.rs        # Android平台（权限/存储）
+│       │   └── error.rs          # FTP专用错误（仅BindFailed/Io）
+│       └── platform/             # 平台适配（Trait抽象层）
+│           ├── mod.rs            # 平台模块入口 + get_platform()
+│           ├── types.rs          # 统一类型（StorageInfo等）
+│           ├── traits.rs         # PlatformService Trait定义
+│           ├── windows.rs        # Windows平台实现
+│           └── android.rs        # Android平台实现
 │
 ├── 📁 dist/                      # 前端构建输出
 └── 📁 release/                   # 发布包
@@ -132,6 +136,38 @@ camera-ftp-companion/
 
 ### 平台适配 (`src-tauri/src/platform/`)
 
+采用 **Trait 抽象层** 统一平台接口，减少内联 `#[cfg]` 散落：
+
+**核心 Trait** (`traits.rs`):
+```rust
+pub trait PlatformService: Send + Sync {
+    fn name(&self) -> &'static str;
+    fn setup(&self, app: &AppHandle) -> Result<(), Box<dyn std::error::Error>>;
+    fn get_storage_info(&self) -> StorageInfo;
+    fn check_permission_status(&self) -> PermissionStatus;
+    fn ensure_storage_ready(&self) -> Result<String, String>;
+    fn on_server_started(&self, _app: &AppHandle) {}
+    fn on_server_stopped(&self, _app: &AppHandle) {}
+    fn update_server_state(&self, _app: &AppHandle, _connected_clients: u32) {}
+}
+```
+
+**统一类型** (`types.rs`):
+- `StorageInfo`: 存储路径信息
+- `PermissionStatus`: 权限状态
+- `ServerStartCheckResult`: 服务器启动检查结果
+
+**平台实现**:
+- `WindowsPlatform`: 托盘图标、开机自启、窗口控制
+- `AndroidPlatform`: 存储权限、前台服务、固定存储路径
+
+**获取平台实例**:
+```rust
+use crate::platform::get_platform;
+let platform = get_platform();
+platform.setup(app.handle())?;
+```
+
 **Windows平台** (`windows.rs`):
 - 系统托盘实现（托盘图标动态切换）
 - 开机自启（注册表操作）
@@ -146,14 +182,20 @@ camera-ftp-companion/
 ### 前端架构
 
 **状态管理** (Zustand):
-- `serverStore`: 服务器状态（isRunning, stats, start/stop actions）
+- `serverStore`: 服务器状态（isRunning, stats, start/stop actions）+ 统一事件监听
 - `configStore`: 配置状态（savePath, autoStart, activeTab）
 
-**事件监听**:
-- `stats-update`: 统计信息更新
+**工具函数** (`utils/format.ts`):
+- `formatBytes()`: 字节数格式化为 MB
+- `formatBytesAuto()`: 自动选择最佳单位
+
+**事件监听** (统一在 `serverStore.initializeListeners()`):
 - `server-started`/`server-stopped`: 服务器状态变化
+- `stats-update`: 统计信息更新
+- `file-uploaded`: 文件上传完成（Android 媒体扫描）
 - `tray-start-server`/`tray-stop-server`: 托盘菜单操作
 - `window-close-requested`: 窗口关闭请求
+- `android-open-manage-storage-settings`: Android 设置页面请求
 
 ---
 
@@ -162,6 +204,24 @@ camera-ftp-companion/
 ### ⚠️ 重要：必须使用编译脚本构建
 
 **Agent指令**: 所有平台产物的构建**必须**使用项目提供的编译脚本，不要直接使用cargo或bun命令。
+
+#### 统一构建入口（推荐）
+
+```bash
+./build.sh <command>
+```
+
+| 命令 | 说明 |
+|------|------|
+| `./build.sh windows` | 构建 Windows 可执行文件 |
+| `./build.sh windows-bundle` | 构建 Windows 安装包 (EXE + MSI) |
+| `./build.sh android` | 构建 Android APK (debug) |
+| `./build.sh android-release` | 构建 Android APK (release) |
+| `./build.sh android-aab` | 构建 Android AAB (Google Play) |
+| `./build.sh dev` | 启动开发模式（热重载） |
+| `./build.sh frontend` | 仅构建前端 |
+
+#### 传统构建脚本
 
 | 平台 | 编译脚本 | 输出 |
 |------|----------|------|
