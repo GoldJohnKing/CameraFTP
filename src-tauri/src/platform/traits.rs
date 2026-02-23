@@ -1,5 +1,7 @@
 use super::types::{PermissionStatus, StorageInfo};
+use std::sync::Arc;
 use tauri::AppHandle;
+use tokio::sync::Mutex;
 
 /// 平台服务接口
 /// 定义各平台需要实现的统一接口
@@ -27,4 +29,26 @@ pub trait PlatformService: Send + Sync {
 
     /// 更新服务器状态（用于托盘图标等）
     fn update_server_state(&self, _app: &AppHandle, _connected_clients: u32) {}
+
+    // ========== 开机自启相关 ==========
+
+    /// 检查当前是否是开机自启模式
+    fn is_autostart_mode(&self) -> bool {
+        false // 默认实现：非 Windows 平台不支持
+    }
+
+    /// 开机自启模式下隐藏窗口
+    fn hide_window_on_autostart(&self, _app: &AppHandle) {
+        // 默认实现：无操作
+    }
+
+    /// 执行开机自启服务器启动逻辑
+    /// 返回 true 表示已处理（需要等待），false 表示跳过
+    fn execute_autostart_server(
+        &self,
+        _app: &AppHandle,
+        _state: &Arc<Mutex<Option<crate::ftp::FtpServerHandle>>>,
+    ) {
+        // 默认实现：无操作
+    }
 }

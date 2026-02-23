@@ -3,6 +3,8 @@ use tauri::menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconEvent};
 use super::traits::PlatformService;
 use super::types::{StorageInfo, PermissionStatus};
+use std::sync::Arc;
+use tokio::sync::Mutex;
 
 /// 托盘图标状态枚举
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -233,5 +235,55 @@ impl PlatformService for WindowsPlatform {
         if let Err(e) = update_tray_icon(app, state) {
             tracing::warn!("Failed to update tray icon: {}", e);
         }
+    }
+
+    // ========== 开机自启相关 ==========
+
+    fn is_autostart_mode(&self) -> bool {
+        is_autostart_mode()
+    }
+
+    fn hide_window_on_autostart(&self, app: &AppHandle) {
+        if let Some(window) = app.get_webview_window("main") {
+            let _ = window.hide();
+            let _ = window.set_skip_taskbar(true);
+        }
+    }
+
+    fn execute_autostart_server(
+        &self,
+        app: &AppHandle,
+        state: &Arc<Mutex<Option<crate::ftp::FtpServerHandle>>>,
+    ) {
+        let app_handle = app.clone();
+        let state_clone = state.clone();
+
+        tauri::async_runtime::spawn(async move {
+            tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+
+            match crate::ftp::server_factory::start_ftp_server(&state_clone, Default::default()).await {
+                Ok(ctx) => {
+                    tracing::info!("FTP server auto-started on {}:{}", ctx.ip, ctx.port);
+
+                    // 启动事件处理器
+                    crate::ftp::server_factory::spawn_event_processor(
+                        app_handle.clone(),
+                        ctx.event_bus,
+                        500
+                    );
+
+                    // 发送事件给前端
+                    crate::ftp::server_factory::emit_server_started(&app_handle, &ctx.ip, ctx.port);
+
+                    // 更新托盘图标为 idle 状态
+                    if let Err(e) = update_tray_icon(&app_handle, TrayIconState::Idle) {
+                        tracing::warn!("Failed to update tray icon on autostart: {}", e);
+                    }
+                }
+                Err(e) => {
+                    tracing::error!("Failed to auto-start server: {}", e);
+                }
+            }
+        });
     }
 }

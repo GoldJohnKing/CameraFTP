@@ -97,12 +97,9 @@ pub fn run() {
     // Initialize logging to file
     setup_logging();
 
-    // 检查是否是开机启动模式（仅在 Windows 上）
-    #[cfg(target_os = "windows")]
-    let is_autostart = crate::platform::windows::is_autostart_mode();
-    
-    #[cfg(not(target_os = "windows"))]
-    let is_autostart = false;
+    // 获取平台实例
+    let platform = platform::get_platform();
+    let is_autostart = platform.is_autostart_mode();
 
     if is_autostart {
         tracing::info!("Running in autostart mode - window will be hidden");
@@ -113,29 +110,24 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .manage(FtpServerState(Arc::new(Mutex::new(None))))
         .setup(move |app| {
+            // 统一平台初始化（托盘、权限等）
+            if let Err(e) = platform.setup(app.handle()) {
+                eprintln!("Platform setup failed: {}", e);
+            }
+
             // 初始化 Android 路径（如果是 Android 平台）
             #[cfg(target_os = "android")]
             {
                 config::init_android_paths(app.handle());
             }
 
-            #[cfg(target_os = "windows")]
-            {
-                if let Err(e) = platform::windows::setup_tray(app.handle()) {
-                    eprintln!("Failed to setup tray: {}", e);
-                }
+            // 开机自启模式：隐藏窗口
+            if is_autostart {
+                platform.hide_window_on_autostart(app.handle());
             }
 
-            // 获取主窗口并控制显示
+            // 获取主窗口并监听关闭请求
             if let Some(window) = app.get_webview_window("main") {
-                #[cfg(target_os = "windows")]
-                if is_autostart {
-                    // 开机启动模式：隐藏窗口（仅 Windows）
-                    let _ = window.hide();
-                    let _ = window.set_skip_taskbar(true);
-                }
-                
-                // 监听窗口关闭请求（点击X号）
                 let app_handle = app.handle().clone();
                 window.on_window_event(move |event| {
                     if let tauri::WindowEvent::CloseRequested { api, .. } = event {
@@ -148,63 +140,25 @@ pub fn run() {
             }
 
             // 如果是开机启动模式，自动启动服务器
-            #[cfg(target_os = "windows")]
             if is_autostart {
-                let app_handle = app.handle().clone();
-                tauri::async_runtime::spawn(async move {
-                    tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
-
-                    let state: tauri::State<'_, FtpServerState> = app_handle.state();
-
-                    match crate::ftp::server_factory::start_ftp_server(&state.0, Default::default()).await {
-                        Ok(ctx) => {
-                            tracing::info!("FTP server auto-started on {}:{}", ctx.ip, ctx.port);
-
-                            // 启动事件处理器
-                            crate::ftp::server_factory::spawn_event_processor(
-                                app_handle.clone(),
-                                ctx.event_bus,
-                                500
-                            );
-
-                            // 发送事件给前端
-                            crate::ftp::server_factory::emit_server_started(&app_handle, &ctx.ip, ctx.port);
-                            tracing::info!("Server auto-started on autostart");
-
-                            // 更新托盘图标为 idle 状态（服务器运行但无连接）
-                            if let Err(e) = crate::platform::windows::update_tray_icon(
-                                &app_handle,
-                                crate::platform::windows::TrayIconState::Idle
-                            ) {
-                                tracing::warn!("Failed to update tray icon on autostart: {}", e);
-                            }
-                        }
-                        Err(e) => {
-                            tracing::error!("Failed to auto-start server: {}", e);
-                        }
-                    }
-                });
+                let state: tauri::State<'_, FtpServerState> = app.state();
+                platform.execute_autostart_server(app.handle(), &state.0);
             }
 
             // 启动统计信息推送定时器（优化：只在有变化时推送）
             let app_handle = app.handle().clone();
             let state: tauri::State<'_, FtpServerState> = app.state();
-            let state_clone: std::sync::Arc<tokio::sync::Mutex<Option<crate::ftp::FtpServerHandle>>> = state.0.clone();
-
-            #[cfg(target_os = "windows")]
-            let tray_app_handle = app.handle().clone();
+            let state_clone = state.0.clone();
+            let platform_ref = platform;
 
             tauri::async_runtime::spawn(async move {
                 let mut interval = tokio::time::interval(tokio::time::Duration::from_millis(500));
                 let mut last_snapshot: Option<ServerStateSnapshot> = None;
 
-                #[cfg(target_os = "windows")]
-                let mut last_tray_state: Option<crate::platform::windows::TrayIconState> = None;
-
                 loop {
                     interval.tick().await;
 
-                    let server_guard: tokio::sync::MutexGuard<'_, Option<crate::ftp::FtpServerHandle>> = state_clone.lock().await;
+                    let server_guard = state_clone.lock().await;
                     if let Some(server) = server_guard.as_ref() {
                         let snapshot: ServerStateSnapshot = server.get_snapshot().await;
 
@@ -223,26 +177,8 @@ pub fn run() {
                             if should_emit {
                                 let _ = app_handle.emit("stats-update", &snapshot);
 
-                                // 根据连接数更新托盘图标状态（仅在 Windows）
-                                #[cfg(target_os = "windows")]
-                                {
-                                    let new_tray_state = if snapshot.connected_clients > 0 {
-                                        crate::platform::windows::TrayIconState::Active
-                                    } else {
-                                        crate::platform::windows::TrayIconState::Idle
-                                    };
-
-                                    // 只在状态变化时更新图标
-                                    if last_tray_state != Some(new_tray_state) {
-                                        if let Err(e) = crate::platform::windows::update_tray_icon(
-                                            &tray_app_handle,
-                                            new_tray_state
-                                        ) {
-                                            tracing::warn!("Failed to update tray icon: {}", e);
-                                        }
-                                        last_tray_state = Some(new_tray_state);
-                                    }
-                                }
+                                // 使用 Platform Trait 更新托盘图标状态
+                                platform_ref.update_server_state(&app_handle, snapshot.connected_clients as u32);
 
                                 last_snapshot = Some(snapshot);
                             }
