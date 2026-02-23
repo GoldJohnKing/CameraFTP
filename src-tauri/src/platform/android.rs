@@ -1,3 +1,4 @@
+use super::types::{PermissionStatus, StorageInfo};
 use tauri::AppHandle;
 use tracing::{debug, error, info};
 
@@ -10,30 +11,6 @@ pub const DEFAULT_STORAGE_PATH: &str = "/storage/emulated/0/DCIM/CameraFTP";
 
 /// 显示名称
 pub const STORAGE_DISPLAY_NAME: &str = "DCIM/CameraFTP";
-
-/// 存储路径信息
-#[derive(Debug, Clone, serde::Serialize)]
-pub struct StorageInfo {
-    /// 显示名称
-    pub display_name: String,
-    /// 完整文件系统路径
-    pub path: String,
-    /// 路径是否存在
-    pub exists: bool,
-    /// 是否可写
-    pub writable: bool,
-    /// 是否有所有文件访问权限
-    pub has_all_files_access: bool,
-}
-
-/// 权限状态
-#[derive(Debug, Clone, serde::Serialize)]
-pub struct PermissionStatus {
-    /// 是否有"所有文件访问权限"
-    pub has_all_files_access: bool,
-    /// 是否需要用户操作
-    pub needs_user_action: bool,
-}
 
 /// 获取默认存储路径
 pub fn get_default_storage_path() -> String {

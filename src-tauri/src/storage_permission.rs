@@ -6,27 +6,8 @@ use tracing::info;
 #[cfg(target_os = "android")]
 use crate::platform::android;
 
-// 重新导出 Android 平台的类型
-#[cfg(target_os = "android")]
-pub use crate::platform::android::{StorageInfo, PermissionStatus};
-
-// 非 Android 平台的类型定义
-#[cfg(not(target_os = "android"))]
-#[derive(Debug, Clone, serde::Serialize)]
-pub struct StorageInfo {
-    pub display_name: String,
-    pub path: String,
-    pub exists: bool,
-    pub writable: bool,
-    pub has_all_files_access: bool,
-}
-
-#[cfg(not(target_os = "android"))]
-#[derive(Debug, Clone, serde::Serialize)]
-pub struct PermissionStatus {
-    pub has_all_files_access: bool,
-    pub needs_user_action: bool,
-}
+// 统一导出平台类型
+pub use crate::platform::{StorageInfo, PermissionStatus, ServerStartCheckResult};
 
 /// 获取固定存储路径信息
 #[tauri::command]
@@ -145,12 +126,4 @@ pub async fn check_server_start_prerequisites() -> Result<ServerStartCheckResult
             storage_info: None,
         })
     }
-}
-
-/// 服务器启动检查结果
-#[derive(Debug, Clone, serde::Serialize)]
-pub struct ServerStartCheckResult {
-    pub can_start: bool,
-    pub reason: Option<String>,
-    pub storage_info: Option<StorageInfo>,
 }
