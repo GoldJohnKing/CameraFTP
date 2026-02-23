@@ -39,7 +39,6 @@ use storage_permission::{
     get_storage_info,
     request_all_files_permission,
 };
-use ftp::types::ServerStateSnapshot;
 
 fn setup_logging() {
     // Debug 模式：写入日志文件 + 控制台
@@ -145,43 +144,28 @@ pub fn run() {
                 platform.execute_autostart_server(app.handle(), &state.0);
             }
 
-            // 启动统计信息推送定时器（优化：只在有变化时推送）
+            // 托盘图标状态更新（轻量级轮询，仅更新托盘）
+            // 前端统计推送由 EventBus + StatsEventHandler 事件驱动处理
             let app_handle = app.handle().clone();
             let state: tauri::State<'_, FtpServerState> = app.state();
             let state_clone = state.0.clone();
             let platform_ref = platform;
 
             tauri::async_runtime::spawn(async move {
-                let mut interval = tokio::time::interval(tokio::time::Duration::from_millis(500));
-                let mut last_snapshot: Option<ServerStateSnapshot> = None;
+                let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(1));
+                let mut last_client_count: usize = 0;
 
                 loop {
                     interval.tick().await;
 
                     let server_guard = state_clone.lock().await;
                     if let Some(server) = server_guard.as_ref() {
-                        let snapshot: ServerStateSnapshot = server.get_snapshot().await;
+                        let snapshot = server.get_snapshot().await;
 
-                        // 只在服务器运行且状态变化时推送
-                        if snapshot.is_running {
-                            let should_emit = match &last_snapshot {
-                                None => true,
-                                Some(last) => {
-                                    last.connected_clients != snapshot.connected_clients
-                                        || last.files_received != snapshot.files_received
-                                        || last.bytes_received != snapshot.bytes_received
-                                        || last.last_file != snapshot.last_file
-                                }
-                            };
-
-                            if should_emit {
-                                let _ = app_handle.emit("stats-update", &snapshot);
-
-                                // 使用 Platform Trait 更新托盘图标状态
-                                platform_ref.update_server_state(&app_handle, snapshot.connected_clients as u32);
-
-                                last_snapshot = Some(snapshot);
-                            }
+                        // 仅在连接数变化时更新托盘图标
+                        if snapshot.is_running && snapshot.connected_clients != last_client_count {
+                            platform_ref.update_server_state(&app_handle, snapshot.connected_clients as u32);
+                            last_client_count = snapshot.connected_clients;
                         }
                     }
                 }

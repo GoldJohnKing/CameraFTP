@@ -227,30 +227,14 @@ fn event_type_name(event: &DomainEvent) -> String {
 }
 
 /// 统计事件处理器 - 将事件转换为前端推送
+/// 注意：EventBus.emit_stats_updated() 已做增量检查，这里直接推送即可
 pub struct StatsEventHandler {
     app_handle: tauri::AppHandle,
-    last_emit: std::time::Instant,
-    debounce_duration: std::time::Duration,
 }
 
 impl StatsEventHandler {
-    pub fn new(app_handle: tauri::AppHandle, debounce_ms: u64) -> Self {
-        Self {
-            app_handle,
-            last_emit: std::time::Instant::now(),
-            debounce_duration: std::time::Duration::from_millis(debounce_ms),
-        }
-    }
-
-    /// 检查是否应该防抖
-    fn should_debounce(&mut self) -> bool {
-        let now = std::time::Instant::now();
-        if now.duration_since(self.last_emit) < self.debounce_duration {
-            true
-        } else {
-            self.last_emit = now;
-            false
-        }
+    pub fn new(app_handle: tauri::AppHandle, _debounce_ms: u64) -> Self {
+        Self { app_handle }
     }
 }
 
@@ -259,10 +243,9 @@ impl EventHandler for StatsEventHandler {
     async fn handle(&mut self, event: &DomainEvent) {
         match event {
             DomainEvent::StatsUpdated(stats) => {
-                if !self.should_debounce() {
-                    let snapshot = crate::ftp::types::ServerStateSnapshot::from(stats);
-                    let _ = self.app_handle.emit("stats-update", snapshot);
-                }
+                // EventBus 已做增量检查，直接推送
+                let snapshot = crate::ftp::types::ServerStateSnapshot::from(stats);
+                let _ = self.app_handle.emit("stats-update", snapshot);
             }
             DomainEvent::ServerStarted { bind_addr } => {
                 let _ = self.app_handle.emit("server-started", bind_addr);

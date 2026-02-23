@@ -1,3 +1,4 @@
+use crate::ftp::events::EventBus;
 use crate::ftp::types::ServerStats;
 use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};
@@ -25,11 +26,17 @@ pub struct StatsActor {
 }
 
 impl StatsActor {
-    /// 创建新的统计Actor
+    /// 创建新的统计Actor（不带事件总线）
     pub fn new() -> (Self, StatsActorWorker) {
+        Self::with_event_bus(None)
+    }
+
+    /// 创建带 EventBus 的 StatsActor
+    /// 当统计信息变化时，会通过 EventBus 发送 StatsUpdated 事件
+    pub fn with_event_bus(event_bus: Option<EventBus>) -> (Self, StatsActorWorker) {
         let (tx, rx) = mpsc::channel(100);
         let stats = Arc::new(RwLock::new(ServerStats::default()));
-        let worker = StatsActorWorker::new(rx, stats.clone());
+        let worker = StatsActorWorker::new(rx, stats.clone(), event_bus);
         (Self { tx, stats }, worker)
     }
 
@@ -81,42 +88,63 @@ impl StatsActor {
 pub struct StatsActorWorker {
     rx: mpsc::Receiver<StatsCommand>,
     stats: Arc<RwLock<ServerStats>>,
+    /// 事件总线（可选），用于在统计变化时发送事件
+    event_bus: Option<EventBus>,
 }
 
 impl StatsActorWorker {
-    fn new(rx: mpsc::Receiver<StatsCommand>, stats: Arc<RwLock<ServerStats>>) -> Self {
-        Self { rx, stats }
+    fn new(
+        rx: mpsc::Receiver<StatsCommand>,
+        stats: Arc<RwLock<ServerStats>>,
+        event_bus: Option<EventBus>,
+    ) -> Self {
+        Self { rx, stats, event_bus }
     }
 
     /// 运行Actor主循环
     pub async fn run(mut self) {
         while let Some(cmd) = self.rx.recv().await {
-            match cmd {
+            let should_emit = match cmd {
                 StatsCommand::RecordUpload { path, bytes } => {
                     let mut stats = self.stats.write().await;
                     stats.total_uploads += 1;
                     stats.total_bytes_received += bytes;
                     stats.last_uploaded_file = Some(path.clone());
                     info!(file = %path, size = bytes, "File uploaded");
-                }
-                StatsCommand::RecordDownload { path, bytes } => {
-                    debug!(file = %path, size = bytes, "File downloaded");
-                }
-                StatsCommand::RecordDelete { path } => {
-                    debug!(file = %path, "File deleted");
-                }
-                StatsCommand::RecordMkdir { path } => {
-                    debug!(dir = %path, "Directory created");
-                }
-                StatsCommand::RecordRmdir { path } => {
-                    debug!(dir = %path, "Directory removed");
-                }
-                StatsCommand::RecordRename { from, to } => {
-                    debug!(from = %from, to = %to, "File renamed");
+                    true // 上传需要发送事件
                 }
                 StatsCommand::UpdateConnectionCount { count } => {
                     let mut stats = self.stats.write().await;
                     stats.active_connections = count;
+                    true // 连接数变化需要发送事件
+                }
+                StatsCommand::RecordDownload { path, bytes } => {
+                    debug!(file = %path, size = bytes, "File downloaded");
+                    false
+                }
+                StatsCommand::RecordDelete { path } => {
+                    debug!(file = %path, "File deleted");
+                    false
+                }
+                StatsCommand::RecordMkdir { path } => {
+                    debug!(dir = %path, "Directory created");
+                    false
+                }
+                StatsCommand::RecordRmdir { path } => {
+                    debug!(dir = %path, "Directory removed");
+                    false
+                }
+                StatsCommand::RecordRename { from, to } => {
+                    debug!(from = %from, to = %to, "File renamed");
+                    false
+                }
+            };
+
+            // 如果状态有变化且配置了 EventBus，发送 StatsUpdated 事件
+            if should_emit {
+                if let Some(ref bus) = self.event_bus {
+                    let stats = self.stats.read().await.clone();
+                    bus.emit_stats_updated(stats).await;
                 }
             }
         }

@@ -442,8 +442,10 @@ pub fn create_ftp_server() -> (
     StatsActorWorker,
     EventBus,
 ) {
-    let (stats_handle, stats_worker) = StatsActor::new();
     let event_bus = EventBus::new();
+    
+    // StatsActor 持有 EventBus 的克隆，用于在统计变化时发送事件
+    let (stats_handle, stats_worker) = StatsActor::with_event_bus(Some(event_bus.clone()));
 
     let (server_handle, server_actor) =
         FtpServerActor::new(stats_handle, event_bus.clone());
