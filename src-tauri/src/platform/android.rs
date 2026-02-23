@@ -1,3 +1,4 @@
+use super::traits::PlatformService;
 use super::types::{PermissionStatus, StorageInfo};
 use tauri::AppHandle;
 use tracing::{debug, error, info};
@@ -24,7 +25,7 @@ pub fn get_storage_display_name() -> String {
 
 /// 获取存储路径信息
 #[cfg(target_os = "android")]
-pub fn get_storage_info() -> StorageInfo {
+pub fn get_storage_info_impl() -> StorageInfo {
     let path = DEFAULT_STORAGE_PATH;
     let path_buf = std::path::PathBuf::from(path);
 
@@ -48,7 +49,7 @@ pub fn get_storage_info() -> StorageInfo {
 }
 
 #[cfg(not(target_os = "android"))]
-pub fn get_storage_info() -> StorageInfo {
+pub fn get_storage_info_impl() -> StorageInfo {
     StorageInfo {
         display_name: "本地存储".to_string(),
         path: "./ftp_uploads".to_string(),
@@ -60,7 +61,7 @@ pub fn get_storage_info() -> StorageInfo {
 
 /// 检查权限状态
 #[cfg(target_os = "android")]
-pub fn check_permission_status() -> PermissionStatus {
+pub fn check_permission_status_impl() -> PermissionStatus {
     let has_access = check_all_files_permission();
     PermissionStatus {
         has_all_files_access: has_access,
@@ -69,7 +70,7 @@ pub fn check_permission_status() -> PermissionStatus {
 }
 
 #[cfg(not(target_os = "android"))]
-pub fn check_permission_status() -> PermissionStatus {
+pub fn check_permission_status_impl() -> PermissionStatus {
     PermissionStatus {
         has_all_files_access: true,
         needs_user_action: false,
@@ -155,7 +156,7 @@ pub fn validate_path_writable(_path: &str) -> bool {
 
 /// 确保存储目录存在且可写
 #[cfg(target_os = "android")]
-pub fn ensure_storage_ready() -> Result<String, String> {
+pub fn ensure_storage_ready_impl() -> Result<String, String> {
     let path = DEFAULT_STORAGE_PATH;
     let path_buf = std::path::PathBuf::from(path);
 
@@ -181,7 +182,7 @@ pub fn ensure_storage_ready() -> Result<String, String> {
 }
 
 #[cfg(not(target_os = "android"))]
-pub fn ensure_storage_ready() -> Result<String, String> {
+pub fn ensure_storage_ready_impl() -> Result<String, String> {
     Ok("./ftp_uploads".to_string())
 }
 
@@ -283,5 +284,39 @@ pub fn show_notification(app: &AppHandle, title: &str, body: &str) {
                 "body": body,
             }),
         );
+    }
+}
+
+/// Android 平台实现
+pub struct AndroidPlatform;
+
+impl PlatformService for AndroidPlatform {
+    fn name(&self) -> &'static str {
+        "android"
+    }
+
+    fn setup(&self, _app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
+        tracing::info!("Android platform initialized");
+        Ok(())
+    }
+
+    fn get_storage_info(&self) -> StorageInfo {
+        get_storage_info_impl()
+    }
+
+    fn check_permission_status(&self) -> PermissionStatus {
+        check_permission_status_impl()
+    }
+
+    fn ensure_storage_ready(&self) -> Result<String, String> {
+        ensure_storage_ready_impl()
+    }
+
+    fn on_server_started(&self, app: &AppHandle) {
+        start_foreground_service(app);
+    }
+
+    fn on_server_stopped(&self, app: &AppHandle) {
+        stop_foreground_service(app);
     }
 }

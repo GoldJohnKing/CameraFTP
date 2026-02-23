@@ -14,7 +14,7 @@ pub use crate::platform::{StorageInfo, PermissionStatus, ServerStartCheckResult}
 pub async fn get_storage_info() -> Result<StorageInfo, String> {
     #[cfg(target_os = "android")]
     {
-        Ok(android::get_storage_info())
+        Ok(android::get_storage_info_impl())
     }
     
     #[cfg(not(target_os = "android"))]
@@ -34,7 +34,7 @@ pub async fn get_storage_info() -> Result<StorageInfo, String> {
 pub async fn check_permission_status() -> Result<PermissionStatus, String> {
     #[cfg(target_os = "android")]
     {
-        Ok(android::check_permission_status())
+        Ok(android::check_permission_status_impl())
     }
     
     #[cfg(not(target_os = "android"))]
@@ -68,7 +68,7 @@ pub async fn request_all_files_permission(app: AppHandle) -> Result<(), String> 
 pub async fn ensure_storage_ready() -> Result<String, String> {
     #[cfg(target_os = "android")]
     {
-        android::ensure_storage_ready()
+        android::ensure_storage_ready_impl()
     }
     
     #[cfg(not(target_os = "android"))]
@@ -96,7 +96,7 @@ pub async fn check_storage_permission() -> Result<bool, String> {
 pub async fn check_server_start_prerequisites() -> Result<ServerStartCheckResult, String> {
     #[cfg(target_os = "android")]
     {
-        let storage_info = android::get_storage_info();
+        let storage_info = android::get_storage_info_impl();
         
         let can_start = storage_info.writable || 
             (android::check_all_files_permission() && !storage_info.exists);

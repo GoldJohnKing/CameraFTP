@@ -1,6 +1,8 @@
 use tauri::{AppHandle, Manager};
 use tauri::menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconEvent};
+use super::traits::PlatformService;
+use super::types::{StorageInfo, PermissionStatus};
 
 /// 托盘图标状态枚举
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -173,4 +175,63 @@ pub fn is_autostart_enabled() -> Result<bool, Box<dyn std::error::Error>> {
 /// 检查当前是否是通过开机自启启动的
 pub fn is_autostart_mode() -> bool {
     env::args().any(|arg| arg == "--autostart")
+}
+
+/// Windows 平台实现
+pub struct WindowsPlatform;
+
+impl PlatformService for WindowsPlatform {
+    fn name(&self) -> &'static str {
+        "windows"
+    }
+    
+    fn setup(&self, app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
+        setup_tray(app)?;
+        tracing::info!("Windows platform initialized");
+        Ok(())
+    }
+    
+    fn get_storage_info(&self) -> StorageInfo {
+        StorageInfo {
+            display_name: "本地存储".to_string(),
+            path: String::new(),
+            exists: true,
+            writable: true,
+            has_all_files_access: true,
+        }
+    }
+    
+    fn check_permission_status(&self) -> PermissionStatus {
+        PermissionStatus {
+            has_all_files_access: true,
+            needs_user_action: false,
+        }
+    }
+    
+    fn ensure_storage_ready(&self) -> Result<String, String> {
+        Ok(String::new())
+    }
+    
+    fn on_server_started(&self, app: &AppHandle) {
+        if let Err(e) = update_tray_icon(app, TrayIconState::Idle) {
+            tracing::warn!("Failed to update tray icon: {}", e);
+        }
+    }
+    
+    fn on_server_stopped(&self, app: &AppHandle) {
+        if let Err(e) = update_tray_icon(app, TrayIconState::Stopped) {
+            tracing::warn!("Failed to update tray icon: {}", e);
+        }
+    }
+    
+    fn update_server_state(&self, app: &AppHandle, connected_clients: u32) {
+        let state = if connected_clients > 0 {
+            TrayIconState::Active
+        } else {
+            TrayIconState::Idle
+        };
+        if let Err(e) = update_tray_icon(app, state) {
+            tracing::warn!("Failed to update tray icon: {}", e);
+        }
+    }
 }
