@@ -58,9 +58,7 @@ impl AppError {
     }
 
     /// 获取用户友好的错误消息
-    pub fn user_message(&self,
-        lang: Language,
-    ) -> String {
+    pub fn user_message(&self, lang: Language) -> String {
         match lang {
             Language::Chinese => self.user_message_cn(),
             Language::English => self.user_message_en(),
@@ -69,18 +67,12 @@ impl AppError {
 
     fn user_message_cn(&self) -> String {
         match self {
-            Self::ServerAlreadyRunning => {
-                "FTP服务器已经在运行中，请先停止当前服务器".to_string()
-            }
-            Self::ServerNotRunning => {
-                "FTP服务器未运行，无法执行此操作".to_string()
-            }
+            Self::ServerAlreadyRunning => "FTP服务器已经在运行中，请先停止当前服务器".to_string(),
+            Self::ServerNotRunning => "FTP服务器未运行，无法执行此操作".to_string(),
             Self::NoAvailablePort => {
                 "无法找到可用的端口（1025-65535），请检查系统端口占用情况".to_string()
             }
-            Self::NoNetworkInterface => {
-                "未检测到可用的网络接口，请检查网络连接".to_string()
-            }
+            Self::NoNetworkInterface => "未检测到可用的网络接口，请检查网络连接".to_string(),
             Self::ConfigError(msg) => format!("配置错误: {}", msg),
             Self::FtpServerError(msg) => {
                 format!("FTP服务器错误: {}", msg)
@@ -102,9 +94,7 @@ impl AppError {
             Self::ServerAlreadyRunning => {
                 "FTP server is already running, please stop it first".to_string()
             }
-            Self::ServerNotRunning => {
-                "FTP server is not running".to_string()
-            }
+            Self::ServerNotRunning => "FTP server is not running".to_string(),
             Self::NoAvailablePort => {
                 "No available port found (1025-65535), please check port usage".to_string()
             }
@@ -119,16 +109,17 @@ impl AppError {
             Self::Serialization(msg) => format!("Serialization error: {}", msg),
             Self::NetworkError(msg) => format!("Network error: {}", msg),
             Self::PermissionError(msg) => {
-                format!("Permission error: {}, please check file/directory permissions", msg)
+                format!(
+                    "Permission error: {}, please check file/directory permissions",
+                    msg
+                )
             }
             Self::Other(msg) => msg.clone(),
         }
     }
 
     /// 判断是否应该重试
-    pub fn should_retry(&self,
-        attempt: u32,
-    ) -> bool {
+    pub fn should_retry(&self, attempt: u32) -> bool {
         match self {
             // 这些错误不应该重试
             Self::ServerAlreadyRunning
@@ -137,9 +128,7 @@ impl AppError {
             | Self::ConfigError(_) => false,
 
             // 这些错误可以有限重试
-            Self::NoAvailablePort | Self::NoNetworkInterface | Self::NetworkError(_) => {
-                attempt < 3
-            }
+            Self::NoAvailablePort | Self::NoNetworkInterface | Self::NetworkError(_) => attempt < 3,
 
             // 其他错误尝试一次
             _ => attempt < 1,
@@ -147,9 +136,7 @@ impl AppError {
     }
 
     /// 获取建议的重试延迟（毫秒）
-    pub fn retry_delay_ms(&self,
-        attempt: u32,
-    ) -> u64 {
+    pub fn retry_delay_ms(&self, attempt: u32) -> u64 {
         // 指数退避: 100ms, 200ms, 400ms...
         100 * (2_u64.pow(attempt))
     }
@@ -164,9 +151,7 @@ impl AppError {
 
     /// 结构化日志记录
     #[instrument(skip(self), fields(error_code = self.code()))]
-    pub fn log(&self,
-        context: &str,
-    ) {
+    pub fn log(&self, context: &str) {
         let error_info = ErrorInfo {
             code: self.code(),
             message: self.to_string(),
@@ -222,12 +207,8 @@ impl From<std::io::Error> for AppError {
 
         // 根据错误类型分类
         match err.kind() {
-            std::io::ErrorKind::PermissionDenied => {
-                AppError::PermissionError(msg)
-            }
-            std::io::ErrorKind::NotFound => {
-                AppError::Io(format!("File not found: {}", msg))
-            }
+            std::io::ErrorKind::PermissionDenied => AppError::PermissionError(msg),
+            std::io::ErrorKind::NotFound => AppError::Io(format!("File not found: {}", msg)),
             std::io::ErrorKind::AlreadyExists => {
                 AppError::Io(format!("File already exists: {}", msg))
             }
@@ -263,10 +244,7 @@ impl From<crate::ftp::FtpError> for AppError {
 }
 
 impl Serialize for AppError {
-    fn serialize<S>(
-        &self,
-        serializer: S,
-    ) -> Result<S::Ok, S::Error>
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
     {
@@ -275,10 +253,7 @@ impl Serialize for AppError {
         let mut state = serializer.serialize_struct("AppError", 4)?;
         state.serialize_field("code", self.code())?;
         state.serialize_field("message", &self.to_string())?;
-        state.serialize_field(
-            "userMessage",
-            &self.user_message(Language::Chinese),
-        )?;
+        state.serialize_field("userMessage", &self.user_message(Language::Chinese))?;
         state.serialize_field("isCritical", &self.is_critical())?;
         state.end()
     }
@@ -286,74 +261,6 @@ impl Serialize for AppError {
 
 /// 应用结果类型别名
 pub type AppResult<T> = Result<T, AppError>;
-
-/// 错误处理辅助函数
-pub mod helpers {
-    use super::*;
-
-    /// 重试执行异步操作
-    pub async fn retry<F, Fut, T>(
-        mut operation: F,
-        max_attempts: u32,
-    ) -> AppResult<T>
-    where
-        F: FnMut() -> Fut,
-        Fut: std::future::Future<Output = AppResult<T>>,
-    {
-        let mut last_error = None;
-
-        for attempt in 0..max_attempts {
-            match operation().await {
-                Ok(result) => return Ok(result),
-                Err(err) => {
-                    let should_retry = err.should_retry(attempt);
-                    last_error = Some(err);
-
-                    if should_retry && attempt < max_attempts - 1 {
-                        let delay = last_error
-                            .as_ref()
-                            .unwrap()
-                            .retry_delay_ms(attempt);
-                        warn!(
-                            attempt = attempt + 1,
-                            max_attempts = max_attempts,
-                            delay_ms = delay,
-                            "Operation failed, retrying..."
-                        );
-                        tokio::time::sleep(tokio::time::Duration::from_millis(delay)).await;
-                    } else {
-                        break;
-                    }
-                }
-            }
-        }
-
-        Err(last_error.unwrap())
-    }
-
-    /// 带超时的操作
-    pub async fn with_timeout<F, Fut, T>(
-        operation: F,
-        timeout_ms: u64,
-    ) -> AppResult<T>
-    where
-        F: FnOnce() -> Fut,
-        Fut: std::future::Future<Output = AppResult<T>>,
-    {
-        match tokio::time::timeout(
-            tokio::time::Duration::from_millis(timeout_ms),
-            operation(),
-        )
-        .await
-        {
-            Ok(result) => result,
-            Err(_) => Err(AppError::Other(format!(
-                "Operation timed out after {}ms",
-                timeout_ms
-            ))),
-        }
-    }
-}
 
 #[cfg(test)]
 mod tests {
@@ -408,10 +315,7 @@ mod tests {
 
     #[test]
     fn test_io_error_conversion() {
-        let io_err = std::io::Error::new(
-            std::io::ErrorKind::PermissionDenied,
-            "access denied",
-        );
+        let io_err = std::io::Error::new(std::io::ErrorKind::PermissionDenied, "access denied");
         let app_err: AppError = io_err.into();
 
         assert!(matches!(app_err, AppError::PermissionError(_)));

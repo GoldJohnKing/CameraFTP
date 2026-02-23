@@ -1,8 +1,9 @@
-import { Power, Loader2 } from 'lucide-react';
+import { Power } from 'lucide-react';
 import { useState, useCallback } from 'react';
 import { toast } from 'sonner';
 import { useServerStore } from '../stores/serverStore';
 import { useStoragePermission } from '../hooks/useStoragePermission';
+import { LoadingButton, ErrorMessage } from './ui';
 
 
 export function ServerCard() {
@@ -74,31 +75,17 @@ export function ServerCard() {
 
   return (
     <div>
-      <button
+      <LoadingButton
+        isLoading={isLoading || isStarting}
+        loadingText={isRunning ? '停止中...' : '启动中...'}
         onClick={handleToggle}
-        disabled={isLoading || isStarting}
-        className={`w-full py-3 px-4 rounded-lg font-medium flex items-center justify-center gap-2 transition-colors ${
-          isRunning
-            ? 'bg-red-50 text-red-600 hover:bg-red-100'
-            : 'bg-blue-600 text-white hover:bg-blue-700'
-        } disabled:opacity-50 disabled:cursor-not-allowed`}
+        variant={isRunning ? 'danger' : 'primary'}
+        icon={<Power className="w-5 h-5" />}
       >
-        {isLoading || isStarting ? (
-          <Loader2 className="w-5 h-5 animate-spin" />
-        ) : (
-          <Power className="w-5 h-5" />
-        )}
-        {isRunning 
-          ? '停止服务器' 
-          : isStarting 
-            ? '启动中...' 
-            : '启动服务器'
-        }
-      </button>
+        {isRunning ? '停止服务器' : '启动服务器'}
+      </LoadingButton>
 
-      {error && (
-        <p className="mt-3 text-sm text-red-600 text-center">{error}</p>
-      )}
+      <ErrorMessage message={error} />
     </div>
   );
 }

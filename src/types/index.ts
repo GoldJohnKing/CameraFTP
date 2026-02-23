@@ -24,14 +24,6 @@ export interface AppConfig {
   file_extensions: string[];
 }
 
-export interface NetworkInterface {
-  name: string;
-  ip: string;
-  is_wifi: boolean;
-  is_ethernet: boolean;
-  is_up: boolean;
-}
-
 // Android JS Bridge 接口
 interface FileUploadAndroid {
   onFileUploaded: (path: string | null, size: number) => void;

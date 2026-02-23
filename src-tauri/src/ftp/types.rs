@@ -126,25 +126,3 @@ pub enum StopReason {
     Error,
     Shutdown,
 }
-
-/// 会话信息
-#[derive(Debug, Clone)]
-pub struct SessionInfo {
-    pub id: String,
-    pub username: String,
-    pub connected_at: std::time::Instant,
-}
-
-/// 文件传输信息
-#[derive(Debug, Clone)]
-pub struct TransferInfo {
-    pub path: String,
-    pub size: u64,
-    pub direction: TransferDirection,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TransferDirection {
-    Upload,
-    Download,
-}

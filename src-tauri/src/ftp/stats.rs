@@ -6,8 +6,6 @@ use tracing::{debug, info, warn};
 /// 统计信息Actor命令
 #[derive(Debug)]
 pub enum StatsCommand {
-    GetStats(mpsc::Sender<ServerStats>),
-    GetSnapshot(mpsc::Sender<ServerStats>),
     RecordUpload { path: String, bytes: u64 },
     RecordDownload { path: String, bytes: u64 },
     RecordDelete { path: String },
@@ -39,28 +37,6 @@ impl StatsActor {
     /// 这是更可靠的方式，避免 channel 竞争问题
     pub async fn get_stats_direct(&self) -> ServerStats {
         self.stats.read().await.clone()
-    }
-
-    /// 获取当前统计（异步，通过 channel）
-    #[deprecated(note = "使用 get_stats_direct() 更可靠")]
-    pub async fn get_stats(&self) -> Option<ServerStats> {
-        let (tx, mut rx) = mpsc::channel(1);
-        if self.tx.send(StatsCommand::GetStats(tx)).await.is_err() {
-            warn!("get_stats: channel send failed");
-            return None;
-        }
-        rx.recv().await
-    }
-
-    /// 获取统计快照（异步，用于快速读取）
-    #[deprecated(note = "使用 get_stats_direct() 更可靠")]
-    pub async fn get_snapshot(&self) -> Option<ServerStats> {
-        let (tx, mut rx) = mpsc::channel(1);
-        if self.tx.send(StatsCommand::GetSnapshot(tx)).await.is_err() {
-            warn!("get_snapshot: channel send failed");
-            return None;
-        }
-        rx.recv().await
     }
 
     /// 记录文件上传
@@ -116,17 +92,6 @@ impl StatsActorWorker {
     pub async fn run(mut self) {
         while let Some(cmd) = self.rx.recv().await {
             match cmd {
-                StatsCommand::GetStats(tx) => {
-                    let stats = self.stats.read().await.clone();
-                    let _ = tx.send(stats);
-                }
-                StatsCommand::GetSnapshot(tx) => {
-                    if let Ok(stats) = self.stats.try_read() {
-                        let _ = tx.send(stats.clone());
-                    } else {
-                        let _ = tx.send(ServerStats::default());
-                    }
-                }
                 StatsCommand::RecordUpload { path, bytes } => {
                     let mut stats = self.stats.write().await;
                     stats.total_uploads += 1;
