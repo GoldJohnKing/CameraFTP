@@ -219,7 +219,7 @@ impl FtpServerActor {
                 let _ = respond_to.send(status);
             }
             ServerCommand::GetStats { respond_to } => {
-                let stats = self.stats_actor.get_stats().await;
+                let stats = Some(self.stats_actor.get_stats_direct().await);
                 let _ = respond_to.send(stats);
             }
             ServerCommand::GetSnapshot { respond_to } => {
@@ -270,7 +270,7 @@ impl FtpServerActor {
         }
 
         // 创建监听器
-        let data_listener = FtpDataListener::new(self.stats_actor.clone());
+        let data_listener = FtpDataListener::new(self.stats_actor.clone(), self.event_bus.clone());
         let presence_listener =
             FtpPresenceListener::new(self.stats_actor.clone(), self.sessions.clone());
 
@@ -411,17 +411,9 @@ impl FtpServerActor {
         let status = self.get_current_status().await;
         let is_running = status.is_running();
 
-        let mut snapshot = if let Some(stats) = self.stats_actor.get_snapshot().await {
-            ServerStateSnapshot::from(&stats)
-        } else {
-            ServerStateSnapshot {
-                is_running,
-                connected_clients: 0,
-                files_received: 0,
-                bytes_received: 0,
-                last_file: None,
-            }
-        };
+        // 使用 get_stats_direct() 直接从共享状态读取，避免 channel 竞争问题
+        let stats = self.stats_actor.get_stats_direct().await;
+        let mut snapshot = ServerStateSnapshot::from(&stats);
 
         // 使用 sessions 集合的大小作为连接数（更可靠）
         snapshot.connected_clients = self.sessions.len();

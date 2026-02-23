@@ -119,6 +119,24 @@ export const useServerStore = create<ServerState>((set, get) => ({
     });
     listeners.push(unlistenStats);
 
+    // 监听文件上传事件（用于Android媒体扫描）
+    const unlistenFileUploaded = await listen<{ path: string; size: number }>('file-uploaded', (event) => {
+      console.log('File uploaded event received:', event.payload);
+      
+      // Android平台：触发媒体扫描让照片出现在相册中
+      // @ts-ignore - FileUploadAndroid是Android注入的JS Bridge
+      if (window.FileUploadAndroid && typeof window.FileUploadAndroid.onFileUploaded === 'function') {
+        try {
+          // @ts-ignore
+          window.FileUploadAndroid.onFileUploaded(event.payload.path, event.payload.size);
+          console.log('Media scan triggered for:', event.payload.path);
+        } catch (err) {
+          console.error('Failed to trigger media scan:', err);
+        }
+      }
+    });
+    listeners.push(unlistenFileUploaded);
+
     // 返回清理函数
     return async () => {
       for (const unlisten of listeners) {

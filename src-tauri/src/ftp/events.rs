@@ -1,7 +1,7 @@
 use crate::ftp::types::{DomainEvent, ServerStats, StopReason};
 use std::sync::Arc;
 use tokio::sync::{broadcast, RwLock};
-use tracing::{debug, trace, warn};
+use tracing::{trace, warn};
 use tauri::Emitter;
 
 /// 事件总线配置
@@ -177,13 +177,9 @@ impl EventProcessor {
 
     /// 运行处理器循环
     pub async fn run(mut self) {
-        debug!("EventProcessor started with {} handlers", self.handlers.len());
-
         loop {
             match self.rx.recv().await {
                 Ok(event) => {
-                    trace!(event_type = ?std::mem::discriminant(&event), "Processing event");
-
                     for handler in self.handlers.iter_mut() {
                         if should_handle(handler.as_ref(), &event) {
                             handler.handle(&event).await;
@@ -194,13 +190,10 @@ impl EventProcessor {
                     warn!(dropped = n, "Event processor lagged, some events dropped");
                 }
                 Err(broadcast::error::RecvError::Closed) => {
-                    debug!("Event channel closed, stopping processor");
                     break;
                 }
             }
         }
-
-        debug!("EventProcessor stopped");
     }
 }
 

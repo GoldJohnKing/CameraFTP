@@ -1,7 +1,7 @@
 use crate::ftp::types::ServerStats;
 use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};
-use tracing::{debug, trace};
+use tracing::{debug, info, warn};
 
 /// 统计信息Actor命令
 #[derive(Debug)]
@@ -18,32 +18,46 @@ pub enum StatsCommand {
 }
 
 /// 统计信息Actor句柄
+/// 持有共享状态引用，可以直接读取统计
 #[derive(Debug, Clone)]
 pub struct StatsActor {
     tx: mpsc::Sender<StatsCommand>,
+    /// 共享状态引用，用于直接读取（不经过 channel）
+    stats: Arc<RwLock<ServerStats>>,
 }
 
 impl StatsActor {
     /// 创建新的统计Actor
     pub fn new() -> (Self, StatsActorWorker) {
         let (tx, rx) = mpsc::channel(100);
-        let worker = StatsActorWorker::new(rx);
-        (Self { tx }, worker)
+        let stats = Arc::new(RwLock::new(ServerStats::default()));
+        let worker = StatsActorWorker::new(rx, stats.clone());
+        (Self { tx, stats }, worker)
     }
 
-    /// 获取当前统计（异步）
+    /// 直接获取当前统计（从共享状态读取，不经过 channel）
+    /// 这是更可靠的方式，避免 channel 竞争问题
+    pub async fn get_stats_direct(&self) -> ServerStats {
+        self.stats.read().await.clone()
+    }
+
+    /// 获取当前统计（异步，通过 channel）
+    #[deprecated(note = "使用 get_stats_direct() 更可靠")]
     pub async fn get_stats(&self) -> Option<ServerStats> {
         let (tx, mut rx) = mpsc::channel(1);
         if self.tx.send(StatsCommand::GetStats(tx)).await.is_err() {
+            warn!("get_stats: channel send failed");
             return None;
         }
         rx.recv().await
     }
 
     /// 获取统计快照（异步，用于快速读取）
+    #[deprecated(note = "使用 get_stats_direct() 更可靠")]
     pub async fn get_snapshot(&self) -> Option<ServerStats> {
         let (tx, mut rx) = mpsc::channel(1);
         if self.tx.send(StatsCommand::GetSnapshot(tx)).await.is_err() {
+            warn!("get_snapshot: channel send failed");
             return None;
         }
         rx.recv().await
@@ -51,18 +65,14 @@ impl StatsActor {
 
     /// 记录文件上传
     pub async fn record_upload(&self, path: String, bytes: u64) {
-        let _ = self
-            .tx
-            .send(StatsCommand::RecordUpload { path, bytes })
-            .await;
+        if let Err(e) = self.tx.send(StatsCommand::RecordUpload { path, bytes }).await {
+            warn!("record_upload: channel send failed: {}", e);
+        }
     }
 
     /// 记录文件下载
     pub async fn record_download(&self, path: String, bytes: u64) {
-        let _ = self
-            .tx
-            .send(StatsCommand::RecordDownload { path, bytes })
-            .await;
+        let _ = self.tx.send(StatsCommand::RecordDownload { path, bytes }).await;
     }
 
     /// 记录文件删除
@@ -87,10 +97,7 @@ impl StatsActor {
 
     /// 更新连接数
     pub async fn update_connection_count(&self, count: u64) {
-        let _ = self
-            .tx
-            .send(StatsCommand::UpdateConnectionCount { count })
-            .await;
+        let _ = self.tx.send(StatsCommand::UpdateConnectionCount { count }).await;
     }
 }
 
@@ -101,17 +108,12 @@ pub struct StatsActorWorker {
 }
 
 impl StatsActorWorker {
-    fn new(rx: mpsc::Receiver<StatsCommand>) -> Self {
-        Self {
-            rx,
-            stats: Arc::new(RwLock::new(ServerStats::default())),
-        }
+    fn new(rx: mpsc::Receiver<StatsCommand>, stats: Arc<RwLock<ServerStats>>) -> Self {
+        Self { rx, stats }
     }
 
     /// 运行Actor主循环
     pub async fn run(mut self) {
-        trace!("StatsActor started");
-
         while let Some(cmd) = self.rx.recv().await {
             match cmd {
                 StatsCommand::GetStats(tx) => {
@@ -119,7 +121,6 @@ impl StatsActorWorker {
                     let _ = tx.send(stats);
                 }
                 StatsCommand::GetSnapshot(tx) => {
-                    // 尝试读取，如果被锁定则返回默认
                     if let Ok(stats) = self.stats.try_read() {
                         let _ = tx.send(stats.clone());
                     } else {
@@ -131,12 +132,7 @@ impl StatsActorWorker {
                     stats.total_uploads += 1;
                     stats.total_bytes_received += bytes;
                     stats.last_uploaded_file = Some(path.clone());
-                    debug!(
-                        upload_count = stats.total_uploads,
-                        bytes_received = stats.total_bytes_received,
-                        file = %path,
-                        "File uploaded"
-                    );
+                    info!(file = %path, size = bytes, "File uploaded");
                 }
                 StatsCommand::RecordDownload { path, bytes } => {
                     debug!(file = %path, size = bytes, "File downloaded");
@@ -155,20 +151,10 @@ impl StatsActorWorker {
                 }
                 StatsCommand::UpdateConnectionCount { count } => {
                     let mut stats = self.stats.write().await;
-                    let old_count = stats.active_connections;
                     stats.active_connections = count;
-                    if old_count != count {
-                        trace!(
-                            old = old_count,
-                            new = count,
-                            "Connection count updated"
-                        );
-                    }
                 }
             }
         }
-
-        trace!("StatsActor stopped");
     }
 }
 

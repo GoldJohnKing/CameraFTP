@@ -1,7 +1,6 @@
 package com.gjk.cameraftpcompanion
 
 import android.annotation.SuppressLint
-import android.app.Activity
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
@@ -10,6 +9,66 @@ import android.webkit.JavascriptInterface
 import android.webkit.WebView
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+
+/**
+ * 文件上传事件监听器
+ * 监听Rust后端的file-uploaded事件，触发媒体扫描
+ */
+class FileUploadListener(private val activity: MainActivity) {
+    companion object {
+        private const val TAG = "FileUploadListener"
+        // 默认存储路径
+        private const val DEFAULT_STORAGE_PATH = "/storage/emulated/0/DCIM/CameraFTP"
+    }
+
+    /**
+     * 处理文件上传事件
+     * 由Rust后端通过Tauri事件系统调用
+     * @param path 文件路径（可能是相对路径或绝对路径）
+     * @param size 文件大小（字节）
+     */
+    fun onFileUploaded(path: String?, size: Long) {
+        if (path.isNullOrEmpty()) {
+            Log.w(TAG, "Received empty file path, skipping media scan")
+            return
+        }
+        
+        // 构建完整文件路径
+        val fullPath = if (path.startsWith("/")) {
+            // 已经是绝对路径
+            path
+        } else {
+            // 相对路径，拼接基础路径
+            "$DEFAULT_STORAGE_PATH/$path"
+        }
+        
+        Log.i(TAG, "File uploaded: relativePath=$path, fullPath=$fullPath, size=$size bytes")
+        
+        // 触发媒体扫描，让照片出现在相册中
+        activity.runOnUiThread {
+            MediaScannerHelper.scanFile(activity, fullPath)
+        }
+    }
+}
+
+/**
+ * 文件上传JavaScript Bridge
+ * 接收来自WebView的file-uploaded事件
+ */
+class FileUploadBridge(private val listener: FileUploadListener) {
+    companion object {
+        private const val TAG = "FileUploadBridge"
+    }
+    
+    /**
+     * 由JavaScript调用，处理文件上传事件
+     */
+    @JavascriptInterface
+    fun onFileUploaded(path: String?, size: Long) {
+        Log.d(TAG, "onFileUploaded called from JavaScript: path=$path, size=$size")
+        listener.onFileUploaded(path, size)
+    }
+}
 
 /**
  * JavaScript Bridge 接口
@@ -98,6 +157,8 @@ class MainActivity : TauriActivity() {
     private var pickerCallback: ((String?) -> Unit)? = null
     private var safBridge: SAFPickerBridge? = null
     private var webViewRef: WebView? = null
+    private var fileUploadListener: FileUploadListener? = null
+    private var fileUploadBridge: FileUploadBridge? = null
 
     // SAF 目录选择器回调
     private val safPickerLauncher = registerForActivityResult(
@@ -126,6 +187,10 @@ class MainActivity : TauriActivity() {
         
         // 初始化Bridge
         safBridge = SAFPickerBridge(this)
+        
+        // 初始化文件上传监听器
+        fileUploadListener = FileUploadListener(this)
+        fileUploadBridge = FileUploadBridge(fileUploadListener!!)
     }
 
     /**
@@ -143,6 +208,56 @@ class MainActivity : TauriActivity() {
         safBridge?.let { bridge ->
             webView.addJavascriptInterface(bridge, "SAFPickerAndroid")
             Log.d(TAG, "JavaScript Bridge 'SAFPickerAndroid' added to WebView")
+        }
+        
+        // 添加文件上传Bridge
+        fileUploadBridge?.let { bridge ->
+            webView.addJavascriptInterface(bridge, "FileUploadAndroid")
+            Log.d(TAG, "JavaScript Bridge 'FileUploadAndroid' added to WebView")
+        }
+        
+        // 注册Tauri事件监听 - 监听file-uploaded事件
+        registerFileUploadEventListener()
+    }
+    
+    /**
+     * 注册文件上传事件监听
+     * 通过JavaScript桥接监听Tauri后端的file-uploaded事件
+     */
+    @SuppressLint("SetJavaScriptEnabled")
+    private fun registerFileUploadEventListener() {
+        webViewRef?.let { webView ->
+            // 延迟注入确保Tauri环境已就绪
+            webView.postDelayed({
+                val jsCode = """
+                    (function() {
+                        if (window.__fileUploadListenerRegistered) return;
+                        window.__fileUploadListenerRegistered = true;
+                        
+                        // 监听Tauri的file-uploaded事件
+                        if (window.__TAURI__ && window.__TAURI__.event) {
+                            window.__TAURI__.event.listen('file-uploaded', function(event) {
+                                console.log('[Android] file-uploaded event received:', event.payload);
+                                // 调用原生方法
+                                if (window.FileUploadAndroid) {
+                                    window.FileUploadAndroid.onFileUploaded(
+                                        event.payload.path || '',
+                                        event.payload.size || 0
+                                    );
+                                }
+                            });
+                            console.log('[Android] file-uploaded event listener registered');
+                        } else {
+                            console.warn('[Android] Tauri event API not available');
+                        }
+                    })();
+                """
+                webView.evaluateJavascript(jsCode) { result ->
+                    Log.d(TAG, "File upload event listener registration result: $result")
+                }
+            }, 500)
+        } ?: run {
+            Log.e(TAG, "WebView is null, cannot register file upload listener")
         }
     }
 

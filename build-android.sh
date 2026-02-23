@@ -139,8 +139,11 @@ build_android() {
     
     case $build_type in
         "debug")
+            # Debug 也使用签名，便于测试
+            check_or_create_keystore
+            
             bun run tauri android build --debug --target aarch64
-            success "Debug APK 构建完成"
+            success "Debug APK 构建完成（已签名）"
             info "APK 位置: src-tauri/gen/android/app/build/outputs/apk/"
             ;;
         "release")

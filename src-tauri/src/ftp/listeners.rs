@@ -1,3 +1,4 @@
+use crate::ftp::events::EventBus;
 use crate::ftp::stats::StatsActor;
 use dashmap::DashSet;
 use libunftp::notification::{DataEvent, DataListener, EventMeta, PresenceEvent, PresenceListener};
@@ -8,11 +9,12 @@ use tracing::{info, warn};
 #[derive(Debug, Clone)]
 pub struct FtpDataListener {
     stats: StatsActor,
+    event_bus: EventBus,
 }
 
 impl FtpDataListener {
-    pub fn new(stats: StatsActor) -> Self {
-        Self { stats }
+    pub fn new(stats: StatsActor, event_bus: EventBus) -> Self {
+        Self { stats, event_bus }
     }
 }
 
@@ -26,10 +28,14 @@ impl DataListener for FtpDataListener {
         'life0: 'async_trait,
     {
         let stats = self.stats.clone();
+        let event_bus = self.event_bus.clone();
         Box::pin(async move {
             match event {
                 DataEvent::Put { path, bytes } => {
+                    // 记录上传统计
                     stats.record_upload(path.clone(), bytes).await;
+                    // 发送文件上传事件（用于Android媒体扫描）
+                    event_bus.emit_file_uploaded(path.clone(), bytes);
                     info!(file = %path, size = bytes, "File uploaded");
                 }
                 DataEvent::Got { path, bytes } => {

@@ -109,7 +109,12 @@ pub async fn start_ftp_server(
     };
 
     // 创建FTP服务器Actor
-    let (server_handle, server_actor, _stats_worker, event_bus) = create_ftp_server();
+    let (server_handle, server_actor, stats_worker, event_bus) = create_ftp_server();
+
+    // 运行统计Actor Worker（必须在后台运行，否则统计不会更新）
+    tokio::spawn(async move {
+        stats_worker.run().await;
+    });
 
     // 运行服务器Actor
     let actor_handle = tokio::spawn(async move {

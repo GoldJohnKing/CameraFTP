@@ -31,3 +31,14 @@ export interface NetworkInterface {
   is_ethernet: boolean;
   is_up: boolean;
 }
+
+// Android JS Bridge 接口
+interface FileUploadAndroid {
+  onFileUploaded: (path: string | null, size: number) => void;
+}
+
+declare global {
+  interface Window {
+    FileUploadAndroid?: FileUploadAndroid;
+  }
+}

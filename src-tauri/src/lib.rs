@@ -44,15 +44,22 @@ use storage_permission::{
 use ftp::types::ServerStateSnapshot;
 
 fn setup_logging() {
-    // 获取日志目录
+    // 获取日志目录 - Android 使用外部存储以便用户可以访问
+    #[cfg(target_os = "android")]
+    let log_dir = PathBuf::from("/storage/emulated/0/DCIM/CameraFTP/logs");
+    
+    #[cfg(not(target_os = "android"))]
     let log_dir = dirs::data_dir()
         .unwrap_or_else(|| PathBuf::from("."))
         .join("camera-ftp-companion/logs");
 
-    let _ = fs::create_dir_all(&log_dir);
-
     let log_file = log_dir.join("app.log");
     let log_file_for_writer = log_file.clone();
+    
+    // 尝试创建日志目录
+    if let Err(e) = fs::create_dir_all(&log_dir) {
+        eprintln!("Failed to create log directory {:?}: {}", log_dir, e);
+    }
 
     // 创建文件追加器
     let file_appender = tracing_subscriber::fmt::layer()
@@ -61,20 +68,26 @@ fn setup_logging() {
                 .create(true)
                 .append(true)
                 .open(&log_file_for_writer)
-                .unwrap_or_else(|_| std::fs::File::create("/dev/null").unwrap())
+                .unwrap_or_else(|e| {
+                    eprintln!("Failed to open log file: {}", e);
+                    std::fs::File::create("/dev/null").unwrap()
+                })
         })
         .with_ansi(false)
         .with_thread_ids(true)
         .with_thread_names(true)
         .with_target(true);
 
-    // 初始化订阅器
+    // 初始化订阅器（同时输出到控制台和文件）
     tracing_subscriber::registry()
         .with(file_appender)
         .with(tracing_subscriber::fmt::layer().with_ansi(false))
         .init();
 
-    tracing::info!(log_file = ?log_file, "Logging initialized");
+    tracing::info!("========================================");
+    tracing::info!("Logging initialized");
+    tracing::info!(log_file = ?log_file, "Log file location");
+    tracing::info!("========================================");
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
