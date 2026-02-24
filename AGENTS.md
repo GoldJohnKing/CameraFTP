@@ -216,19 +216,9 @@ platform.setup(app.handle())?;
 |------|------|
 | `./build.sh windows` | 构建 Windows 可执行文件 |
 | `./build.sh windows-bundle` | 构建 Windows 安装包 (EXE + MSI) |
-| `./build.sh android` | 构建 Android APK (debug) |
-| `./build.sh android-release` | 构建 Android APK (release) |
+| `./build.sh android` | 构建 Android APK (release) |
+| `./build.sh android-debug` | 构建 Android APK (debug) |
 | `./build.sh frontend` | 仅构建前端 |
-
-#### 传统构建脚本
-
-| 平台 | 编译脚本 | 输出 |
-|------|----------|------|
-| **Windows** | `./build-full.sh` | `src-tauri/target/x86_64-pc-windows-msvc/release/camera-ftp-companion.exe` |
-| **Windows Bundle** | `./build-windows-bundle.sh` | EXE + MSI安装包 |
-| **Android Debug** | `./build-android.sh debug` | `src-tauri/gen/android/app/build/outputs/apk/` |
-| **Android Release** | `./build-android.sh release` | 签名APK |
-| **Android AAB** | `./build-android.sh aab` | Google Play AAB包 |
 
 ---
 
@@ -242,11 +232,7 @@ platform.setup(app.handle())?;
 
 **后端验证**: 修改Rust代码后，立即编译验证
 ```bash
-# 验证Windows平台
-./build.sh windows
-
-# 验证Android平台  
-./build.sh android-release
+./build.sh windows && ./build.sh android
 ```
 
 **前端验证**:
