@@ -203,7 +203,7 @@ platform.setup(app.handle())?;
 
 ### ⚠️ 重要：必须使用编译脚本构建
 
-**Agent指令**: 所有平台产物的构建**必须**使用项目提供的编译脚本，不要直接使用cargo或bun命令。
+**Agent指令**: 所有平台产物的构建**必须**使用项目提供的编译脚本，不要直接使用`cargo`或`bun`命令。
 
 #### 统一构建入口（推荐）
 
@@ -217,8 +217,6 @@ platform.setup(app.handle())?;
 | `./build.sh windows-bundle` | 构建 Windows 安装包 (EXE + MSI) |
 | `./build.sh android` | 构建 Android APK (debug) |
 | `./build.sh android-release` | 构建 Android APK (release) |
-| `./build.sh android-aab` | 构建 Android AAB (Google Play) |
-| `./build.sh dev` | 启动开发模式（热重载） |
 | `./build.sh frontend` | 仅构建前端 |
 
 #### 传统构建脚本
@@ -231,47 +229,29 @@ platform.setup(app.handle())?;
 | **Android Release** | `./build-android.sh release` | 签名APK |
 | **Android AAB** | `./build-android.sh aab` | Google Play AAB包 |
 
-### 开发命令
-
-```bash
-# 仅启动前端开发服务器（端口1420）
-bun run dev
-
-# 同时运行前端和后端（热重载）
-cargo tauri dev
-
-# Android开发模式（热重载）
-./build-android.sh dev
-```
-
 ---
 
 ## 代码验证规范
 
 ### ⚠️ 重要：依赖编译验证代码正确性
 
-**Agent指令**: **不要使用 `lsp_diagnostics`** 来验证代码正确性。始终依赖**实际编译**来验证代码。
+**Agent指令**: **不要使用 `lsp_diagnostics`** 来验证代码正确性。始终依赖**实际编译**来验证代码。编译后端时**必须**使用项目提供的编译脚本，不要直接使用`cargo build`命令。
 
-**原因**: LSP诊断存在卡死异常，无法正常运行。
+**原因**: LSP诊断存在卡死异常，无法正常运行。编译脚本为后端编译提供了编译环境预处理，直接使用`cargo build`命令可能无法获取必要工具链。
 
-**正确做法**: 修改Rust代码后，立即编译验证
+**后端验证**: 修改Rust代码后，立即编译验证
 ```bash
-cd src-tauri
-
 # 验证Windows平台
-cargo build --target x86_64-pc-windows-msvc
+./build.sh windows
 
 # 验证Android平台  
-cargo build --target aarch64-linux-android
+./build.sh android-release
 ```
 
 **前端验证**:
 ```bash
 # TypeScript类型检查
 bun run build
-
-# 或
-npx tsc --noEmit
 ```
 
 ---
@@ -368,7 +348,7 @@ const result = await invoke<string>('start_server', { port: 21 });
 1. 在 `src-tauri/src/commands.rs` 中添加命令函数
 2. 在 `src-tauri/src/lib.rs` 的 `generate_handler!` 中注册
 3. 在前端使用 `invoke()` 调用
-4. **编译验证**: `cargo build`
+4. **编译验证**: `./build.sh <command>`
 
 ### 添加新的React组件
 
@@ -376,34 +356,6 @@ const result = await invoke<string>('start_server', { port: 21 });
 2. 在 `src/App.tsx` 中导入和使用
 3. 使用 TailwindCSS 进行样式设计
 4. **编译验证**: `bun run build`
-
-### 修改FTP服务器配置
-
-编辑 `src-tauri/src/ftp/types.rs`:
-```rust
-pub struct ServerConfig {
-    pub port: u16,
-    pub root_path: PathBuf,
-    pub allow_anonymous: bool,
-    pub passive_port_range: (u16, u16),
-    pub idle_timeout_seconds: u64,
-}
-```
-
-### 修改窗口配置
-
-编辑 `src-tauri/tauri.conf.json`:
-```json
-{
-  "app": {
-    "windows": [{
-      "title": "图传伴侣",
-      "width": 400,
-      "height": 700
-    }]
-  }
-}
-```
 
 ---
 
@@ -416,37 +368,6 @@ pub struct ServerConfig {
 
 - **Windows**: 用户图片目录下的 `CameraFTP` 文件夹（可配置）
 - **Android**: `/storage/emulated/0/DCIM/CameraFTP`（固定路径，需要所有文件访问权限）
-
----
-
-## 调试技巧
-
-### Rust后端调试
-```bash
-cd src-tauri
-RUST_LOG=debug cargo run
-```
-
-### Windows控制台窗口
-在 `src-tauri/src/main.rs` 中添加以隐藏控制台:
-```rust
-#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
-```
-
-### 前端资源路径
-确保 `vite.config.ts` 中包含:
-```typescript
-base: "./",
-```
-
-### Android调试
-```bash
-# 查看日志
-adb logcat -s "RustStdoutStderr" "camera-ftp-companion"
-
-# 检查权限状态
-adb shell appops get com.gjk.cameraftpcompanion
-```
 
 ---
 
@@ -482,7 +403,7 @@ ci: CI配置更改
 ## Agent 指令总结
 
 1. **构建平台产物**: 必须使用 `./build-full.sh`, `./build-android.sh` 等编译脚本
-2. **代码验证**: 不要使用 `lsp_diagnostics`，始终依赖 `cargo build --target` 或 `bun run build` 进行验证
+2. **代码验证**: 不要使用 `lsp_diagnostics`，不要直接使用`cargo build`命令，而是始终使用编译脚本进行验证
 3. **平台代码**: 使用 `#[cfg(target_os = "...")]` 进行条件编译
 4. **日志记录**: 使用 `tracing::info!`, `tracing::error!` 等宏
 5. **错误处理**: 使用 `Result<T, AppError>` 和 `?` 操作符
