@@ -31,6 +31,72 @@ export interface SAFPickerAndroid {
   openAllFilesAccessSettings: () => void;
 }
 
+/**
+ * Android MainActivity 接口
+ * 用于与前台的 FTP 服务通信
+ * @deprecated Use ServerStateAndroid instead
+ */
+export interface MainActivity {
+  /**
+   * 更新前台服务的状态
+   * @param isRunning 服务器是否运行中
+   * @param statsJson 统计信息的 JSON 字符串，或 null
+   * @param connectedClients 当前连接的客户端数量
+   */
+  updateServiceState(isRunning: boolean, statsJson: string | null, connectedClients: number): void;
+}
+
+/**
+ * Android Server State Bridge 接口
+ * 用于与前台的 FTP 服务通信
+ * 由 ServerStateBridge 注入为 "ServerStateAndroid"
+ */
+export interface ServerStateAndroid {
+  /**
+   * 更新前台服务的状态
+   * @param isRunning 服务器是否运行中
+   * @param statsJson 统计信息的 JSON 字符串，或 null
+   * @param connectedClients 当前连接的客户端数量
+   */
+  onServerStateChanged(isRunning: boolean, statsJson: string | null, connectedClients: number): void;
+}
+
+/**
+ * Android 权限检查结果
+ */
+export interface PermissionCheckResult {
+  storage: boolean;
+  notification: boolean;
+  batteryOptimization: boolean;
+}
+
+/**
+ * Android 权限管理接口
+ * 由 Android WebView 注入
+ */
+export interface PermissionAndroid {
+  /**
+   * 检查所有必要权限的状态
+   * @returns JSON 字符串，包含 storage, notification, batteryOptimization 的布尔值
+   */
+  checkAllPermissions: () => Promise<string>;
+  
+  /**
+   * 请求存储权限
+   */
+  requestStoragePermission: () => void;
+  
+  /**
+   * 请求通知权限
+   */
+  requestNotificationPermission: () => void;
+  
+  /**
+   * 请求电池优化白名单
+   */
+  requestBatteryOptimization: () => void;
+}
+
 // ===== 全局窗口扩展 =====
 
 declare global {
@@ -44,6 +110,24 @@ declare global {
      * Android SAF 选择器 JS Bridge
      */
     SAFPickerAndroid?: SAFPickerAndroid;
+    
+    /**
+     * Android MainActivity JS Bridge
+     * 用于与前台 FTP 服务通信
+     * @deprecated Use ServerStateAndroid instead
+     */
+    MainActivity?: MainActivity;
+    
+    /**
+     * Android Server State JS Bridge
+     * 用于与前台 FTP 服务通信
+     */
+    ServerStateAndroid?: ServerStateAndroid;
+    
+    /**
+     * Android 权限管理 JS Bridge
+     */
+    PermissionAndroid?: PermissionAndroid;
   }
 }
 
@@ -65,6 +149,34 @@ export function isSAFPickerAvailable(): boolean {
   return typeof window !== 'undefined' && 
          !!window.SAFPickerAndroid && 
          typeof window.SAFPickerAndroid.openAllFilesAccessSettings === 'function';
+}
+
+/**
+ * 检查 Android MainActivity 是否可用
+ * @deprecated Use isServerStateAndroidAvailable instead
+ */
+export function isMainActivityAvailable(): boolean {
+  return typeof window !== 'undefined' && 
+         !!window.MainActivity && 
+         typeof window.MainActivity.updateServiceState === 'function';
+}
+
+/**
+ * 检查 Android ServerStateAndroid 是否可用
+ */
+export function isServerStateAndroidAvailable(): boolean {
+  return typeof window !== 'undefined' && 
+         !!window.ServerStateAndroid && 
+         typeof window.ServerStateAndroid.onServerStateChanged === 'function';
+}
+
+/**
+ * 检查 Android 权限管理是否可用
+ */
+export function isPermissionAndroidAvailable(): boolean {
+  return typeof window !== 'undefined' && 
+         !!window.PermissionAndroid && 
+         typeof window.PermissionAndroid.checkAllPermissions === 'function';
 }
 
 /**

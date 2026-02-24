@@ -1,9 +1,21 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { Loader2, Folder, Settings, CheckCircle, AlertCircle, RefreshCw } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { useConfigStore } from '../stores/configStore';
+import { usePermissionStore } from '../stores/permissionStore';
 import { useStoragePermission } from '../hooks/useStoragePermission';
 import { ToggleSwitch } from './ui/ToggleSwitch';
+
+declare global {
+  interface Window {
+    PermissionAndroid?: {
+      checkAllPermissions: () => Promise<string>;
+      requestStoragePermission: () => void;
+      requestNotificationPermission: () => void;
+      requestBatteryOptimization: () => void;
+    };
+  }
+}
 
 export function ConfigCard() {
   const {
@@ -30,14 +42,18 @@ export function ConfigCard() {
     ensureStorageReady,
   } = useStoragePermission();
 
+  const permissionState = usePermissionStore((state) => state.permissions);
+  const checkPermissions = usePermissionStore((state) => state.checkPermissions);
+
   const [autostartEnabled, setAutostartEnabled] = useState(false);
   const [isLoadingAutostart, setIsLoadingAutostart] = useState(false);
   const [portInput, setPortInput] = useState('2121');
   const [portError, setPortError] = useState<string | null>(null);
   const [isCheckingPort, setIsCheckingPort] = useState(false);
   const [isCreatingDir, setIsCreatingDir] = useState(false);
+  const [isChecking, setIsChecking] = useState(false);
 
-  // 是否是桌面平台（显示开机自启动选项）
+  // Platform detection
   const isDesktop = platform === 'windows' || platform === 'macos' || platform === 'linux';
   const isAndroid = platform === 'android';
 
@@ -53,7 +69,14 @@ export function ConfigCard() {
     };
   }, [loadConfig, loadPlatform]);
 
-  // 当配置加载后，同步端口输入值
+  // Initial permission check for Android
+  useEffect(() => {
+    if (isAndroid) {
+      checkPermissions();
+    }
+  }, [isAndroid, checkPermissions]);
+
+  // Sync port input with config
   useEffect(() => {
     if (config) {
       setPortInput(config.port.toString());
@@ -70,6 +93,34 @@ export function ConfigCard() {
       console.error('Failed to load autostart status:', err);
     }
   };
+
+  // Wrapper for checkPermissions with loading state
+  const handleCheckPermissions = useCallback(async () => {
+    setIsChecking(true);
+    try {
+      await checkPermissions();
+    } finally {
+      setTimeout(() => setIsChecking(false), 300);
+    }
+  }, [checkPermissions]);
+
+  const handleRequestStorage = useCallback(() => {
+    if (window.PermissionAndroid) {
+      window.PermissionAndroid.requestStoragePermission();
+    }
+  }, []);
+
+  const handleRequestNotification = useCallback(() => {
+    if (window.PermissionAndroid) {
+      window.PermissionAndroid.requestNotificationPermission();
+    }
+  }, []);
+
+  const handleRequestBattery = useCallback(() => {
+    if (window.PermissionAndroid) {
+      window.PermissionAndroid.requestBatteryOptimization();
+    }
+  }, []);
 
   const handleAutostartToggle = async () => {
     setIsLoadingAutostart(true);
@@ -151,6 +202,7 @@ export function ConfigCard() {
   };
 
   return (
+  <>
     <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
       <div className="p-4 border-b border-gray-100">
         <h2 className="text-lg font-semibold text-gray-900">应用配置</h2>
@@ -267,7 +319,7 @@ export function ConfigCard() {
           </div>
         )}
 
-        {/* 开机自启动配置 - 仅在桌面平台显示，使用 ToggleSwitch 组件 */}
+        {/* 开机自启动配置 - 仅在桌面平台显示 */}
         {isDesktop && (
           <ToggleSwitch
             enabled={autostartEnabled}
@@ -278,7 +330,7 @@ export function ConfigCard() {
           />
         )}
 
-        {/* 端口配置 - 使用 ToggleSwitch 组件 */}
+        {/* 端口配置 */}
         <div className="space-y-3">
           <ToggleSwitch
             enabled={config?.auto_select_port ?? true}
@@ -331,5 +383,78 @@ export function ConfigCard() {
         )}
       </div>
     </div>
+
+    {/* Permission Status Section - Android Only */}
+    {isAndroid && typeof window !== 'undefined' && window.PermissionAndroid && (
+      <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+        <div className="p-4 border-b border-gray-100">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-medium text-gray-700">权限状态</h3>
+            <button
+              onClick={handleCheckPermissions}
+              disabled={isChecking}
+              className="text-xs text-blue-500 hover:text-blue-600 flex items-center gap-1 disabled:opacity-50"
+            >
+              <svg 
+                className={`w-3.5 h-3.5 ${isChecking ? 'animate-spin' : ''}`} 
+                fill="none" 
+                stroke="currentColor" 
+                viewBox="0 0 24 24"
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+              {isChecking ? '刷新中...' : '刷新'}
+            </button>
+          </div>
+        </div>
+        
+        <div className="p-4">
+          <div className="space-y-3">
+            {/* Storage Permission */}
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className={`w-3 h-3 rounded-full ${permissionState.storage ? 'bg-green-500' : 'bg-red-500'}`} />
+                <span className="text-sm text-gray-700">文件访问权限</span>
+              </div>
+              <button
+                onClick={handleRequestStorage}
+                className={`text-xs ${permissionState.storage ? 'text-green-600' : 'text-blue-500 hover:text-blue-600'}`}
+              >
+                {permissionState.storage ? '已授权' : '授权'}
+              </button>
+            </div>
+
+            {/* Notification Permission */}
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className={`w-3 h-3 rounded-full ${permissionState.notification ? 'bg-green-500' : 'bg-red-500'}`} />
+                <span className="text-sm text-gray-700">通知权限</span>
+              </div>
+              <button
+                onClick={handleRequestNotification}
+                className={`text-xs ${permissionState.notification ? 'text-green-600' : 'text-blue-500 hover:text-blue-600'}`}
+              >
+                {permissionState.notification ? '已授权' : '授权'}
+              </button>
+            </div>
+
+            {/* Battery Optimization */}
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className={`w-3 h-3 rounded-full ${permissionState.batteryOptimization ? 'bg-green-500' : 'bg-red-500'}`} />
+                <span className="text-sm text-gray-700">电池优化白名单</span>
+              </div>
+              <button
+                onClick={handleRequestBattery}
+                className={`text-xs ${permissionState.batteryOptimization ? 'text-green-600' : 'text-blue-500 hover:text-blue-600'}`}
+              >
+                {permissionState.batteryOptimization ? '已授权' : '授权'}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    )}
+  </>
   );
 }

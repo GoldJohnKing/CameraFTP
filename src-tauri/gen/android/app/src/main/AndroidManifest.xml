@@ -21,6 +21,11 @@
     <!-- Notification permission -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
+    <!-- Wake lock permission for keep-alive -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <!-- Battery optimization whitelist permission -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+
     <!-- AndroidTV support -->
     <uses-feature android:name="android.software.leanback" android:required="false" />
 
@@ -48,6 +53,13 @@
             android:name="app.tauri.activity.TauriActivity"
             android:configChanges="orientation|screenSize|smallestScreenSize|density|keyboard|keyboardHidden|navigation"
             android:exported="false" />
+
+        <!-- FTP Foreground Service -->
+        <service
+            android:name=".FtpForegroundService"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
             
     </application>
 

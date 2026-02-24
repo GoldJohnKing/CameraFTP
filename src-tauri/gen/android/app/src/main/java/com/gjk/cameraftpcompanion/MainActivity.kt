@@ -1,14 +1,23 @@
 package com.gjk.cameraftpcompanion
 
+import android.Manifest
 import android.annotation.SuppressLint
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
+import android.os.PowerManager
+import android.provider.Settings
 import android.util.Log
 import android.webkit.JavascriptInterface
 import android.webkit.WebView
+import android.widget.Toast
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.app.AlertDialog
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
 
 /**
  * 文件上传事件监听器
@@ -67,6 +76,50 @@ class FileUploadBridge(private val listener: FileUploadListener) {
     fun onFileUploaded(path: String?, size: Long) {
         Log.d(TAG, "onFileUploaded called from JavaScript: path=$path, size=$size")
         listener.onFileUploaded(path, size)
+    }
+}
+
+/**
+ * Server State JavaScript Bridge
+ * Receives server state updates from Tauri/Rust and forwards to foreground service
+ */
+class ServerStateBridge(private val activity: MainActivity) {
+    companion object {
+        private const val TAG = "ServerStateBridge"
+    }
+    
+    /**
+     * Called from JavaScript when server state changes
+     * @param isRunning Whether FTP server is running
+     * @param statsJson JSON string with stats (files_transferred, bytes_transferred)
+     * @param connectedClients Number of connected clients
+     */
+    @JavascriptInterface
+    fun onServerStateChanged(isRunning: Boolean, statsJson: String?, connectedClients: Int) {
+        LogWriter.log("ServerStateBridge.onServerStateChanged() called")
+        LogWriter.log("isRunning=$isRunning, statsJson=$statsJson, connectedClients=$connectedClients")
+        Log.d(TAG, "onServerStateChanged: running=$isRunning, clients=$connectedClients, stats=$statsJson")
+        activity.updateServiceState(isRunning, statsJson, connectedClients)
+    }
+    
+    /**
+     * Called from JavaScript to toggle server
+     */
+    @JavascriptInterface
+    fun toggleServer() {
+        Log.d(TAG, "toggleServer called")
+        activity.runOnUiThread {
+            // This will be handled by the frontend via JS event
+        }
+    }
+    
+    /**
+     * Called from JavaScript to exit app
+     */
+    @JavascriptInterface
+    fun exitApp() {
+        Log.d(TAG, "exitApp called")
+        activity.finish()
     }
 }
 
@@ -150,6 +203,8 @@ class MainActivity : TauriActivity() {
     
     companion object {
         private const val TAG = "MainActivity"
+        private const val REQUEST_IGNORE_BATTERY_OPTIMIZATIONS = 1001
+        private const val REQUEST_POST_NOTIFICATIONS = 1002
         @JvmStatic
         var currentActivity: MainActivity? = null
     }
@@ -159,6 +214,9 @@ class MainActivity : TauriActivity() {
     private var webViewRef: WebView? = null
     private var fileUploadListener: FileUploadListener? = null
     private var fileUploadBridge: FileUploadBridge? = null
+    private var serverStateBridge: ServerStateBridge? = null
+    private var permissionBridge: PermissionBridge? = null
+    private var ftpService: FtpForegroundService? = null
 
     // SAF 目录选择器回调
     private val safPickerLauncher = registerForActivityResult(
@@ -183,14 +241,32 @@ class MainActivity : TauriActivity() {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         currentActivity = this
+        
+        LogWriter.init()
+        LogWriter.log("MainActivity.onCreate() called")
         Log.d(TAG, "MainActivity created")
+        
+        // NOTE: Notification permission request moved to PermissionDialog
+        // requestNotificationPermission()
+        
+        // Start foreground service immediately when app launches
+        startFtpForegroundService()
+        
+        // NOTE: Battery optimization request moved to PermissionDialog
+        // requestBatteryOptimization()
         
         // 初始化Bridge
         safBridge = SAFPickerBridge(this)
         
+        // 初始化权限Bridge
+        permissionBridge = PermissionBridge(this)
+        
         // 初始化文件上传监听器
         fileUploadListener = FileUploadListener(this)
         fileUploadBridge = FileUploadBridge(fileUploadListener!!)
+        
+        // 初始化服务器状态Bridge
+        serverStateBridge = ServerStateBridge(this)
     }
 
     /**
@@ -204,6 +280,9 @@ class MainActivity : TauriActivity() {
         // 保存WebView引用
         webViewRef = webView
         
+        // Set WebView reference for the service to send JS events
+        FtpForegroundService.getInstance()?.webView = webView
+        
         // 添加JavaScript Bridge - 此时WebView已创建完成
         safBridge?.let { bridge ->
             webView.addJavascriptInterface(bridge, "SAFPickerAndroid")
@@ -216,13 +295,25 @@ class MainActivity : TauriActivity() {
             Log.d(TAG, "JavaScript Bridge 'FileUploadAndroid' added to WebView")
         }
         
+        // 添加服务器状态Bridge
+        serverStateBridge?.let { bridge ->
+            webView.addJavascriptInterface(bridge, "ServerStateAndroid")
+            Log.d(TAG, "JavaScript Bridge 'ServerStateAndroid' added to WebView")
+        }
+        
+        // 添加权限Bridge
+        permissionBridge?.let { bridge ->
+            webView.addJavascriptInterface(bridge, "PermissionAndroid")
+            Log.d(TAG, "JavaScript Bridge 'PermissionAndroid' added to WebView")
+        }
+        
         // 注册Tauri事件监听 - 监听file-uploaded事件
         registerFileUploadEventListener()
     }
     
     /**
-     * 注册文件上传事件监听
-     * 通过JavaScript桥接监听Tauri后端的file-uploaded事件
+     * 注册Tauri事件监听
+     * 通过JavaScript桥接监听Tauri后端事件
      */
     @SuppressLint("SetJavaScriptEnabled")
     private fun registerFileUploadEventListener() {
@@ -231,11 +322,11 @@ class MainActivity : TauriActivity() {
             webView.postDelayed({
                 val jsCode = """
                     (function() {
-                        if (window.__fileUploadListenerRegistered) return;
-                        window.__fileUploadListenerRegistered = true;
+                        if (window.__tauriEventListenerRegistered) return;
+                        window.__tauriEventListenerRegistered = true;
                         
-                        // 监听Tauri的file-uploaded事件
                         if (window.__TAURI__ && window.__TAURI__.event) {
+                            // 监听Tauri的file-uploaded事件
                             window.__TAURI__.event.listen('file-uploaded', function(event) {
                                 console.log('[Android] file-uploaded event received:', event.payload);
                                 // 调用原生方法
@@ -247,18 +338,86 @@ class MainActivity : TauriActivity() {
                                 }
                             });
                             console.log('[Android] file-uploaded event listener registered');
+                            
+                            // 监听服务器状态更新事件
+                            window.__TAURI__.event.listen('android-service-state-update', function(event) {
+                                console.log('[Android] android-service-state-update event received:', event.payload);
+                                if (window.ServerStateAndroid) {
+                                    window.ServerStateAndroid.onServerStateChanged(
+                                        event.payload.is_running || false,
+                                        event.payload.stats ? JSON.stringify(event.payload.stats) : null,
+                                        event.payload.connected_clients || 0
+                                    );
+                                }
+                            });
+                            console.log('[Android] android-service-state-update event listener registered');
+                            
+                            // 监听通知按钮事件 - 切换服务器
+                            window.__TAURI__.event.listen('android-toggle-server', function(event) {
+                                console.log('[Android] android-toggle-server event received');
+                                // Dispatch custom event to frontend
+                                window.dispatchEvent(new CustomEvent('android-toggle-server-request'));
+                            });
+                            console.log('[Android] android-toggle-server event listener registered');
+                            
+                            // 监听通知按钮事件 - 退出应用
+                            window.__TAURI__.event.listen('android-exit-app', function(event) {
+                                console.log('[Android] android-exit-app event received');
+                                if (window.ServerStateAndroid) {
+                                    window.ServerStateAndroid.exitApp();
+                                }
+                            });
+                            console.log('[Android] android-exit-app event listener registered');
                         } else {
                             console.warn('[Android] Tauri event API not available');
                         }
                     })();
                 """
                 webView.evaluateJavascript(jsCode) { result ->
-                    Log.d(TAG, "File upload event listener registration result: $result")
+                    Log.d(TAG, "Tauri event listeners registration result: $result")
                 }
             }, 500)
         } ?: run {
-            Log.e(TAG, "WebView is null, cannot register file upload listener")
+            Log.e(TAG, "WebView is null, cannot register event listeners")
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        LogWriter.log("MainActivity.onResume() called - emitting android-on-resume event")
+        Log.d(TAG, "onResume: App resumed, emitting event to refresh permissions")
+        
+        // Emit Tauri event to notify frontend to refresh permissions
+        // Delay slightly to ensure WebView is fully ready
+        webViewRef?.postDelayed({
+            runOnUiThread {
+                webViewRef?.evaluateJavascript(
+                    """
+                    (function() {
+                        console.log('[Android] onResume triggered, checking Tauri...');
+                        if(typeof window !== 'undefined' && window.__TAURI__ && window.__TAURI__.event) {
+                            console.log('[Android] Emitting android-on-resume event');
+                            window.__TAURI__.event.emit('android-on-resume', {});
+                        } else {
+                            console.log('[Android] Tauri not ready yet, retrying...');
+                            // Retry after a short delay
+                            setTimeout(function() {
+                                if(window.__TAURI__ && window.__TAURI__.event) {
+                                    window.__TAURI__.event.emit('android-on-resume', {});
+                                }
+                            }, 500);
+                        }
+                    })();
+                    """,
+                    null
+                )
+            }
+        }, 100)
+    }
+    
+    override fun onPause() {
+        super.onPause()
+        Log.d(TAG, "onPause: App paused")
     }
 
     override fun onDestroy() {
@@ -299,6 +458,158 @@ class MainActivity : TauriActivity() {
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to execute JavaScript", e)
             }
+        }
+    }
+    
+    /**
+     * Start the FTP foreground service
+     */
+    private fun startFtpForegroundService() {
+        val serviceIntent = Intent(this, FtpForegroundService::class.java).apply {
+            action = FtpForegroundService.ACTION_START
+        }
+        
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            startForegroundService(serviceIntent)
+        } else {
+            startService(serviceIntent)
+        }
+        Log.d(TAG, "Foreground service started")
+    }
+    
+    /**
+     * Request battery optimization whitelist to keep service running in background
+     */
+    private fun requestBatteryOptimization() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            val powerManager = getSystemService(POWER_SERVICE) as PowerManager
+            val packageName = packageName
+            
+            if (!powerManager.isIgnoringBatteryOptimizations(packageName)) {
+                // Show dialog explaining why we need this permission
+                AlertDialog.Builder(this)
+                    .setTitle("Battery Optimization")
+                    .setMessage("To keep the FTP server running in the background, please allow this app to ignore battery optimizations.")
+                    .setPositiveButton("Settings") { _, _ ->
+                        try {
+                            val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                                data = Uri.parse("package:$packageName")
+                            }
+                            startActivity(intent)
+                        } catch (e: Exception) {
+                            Toast.makeText(this, "Failed to open settings", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                    .setNegativeButton("Later", null)
+                    .show()
+            }
+        }
+    }
+    
+    /**
+     * Request notification permission (Android 13+)
+     */
+    private fun requestNotificationPermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) 
+                != PackageManager.PERMISSION_GRANTED) {
+                ActivityCompat.requestPermissions(
+                    this,
+                    arrayOf(Manifest.permission.POST_NOTIFICATIONS),
+                    REQUEST_POST_NOTIFICATIONS
+                )
+            }
+        }
+    }
+    
+    /**
+     * Handle permission request results
+     */
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        Log.d(TAG, "onRequestPermissionsResult: requestCode=$requestCode, results=${grantResults.joinToString()}")
+        
+        when (requestCode) {
+            REQUEST_POST_NOTIFICATIONS -> {
+                val granted = grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED
+                Log.d(TAG, "Notification permission result: granted=$granted")
+                
+                // Emit event to notify frontend to refresh permissions
+                // Delay to ensure permission state is updated by system
+                webViewRef?.postDelayed({
+                    runOnUiThread {
+                        webViewRef?.evaluateJavascript(
+                            """
+                            (function() {
+                                console.log('[Android] Permission result received, emitting event');
+                                if(typeof window !== 'undefined' && window.__TAURI__ && window.__TAURI__.event) {
+                                    window.__TAURI__.event.emit('android-permission-result', {});
+                                }
+                            })();
+                            """,
+                            null
+                        )
+                    }
+                }, 300)
+            }
+        }
+    }
+    
+    /**
+     * Handle activity result (for battery optimization and storage settings)
+     */
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        Log.d(TAG, "onActivityResult: requestCode=$requestCode, resultCode=$resultCode")
+        
+        when (requestCode) {
+            REQUEST_IGNORE_BATTERY_OPTIMIZATIONS -> {
+                // Battery optimization dialog closed, emit event to refresh permissions
+                Log.d(TAG, "Battery optimization dialog closed, refreshing permissions")
+                emitPermissionRefreshEvent()
+            }
+        }
+    }
+    
+    /**
+     * Emit permission refresh event to frontend
+     */
+    private fun emitPermissionRefreshEvent() {
+        webViewRef?.postDelayed({
+            runOnUiThread {
+                webViewRef?.evaluateJavascript(
+                    """
+                    (function() {
+                        console.log('[Android] Emitting permission refresh event');
+                        if(typeof window !== 'undefined' && window.__TAURI__ && window.__TAURI__.event) {
+                            window.__TAURI__.event.emit('android-permission-refresh', {});
+                        }
+                    })();
+                    """,
+                    null
+                )
+            }
+        }, 300)
+    }
+    
+    /**
+     * Update service state (called from JS bridge)
+     */
+    fun updateServiceState(isRunning: Boolean, statsJson: String?, connectedClients: Int) {
+        LogWriter.log("MainActivity.updateServiceState() called")
+        LogWriter.log("isRunning=$isRunning, statsJson=$statsJson, connectedClients=$connectedClients")
+        Log.d(TAG, "updateServiceState: running=$isRunning, clients=$connectedClients, stats=$statsJson")
+        val service = FtpForegroundService.getInstance()
+        if (service == null) {
+            LogWriter.log("ERROR: FtpForegroundService.getInstance() returned null!")
+            Log.w(TAG, "FtpForegroundService instance is null!")
+        } else {
+            LogWriter.log("FtpForegroundService.getInstance() returned service, calling updateServerState()")
+            service.updateServerState(isRunning, statsJson, connectedClients)
         }
     }
 }

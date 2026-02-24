@@ -3,6 +3,8 @@ import { invoke } from '@tauri-apps/api/core';
 import type { ServerInfo, ServerStatus } from '../types';
 import { formatError } from '../utils/error';
 import { createEventManager, type EventRegistration } from '../utils/events';
+import { isPermissionAndroidAvailable } from '../types/global';
+import type { PermissionCheckResult } from '../types/global';
 
 interface ServerState {
   // 状态
@@ -11,13 +13,18 @@ interface ServerState {
   stats: ServerStatus;
   isLoading: boolean;
   error: string | null;
+  showPermissionDialog: boolean;
+  pendingServerStart: boolean;
   
   // 操作
-  startServer: () => Promise<void>;
+  startServer: () => Promise<boolean>;
   stopServer: () => Promise<void>;
   updateStats: (stats: ServerStatus) => void;
   setError: (error: string | null) => void;
   clearError: () => void;
+  openPermissionDialog: () => void;
+  closePermissionDialog: () => void;
+  continueAfterPermissionsGranted: () => Promise<void>;
   
   // 初始化
   initializeListeners: () => Promise<() => void>;
@@ -29,6 +36,30 @@ const defaultStats: ServerStatus = {
   files_received: 0,
   bytes_received: 0,
   last_file: null,
+};
+
+// Update Android foreground service with current server state
+const updateAndroidServiceState = (isRunning: boolean, stats: ServerStatus | null, connectedClients: number) => {
+  console.log('[Android] updateAndroidServiceState called:', { isRunning, connectedClients, stats });
+  console.log('[Android] window.ServerStateAndroid available:', !!window.ServerStateAndroid);
+  
+  // Use ServerStateAndroid bridge (not MainActivity)
+  if (window.ServerStateAndroid) {
+    try {
+      const statsJson = stats ? JSON.stringify({
+        files_transferred: stats.files_received || 0,
+        bytes_transferred: stats.bytes_received || 0,
+      }) : null;
+      
+      console.log('[Android] Calling ServerStateAndroid.onServerStateChanged with:', { isRunning, statsJson, connectedClients });
+      window.ServerStateAndroid.onServerStateChanged(isRunning, statsJson, connectedClients);
+      console.log('[Android] ServerStateAndroid.onServerStateChanged call completed');
+    } catch (e) {
+      console.error('[Android] Failed to update service state:', e);
+    }
+  } else {
+    console.warn('[Android] ServerStateAndroid bridge not available - cannot update notification');
+  }
 };
 
 // 定义所有事件的注册配置
@@ -52,6 +83,8 @@ const createEventRegistrations = (get: () => ServerState, set: (fn: (state: Serv
         },
         stats: { ...state.stats, is_running: true }
       }));
+      // Update Android foreground service
+      updateAndroidServiceState(true, get().stats, 0);
     },
   },
   // 服务器停止事件
@@ -64,6 +97,8 @@ const createEventRegistrations = (get: () => ServerState, set: (fn: (state: Serv
         serverInfo: null,
         stats: defaultStats
       }));
+      // Update Android foreground service
+      updateAndroidServiceState(false, null, 0);
     },
   },
   // 统计更新事件
@@ -71,7 +106,10 @@ const createEventRegistrations = (get: () => ServerState, set: (fn: (state: Serv
     name: 'stats-update',
     handler: (event) => {
       console.log('Stats update received:', event.payload);
-      set((state) => ({ ...state, stats: event.payload as ServerStatus }));
+      const stats = event.payload as ServerStatus;
+      set((state) => ({ ...state, stats }));
+      // Update Android foreground service notification
+      updateAndroidServiceState(true, stats, stats.connected_clients || 0);
     },
   },
   // 文件上传事件
@@ -156,30 +194,67 @@ const syncInitialState = async (set: (fn: (state: ServerState) => ServerState) =
   }
 };
 
+// 实际启动服务器的逻辑（跳过权限检查）
+const doStartServer = async (set: (fn: (state: ServerState) => ServerState) => void, get: () => ServerState): Promise<void> => {
+  set((state) => ({ ...state, isLoading: true, error: null }));
+  try {
+    const info = await invoke<ServerInfo>('start_server');
+    set((state) => ({
+      ...state,
+      isRunning: true,
+      serverInfo: info,
+      stats: { ...state.stats, is_running: true }
+    }));
+    // Update Android foreground service
+    updateAndroidServiceState(true, get().stats, 0);
+  } catch (err: unknown) {
+    const errorMessage = formatError(err);
+    set((state) => ({ ...state, error: errorMessage }));
+    throw err;
+  } finally {
+    set((state) => ({ ...state, isLoading: false }));
+  }
+};
+
+// 检查 Android 权限
+const checkAndroidPermissions = async (): Promise<PermissionCheckResult | null> => {
+  if (!isPermissionAndroidAvailable()) {
+    return null;
+  }
+  
+  try {
+    const result = await window.PermissionAndroid!.checkAllPermissions();
+    return JSON.parse(result) as PermissionCheckResult;
+  } catch (e) {
+    console.error('Failed to check permissions:', e);
+    return null;
+  }
+};
+
 export const useServerStore = create<ServerState>((set, get) => ({
   isRunning: false,
   serverInfo: null,
   stats: defaultStats,
   isLoading: false,
   error: null,
+  showPermissionDialog: false,
+  pendingServerStart: false,
 
   startServer: async () => {
-    set((state) => ({ ...state, isLoading: true, error: null }));
-    try {
-      const info = await invoke<ServerInfo>('start_server');
-      set((state) => ({
-        ...state,
-        isRunning: true,
-        serverInfo: info,
-        stats: { ...state.stats, is_running: true }
-      }));
-    } catch (err: unknown) {
-      const errorMessage = formatError(err);
-      set((state) => ({ ...state, error: errorMessage }));
-      throw err;
-    } finally {
-      set((state) => ({ ...state, isLoading: false }));
+    // Check if we're on Android and need to check permissions
+    const permissions = await checkAndroidPermissions();
+    
+    if (permissions !== null) {
+      if (!permissions.storage || !permissions.notification || !permissions.batteryOptimization) {
+        // Show permission dialog instead of starting server
+        set({ showPermissionDialog: true, pendingServerStart: true });
+        return false; // Return false to indicate server was NOT started
+      }
     }
+    
+    // Permissions OK or not on Android, proceed to start
+    await doStartServer(set, get);
+    return true; // Return true to indicate server was successfully started
   },
 
   stopServer: async () => {
@@ -192,6 +267,8 @@ export const useServerStore = create<ServerState>((set, get) => ({
         serverInfo: null,
         stats: defaultStats
       }));
+      // Update Android foreground service
+      updateAndroidServiceState(false, null, 0);
     } catch (err: unknown) {
       const errorMessage = formatError(err);
       set((state) => ({ ...state, error: errorMessage }));
@@ -207,6 +284,15 @@ export const useServerStore = create<ServerState>((set, get) => ({
 
   setError: (error: string | null) => set((state) => ({ ...state, error })),
   clearError: () => set((state) => ({ ...state, error: null })),
+
+  openPermissionDialog: () => set({ showPermissionDialog: true }),
+  closePermissionDialog: () => set({ showPermissionDialog: false, pendingServerStart: false }),
+
+  continueAfterPermissionsGranted: async () => {
+    set({ showPermissionDialog: false, pendingServerStart: false });
+    // Now actually start the server
+    await doStartServer(set, get);
+  },
 
   initializeListeners: async () => {
     const eventManager = createEventManager();

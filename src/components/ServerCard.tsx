@@ -33,9 +33,8 @@ export function ServerCard() {
       
       if (!check.can_start) {
         if (needsPermission) {
-          // 需要权限 - 显示原因并直接跳转到设置页面
-          toast.error('需要"所有文件访问权限"才能启动服务器，即将跳转到设置');
-          await requestAllFilesPermission(false); // 跳转到设置，不再显示第二个 toast
+          // 需要权限 - 直接跳转到设置页面
+          await requestAllFilesPermission();
           setIsStarting(false);
           return;
         }
@@ -50,7 +49,7 @@ export function ServerCard() {
       
       // 启动服务器
       await startServer();
-      toast.success('FTP服务器已启动');
+      // 不再显示Toast - 系统通知栏已提供状态提示
       
     } catch (err) {
       console.error('Failed to start server:', err);

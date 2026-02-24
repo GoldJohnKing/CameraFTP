@@ -1,6 +1,6 @@
 use super::traits::PlatformService;
 use super::types::{PermissionStatus, StorageInfo};
-use tauri::AppHandle;
+use tauri::{AppHandle, Emitter};
 use tracing::{debug, error, info};
 
 /// 默认存储目录名称
@@ -121,26 +121,16 @@ pub fn validate_path_writable(path: &str) -> bool {
 }
 
 /// 确保存储目录存在且可写
+/// 前端通过 PermissionDialog 处理权限检查，这里只负责创建目录
 pub fn ensure_storage_ready() -> Result<String, String> {
     let path = DEFAULT_STORAGE_PATH;
     let path_buf = std::path::PathBuf::from(path);
 
-    // 检查权限
-    if !check_all_files_permission() {
-        return Err(
-            "需要授予\"所有文件访问权限\"才能使用存储功能。请在设置中开启权限。".to_string(),
-        );
-    }
-
     // 创建目录（如果不存在）
+    // 前端已处理权限检查，这里直接尝试创建目录
     if !path_buf.exists() {
         std::fs::create_dir_all(&path_buf).map_err(|e| format!("无法创建存储目录: {}", e))?;
         info!("Created storage directory: {}", path);
-    }
-
-    // 验证可写
-    if !validate_path_writable(path) {
-        return Err("存储目录不可写，请检查权限设置".to_string());
     }
 
     Ok(path.to_string())
@@ -249,12 +239,32 @@ impl PlatformService for AndroidPlatform {
         ensure_storage_ready()
     }
 
+    fn check_server_start_prerequisites(&self) -> super::types::ServerStartCheckResult {
+        // 前端通过 PermissionDialog 处理权限检查，这里直接返回可启动
+        let storage_info = self.get_storage_info();
+        super::types::ServerStartCheckResult {
+            can_start: true,
+            reason: None,
+            storage_info: Some(storage_info),
+        }
+    }
+
     fn on_server_started(&self, app: &AppHandle) {
         start_foreground_service(app);
     }
 
     fn on_server_stopped(&self, app: &AppHandle) {
         stop_foreground_service(app);
+    }
+
+    fn update_server_state(&self, app: &AppHandle, connected_clients: u32) {
+        // Emit event to Android for notification update
+        let _ = app.emit(
+            "android-service-state-update",
+            serde_json::json!({
+                "connected_clients": connected_clients,
+            }),
+        );
     }
 
     fn get_storage_path(&self) -> Result<String, String> {

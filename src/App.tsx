@@ -6,11 +6,12 @@ import { StatsCard } from './components/StatsCard';
 import { InfoCard } from './components/InfoCard';
 import { ConfigCard } from './components/ConfigCard';
 import { BottomNav } from './components/BottomNav';
+import { PermissionDialog } from './components/PermissionDialog';
 import { useServerStore } from './stores/serverStore';
 import { useConfigStore } from './stores/configStore';
 
 function App() {
-  const { initializeListeners } = useServerStore();
+  const { initializeListeners, showPermissionDialog, closePermissionDialog, continueAfterPermissionsGranted } = useServerStore();
   const { activeTab, loadConfig } = useConfigStore();
   const [showQuitDialog, setShowQuitDialog] = useState(false);
 
@@ -102,6 +103,13 @@ function App() {
           </div>
         </div>
       )}
+
+      {/* Android 权限检查对话框 */}
+      <PermissionDialog
+        isOpen={showPermissionDialog}
+        onClose={closePermissionDialog}
+        onAllGranted={continueAfterPermissionsGranted}
+      />
 
       <div className="max-w-md mx-auto p-4">
         {/* Header - 只在主页显示 */}
