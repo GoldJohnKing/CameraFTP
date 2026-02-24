@@ -46,20 +46,5 @@ export interface ServerStartCheckResult {
   storage_info?: StorageInfo;
 }
 
-// Android JS Bridge 接口
-interface FileUploadAndroid {
-  onFileUploaded: (path: string | null, size: number) => void;
-}
-
-interface SAFPickerAndroid {
-  openAllFilesAccessSettings: () => void;
-}
-
-declare global {
-  interface Window {
-    FileUploadAndroid?: FileUploadAndroid;
-    SAFPickerAndroid?: SAFPickerAndroid;
-  }
-}
-
-export {};
+// 重新导出全局类型
+export * from './global';

@@ -16,17 +16,27 @@ function App() {
 
   // 初始化 store 的监听器
   useEffect(() => {
-    const setup = async () => {
-      const cleanup = await initializeListeners();
-      return cleanup;
-    };
-    
     let cleanupFn: (() => void) | undefined;
-    setup().then(cleanup => {
-      cleanupFn = cleanup;
-    });
-    
+    let isCancelled = false;
+
+    const setup = async () => {
+      try {
+        const cleanup = await initializeListeners();
+        if (!isCancelled) {
+          cleanupFn = cleanup;
+        } else {
+          // 如果组件已卸载，立即清理
+          cleanup();
+        }
+      } catch (err) {
+        console.error('Failed to initialize listeners:', err);
+      }
+    };
+
+    setup();
+
     return () => {
+      isCancelled = true;
       cleanupFn?.();
     };
   }, [initializeListeners]);

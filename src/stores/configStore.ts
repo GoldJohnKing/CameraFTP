@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { invoke } from '@tauri-apps/api/core';
 import type { AppConfig } from '../types';
+import { formatError } from '../utils/error';
 
 interface ConfigState {
   config: AppConfig | null;
@@ -19,6 +20,8 @@ interface ConfigState {
   updatePort: (port: number) => Promise<void>;
   updateAutoSelectPort: (autoSelect: boolean) => Promise<void>;
   loadPlatform: () => Promise<void>;
+  setError: (error: string | null) => void;
+  clearError: () => void;
 }
 
 export const useConfigStore = create<ConfigState>((set, get) => ({
@@ -28,33 +31,38 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
   activeTab: 'home',
   platform: 'unknown',
 
+  setError: (error: string | null) => set((state) => ({ ...state, error })),
+  clearError: () => set((state) => ({ ...state, error: null })),
+
   loadPlatform: async () => {
     try {
       const platform = await invoke<string>('get_platform');
-      set({ platform });
-    } catch (err) {
+      set((state) => ({ ...state, platform }));
+    } catch (err: unknown) {
       console.error('Failed to load platform:', err);
-      set({ platform: 'unknown' });
+      set((state) => ({ ...state, platform: 'unknown' }));
     }
   },
 
   loadConfig: async () => {
-    set({ isLoading: true, error: null });
+    set((state) => ({ ...state, isLoading: true, error: null }));
     try {
       const config = await invoke<AppConfig>('load_config');
-      set({ config, isLoading: false });
-    } catch (err: any) {
-      set({ error: err?.message || 'Failed to load config', isLoading: false });
+      set((state) => ({ ...state, config, isLoading: false }));
+    } catch (err: unknown) {
+      const errorMessage = formatError(err);
+      set((state) => ({ ...state, error: errorMessage || 'Failed to load config', isLoading: false }));
     }
   },
 
   saveConfig: async (config: AppConfig) => {
-    set({ isLoading: true, error: null });
+    set((state) => ({ ...state, isLoading: true, error: null }));
     try {
       await invoke('save_config', { config });
-      set({ config, isLoading: false });
-    } catch (err: any) {
-      set({ error: err?.message || 'Failed to save config', isLoading: false });
+      set((state) => ({ ...state, config, isLoading: false }));
+    } catch (err: unknown) {
+      const errorMessage = formatError(err);
+      set((state) => ({ ...state, error: errorMessage || 'Failed to save config', isLoading: false }));
       throw err;
     }
   },
@@ -67,25 +75,26 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
   },
 
   setAutostart: async (enabled: boolean) => {
-    set({ isLoading: true, error: null });
+    set((state) => ({ ...state, isLoading: true, error: null }));
     try {
       await invoke('set_autostart_command', { enable: enabled });
-      set({ isLoading: false });
-    } catch (err: any) {
-      set({ error: err?.message || 'Failed to set autostart', isLoading: false });
+      set((state) => ({ ...state, isLoading: false }));
+    } catch (err: unknown) {
+      const errorMessage = formatError(err);
+      set((state) => ({ ...state, error: errorMessage || 'Failed to set autostart', isLoading: false }));
       throw err;
     }
   },
 
   setActiveTab: (tab: 'home' | 'config') => {
-    set({ activeTab: tab });
+    set((state) => ({ ...state, activeTab: tab }));
   },
 
   selectDirectory: async () => {
     try {
       const selected = await invoke<string | null>('select_save_directory');
       return selected;
-    } catch (err) {
+    } catch (err: unknown) {
       console.error('Failed to select directory:', err);
       return null;
     }

@@ -42,10 +42,16 @@ export function ConfigCard() {
   const isAndroid = platform === 'android';
 
   useEffect(() => {
+    const isCancelled = { current: false };
+    
     loadConfig();
     loadPlatform();
-    loadAutostartStatus();
-  }, []);
+    loadAutostartStatus(isCancelled);
+    
+    return () => {
+      isCancelled.current = true;
+    };
+  }, [loadConfig, loadPlatform]);
 
   // 当配置加载后，同步端口输入值
   useEffect(() => {
@@ -54,10 +60,12 @@ export function ConfigCard() {
     }
   }, [config?.port]);
 
-  const loadAutostartStatus = async () => {
+  const loadAutostartStatus = async (isCancelled: { current: boolean }) => {
     try {
       const status = await invoke<boolean>('get_autostart_status');
-      setAutostartEnabled(status);
+      if (!isCancelled.current) {
+        setAutostartEnabled(status);
+      }
     } catch (err) {
       console.error('Failed to load autostart status:', err);
     }
