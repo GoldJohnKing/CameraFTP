@@ -2,6 +2,8 @@ import { create } from 'zustand';
 import { subscribeWithSelector } from 'zustand/middleware';
 import type { PermissionCheckResult } from '../types/global';
 
+// Window.PermissionAndroid 类型已在 global.ts 中声明，无需重复
+
 export interface PermissionStoreState {
   // Permission states
   permissions: PermissionCheckResult;
@@ -235,14 +237,4 @@ if (typeof window !== 'undefined' && isAndroid()) {
   }, 100);
 }
 
-// Extend Window interface
-declare global {
-  interface Window {
-    PermissionAndroid?: {
-      checkAllPermissions: () => Promise<string>;
-      requestStoragePermission: () => void;
-      requestNotificationPermission: () => void;
-      requestBatteryOptimization: () => void;
-    };
-  }
-}
+// Window.PermissionAndroid 类型已在 global.ts 中声明
