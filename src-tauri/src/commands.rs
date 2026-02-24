@@ -2,28 +2,15 @@ use tauri::{command, AppHandle, Emitter, Manager, State};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tracing::{error, info, instrument, warn};
-use ts_rs::TS;
 
 use crate::config::AppConfig;
 use crate::error::AppError;
-use crate::ftp::types::ServerStateSnapshot;
+use crate::ftp::types::{ServerInfo, ServerStateSnapshot};
 use crate::ftp::FtpServerHandle;
 use crate::network::NetworkManager;
 
 /// FTP 服务器状态（使用 Arc<Mutex> 包装以支持异步操作）
 pub struct FtpServerState(pub Arc<Mutex<Option<FtpServerHandle>>>);
-
-/// 服务器连接信息
-#[derive(Debug, Clone, serde::Serialize, TS)]
-#[ts(export)]
-pub struct ServerInfo {
-    pub is_running: bool,
-    pub ip: String,
-    pub port: u16,
-    pub url: String,
-    pub username: String,
-    pub password_info: String,
-}
 
 #[command]
 #[instrument(skip(state, app))]
@@ -106,6 +93,20 @@ pub async fn get_server_status(
     if let Some(server) = server_guard.as_ref() {
         let snapshot = server.get_snapshot().await;
         Ok(Some(snapshot))
+    } else {
+        Ok(None)
+    }
+}
+
+#[command]
+#[instrument(skip(state))]
+pub async fn get_server_info(
+    state: State<'_, FtpServerState>,
+) -> Result<Option<ServerInfo>, AppError> {
+    let server_guard = state.0.lock().await;
+    if let Some(server) = server_guard.as_ref() {
+        let info = server.get_server_info().await;
+        Ok(info)
     } else {
         Ok(None)
     }

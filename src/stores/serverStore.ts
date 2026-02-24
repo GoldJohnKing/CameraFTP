@@ -86,9 +86,9 @@ export const useServerStore = create<ServerState>((set, get) => ({
     // === 核心服务器事件 ===
 
     // 监听服务器启动事件（当从托盘菜单启动时，更新前端状态）
-    const unlistenStarted = await listen<[string, number]>('server-started', (event) => {
+    const unlistenStarted = await listen<{ ip: string; port: number }>('server-started', (event) => {
       console.log('Server started event received:', event.payload);
-      const [ip, port] = event.payload;
+      const { ip, port } = event.payload;
       set({
         isRunning: true,
         serverInfo: {
@@ -183,6 +183,22 @@ export const useServerStore = create<ServerState>((set, get) => ({
       }
     });
     listeners.push(unlistenOpenSettings);
+
+    // 同步当前服务器状态（处理自启动场景：事件可能在监听器注册前已发出）
+    try {
+      const info = await invoke<ServerInfo | null>('get_server_info');
+      if (info && info.is_running) {
+        // 服务器已在运行，更新前端状态
+        const status = await invoke<ServerStatus | null>('get_server_status');
+        set({
+          isRunning: true,
+          serverInfo: info,
+          stats: status || { ...defaultStats, is_running: true },
+        });
+      }
+    } catch (err) {
+      console.error('Failed to sync initial server state:', err);
+    }
 
     // 返回清理函数
     return async () => {

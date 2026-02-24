@@ -18,6 +18,7 @@ use commands::{
     get_diagnostic_info, 
     get_network_info, 
     get_platform, 
+    get_server_info,
     get_server_status, 
     get_storage_path,
     hide_main_window, 
@@ -180,6 +181,7 @@ pub fn run() {
             start_server,
             stop_server,
             get_server_status,
+            get_server_info,
             
             // 配置管理
             load_config,

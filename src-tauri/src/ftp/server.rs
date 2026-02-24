@@ -4,7 +4,7 @@ use crate::ftp::events::EventBus;
 use crate::ftp::listeners::{FtpDataListener, FtpPresenceListener};
 use crate::ftp::stats::{StatsActor, StatsActorWorker};
 use crate::ftp::types::{
-    DiagnosticInfo, ServerConfig, ServerStateSnapshot, ServerStatus, ServerStats,
+    DiagnosticInfo, ServerConfig, ServerInfo, ServerStateSnapshot, ServerStatus, ServerStats,
     StopReason,
 };
 use dashmap::DashSet;
@@ -36,6 +36,9 @@ pub enum ServerCommand {
     },
     GetDiagnosticInfo {
         respond_to: oneshot::Sender<DiagnosticInfo>,
+    },
+    GetServerInfo {
+        respond_to: oneshot::Sender<Option<ServerInfo>>,
     },
 }
 
@@ -156,6 +159,18 @@ impl FtpServerHandle {
     pub async fn is_running(&self) -> bool {
         self.get_status().await.is_running()
     }
+
+    /// 获取服务器连接信息（包含 IP 和端口）
+    pub async fn get_server_info(&self) -> Option<ServerInfo> {
+        let (tx, rx) = oneshot::channel();
+        let cmd = ServerCommand::GetServerInfo { respond_to: tx };
+
+        if self.tx.send(cmd).await.is_err() {
+            return None;
+        }
+
+        rx.await.ok().flatten()
+    }
 }
 
 /// FTP服务器Actor
@@ -229,6 +244,10 @@ impl FtpServerActor {
             }
             ServerCommand::GetDiagnosticInfo { respond_to } => {
                 let info = self.get_diagnostic_info().await;
+                let _ = respond_to.send(info);
+            }
+            ServerCommand::GetServerInfo { respond_to } => {
+                let info = self.get_server_info().await;
                 let _ = respond_to.send(info);
             }
         }
@@ -432,6 +451,28 @@ impl FtpServerActor {
             session_ids,
             status: self.get_current_status().await,
         }
+    }
+
+    /// 获取服务器连接信息（包含 IP 和端口）
+    async fn get_server_info(&self) -> Option<ServerInfo> {
+        let status = self.get_current_status().await;
+        if !status.is_running() {
+            return None;
+        }
+
+        let bind_addr = self.bind_addr?;
+        let ip = crate::network::NetworkManager::recommended_ip()
+            .unwrap_or_else(|| "0.0.0.0".to_string());
+        let port = bind_addr.port();
+
+        Some(ServerInfo {
+            is_running: true,
+            ip: ip.clone(),
+            port,
+            url: format!("ftp://{}:{}", ip, port),
+            username: "anonymous".to_string(),
+            password_info: "(任意密码)".to_string(),
+        })
     }
 }
 

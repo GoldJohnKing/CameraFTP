@@ -1,4 +1,4 @@
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Emitter, Manager};
 use tauri::menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconEvent};
 use super::traits::PlatformService;
@@ -99,30 +99,15 @@ pub fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
                     }
                 }
                 "start" => {
-                    let app_handle = app.clone();
-                    tauri::async_runtime::spawn(async move {
-                        match crate::commands::start_server(app_handle.state(), app_handle.clone()).await {
-                            Ok(info) => {
-                                tracing::info!("Server started from tray: {:?}", info);
-                            }
-                            Err(e) => {
-                                tracing::error!("Failed to start server from tray: {}", e);
-                            }
-                        }
-                    });
+                    // 发送事件给前端，由前端统一处理启动逻辑
+                    // 这样可以确保前端状态正确同步
+                    let _ = app.emit("tray-start-server", ());
+                    tracing::info!("Emitted tray-start-server event");
                 }
                 "stop" => {
-                    let app_handle = app.clone();
-                    tauri::async_runtime::spawn(async move {
-                        match crate::commands::stop_server(app_handle.state(), app_handle.clone()).await {
-                            Ok(_) => {
-                                tracing::info!("Server stopped from tray");
-                            }
-                            Err(e) => {
-                                tracing::error!("Failed to stop server from tray: {}", e);
-                            }
-                        }
-                    });
+                    // 发送事件给前端，由前端统一处理停止逻辑
+                    let _ = app.emit("tray-stop-server", ());
+                    tracing::info!("Emitted tray-stop-server event");
                 }
                 "quit" => {
                     // 托盘菜单退出直接退出程序，不显示确认弹窗
@@ -324,12 +309,23 @@ impl PlatformService for WindowsPlatform {
                 Ok(ctx) => {
                     tracing::info!("FTP server auto-started on {}:{}", ctx.ip, ctx.port);
 
-                    // 启动事件处理器（EventBus 会发送 server-started 事件）
+                    // 先启动事件处理器（确保在重发事件前就绪）
                     crate::ftp::server_factory::spawn_event_processor(
                         app_handle.clone(),
-                        ctx.event_bus,
+                        ctx.event_bus.clone(),
                         500
                     );
+
+                    // 给 EventProcessor 一点时间启动订阅（关键！）
+                    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
+                    // 重新发送 server-started 事件（因为原事件在 EventProcessor 就绪前已发出）
+                    // 直接通过 Tauri 发送，确保前端能收到
+                    let _ = app_handle.emit("server-started", serde_json::json!({
+                        "ip": ctx.ip,
+                        "port": ctx.port
+                    }));
+                    tracing::info!("Re-emitted server-started event for autostart");
 
                     // 统一通过 PlatformService 处理启动后逻辑
                     // 这会自动更新托盘图标为 idle 状态

@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
+use ts_rs::TS;
 
 /// FTP 服务器统计数据快照
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
@@ -125,4 +126,16 @@ pub enum StopReason {
     UserRequest,
     Error,
     Shutdown,
+}
+
+/// 服务器连接信息（用于前端显示）
+#[derive(Debug, Clone, serde::Serialize, TS)]
+#[ts(export)]
+pub struct ServerInfo {
+    pub is_running: bool,
+    pub ip: String,
+    pub port: u16,
+    pub url: String,
+    pub username: String,
+    pub password_info: String,
 }
