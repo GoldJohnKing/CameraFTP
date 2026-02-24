@@ -6,16 +6,7 @@ import { usePermissionStore } from '../stores/permissionStore';
 import { useStoragePermission } from '../hooks/useStoragePermission';
 import { ToggleSwitch } from './ui/ToggleSwitch';
 
-declare global {
-  interface Window {
-    PermissionAndroid?: {
-      checkAllPermissions: () => Promise<string>;
-      requestStoragePermission: () => void;
-      requestNotificationPermission: () => void;
-      requestBatteryOptimization: () => void;
-    };
-  }
-}
+// Window.PermissionAndroid 类型已在 global.ts 中声明，无需重复
 
 export function ConfigCard() {
   const {
@@ -69,12 +60,15 @@ export function ConfigCard() {
     };
   }, [loadConfig, loadPlatform]);
 
-  // Initial permission check for Android
+  // 仅在组件挂载时检查一次权限（用户进入Config界面）
+  // 之后不再自动刷新，依赖用户手动刷新
   useEffect(() => {
     if (isAndroid) {
       checkPermissions();
     }
-  }, [isAndroid, checkPermissions]);
+    // 注意：依赖项为空数组，仅在挂载时执行
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Sync port input with config
   useEffect(() => {

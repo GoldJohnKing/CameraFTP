@@ -103,17 +103,6 @@ class ServerStateBridge(private val activity: MainActivity) {
     }
     
     /**
-     * Called from JavaScript to toggle server
-     */
-    @JavascriptInterface
-    fun toggleServer() {
-        Log.d(TAG, "toggleServer called")
-        activity.runOnUiThread {
-            // This will be handled by the frontend via JS event
-        }
-    }
-    
-    /**
      * Called from JavaScript to exit app
      */
     @JavascriptInterface
@@ -170,20 +159,6 @@ class SAFPickerBridge(private val activity: MainActivity) {
     }
     
     /**
-     * 打开权限设置页面
-     */
-    @JavascriptInterface
-    fun openPermissionSettings(): Boolean {
-        Log.d(TAG, "openPermissionSettings called from JavaScript")
-        
-        activity.runOnUiThread {
-            StorageHelper.openManageStorageSettings(activity)
-        }
-        
-        return true
-    }
-    
-    /**
      * 打开所有文件访问权限设置页面
      * 直接跳转到系统设置中的权限开关页面
      */
@@ -203,8 +178,7 @@ class MainActivity : TauriActivity() {
     
     companion object {
         private const val TAG = "MainActivity"
-        private const val REQUEST_IGNORE_BATTERY_OPTIMIZATIONS = 1001
-        private const val REQUEST_POST_NOTIFICATIONS = 1002
+        private const val REQUEST_POST_NOTIFICATIONS = 1001
         @JvmStatic
         var currentActivity: MainActivity? = null
     }
@@ -246,14 +220,8 @@ class MainActivity : TauriActivity() {
         LogWriter.log("MainActivity.onCreate() called")
         Log.d(TAG, "MainActivity created")
         
-        // NOTE: Notification permission request moved to PermissionDialog
-        // requestNotificationPermission()
-        
         // Start foreground service immediately when app launches
         startFtpForegroundService()
-        
-        // NOTE: Battery optimization request moved to PermissionDialog
-        // requestBatteryOptimization()
         
         // 初始化Bridge
         safBridge = SAFPickerBridge(this)
@@ -557,43 +525,6 @@ class MainActivity : TauriActivity() {
                 }, 300)
             }
         }
-    }
-    
-    /**
-     * Handle activity result (for battery optimization and storage settings)
-     */
-    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-        super.onActivityResult(requestCode, resultCode, data)
-        Log.d(TAG, "onActivityResult: requestCode=$requestCode, resultCode=$resultCode")
-        
-        when (requestCode) {
-            REQUEST_IGNORE_BATTERY_OPTIMIZATIONS -> {
-                // Battery optimization dialog closed, emit event to refresh permissions
-                Log.d(TAG, "Battery optimization dialog closed, refreshing permissions")
-                emitPermissionRefreshEvent()
-            }
-        }
-    }
-    
-    /**
-     * Emit permission refresh event to frontend
-     */
-    private fun emitPermissionRefreshEvent() {
-        webViewRef?.postDelayed({
-            runOnUiThread {
-                webViewRef?.evaluateJavascript(
-                    """
-                    (function() {
-                        console.log('[Android] Emitting permission refresh event');
-                        if(typeof window !== 'undefined' && window.__TAURI__ && window.__TAURI__.event) {
-                            window.__TAURI__.event.emit('android-permission-refresh', {});
-                        }
-                    })();
-                    """,
-                    null
-                )
-            }
-        }, 300)
     }
     
     /**

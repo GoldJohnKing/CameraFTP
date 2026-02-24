@@ -1,16 +1,10 @@
 import { create } from 'zustand';
 import { subscribeWithSelector } from 'zustand/middleware';
-
-// Permission types
-export interface PermissionState {
-  storage: boolean;
-  notification: boolean;
-  batteryOptimization: boolean;
-}
+import type { PermissionCheckResult } from '../types/global';
 
 export interface PermissionStoreState {
   // Permission states
-  permissions: PermissionState;
+  permissions: PermissionCheckResult;
   isLoading: boolean;
   lastCheckedAt: number | null;
   error: string | null;
@@ -18,13 +12,13 @@ export interface PermissionStoreState {
   allGranted: boolean; // 实际状态字段，不是计算属性
   
   // Actions
-  setPermissions: (permissions: PermissionState) => void;
+  setPermissions: (permissions: PermissionCheckResult) => void;
   setLoading: (loading: boolean) => void;
   setError: (error: string | null) => void;
   setPolling: (polling: boolean) => void;
   
   // Check permissions from Android
-  checkPermissions: () => Promise<PermissionState>;
+  checkPermissions: () => Promise<PermissionCheckResult>;
   
   // Request permissions (does NOT start polling)
   requestStoragePermission: () => void;
@@ -44,14 +38,14 @@ function isAndroid(): boolean {
 }
 
 // Internal permission check function
-async function permissionCheckInternal(): Promise<PermissionState | null> {
+async function permissionCheckInternal(): Promise<PermissionCheckResult | null> {
   if (!isAndroid()) {
     return { storage: true, notification: true, batteryOptimization: true };
   }
   
   try {
     const result = await window.PermissionAndroid!.checkAllPermissions();
-    const parsed: PermissionState = JSON.parse(result);
+    const parsed: PermissionCheckResult = JSON.parse(result);
     return parsed;
   } catch (err) {
     console.error('[PermissionStore] Failed to check permissions:', err);
@@ -60,7 +54,7 @@ async function permissionCheckInternal(): Promise<PermissionState | null> {
 }
 
 // Helper to check if all permissions are granted
-function checkAllGranted(perms: PermissionState): boolean {
+function checkAllGranted(perms: PermissionCheckResult): boolean {
   return perms.storage && perms.notification && perms.batteryOptimization;
 }
 
