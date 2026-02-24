@@ -246,7 +246,7 @@ main() {
             check_environment
             build_android debug
             ;;
-        "release")
+        "release"|"")
             check_environment
             build_android release
             ;;
@@ -276,6 +276,7 @@ main() {
             echo ""
             echo "命令:"
             echo "  check, env    检查编译环境"
+            echo "  (无参数)      构建 Release APK (签名，默认)"
             echo "  debug         构建 Debug APK (arm64-v8a)"
             echo "  release       构建 Release APK (签名)"
             echo "  aab           构建 Android App Bundle"

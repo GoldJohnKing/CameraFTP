@@ -175,28 +175,18 @@ pub fn quit_application(app: tauri::AppHandle) {
 #[tauri::command]
 pub fn hide_main_window(app: tauri::AppHandle) -> Result<(), String> {
     tracing::info!("Hiding main window");
-    if let Some(_window) = app.get_webview_window("main") {
-        #[cfg(target_os = "windows")]
-        {
-            _window.hide().map_err(|e| format!("Failed to hide window: {}", e))?;
-            tracing::info!("Main window hidden successfully");
-        }
-        #[cfg(not(target_os = "windows"))]
-        {
-            // 移动端不支持 hide，使用最小化或后台运行
-            tracing::info!("Hide not supported on mobile, window stays visible");
-        }
-        Ok(())
-    } else {
-        Err("Main window not found".to_string())
-    }
+    crate::platform::get_platform().hide_main_window(&app)
 }
 
-/// 选择保存目录（仅桌面平台）
+/// 选择保存目录
 #[tauri::command]
 pub async fn select_save_directory(app: AppHandle) -> Result<Option<String>, String> {
+    let platform = crate::platform::get_platform();
+    let result = platform.select_save_directory(&app)?;
+    
+    // 如果平台返回 None（如 Windows），则使用对话框选择
     #[cfg(not(target_os = "android"))]
-    {
+    if result.is_none() {
         use tauri_plugin_dialog::DialogExt;
 
         let folder_path = tokio::task::spawn_blocking(move || {
@@ -208,15 +198,10 @@ pub async fn select_save_directory(app: AppHandle) -> Result<Option<String>, Str
         .await
         .map_err(|e| format!("Task failed: {}", e))?;
 
-        Ok(folder_path.and_then(|p| p.as_path().map(|path| path.to_string_lossy().to_string())))
+        return Ok(folder_path.and_then(|p| p.as_path().map(|path| path.to_string_lossy().to_string())));
     }
-
-    #[cfg(target_os = "android")]
-    {
-        // Android: 使用固定路径，不允许用户选择
-        let _ = app;
-        Ok(Some(crate::platform::android::get_default_storage_path()))
-    }
+    
+    Ok(result)
 }
 
 /// 验证保存路径是否有效
@@ -241,15 +226,5 @@ pub fn get_platform() -> String {
 /// 打开"所有文件访问权限"设置页面（Android）
 #[tauri::command]
 pub fn open_all_files_access_settings(app: tauri::AppHandle) -> Result<(), String> {
-    #[cfg(target_os = "android")]
-    {
-        crate::platform::android::open_manage_storage_settings(&app);
-        Ok(())
-    }
-    
-    #[cfg(not(target_os = "android"))]
-    {
-        let _ = app;
-        Err("此功能仅在 Android 平台可用".to_string())
-    }
+    crate::platform::get_platform().open_all_files_access_settings(&app)
 }

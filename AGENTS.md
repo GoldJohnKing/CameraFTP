@@ -65,7 +65,9 @@ camera-ftp-companion/
 │   ├── types/
 │   │   └── index.ts              # TypeScript类型定义
 │   ├── utils/
-│   │   └── format.ts             # 共享工具函数（formatBytes等）
+│   │   ├── format.ts             # 共享工具函数（formatBytes等）
+│   │   ├── error.ts              # 错误处理工具
+│   │   └── events.ts             # Tauri事件管理器
 │   ├── components/
 │   │   ├── ServerCard.tsx        # 服务器控制卡片（启动/停止）
 │   │   ├── StatsCard.tsx         # 统计显示卡片
@@ -76,7 +78,6 @@ camera-ftp-companion/
 │   │   ├── serverStore.ts        # 服务器状态管理 + 统一事件监听
 │   │   └── configStore.ts        # 配置状态管理
 │   └── hooks/
-│       ├── useTauriListeners.ts  # Tauri事件监听Hook（可选使用）
 │       └── useStoragePermission.ts # 存储权限管理Hook
 │
 ├── 📁 src-tauri/                 # Rust后端源码
@@ -98,7 +99,7 @@ camera-ftp-companion/
 │       ├── network.rs            # 网络管理（IP/端口检测）
 │       ├── error.rs              # 统一错误类型（AppError）
 │       ├── storage_permission.rs # 存储权限管理命令
-│       ├── saf_picker.rs         # Android SAF文件选择器
+│       ├── constants.rs          # 应用常量定义
 │       ├── ftp/                  # FTP模块
 │       │   ├── mod.rs            # 模块入口与测试
 │       │   ├── server.rs         # FTP服务器Actor实现
