@@ -60,17 +60,24 @@ class FtpForegroundService : Service() {
         acquireLocks()
         LogWriter.log("Locks acquired")
         
-        // Android 8.0+ requires startForeground() to be called within 5 seconds of service start
-        // Show initial notification immediately to prevent service from being killed by system
-        val initialNotification = buildNotification()
-        startForeground(NOTIFICATION_ID, initialNotification)
-        LogWriter.log("startForeground() called immediately with initial notification")
-        Log.d(TAG, "Service created, foreground notification shown immediately")
+        // Note: startForeground() is called in onStartCommand() to satisfy Android's
+        // 5-second requirement after startForegroundService(). The notification is
+        // initially in "waiting" state and gets updated when server actually starts.
+        LogWriter.log("Service created, foreground notification will be shown in onStartCommand()")
+        Log.d(TAG, "Service created, foreground notification will be shown in onStartCommand()")
     }
     
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         Log.d(TAG, "onStartCommand: action=${intent?.action}")
-        // No action handling needed anymore
+        
+        // CRITICAL: Must call startForeground() within 5 seconds of startForegroundService()
+        // Otherwise, Android will throw ForegroundServiceDidNotStartInTimeException and crash the app
+        if (!serverIsRunning) {
+            Log.d(TAG, "Service started but server not running yet - showing init notification")
+            val initNotification = buildInitNotification()
+            startForeground(NOTIFICATION_ID, initNotification)
+        }
+        
         return START_STICKY
     }
     
@@ -150,22 +157,40 @@ class FtpForegroundService : Service() {
     }
     
     /**
-     * Build notification with three states:
-     * - Red icon (tray_stopped): Server stopped
-     * - Yellow icon (tray_idle): Running but no clients
-     * - Green icon (tray_active): Running with clients
+     * Build initial notification shown immediately when service starts.
+     * This is required to satisfy Android's 5-second foreground service requirement.
+     */
+    private fun buildInitNotification(): Notification {
+        val title = "图传伴侣 | 启动中"
+        val content = "正在初始化服务..."
+        
+        val pendingIntent = PendingIntent.getActivity(
+            this,
+            0,
+            packageManager.getLaunchIntentForPackage(packageName),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        
+        return NotificationCompat.Builder(this, CHANNEL_ID)
+            .setContentTitle(title)
+            .setContentText(content)
+            .setSmallIcon(R.drawable.tray_idle)  // Yellow icon for waiting state
+            .setContentIntent(pendingIntent)
+            .setOngoing(true)
+            .setOnlyAlertOnce(true)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .build()
+    }
+    
+    /**
+     * Build notification for running server state only.
+     * Notification is only shown when server is running.
      */
     private fun buildNotification(): Notification {
-        // Three-state icon: stopped(red) / running no connection(yellow) / running with connection(green)
-        val iconRes = when {
-            !serverIsRunning -> R.drawable.tray_stopped
-            connectedClients == 0 -> R.drawable.tray_idle
-            else -> R.drawable.tray_active
-        }
-        
-        // 标题固定为"图传伴侣  运行中"
-        val title = if (serverIsRunning) "图传伴侣  运行中" else "图传伴侣  已停止"
+        // Single state: server running (green icon)
+        val iconRes = R.drawable.tray_active
 
+        val title = "图传伴侣 | 运行中"
         val content = buildStatusContent()
         
         // Intent to open MainActivity when tapped
@@ -189,12 +214,9 @@ class FtpForegroundService : Service() {
     
     /**
      * Build status content: 连接状态 | 已接收图片数 | 已接收图片总大小
+     * Note: This is only called when server is running
      */
     private fun buildStatusContent(): String {
-        if (!serverIsRunning) {
-            return "服务已停止"
-        }
-
         val stats = serverStats
         val files = stats?.optInt("files_transferred", 0) ?: 0
         val bytes = stats?.optLong("bytes_transferred", 0) ?: 0
@@ -220,6 +242,8 @@ class FtpForegroundService : Service() {
     
     /**
      * Update server state and show/hide notification based on server state
+     * - Server running: show notification with stats
+     * - Server stopped: remove notification
      */
     fun updateServerState(isRunning: Boolean, statsJson: String?, connectedClients: Int) {
         LogWriter.log("========== updateServerState ==========")
@@ -231,8 +255,6 @@ class FtpForegroundService : Service() {
         Log.d(TAG, "Current state: serverIsRunning=$serverIsRunning, connectedClients=${this.connectedClients}")
         
         val oldState = serverIsRunning
-        @Suppress("UNUSED_VARIABLE")
-        val oldClients = this.connectedClients  // Keep for future use
         serverIsRunning = isRunning
         this.connectedClients = connectedClients
         
@@ -256,18 +278,19 @@ class FtpForegroundService : Service() {
         if (isRunning) {
             // Server is running - show/update notification
             if (!oldState) {
-                // Server just started - start foreground with notification
-                LogWriter.log(">>> Server STARTED - calling startForeground()")
-                Log.d(TAG, ">>> Server STARTED - calling startForeground()")
+                // Server just started - update foreground notification from init to running
+                LogWriter.log(">>> Server STARTED - updating notification to running state")
+                Log.d(TAG, ">>> Server STARTED - updating notification to running state")
                 try {
                     val notification = buildNotification()
                     LogWriter.log("Notification built successfully, ID: $NOTIFICATION_ID")
+                    // Service is already in foreground from onStartCommand(), just update notification
                     startForeground(NOTIFICATION_ID, notification)
-                    LogWriter.log(">>> startForeground() SUCCESS")
-                    Log.d(TAG, ">>> startForeground() completed successfully")
+                    LogWriter.log(">>> Notification updated to running state SUCCESS")
+                    Log.d(TAG, ">>> Notification updated to running state successfully")
                 } catch (e: Exception) {
-                    LogWriter.logError(">>> startForeground() FAILED", e)
-                    Log.e(TAG, ">>> startForeground() FAILED", e)
+                    LogWriter.logError(">>> Update notification FAILED", e)
+                    Log.e(TAG, ">>> Update notification FAILED", e)
                 }
             } else {
                 // Just update existing notification
