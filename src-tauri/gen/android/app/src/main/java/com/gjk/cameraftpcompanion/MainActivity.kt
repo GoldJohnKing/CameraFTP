@@ -217,9 +217,6 @@ class MainActivity : TauriActivity() {
         LogWriter.log("MainActivity.onCreate() called")
         Log.d(TAG, "MainActivity created")
         
-        // Start foreground service immediately when app launches
-        startFtpForegroundService()
-        
         // 初始化Bridge
         safBridge = SAFPickerBridge(this)
         
@@ -232,6 +229,9 @@ class MainActivity : TauriActivity() {
         
         // 初始化服务器状态Bridge
         serverStateBridge = ServerStateBridge(this)
+        
+        // Note: Foreground service is started when user clicks "启动服务器"
+        // This avoids showing notification before server is actually running
     }
 
     /**
@@ -455,8 +455,37 @@ class MainActivity : TauriActivity() {
     }
     
     /**
-     * Request notification permission (Android 13+)
+     * Ensure notification permission is granted before starting foreground service.
+     * If permission is already granted, start service immediately.
+     * If not, request permission and start service in the callback.
      */
+    private fun ensureNotificationPermissionAndStartService() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) 
+                == PackageManager.PERMISSION_GRANTED) {
+                // Permission already granted, start service immediately
+                Log.d(TAG, "Notification permission already granted, starting service")
+                startFtpForegroundService()
+            } else {
+                // Request permission - service will be started in onRequestPermissionsResult
+                Log.d(TAG, "Requesting notification permission before starting service")
+                ActivityCompat.requestPermissions(
+                    this,
+                    arrayOf(Manifest.permission.POST_NOTIFICATIONS),
+                    REQUEST_POST_NOTIFICATIONS
+                )
+            }
+        } else {
+            // Android < 13, no notification permission needed
+            startFtpForegroundService()
+        }
+    }
+    
+    /**
+     * Request notification permission (Android 13+)
+     * @deprecated Use ensureNotificationPermissionAndStartService() instead
+     */
+    @Deprecated("Use ensureNotificationPermissionAndStartService() instead")
     private fun requestNotificationPermission() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) 
@@ -486,6 +515,13 @@ class MainActivity : TauriActivity() {
                 val granted = grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED
                 Log.d(TAG, "Notification permission result: granted=$granted")
                 
+                if (granted) {
+                    // Start foreground service now that permission is granted
+                    // Service will show notification immediately since permission is ready
+                    startFtpForegroundService()
+                    Log.d(TAG, "Foreground service started after permission granted")
+                }
+                
                 // Emit event to notify frontend to refresh permissions
                 // Delay to ensure permission state is updated by system
                 webViewRef?.postDelayed({
@@ -509,18 +545,42 @@ class MainActivity : TauriActivity() {
     
     /**
      * Update service state (called from JS bridge)
+     * This also handles starting/stopping the foreground service based on server state
      */
     fun updateServiceState(isRunning: Boolean, statsJson: String?, connectedClients: Int) {
         LogWriter.log("MainActivity.updateServiceState() called")
         LogWriter.log("isRunning=$isRunning, statsJson=$statsJson, connectedClients=$connectedClients")
         Log.d(TAG, "updateServiceState: running=$isRunning, clients=$connectedClients, stats=$statsJson")
+        
         val service = FtpForegroundService.getInstance()
-        if (service == null) {
-            LogWriter.log("ERROR: FtpForegroundService.getInstance() returned null!")
-            Log.w(TAG, "FtpForegroundService instance is null!")
+        
+        if (isRunning) {
+            // Server is running - ensure foreground service is started
+            if (service == null) {
+                LogWriter.log("Foreground service not running, starting it now")
+                Log.d(TAG, "Starting foreground service before updating state")
+                startFtpForegroundService()
+            }
+            
+            // Now update the state
+            FtpForegroundService.getInstance()?.updateServerState(isRunning, statsJson, connectedClients)
         } else {
-            LogWriter.log("FtpForegroundService.getInstance() returned service, calling updateServerState()")
-            service.updateServerState(isRunning, statsJson, connectedClients)
+            // Server is stopped - stop foreground service
+            if (service != null) {
+                LogWriter.log("Server stopped, stopping foreground service")
+                Log.d(TAG, "Stopping foreground service")
+                stopFtpForegroundService()
+            }
         }
+    }
+    
+    /**
+     * Stop the foreground service
+     */
+    private fun stopFtpForegroundService() {
+        val intent = Intent(this, FtpForegroundService::class.java)
+        intent.action = "com.gjk.cameraftpcompanion.STOP_SERVICE"
+        stopService(intent)
+        Log.d(TAG, "Foreground service stop requested")
     }
 }
