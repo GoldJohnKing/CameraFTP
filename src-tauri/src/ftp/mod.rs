@@ -98,8 +98,8 @@ mod tests {
         handle.record_upload("test.jpg".to_string(), 1024).await;
 
         // 获取统计
-        let stats = handle.get_stats().await;
-        assert!(stats.is_some());
+        let stats = handle.get_stats_direct().await;
+        assert_eq!(stats.total_uploads, 1);
 
         // 停止worker
         drop(handle);

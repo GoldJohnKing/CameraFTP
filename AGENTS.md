@@ -252,12 +252,11 @@ cargo tauri dev
 
 **Agent指令**: **不要使用 `lsp_diagnostics`** 来验证代码正确性。始终依赖**实际编译**来验证代码。
 
-**原因**: LSP诊断有时会滞后或不准确，特别是在跨平台条件编译（`#[cfg(target_os = "windows")]`）和复杂宏展开的场景下。
+**原因**: LSP诊断存在卡死异常，无法正常运行。
 
-**正确做法**:
+**正确做法**: 修改Rust代码后，立即编译验证
 ```bash
-# 修改Rust代码后，立即编译验证
-cd src-tauri && cargo build
+cd src-tauri
 
 # 验证Windows平台
 cargo build --target x86_64-pc-windows-msvc
@@ -483,7 +482,7 @@ ci: CI配置更改
 ## Agent 指令总结
 
 1. **构建平台产物**: 必须使用 `./build-full.sh`, `./build-android.sh` 等编译脚本
-2. **代码验证**: 不要使用 `lsp_diagnostics`，始终依赖 `cargo build` 或 `bun run build` 进行验证
+2. **代码验证**: 不要使用 `lsp_diagnostics`，始终依赖 `cargo build --target` 或 `bun run build` 进行验证
 3. **平台代码**: 使用 `#[cfg(target_os = "...")]` 进行条件编译
 4. **日志记录**: 使用 `tracing::info!`, `tracing::error!` 等宏
 5. **错误处理**: 使用 `Result<T, AppError>` 和 `?` 操作符

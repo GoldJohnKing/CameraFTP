@@ -74,7 +74,7 @@ impl AppConfig {
         #[cfg(target_os = "android")]
         {
             // Android: 使用固定的 DCIM/CameraFTP 路径
-            PathBuf::from("/storage/emulated/0/DCIM/CameraFTP")
+            PathBuf::from(crate::platform::android::DEFAULT_STORAGE_PATH)
         }
         #[cfg(not(target_os = "android"))]
         {
@@ -162,7 +162,7 @@ pub fn init_android_paths(app_handle: &tauri::AppHandle) {
 
     // 存储路径固定为 DCIM/CameraFTP，不需要初始化
     // 如果有权限，尝试创建存储目录
-    let save_path = PathBuf::from("/storage/emulated/0/DCIM/CameraFTP");
+    let save_path = PathBuf::from(crate::platform::android::DEFAULT_STORAGE_PATH);
     if !save_path.exists() {
         match fs::create_dir_all(&save_path) {
             Ok(_) => info!("Created storage directory: {:?}", save_path),

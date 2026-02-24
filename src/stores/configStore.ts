@@ -83,7 +83,7 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
 
   selectDirectory: async () => {
     try {
-      const selected = await invoke<string | null>('select_directory');
+      const selected = await invoke<string | null>('select_save_directory');
       return selected;
     } catch (err) {
       console.error('Failed to select directory:', err);
