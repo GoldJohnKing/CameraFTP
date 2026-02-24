@@ -215,9 +215,7 @@ platform.setup(app.handle())?;
 | 命令 | 说明 |
 |------|------|
 | `./build.sh windows` | 构建 Windows 可执行文件 |
-| `./build.sh windows-bundle` | 构建 Windows 安装包 (EXE + MSI) |
-| `./build.sh android` | 构建 Android APK (release) |
-| `./build.sh android-debug` | 构建 Android APK (debug) |
+| `./build.sh android` | 构建 Android APK |
 | `./build.sh frontend` | 仅构建前端 |
 
 ---
@@ -237,8 +235,7 @@ platform.setup(app.handle())?;
 
 **前端验证**:
 ```bash
-# TypeScript类型检查
-bun run build
+./build.sh frontend
 ```
 
 ---
@@ -324,6 +321,57 @@ const result = await invoke<string>('start_server', { port: 21 });
     get_server_status,
     // ...
 ])
+```
+
+---
+
+## Android调试指南
+
+### WSL环境使用Windows adb.exe调试
+
+当开发环境为WSL但Android设备通过USB连接到Windows主机时，必须使用Windows上的`adb.exe`而不是WSL内的`adb`命令。
+
+**为什么使用adb.exe：**
+- WSL无法直接访问Windows主机的USB设备
+- Windows adb服务器管理USB设备连接
+- WSL内的adb无法与Windows adb服务器通信
+
+**使用方法：**
+
+```bash
+# 检查设备连接（使用adb.exe而非adb）
+adb.exe devices
+
+# 查看应用崩溃日志
+adb.exe logcat -d -s AndroidRuntime:E
+
+# 查看特定应用的日志
+adb.exe logcat -d --pid=$(adb.exe shell pidof com.gjk.cameraftpcompanion)
+
+# 安装APK
+adb.exe install -r src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release.apk
+
+# 启动应用
+adb.exe shell am start -n com.gjk.cameraftpcompanion/.MainActivity
+
+# 清除日志缓存
+adb.exe logcat -c
+```
+
+**调试崩溃问题：**
+
+```bash
+# 1. 清除日志
+adb.exe logcat -c
+
+# 2. 启动应用
+adb.exe shell am start -n com.gjk.cameraftpcompanion/.MainActivity
+
+# 3. 等待崩溃发生后，收集异常日志
+adb.exe logcat -d -s AndroidRuntime:E
+
+# 4. 收集应用完整日志
+adb.exe logcat -d | grep -i "cameraftp\|FATAL\|Exception"
 ```
 
 ---
