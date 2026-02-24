@@ -59,6 +59,18 @@ pub struct ServerStateSnapshot {
     pub last_file: Option<String>,
 }
 
+impl Default for ServerStateSnapshot {
+    fn default() -> Self {
+        Self {
+            is_running: false,
+            connected_clients: 0,
+            files_received: 0,
+            bytes_received: 0,
+            last_file: None,
+        }
+    }
+}
+
 impl From<&ServerStats> for ServerStateSnapshot {
     fn from(stats: &ServerStats) -> Self {
         Self {

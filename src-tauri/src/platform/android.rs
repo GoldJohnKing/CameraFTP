@@ -279,4 +279,25 @@ impl PlatformService for AndroidPlatform {
             Ok(true)
         }
     }
+
+    // ========== 窗口与UI相关 ==========
+
+    fn hide_main_window(&self, _app: &AppHandle) -> Result<(), String> {
+        // Android 没有"窗口"概念，直接返回成功
+        Ok(())
+    }
+
+    fn select_save_directory(&self, _app: &AppHandle) -> Result<Option<String>, String> {
+        // Android 使用固定路径，直接返回默认路径
+        Ok(Some(DEFAULT_STORAGE_PATH.to_string()))
+    }
+
+    fn get_log_directory(&self) -> std::path::PathBuf {
+        std::path::PathBuf::from("/storage/emulated/0/DCIM/CameraFTP/logs")
+    }
+
+    fn open_all_files_access_settings(&self, app: &AppHandle) -> Result<(), String> {
+        open_manage_storage_settings(app);
+        Ok(())
+    }
 }

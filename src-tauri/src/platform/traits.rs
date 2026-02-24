@@ -114,4 +114,30 @@ pub trait PlatformService: Send + Sync {
     ) {
         // 默认实现：无操作
     }
+
+    // ========== 窗口与UI相关 ==========
+
+    /// 隐藏主窗口（Windows 最小化到托盘，Android 进入后台）
+    fn hide_main_window(&self, _app: &AppHandle) -> Result<(), String> {
+        // 默认实现：无操作
+        Ok(())
+    }
+
+    /// 选择保存目录（Windows 打开对话框，Android 返回固定路径）
+    fn select_save_directory(&self, _app: &AppHandle) -> Result<Option<String>, String> {
+        // 默认实现：返回 None
+        Ok(None)
+    }
+
+    /// 获取日志目录
+    fn get_log_directory(&self) -> std::path::PathBuf {
+        // 默认实现：使用系统临时目录
+        std::env::temp_dir().join("camera-ftp-companion")
+    }
+
+    /// 打开所有文件访问权限设置（仅 Android 有效）
+    fn open_all_files_access_settings(&self, _app: &AppHandle) -> Result<(), String> {
+        // 默认实现：桌面平台不需要此功能
+        Ok(())
+    }
 }

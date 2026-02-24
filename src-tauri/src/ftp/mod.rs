@@ -25,8 +25,8 @@ pub use server_factory::{
 };
 pub use stats::{StatsActor, StatsActorWorker};
 pub use types::{
-    DiagnosticInfo, DomainEvent, ServerConfig, ServerStateSnapshot, ServerStatus, ServerStats,
-    StopReason,
+    DiagnosticInfo, DomainEvent, ServerConfig, ServerInfo, ServerStateSnapshot, ServerStatus,
+    ServerStats, StopReason,
 };
 
 /// 初始化FTP模块

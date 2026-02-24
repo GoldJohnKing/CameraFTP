@@ -345,4 +345,27 @@ impl PlatformService for WindowsPlatform {
             }
         });
     }
+
+    // ========== 窗口与UI相关 ==========
+
+    fn hide_main_window(&self, app: &AppHandle) -> Result<(), String> {
+        if let Some(window) = app.get_webview_window("main") {
+            window.hide()
+                .map_err(|e| format!("隐藏窗口失败: {}", e))
+        } else {
+            Err("主窗口不存在".to_string())
+        }
+    }
+
+    fn select_save_directory(&self, _app: &AppHandle) -> Result<Option<String>, String> {
+        // Windows 平台通过前端对话框选择，这里返回 None 表示使用前端选择
+        Ok(None)
+    }
+
+    fn get_log_directory(&self) -> std::path::PathBuf {
+        dirs::data_dir()
+            .unwrap_or_else(|| std::path::PathBuf::from("."))
+            .join("camera-ftp-companion")
+            .join("logs")
+    }
 }
