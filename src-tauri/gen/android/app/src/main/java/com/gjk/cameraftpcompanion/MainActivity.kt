@@ -20,6 +20,18 @@ import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 
 /**
+ * JavaScript Bridge 抽象基类
+ * 提供通用的日志和 UI 线程处理功能
+ */
+abstract class BaseJsBridge(
+    protected val activity: MainActivity,
+    private val bridgeName: String
+) {
+    protected fun log(msg: String) = Log.d(bridgeName, msg)
+    protected fun runOnUi(block: () -> Unit) = activity.runOnUiThread(block)
+}
+
+/**
  * 文件上传事件监听器
  * 监听Rust后端的file-uploaded事件，触发媒体扫描
  */
@@ -63,6 +75,7 @@ class FileUploadListener(private val activity: MainActivity) {
 /**
  * 文件上传JavaScript Bridge
  * 接收来自WebView的file-uploaded事件
+ * 注：此类不继承BaseJsBridge，因为它依赖的是FileUploadListener而非MainActivity
  */
 class FileUploadBridge(private val listener: FileUploadListener) {
     companion object {
@@ -83,11 +96,8 @@ class FileUploadBridge(private val listener: FileUploadListener) {
  * Server State JavaScript Bridge
  * Receives server state updates from Tauri/Rust and forwards to foreground service
  */
-class ServerStateBridge(private val activity: MainActivity) {
-    companion object {
-        private const val TAG = "ServerStateBridge"
-    }
-    
+class ServerStateBridge(activity: MainActivity) : BaseJsBridge(activity, "ServerStateBridge") {
+
     /**
      * Called from JavaScript when server state changes
      * @param isRunning Whether FTP server is running
@@ -98,16 +108,16 @@ class ServerStateBridge(private val activity: MainActivity) {
     fun onServerStateChanged(isRunning: Boolean, statsJson: String?, connectedClients: Int) {
         LogWriter.log("ServerStateBridge.onServerStateChanged() called")
         LogWriter.log("isRunning=$isRunning, statsJson=$statsJson, connectedClients=$connectedClients")
-        Log.d(TAG, "onServerStateChanged: running=$isRunning, clients=$connectedClients, stats=$statsJson")
+        log("onServerStateChanged: running=$isRunning, clients=$connectedClients, stats=$statsJson")
         activity.updateServiceState(isRunning, statsJson, connectedClients)
     }
-    
+
     /**
      * Called from JavaScript to exit app
      */
     @JavascriptInterface
     fun exitApp() {
-        Log.d(TAG, "exitApp called")
+        log("exitApp called")
         activity.finish()
     }
 }
@@ -116,14 +126,10 @@ class ServerStateBridge(private val activity: MainActivity) {
  * JavaScript Bridge 接口
  * 允许前端JavaScript直接调用Android方法
  */
-class SAFPickerBridge(private val activity: MainActivity) {
-    
-    companion object {
-        private const val TAG = "SAFPickerBridge"
-    }
-    
+class SAFPickerBridge(activity: MainActivity) : BaseJsBridge(activity, "SAFPickerBridge") {
+
     private var callbackId: String? = null
-    
+
     /**
      * 打开SAF目录选择器
      * @param initialUri 初始URI（可选）
@@ -131,10 +137,10 @@ class SAFPickerBridge(private val activity: MainActivity) {
      */
     @JavascriptInterface
     fun openPicker(initialUri: String?, callback: String): Boolean {
-        Log.d(TAG, "openPicker called from JavaScript, callback: $callback")
+        log("openPicker called from JavaScript, callback: $callback")
         callbackId = callback
-        
-        activity.runOnUiThread {
+
+        runOnUi {
             activity.openSAFPicker(initialUri) { uri ->
                 // 调用JavaScript回调
                 val jsCode = if (uri != null) {
@@ -142,14 +148,14 @@ class SAFPickerBridge(private val activity: MainActivity) {
                 } else {
                     "$callback(null)"
                 }
-                
+
                 activity.evaluateJavascript(jsCode)
             }
         }
-        
+
         return true
     }
-    
+
     /**
      * 检查是否拥有所有文件访问权限
      */
@@ -157,19 +163,19 @@ class SAFPickerBridge(private val activity: MainActivity) {
     fun hasAllFilesAccess(): Boolean {
         return StorageHelper.hasManageExternalStoragePermission(activity)
     }
-    
+
     /**
      * 打开所有文件访问权限设置页面
      * 直接跳转到系统设置中的权限开关页面
      */
     @JavascriptInterface
     fun openAllFilesAccessSettings(): Boolean {
-        Log.d(TAG, "openAllFilesAccessSettings called from JavaScript")
-        
-        activity.runOnUiThread {
+        log("openAllFilesAccessSettings called from JavaScript")
+
+        runOnUi {
             StorageHelper.openManageStorageSettings(activity)
         }
-        
+
         return true
     }
 }
