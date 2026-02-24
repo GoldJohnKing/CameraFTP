@@ -1,8 +1,11 @@
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
+#[cfg(target_os = "android")]
 use std::sync::Mutex;
-use tracing::{error, info, warn};
+#[cfg(target_os = "android")]
+use tracing::warn;
+use tracing::{error, info};
 use ts_rs::TS;
 
 /// Android 配置路径（在应用初始化时设置）
@@ -70,16 +73,10 @@ impl Default for AppConfig {
 }
 
 impl AppConfig {
+    /// 获取默认图片目录
+    /// 通过 PlatformService trait 获取平台特定的默认存储路径
     fn default_pictures_dir() -> PathBuf {
-        #[cfg(target_os = "android")]
-        {
-            // Android: 使用固定的 DCIM/CameraFTP 路径
-            PathBuf::from(crate::platform::android::DEFAULT_STORAGE_PATH)
-        }
-        #[cfg(not(target_os = "android"))]
-        {
-            dirs::picture_dir().unwrap_or_else(|| PathBuf::from("./pictures"))
-        }
+        crate::platform::get_platform().get_default_storage_path()
     }
 
     pub fn config_path() -> PathBuf {
@@ -160,9 +157,8 @@ pub fn init_android_paths(app_handle: &tauri::AppHandle) {
     set_android_config_path(config_path.clone());
     info!("Android config path initialized: {:?}", config_path);
 
-    // 存储路径固定为 DCIM/CameraFTP，不需要初始化
-    // 如果有权限，尝试创建存储目录
-    let save_path = PathBuf::from(crate::platform::android::DEFAULT_STORAGE_PATH);
+    // 通过 PlatformService 获取默认存储路径
+    let save_path = crate::platform::get_platform().get_default_storage_path();
     if !save_path.exists() {
         match fs::create_dir_all(&save_path) {
             Ok(_) => info!("Created storage directory: {:?}", save_path),

@@ -34,11 +34,6 @@ pub fn init() {
     info!("FTP module initialized");
 }
 
-/// 向后兼容的导出
-pub use server::FtpServerHandle as Server;
-pub use types::ServerConfig as Config;
-pub use types::ServerStateSnapshot as StateSnapshot;
-
 #[cfg(test)]
 mod tests {
     use super::*;

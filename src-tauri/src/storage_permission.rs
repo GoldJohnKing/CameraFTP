@@ -1,5 +1,9 @@
+//! 存储权限管理命令
+//!
+//! 这些命令是 PlatformService trait 方法的 Tauri IPC 包装层。
+//! 所有实际逻辑都在 platform 模块中实现。
+
 use tauri::AppHandle;
-use tracing::info;
 
 use crate::error::AppError;
 
@@ -22,24 +26,13 @@ pub async fn check_permission_status() -> Result<PermissionStatus, AppError> {
 #[tauri::command]
 pub async fn request_all_files_permission(app: AppHandle) -> Result<(), AppError> {
     let platform = crate::platform::get_platform();
-    let status = platform.check_permission_status();
+    
+    platform
+        .request_all_files_permission(&app)
+        .map_err(AppError::StoragePermissionError)?;
 
-    if status.needs_user_action {
-        // 打开设置页面让用户授权
-        #[cfg(target_os = "android")]
-        {
-            crate::platform::android::open_manage_storage_settings(&app);
-            info!("Requested all files access permission");
-        }
-
-        #[cfg(not(target_os = "android"))]
-        {
-            let _ = app;
-            return Err(AppError::PlatformNotSupported(
-                "此功能仅在 Android 平台可用".to_string(),
-            ));
-        }
-    }
+    // 如果返回 false，说明需要用户去设置页面授权
+    // 这里我们不返回错误，让前端决定如何处理
     Ok(())
 }
 
@@ -64,28 +57,11 @@ pub async fn check_storage_permission() -> Result<bool, AppError> {
 /// 检查服务器启动前提条件
 #[tauri::command]
 pub async fn check_server_start_prerequisites() -> Result<ServerStartCheckResult, AppError> {
-    let platform = crate::platform::get_platform();
-    let storage_info = platform.get_storage_info();
-    let permission_status = platform.check_permission_status();
+    Ok(crate::platform::get_platform().check_server_start_prerequisites())
+}
 
-    let can_start =
-        storage_info.writable || (permission_status.has_all_files_access && !storage_info.exists);
-
-    let reason = if !can_start {
-        if !storage_info.has_all_files_access {
-            Some(
-                "需要授予\"所有文件访问权限\"才能启动服务器。请在设置中开启权限。".to_string(),
-            )
-        } else {
-            Some("存储路径不可写，请检查权限设置".to_string())
-        }
-    } else {
-        None
-    };
-
-    Ok(ServerStartCheckResult {
-        can_start,
-        reason,
-        storage_info: Some(storage_info),
-    })
+/// 检查是否需要存储权限（用于前端 UI 判断）
+#[tauri::command]
+pub async fn needs_storage_permission() -> bool {
+    crate::platform::get_platform().needs_storage_permission()
 }

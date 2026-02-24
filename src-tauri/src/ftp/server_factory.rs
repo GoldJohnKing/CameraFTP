@@ -49,31 +49,17 @@ pub async fn start_ftp_server(
 
     let config = AppConfig::load();
 
-    // 确保保存目录存在
-    tokio::fs::create_dir_all(&config.save_path).await.map_err(|e| {
-        error!(error = %e, path = %config.save_path.display(), "Failed to create save directory");
-        AppError::Other(format!(
-            "无法创建保存目录 '{}': {}。请检查存储权限或更改保存路径。",
-            config.save_path.display(),
-            e
-        ))
-    })?;
+    // 统一通过 PlatformService 验证存储路径
+    // 这会处理平台特定的权限检查和目录创建
+    let save_path = crate::platform::get_platform()
+        .ensure_storage_ready()
+        .map_err(|e| {
+            error!(error = %e, "Storage not ready");
+            AppError::StoragePermissionError(e)
+        })?;
 
-    // 检查目录是否可写
-    let test_file = config.save_path.join(".write_test");
-    match tokio::fs::write(&test_file, b"test").await {
-        Ok(_) => {
-            let _ = tokio::fs::remove_file(&test_file).await;
-        }
-        Err(e) => {
-            error!(error = %e, path = %config.save_path.display(), "Save directory is not writable");
-            return Err(AppError::Other(format!(
-                "保存目录 '{}' 没有写入权限 ({})。Android 用户请使用应用私有目录，或在系统设置中开启'所有文件访问权限'。",
-                config.save_path.display(),
-                e
-            )));
-        }
-    }
+    // 更新配置中的保存路径（可能与验证后的路径不同）
+    let save_path = std::path::PathBuf::from(save_path);
 
     // 查找可用端口
     let port = if NetworkManager::is_port_available(config.port).await {
@@ -102,7 +88,7 @@ pub async fn start_ftp_server(
     // 创建服务器配置
     let server_config = ServerConfig {
         port,
-        root_path: config.save_path.clone(),
+        root_path: save_path.clone(),
         allow_anonymous: true,
         passive_port_range: (50000, 50100),
         idle_timeout_seconds: 600,

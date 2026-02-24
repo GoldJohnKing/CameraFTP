@@ -260,4 +260,23 @@ impl PlatformService for AndroidPlatform {
     fn get_storage_path(&self) -> Result<String, String> {
         Ok(DEFAULT_STORAGE_PATH.to_string())
     }
+
+    fn get_default_storage_path(&self) -> std::path::PathBuf {
+        std::path::PathBuf::from(DEFAULT_STORAGE_PATH)
+    }
+
+    fn needs_storage_permission(&self) -> bool {
+        true
+    }
+
+    fn request_all_files_permission(&self, app: &AppHandle) -> Result<bool, String> {
+        let status = self.check_permission_status();
+        if status.needs_user_action {
+            open_manage_storage_settings(app);
+            info!("Requested all files access permission");
+            Ok(false)
+        } else {
+            Ok(true)
+        }
+    }
 }

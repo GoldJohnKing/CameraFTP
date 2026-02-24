@@ -8,6 +8,7 @@ pub mod storage_permission;
 
 use std::sync::Arc;
 use tokio::sync::Mutex;
+#[cfg(debug_assertions)]
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use tauri::{Manager, Emitter};
 
@@ -37,6 +38,7 @@ use storage_permission::{
     check_storage_permission,
     ensure_storage_ready,
     get_storage_info,
+    needs_storage_permission,
     request_all_files_permission,
 };
 
@@ -212,6 +214,7 @@ pub fn run() {
             ensure_storage_ready,
             check_storage_permission,
             check_server_start_prerequisites,
+            needs_storage_permission,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

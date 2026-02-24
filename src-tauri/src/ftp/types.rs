@@ -47,7 +47,7 @@ impl Default for ServerConfig {
     }
 }
 
-/// FTP 服务器状态快照（用于前端展示）
+/// 服务器运行时统计快照
 #[derive(Debug, Clone, serde::Serialize, ts_rs::TS)]
 #[ts(export)]
 pub struct ServerStateSnapshot {

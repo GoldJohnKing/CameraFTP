@@ -13,7 +13,7 @@ use crate::network::NetworkManager;
 /// FTP 服务器状态（使用 Arc<Mutex> 包装以支持异步操作）
 pub struct FtpServerState(pub Arc<Mutex<Option<FtpServerHandle>>>);
 
-/// 服务器信息（返回给前端）
+/// 服务器连接信息
 #[derive(Debug, Clone, serde::Serialize, TS)]
 #[ts(export)]
 pub struct ServerInfo {

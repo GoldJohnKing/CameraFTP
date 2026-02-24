@@ -1,4 +1,4 @@
-use super::types::{PermissionStatus, StorageInfo};
+use super::types::{PermissionStatus, ServerStartCheckResult, StorageInfo};
 use std::sync::Arc;
 use tauri::AppHandle;
 use tokio::sync::Mutex;
@@ -12,6 +12,8 @@ pub trait PlatformService: Send + Sync {
     /// 初始化平台特定功能（托盘、权限等）
     fn setup(&self, app: &AppHandle) -> Result<(), Box<dyn std::error::Error>>;
 
+    // ========== 存储与权限相关 ==========
+
     /// 获取存储路径信息
     fn get_storage_info(&self) -> StorageInfo;
 
@@ -20,6 +22,54 @@ pub trait PlatformService: Send + Sync {
 
     /// 确保存储就绪
     fn ensure_storage_ready(&self) -> Result<String, String>;
+
+    /// 获取存储路径
+    fn get_storage_path(&self) -> Result<String, String>;
+
+    /// 请求所有文件访问权限（仅 Android 有效）
+    /// 返回 true 表示已授予权限，false 表示需要用户操作
+    fn request_all_files_permission(&self, _app: &AppHandle) -> Result<bool, String> {
+        // 默认实现：桌面平台始终返回 true
+        Ok(true)
+    }
+
+    /// 检查是否需要存储权限
+    fn needs_storage_permission(&self) -> bool {
+        // 默认实现：桌面平台不需要
+        false
+    }
+
+    /// 检查服务器启动前提条件
+    fn check_server_start_prerequisites(&self) -> ServerStartCheckResult {
+        let storage_info = self.get_storage_info();
+        let permission_status = self.check_permission_status();
+
+        let can_start = storage_info.writable
+            || (permission_status.has_all_files_access && !storage_info.exists);
+
+        let reason = if !can_start {
+            if !storage_info.has_all_files_access {
+                Some("需要授予\"所有文件访问权限\"才能启动服务器。请在设置中开启权限。".to_string())
+            } else {
+                Some("存储路径不可写，请检查权限设置".to_string())
+            }
+        } else {
+            None
+        };
+
+        ServerStartCheckResult {
+            can_start,
+            reason,
+            storage_info: Some(storage_info),
+        }
+    }
+
+    // ========== 默认存储路径 ==========
+
+    /// 获取默认存储路径
+    fn get_default_storage_path(&self) -> std::path::PathBuf;
+
+    // ========== 服务器生命周期回调 ==========
 
     /// 服务器启动时的回调
     fn on_server_started(&self, _app: &AppHandle) {}
@@ -64,9 +114,4 @@ pub trait PlatformService: Send + Sync {
     ) {
         // 默认实现：无操作
     }
-
-    // ========== 存储路径相关 ==========
-
-    /// 获取存储路径
-    fn get_storage_path(&self) -> Result<String, String>;
 }

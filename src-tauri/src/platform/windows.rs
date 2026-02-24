@@ -211,7 +211,31 @@ impl PlatformService for WindowsPlatform {
     }
     
     fn ensure_storage_ready(&self) -> Result<String, String> {
-        Ok(String::new())
+        let config = crate::config::AppConfig::load();
+        let save_path = config.save_path.clone();
+
+        // 确保目录存在
+        if !save_path.exists() {
+            std::fs::create_dir_all(&save_path).map_err(|e| {
+                format!("无法创建保存目录 '{}': {}", save_path.display(), e)
+            })?;
+        }
+
+        // 验证可写性
+        let test_file = save_path.join(".write_test");
+        match std::fs::write(&test_file, b"test") {
+            Ok(_) => {
+                let _ = std::fs::remove_file(&test_file);
+                Ok(save_path.to_string_lossy().to_string())
+            }
+            Err(e) => {
+                Err(format!(
+                    "保存目录 '{}' 没有写入权限 ({})",
+                    save_path.display(),
+                    e
+                ))
+            }
+        }
     }
     
     fn on_server_started(&self, app: &AppHandle) {
@@ -267,6 +291,24 @@ impl PlatformService for WindowsPlatform {
         Ok(config.save_path.to_string_lossy().to_string())
     }
 
+    fn get_default_storage_path(&self) -> std::path::PathBuf {
+        dirs::picture_dir().unwrap_or_else(|| std::path::PathBuf::from("./pictures"))
+    }
+
+    fn needs_storage_permission(&self) -> bool {
+        false
+    }
+
+    fn check_server_start_prerequisites(&self) -> super::types::ServerStartCheckResult {
+        // Windows 平台无需权限检查，直接返回可启动
+        let storage_info = self.get_storage_info();
+        super::types::ServerStartCheckResult {
+            can_start: true,
+            reason: None,
+            storage_info: Some(storage_info),
+        }
+    }
+
     fn execute_autostart_server(
         &self,
         app: &AppHandle,
@@ -289,10 +331,9 @@ impl PlatformService for WindowsPlatform {
                         500
                     );
 
-                    // 更新托盘图标为 idle 状态
-                    if let Err(e) = update_tray_icon(&app_handle, TrayIconState::Idle) {
-                        tracing::warn!("Failed to update tray icon on autostart: {}", e);
-                    }
+                    // 统一通过 PlatformService 处理启动后逻辑
+                    // 这会自动更新托盘图标为 idle 状态
+                    crate::platform::get_platform().on_server_started(&app_handle);
                 }
                 Err(e) => {
                     tracing::error!("Failed to auto-start server: {}", e);
