@@ -455,51 +455,6 @@ class MainActivity : TauriActivity() {
     }
     
     /**
-     * Ensure notification permission is granted before starting foreground service.
-     * If permission is already granted, start service immediately.
-     * If not, request permission and start service in the callback.
-     */
-    private fun ensureNotificationPermissionAndStartService() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) 
-                == PackageManager.PERMISSION_GRANTED) {
-                // Permission already granted, start service immediately
-                Log.d(TAG, "Notification permission already granted, starting service")
-                startFtpForegroundService()
-            } else {
-                // Request permission - service will be started in onRequestPermissionsResult
-                Log.d(TAG, "Requesting notification permission before starting service")
-                ActivityCompat.requestPermissions(
-                    this,
-                    arrayOf(Manifest.permission.POST_NOTIFICATIONS),
-                    REQUEST_POST_NOTIFICATIONS
-                )
-            }
-        } else {
-            // Android < 13, no notification permission needed
-            startFtpForegroundService()
-        }
-    }
-    
-    /**
-     * Request notification permission (Android 13+)
-     * @deprecated Use ensureNotificationPermissionAndStartService() instead
-     */
-    @Deprecated("Use ensureNotificationPermissionAndStartService() instead")
-    private fun requestNotificationPermission() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) 
-                != PackageManager.PERMISSION_GRANTED) {
-                ActivityCompat.requestPermissions(
-                    this,
-                    arrayOf(Manifest.permission.POST_NOTIFICATIONS),
-                    REQUEST_POST_NOTIFICATIONS
-                )
-            }
-        }
-    }
-    
-    /**
      * Handle permission request results
      */
     override fun onRequestPermissionsResult(
