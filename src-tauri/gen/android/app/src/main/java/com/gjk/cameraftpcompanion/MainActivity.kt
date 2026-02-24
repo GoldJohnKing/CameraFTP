@@ -111,15 +111,6 @@ class ServerStateBridge(activity: MainActivity) : BaseJsBridge(activity, "Server
         log("onServerStateChanged: running=$isRunning, clients=$connectedClients, stats=$statsJson")
         activity.updateServiceState(isRunning, statsJson, connectedClients)
     }
-
-    /**
-     * Called from JavaScript to exit app
-     */
-    @JavascriptInterface
-    fun exitApp() {
-        log("exitApp called")
-        activity.finish()
-    }
 }
 
 /**
@@ -325,23 +316,6 @@ class MainActivity : TauriActivity() {
                                 }
                             });
                             console.log('[Android] android-service-state-update event listener registered');
-                            
-                            // 监听通知按钮事件 - 切换服务器
-                            window.__TAURI__.event.listen('android-toggle-server', function(event) {
-                                console.log('[Android] android-toggle-server event received');
-                                // Dispatch custom event to frontend
-                                window.dispatchEvent(new CustomEvent('android-toggle-server-request'));
-                            });
-                            console.log('[Android] android-toggle-server event listener registered');
-                            
-                            // 监听通知按钮事件 - 退出应用
-                            window.__TAURI__.event.listen('android-exit-app', function(event) {
-                                console.log('[Android] android-exit-app event received');
-                                if (window.ServerStateAndroid) {
-                                    window.ServerStateAndroid.exitApp();
-                                }
-                            });
-                            console.log('[Android] android-exit-app event listener registered');
                         } else {
                             console.warn('[Android] Tauri event API not available');
                         }

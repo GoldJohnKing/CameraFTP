@@ -143,18 +143,6 @@ pub fn open_manage_storage_settings(app: &AppHandle) {
     info!("Requesting to open manage storage settings");
 }
 
-/// 启动前台服务
-pub fn start_foreground_service(app: &AppHandle) {
-    use tauri::Emitter;
-    let _ = app.emit("android-start-foreground-service", ());
-}
-
-/// 停止前台服务
-pub fn stop_foreground_service(app: &AppHandle) {
-    use tauri::Emitter;
-    let _ = app.emit("android-stop-foreground-service", ());
-}
-
 /// 设备信息
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct DeviceInfo {
@@ -249,13 +237,8 @@ impl PlatformService for AndroidPlatform {
         }
     }
 
-    fn on_server_started(&self, app: &AppHandle) {
-        start_foreground_service(app);
-    }
-
-    fn on_server_stopped(&self, app: &AppHandle) {
-        stop_foreground_service(app);
-    }
+    // Note: on_server_started/on_server_stopped use default empty implementation
+    // Notification is managed via update_server_state() which is called from frontend
 
     fn update_server_state(&self, app: &AppHandle, connected_clients: u32) {
         // Emit event to Android for notification update

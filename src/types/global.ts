@@ -32,21 +32,6 @@ export interface SAFPickerAndroid {
 }
 
 /**
- * Android MainActivity 接口
- * 用于与前台的 FTP 服务通信
- * @deprecated Use ServerStateAndroid instead
- */
-export interface MainActivity {
-  /**
-   * 更新前台服务的状态
-   * @param isRunning 服务器是否运行中
-   * @param statsJson 统计信息的 JSON 字符串，或 null
-   * @param connectedClients 当前连接的客户端数量
-   */
-  updateServiceState(isRunning: boolean, statsJson: string | null, connectedClients: number): void;
-}
-
-/**
  * Android Server State Bridge 接口
  * 用于与前台的 FTP 服务通信
  * 由 ServerStateBridge 注入为 "ServerStateAndroid"
@@ -112,13 +97,6 @@ declare global {
     SAFPickerAndroid?: SAFPickerAndroid;
     
     /**
-     * Android MainActivity JS Bridge
-     * 用于与前台 FTP 服务通信
-     * @deprecated Use ServerStateAndroid instead
-     */
-    MainActivity?: MainActivity;
-    
-    /**
      * Android Server State JS Bridge
      * 用于与前台 FTP 服务通信
      */
@@ -149,16 +127,6 @@ export function isSAFPickerAvailable(): boolean {
   return typeof window !== 'undefined' && 
          !!window.SAFPickerAndroid && 
          typeof window.SAFPickerAndroid.openAllFilesAccessSettings === 'function';
-}
-
-/**
- * 检查 Android MainActivity 是否可用
- * @deprecated Use isServerStateAndroidAvailable instead
- */
-export function isMainActivityAvailable(): boolean {
-  return typeof window !== 'undefined' && 
-         !!window.MainActivity && 
-         typeof window.MainActivity.updateServiceState === 'function';
 }
 
 /**
