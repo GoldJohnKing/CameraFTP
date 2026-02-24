@@ -39,15 +39,12 @@ pub async fn start_server(
         Default::default()
     ).await?;
 
-    // 启动事件处理器
+    // 启动事件处理器（EventBus 会发送 server-started 事件）
     crate::ftp::server_factory::spawn_event_processor(
         app.clone(),
         ctx.event_bus,
         500
     );
-
-    // 发送启动事件
-    crate::ftp::server_factory::emit_server_started(&app, &ctx.ip, ctx.port);
 
     info!(
         ip = %ctx.ip,
@@ -106,7 +103,6 @@ pub async fn get_server_status(
     state: State<'_, FtpServerState>,
 ) -> Result<Option<ServerStateSnapshot>, AppError> {
     let server_guard = state.0.lock().await;
-
     if let Some(server) = server_guard.as_ref() {
         let snapshot = server.get_snapshot().await;
         Ok(Some(snapshot))
@@ -147,7 +143,6 @@ pub async fn get_diagnostic_info(
     state: State<'_, FtpServerState>,
 ) -> Result<Option<crate::ftp::types::DiagnosticInfo>, AppError> {
     let server_guard = state.0.lock().await;
-
     if let Some(server) = server_guard.as_ref() {
         let info = server.get_diagnostic_info().await;
         Ok(Some(info))
@@ -158,30 +153,14 @@ pub async fn get_diagnostic_info(
 
 /// 设置开机自启
 #[tauri::command]
-pub fn set_autostart_command(_enable: bool) -> Result<(), String> {
-    #[cfg(target_os = "windows")]
-    {
-        crate::platform::windows::set_autostart(_enable)
-            .map_err(|e| format!("Failed to set autostart: {}", e))
-    }
-    #[cfg(not(target_os = "windows"))]
-    {
-        Err("Autostart is only supported on Windows".to_string())
-    }
+pub fn set_autostart_command(enable: bool) -> Result<(), String> {
+    crate::platform::get_platform().set_autostart(enable)
 }
 
 /// 获取开机自启状态
 #[tauri::command]
 pub fn get_autostart_status() -> Result<bool, String> {
-    #[cfg(target_os = "windows")]
-    {
-        crate::platform::windows::is_autostart_enabled()
-            .map_err(|e| format!("Failed to get autostart status: {}", e))
-    }
-    #[cfg(not(target_os = "windows"))]
-    {
-        Ok(false)
-    }
+    crate::platform::get_platform().is_autostart_enabled()
 }
 
 /// 退出应用程序
@@ -249,44 +228,13 @@ pub fn validate_save_path(path: String) -> bool {
 /// 获取固定存储路径（Android）或当前配置路径（桌面）
 #[tauri::command]
 pub fn get_storage_path() -> Result<String, String> {
-    #[cfg(target_os = "android")]
-    {
-        Ok(crate::platform::android::get_default_storage_path())
-    }
-    
-    #[cfg(not(target_os = "android"))]
-    {
-        let config = AppConfig::load();
-        Ok(config.save_path.to_string_lossy().to_string())
-    }
+    crate::platform::get_platform().get_storage_path()
 }
 
 /// 获取当前平台名称
 #[tauri::command]
 pub fn get_platform() -> String {
-    #[cfg(target_os = "windows")]
-    { "windows".to_string() }
-    
-    #[cfg(target_os = "macos")]
-    { "macos".to_string() }
-    
-    #[cfg(target_os = "linux")]
-    { "linux".to_string() }
-    
-    #[cfg(target_os = "android")]
-    { "android".to_string() }
-    
-    #[cfg(target_os = "ios")]
-    { "ios".to_string() }
-    
-    #[cfg(not(any(
-        target_os = "windows",
-        target_os = "macos",
-        target_os = "linux",
-        target_os = "android",
-        target_os = "ios"
-    )))]
-    { "unknown".to_string() }
+    crate::platform::get_platform().name().to_string()
 }
 
 /// 打开"所有文件访问权限"设置页面（Android）

@@ -248,7 +248,12 @@ impl EventHandler for StatsEventHandler {
                 let _ = self.app_handle.emit("stats-update", snapshot);
             }
             DomainEvent::ServerStarted { bind_addr } => {
-                let _ = self.app_handle.emit("server-started", bind_addr);
+                // 解析 bind_addr (格式: "ip:port") 以提取 ip 和 port
+                let (ip, port) = parse_bind_addr(bind_addr);
+                let _ = self.app_handle.emit("server-started", serde_json::json!({
+                    "ip": ip,
+                    "port": port
+                }));
             }
             DomainEvent::ServerStopped { .. } => {
                 let _ = self.app_handle.emit("server-stopped", ());
@@ -270,5 +275,17 @@ impl EventHandler for StatsEventHandler {
             "ServerStopped",
             "FileUploaded",
         ])
+    }
+}
+
+/// 解析 bind_addr (格式: "ip:port") 返回 (ip, port)
+fn parse_bind_addr(bind_addr: &str) -> (String, u16) {
+    let parts: Vec<&str> = bind_addr.split(':').collect();
+    if parts.len() == 2 {
+        let ip = parts[0].to_string();
+        let port = parts[1].parse().unwrap_or(2121);
+        (ip, port)
+    } else {
+        ("0.0.0.0".to_string(), 2121)
     }
 }

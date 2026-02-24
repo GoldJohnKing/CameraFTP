@@ -7,7 +7,7 @@ use crate::ftp::{
 };
 use crate::network::NetworkManager;
 use std::sync::Arc;
-use tauri::{AppHandle, Emitter};
+use tauri::AppHandle;
 use tokio::sync::Mutex;
 use tracing::{error, info, warn};
 
@@ -159,12 +159,4 @@ pub fn spawn_event_processor(app_handle: AppHandle, event_bus: EventBus, debounc
             .register(StatsEventHandler::new(app_handle, debounce_ms));
         processor.run().await;
     });
-}
-
-pub fn emit_server_started(app_handle: &AppHandle, ip: &str, port: u16) {
-    let _ = app_handle.emit("server-started", (ip.to_string(), port));
-}
-
-pub fn emit_server_stopped(app_handle: &AppHandle) {
-    let _ = app_handle.emit("server-stopped", ());
 }

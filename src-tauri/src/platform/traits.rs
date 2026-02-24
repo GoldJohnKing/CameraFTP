@@ -32,15 +32,28 @@ pub trait PlatformService: Send + Sync {
 
     // ========== 开机自启相关 ==========
 
+    /// 是否支持开机自启动
+    fn supports_autostart(&self) -> bool {
+        false
+    }
+
+    /// 设置开机自启动
+    fn set_autostart(&self, _enable: bool) -> Result<(), String> {
+        Err(format!("开机自启在 {} 平台不支持", self.name()))
+    }
+
+    /// 检查开机自启动状态
+    fn is_autostart_enabled(&self) -> Result<bool, String> {
+        Ok(false)
+    }
+
     /// 检查当前是否是开机自启模式
     fn is_autostart_mode(&self) -> bool {
-        false // 默认实现：非 Windows 平台不支持
+        false
     }
 
     /// 开机自启模式下隐藏窗口
-    fn hide_window_on_autostart(&self, _app: &AppHandle) {
-        // 默认实现：无操作
-    }
+    fn hide_window_on_autostart(&self, _app: &AppHandle) {}
 
     /// 执行开机自启服务器启动逻辑
     /// 返回 true 表示已处理（需要等待），false 表示跳过
@@ -51,4 +64,9 @@ pub trait PlatformService: Send + Sync {
     ) {
         // 默认实现：无操作
     }
+
+    // ========== 存储路径相关 ==========
+
+    /// 获取存储路径
+    fn get_storage_path(&self) -> Result<String, String>;
 }

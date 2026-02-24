@@ -24,8 +24,7 @@ pub fn get_storage_display_name() -> String {
 }
 
 /// 获取存储路径信息
-#[cfg(target_os = "android")]
-pub fn get_storage_info_impl() -> StorageInfo {
+pub fn get_storage_info() -> StorageInfo {
     let path = DEFAULT_STORAGE_PATH;
     let path_buf = std::path::PathBuf::from(path);
 
@@ -48,20 +47,8 @@ pub fn get_storage_info_impl() -> StorageInfo {
     }
 }
 
-#[cfg(not(target_os = "android"))]
-pub fn get_storage_info_impl() -> StorageInfo {
-    StorageInfo {
-        display_name: "本地存储".to_string(),
-        path: "./ftp_uploads".to_string(),
-        exists: true,
-        writable: true,
-        has_all_files_access: true,
-    }
-}
-
 /// 检查权限状态
-#[cfg(target_os = "android")]
-pub fn check_permission_status_impl() -> PermissionStatus {
+pub fn check_permission_status() -> PermissionStatus {
     let has_access = check_all_files_permission();
     PermissionStatus {
         has_all_files_access: has_access,
@@ -69,28 +56,13 @@ pub fn check_permission_status_impl() -> PermissionStatus {
     }
 }
 
-#[cfg(not(target_os = "android"))]
-pub fn check_permission_status_impl() -> PermissionStatus {
-    PermissionStatus {
-        has_all_files_access: true,
-        needs_user_action: false,
-    }
-}
-
 /// 检查是否有"所有文件访问权限"
 /// 通过尝试写入 DCIM 目录来判断
-#[cfg(target_os = "android")]
 pub fn check_all_files_permission() -> bool {
     can_write_to_dcim()
 }
 
-#[cfg(not(target_os = "android"))]
-pub fn check_all_files_permission() -> bool {
-    true
-}
-
 /// 尝试写入 DCIM 目录来检查权限
-#[cfg(target_os = "android")]
 fn can_write_to_dcim() -> bool {
     let dcim_path = "/storage/emulated/0/DCIM";
     let test_file = format!("{}/.permission_test_{}", dcim_path, std::process::id());
@@ -110,7 +82,6 @@ fn can_write_to_dcim() -> bool {
 }
 
 /// 验证路径是否可写
-#[cfg(target_os = "android")]
 pub fn validate_path_writable(path: &str) -> bool {
     let path_buf = std::path::PathBuf::from(path);
 
@@ -149,14 +120,8 @@ pub fn validate_path_writable(path: &str) -> bool {
     }
 }
 
-#[cfg(not(target_os = "android"))]
-pub fn validate_path_writable(_path: &str) -> bool {
-    true
-}
-
 /// 确保存储目录存在且可写
-#[cfg(target_os = "android")]
-pub fn ensure_storage_ready_impl() -> Result<String, String> {
+pub fn ensure_storage_ready() -> Result<String, String> {
     let path = DEFAULT_STORAGE_PATH;
     let path_buf = std::path::PathBuf::from(path);
 
@@ -181,41 +146,34 @@ pub fn ensure_storage_ready_impl() -> Result<String, String> {
     Ok(path.to_string())
 }
 
-#[cfg(not(target_os = "android"))]
-pub fn ensure_storage_ready_impl() -> Result<String, String> {
-    Ok("./ftp_uploads".to_string())
-}
-
 /// 打开"所有文件访问权限"设置页面
 pub fn open_manage_storage_settings(app: &AppHandle) {
-    #[cfg(target_os = "android")]
-    {
-        use tauri::Emitter;
-        let _ = app.emit("android-open-manage-storage-settings", ());
-        info!("Requesting to open manage storage settings");
-    }
+    use tauri::Emitter;
+    let _ = app.emit("android-open-manage-storage-settings", ());
+    info!("Requesting to open manage storage settings");
 }
 
 /// 启动前台服务
 pub fn start_foreground_service(app: &AppHandle) {
-    #[cfg(target_os = "android")]
-    {
-        use tauri::Emitter;
-        let _ = app.emit("android-start-foreground-service", ());
-    }
+    use tauri::Emitter;
+    let _ = app.emit("android-start-foreground-service", ());
 }
 
 /// 停止前台服务
 pub fn stop_foreground_service(app: &AppHandle) {
-    #[cfg(target_os = "android")]
-    {
-        use tauri::Emitter;
-        let _ = app.emit("android-stop-foreground-service", ());
-    }
+    use tauri::Emitter;
+    let _ = app.emit("android-stop-foreground-service", ());
+}
+
+/// 设备信息
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct DeviceInfo {
+    pub platform: String,
+    pub version: String,
+    pub model: String,
 }
 
 /// 获取 Android 设备信息
-#[cfg(target_os = "android")]
 pub fn get_device_info() -> DeviceInfo {
     // 尝试从系统属性获取设备信息
     let version = get_android_version();
@@ -228,24 +186,7 @@ pub fn get_device_info() -> DeviceInfo {
     }
 }
 
-#[cfg(not(target_os = "android"))]
-pub fn get_device_info() -> DeviceInfo {
-    DeviceInfo {
-        platform: "unknown".to_string(),
-        version: "unknown".to_string(),
-        model: "unknown".to_string(),
-    }
-}
-
-#[derive(Debug, Clone, serde::Serialize)]
-pub struct DeviceInfo {
-    pub platform: String,
-    pub version: String,
-    pub model: String,
-}
-
 /// 获取 Android 版本
-#[cfg(target_os = "android")]
 fn get_android_version() -> String {
     std::fs::read_to_string("/system/build.prop")
         .ok()
@@ -259,7 +200,6 @@ fn get_android_version() -> String {
 }
 
 /// 获取设备型号
-#[cfg(target_os = "android")]
 fn get_device_model() -> String {
     std::fs::read_to_string("/system/build.prop")
         .ok()
@@ -274,17 +214,14 @@ fn get_device_model() -> String {
 
 /// 显示本地通知
 pub fn show_notification(app: &AppHandle, title: &str, body: &str) {
-    #[cfg(target_os = "android")]
-    {
-        use tauri::Emitter;
-        let _ = app.emit(
-            "android-show-notification",
-            serde_json::json!({
-                "title": title,
-                "body": body,
-            }),
-        );
-    }
+    use tauri::Emitter;
+    let _ = app.emit(
+        "android-show-notification",
+        serde_json::json!({
+            "title": title,
+            "body": body,
+        }),
+    );
 }
 
 /// Android 平台实现
@@ -301,15 +238,15 @@ impl PlatformService for AndroidPlatform {
     }
 
     fn get_storage_info(&self) -> StorageInfo {
-        get_storage_info_impl()
+        get_storage_info()
     }
 
     fn check_permission_status(&self) -> PermissionStatus {
-        check_permission_status_impl()
+        check_permission_status()
     }
 
     fn ensure_storage_ready(&self) -> Result<String, String> {
-        ensure_storage_ready_impl()
+        ensure_storage_ready()
     }
 
     fn on_server_started(&self, app: &AppHandle) {
@@ -318,5 +255,9 @@ impl PlatformService for AndroidPlatform {
 
     fn on_server_stopped(&self, app: &AppHandle) {
         stop_foreground_service(app);
+    }
+
+    fn get_storage_path(&self) -> Result<String, String> {
+        Ok(DEFAULT_STORAGE_PATH.to_string())
     }
 }

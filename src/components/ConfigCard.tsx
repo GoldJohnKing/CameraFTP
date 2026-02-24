@@ -3,6 +3,7 @@ import { Loader2, Folder, Settings, CheckCircle, AlertCircle, RefreshCw } from '
 import { invoke } from '@tauri-apps/api/core';
 import { useConfigStore } from '../stores/configStore';
 import { useStoragePermission } from '../hooks/useStoragePermission';
+import { ToggleSwitch } from './ui/ToggleSwitch';
 
 export function ConfigCard() {
   const {
@@ -258,62 +259,26 @@ export function ConfigCard() {
           </div>
         )}
 
-        {/* 开机自启动配置 - 仅在桌面平台显示 */}
+        {/* 开机自启动配置 - 仅在桌面平台显示，使用 ToggleSwitch 组件 */}
         {isDesktop && (
-          <div className="flex items-center justify-between py-2">
-            <div>
-              <label className="block text-sm font-medium text-gray-700">
-                开机自启动
-              </label>
-              <p className="text-xs text-gray-500 mt-1">
-                系统启动时自动运行图传伴侣
-              </p>
-            </div>
-            <button
-              onClick={handleAutostartToggle}
-              disabled={isLoadingAutostart}
-              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                autostartEnabled ? 'bg-blue-600' : 'bg-gray-200'
-              } disabled:opacity-50 disabled:cursor-not-allowed`}
-            >
-              {isLoadingAutostart ? (
-                <Loader2 className="w-4 h-4 animate-spin text-white absolute left-1" />
-              ) : (
-                <span
-                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                    autostartEnabled ? 'translate-x-6' : 'translate-x-1'
-                  }`}
-                />
-              )}
-            </button>
-          </div>
+          <ToggleSwitch
+            enabled={autostartEnabled}
+            onChange={handleAutostartToggle}
+            label="开机自启动"
+            description="系统启动时自动运行图传伴侣"
+            disabled={isLoadingAutostart}
+          />
         )}
 
-        {/* 端口配置 */}
+        {/* 端口配置 - 使用 ToggleSwitch 组件 */}
         <div className="space-y-3">
-          <div className="flex items-center justify-between py-2">
-            <div>
-              <label className="block text-sm font-medium text-gray-700">
-                自动选择端口
-              </label>
-              <p className="text-xs text-gray-500 mt-1">
-                自动寻找可用端口（推荐）
-              </p>
-            </div>
-            <button
-              onClick={handleAutoSelectToggle}
-              disabled={isLoading}
-              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                config?.auto_select_port ? 'bg-blue-600' : 'bg-gray-200'
-              } disabled:opacity-50 disabled:cursor-not-allowed`}
-            >
-              <span
-                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                  config?.auto_select_port ? 'translate-x-6' : 'translate-x-1'
-                }`}
-              />
-            </button>
-          </div>
+          <ToggleSwitch
+            enabled={config?.auto_select_port ?? true}
+            onChange={handleAutoSelectToggle}
+            label="自动选择端口"
+            description="自动寻找可用端口（推荐）"
+            disabled={isLoading}
+          />
 
           {/* 手动端口输入 */}
           {!config?.auto_select_port && (

@@ -35,6 +35,12 @@ pub enum AppError {
     #[error("权限错误: {0}")]
     PermissionError(String),
 
+    #[error("平台不支持: {0}")]
+    PlatformNotSupported(String),
+
+    #[error("存储权限错误: {0}")]
+    StoragePermissionError(String),
+
     #[error("其他错误: {0}")]
     Other(String),
 }
@@ -53,6 +59,8 @@ impl AppError {
             Self::Serialization(_) => "SERIALIZATION_ERROR",
             Self::NetworkError(_) => "NETWORK_ERROR",
             Self::PermissionError(_) => "PERMISSION_ERROR",
+            Self::PlatformNotSupported(_) => "PLATFORM_NOT_SUPPORTED",
+            Self::StoragePermissionError(_) => "STORAGE_PERMISSION_ERROR",
             Self::Other(_) => "OTHER_ERROR",
         }
     }
@@ -85,6 +93,8 @@ impl AppError {
             Self::PermissionError(msg) => {
                 format!("权限错误: {}，请检查文件或目录权限", msg)
             }
+            Self::PlatformNotSupported(msg) => format!("平台不支持: {}", msg),
+            Self::StoragePermissionError(msg) => format!("存储权限错误: {}", msg),
             Self::Other(msg) => msg.clone(),
         }
     }
@@ -114,6 +124,8 @@ impl AppError {
                     msg
                 )
             }
+            Self::PlatformNotSupported(msg) => format!("Platform not supported: {}", msg),
+            Self::StoragePermissionError(msg) => format!("Storage permission error: {}", msg),
             Self::Other(msg) => msg.clone(),
         }
     }
@@ -145,7 +157,11 @@ impl AppError {
     pub fn is_critical(&self) -> bool {
         matches!(
             self,
-            Self::PermissionError(_) | Self::ConfigError(_) | Self::FtpServerError(_)
+            Self::PermissionError(_)
+                | Self::ConfigError(_)
+                | Self::FtpServerError(_)
+                | Self::PlatformNotSupported(_)
+                | Self::StoragePermissionError(_)
         )
     }
 

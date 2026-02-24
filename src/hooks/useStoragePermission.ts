@@ -2,27 +2,8 @@ import { useState, useCallback, useEffect, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { toast } from 'sonner';
 
-/// 存储路径信息（与后端 StorageInfo 对应）
-export interface StorageInfo {
-  display_name: string;
-  path: string;
-  exists: boolean;
-  writable: boolean;
-  has_all_files_access: boolean;
-}
-
-/// 权限状态（与后端 PermissionStatus 对应）
-export interface PermissionStatus {
-  has_all_files_access: boolean;
-  needs_user_action: boolean;
-}
-
-/// 服务器启动检查结果
-export interface ServerStartCheckResult {
-  can_start: boolean;
-  reason?: string;
-  storage_info?: StorageInfo;
-}
+// 从统一的类型文件导入
+import type { StorageInfo, PermissionStatus, ServerStartCheckResult } from '../types';
 
 interface StoragePermissionState {
   storageInfo: StorageInfo | null;

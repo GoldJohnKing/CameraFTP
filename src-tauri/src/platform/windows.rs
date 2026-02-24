@@ -239,6 +239,18 @@ impl PlatformService for WindowsPlatform {
 
     // ========== 开机自启相关 ==========
 
+    fn supports_autostart(&self) -> bool {
+        true
+    }
+
+    fn set_autostart(&self, enable: bool) -> Result<(), String> {
+        set_autostart(enable).map_err(|e| format!("设置开机自启失败: {}", e))
+    }
+
+    fn is_autostart_enabled(&self) -> Result<bool, String> {
+        is_autostart_enabled().map_err(|e| format!("获取自启状态失败: {}", e))
+    }
+
     fn is_autostart_mode(&self) -> bool {
         is_autostart_mode()
     }
@@ -248,6 +260,11 @@ impl PlatformService for WindowsPlatform {
             let _ = window.hide();
             let _ = window.set_skip_taskbar(true);
         }
+    }
+
+    fn get_storage_path(&self) -> Result<String, String> {
+        let config = crate::config::AppConfig::load();
+        Ok(config.save_path.to_string_lossy().to_string())
     }
 
     fn execute_autostart_server(
@@ -265,15 +282,12 @@ impl PlatformService for WindowsPlatform {
                 Ok(ctx) => {
                     tracing::info!("FTP server auto-started on {}:{}", ctx.ip, ctx.port);
 
-                    // 启动事件处理器
+                    // 启动事件处理器（EventBus 会发送 server-started 事件）
                     crate::ftp::server_factory::spawn_event_processor(
                         app_handle.clone(),
                         ctx.event_bus,
                         500
                     );
-
-                    // 发送事件给前端
-                    crate::ftp::server_factory::emit_server_started(&app_handle, &ctx.ip, ctx.port);
 
                     // 更新托盘图标为 idle 状态
                     if let Err(e) = update_tray_icon(&app_handle, TrayIconState::Idle) {
