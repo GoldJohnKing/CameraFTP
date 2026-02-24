@@ -39,27 +39,37 @@ const defaultStats: ServerStatus = {
 };
 
 // Update Android foreground service with current server state
-const updateAndroidServiceState = (isRunning: boolean, stats: ServerStatus | null, connectedClients: number) => {
-  console.log('[Android] updateAndroidServiceState called:', { isRunning, connectedClients, stats });
+const updateAndroidServiceState = (isRunning: boolean, stats: ServerStatus | null, connectedClients: number, immediate = false) => {
+  console.log('[Android] updateAndroidServiceState called:', { isRunning, connectedClients, stats, immediate });
   console.log('[Android] window.ServerStateAndroid available:', !!window.ServerStateAndroid);
   
-  // Use ServerStateAndroid bridge (not MainActivity)
-  if (window.ServerStateAndroid) {
-    try {
-      const statsJson = stats ? JSON.stringify({
-        files_transferred: stats.files_received || 0,
-        bytes_transferred: stats.bytes_received || 0,
-      }) : null;
-      
-      console.log('[Android] Calling ServerStateAndroid.onServerStateChanged with:', { isRunning, statsJson, connectedClients });
-      window.ServerStateAndroid.onServerStateChanged(isRunning, statsJson, connectedClients);
-      console.log('[Android] ServerStateAndroid.onServerStateChanged call completed');
-    } catch (e) {
-      console.error('[Android] Failed to update service state:', e);
+  // 立即模式：更多重试次数但更短间隔（用于服务器启动时）
+  const MAX_RETRIES = immediate ? 30 : 5;
+  const RETRY_DELAY_MS = immediate ? 50 : 200;
+  
+  const tryUpdate = (retriesLeft: number) => {
+    if (window.ServerStateAndroid) {
+      try {
+        const statsJson = stats ? JSON.stringify({
+          files_transferred: stats.files_received || 0,
+          bytes_transferred: stats.bytes_received || 0,
+        }) : null;
+        
+        console.log('[Android] Calling ServerStateAndroid.onServerStateChanged with:', { isRunning, statsJson, connectedClients });
+        window.ServerStateAndroid.onServerStateChanged(isRunning, statsJson, connectedClients);
+        console.log('[Android] ServerStateAndroid.onServerStateChanged call completed');
+      } catch (e) {
+        console.error('[Android] Failed to update service state:', e);
+      }
+    } else if (retriesLeft > 0) {
+      console.warn(`[Android] ServerStateAndroid bridge not available, retrying in ${RETRY_DELAY_MS}ms (${MAX_RETRIES - retriesLeft + 1}/${MAX_RETRIES})`);
+      setTimeout(() => tryUpdate(retriesLeft - 1), RETRY_DELAY_MS);
+    } else {
+      console.error('[Android] ServerStateAndroid bridge not available after retries - cannot update notification');
     }
-  } else {
-    console.warn('[Android] ServerStateAndroid bridge not available - cannot update notification');
-  }
+  };
+  
+  tryUpdate(MAX_RETRIES);
 };
 
 // 定义所有事件的注册配置
@@ -199,14 +209,19 @@ const doStartServer = async (set: (fn: (state: ServerState) => ServerState) => v
   set((state) => ({ ...state, isLoading: true, error: null }));
   try {
     const info = await invoke<ServerInfo>('start_server');
+    
+    // 立即更新 Android 通知（在设置状态之前，确保最低延迟）
+    // 使用局部变量而不是 get()，避免状态未更新问题
+    const initialStats = { ...get().stats, is_running: true };
+    // immediate=true: 使用更短间隔和更多重试，确保快速显示
+    updateAndroidServiceState(true, initialStats, 0, true);
+    
     set((state) => ({
       ...state,
       isRunning: true,
       serverInfo: info,
-      stats: { ...state.stats, is_running: true }
+      stats: initialStats
     }));
-    // Update Android foreground service
-    updateAndroidServiceState(true, get().stats, 0);
   } catch (err: unknown) {
     const errorMessage = formatError(err);
     set((state) => ({ ...state, error: errorMessage }));

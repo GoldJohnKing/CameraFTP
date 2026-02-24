@@ -292,7 +292,7 @@ class MainActivity : TauriActivity() {
     @SuppressLint("SetJavaScriptEnabled")
     private fun registerFileUploadEventListener() {
         webViewRef?.let { webView ->
-            // 延迟注入确保Tauri环境已就绪
+            // 延迟注入确保Tauri环境已就绪（减少延迟从500ms到100ms）
             webView.postDelayed({
                 val jsCode = """
                     (function() {
@@ -350,7 +350,7 @@ class MainActivity : TauriActivity() {
                 webView.evaluateJavascript(jsCode) { result ->
                     Log.d(TAG, "Tauri event listeners registration result: $result")
                 }
-            }, 500)
+            }, 100)
         } ?: run {
             Log.e(TAG, "WebView is null, cannot register event listeners")
         }
