@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
-import { Loader2, Folder, Settings, CheckCircle, AlertCircle, RefreshCw } from 'lucide-react';
+import { Loader2, Folder, RefreshCw } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { useConfigStore } from '../stores/configStore';
 import { usePermissionStore } from '../stores/permissionStore';
@@ -25,11 +25,7 @@ export function ConfigCard() {
     storageInfo,
     isLoading: isLoadingStorage,
     needsPermission,
-    isReady,
     displayName,
-    loadStorageInfo,
-    checkPermissionStatus,
-    requestAllFilesPermission,
     ensureStorageReady,
   } = useStoragePermission();
 
@@ -177,10 +173,6 @@ export function ConfigCard() {
     }
   };
 
-  const handleRequestPermission = async () => {
-    await requestAllFilesPermission();
-  };
-
   const handleEnsureReady = async () => {
     setIsCreatingDir(true);
     try {
@@ -188,11 +180,6 @@ export function ConfigCard() {
     } finally {
       setIsCreatingDir(false);
     }
-  };
-
-  const handleRefreshStorage = async () => {
-    await loadStorageInfo();
-    await checkPermissionStatus();
   };
 
   return (
@@ -215,49 +202,10 @@ export function ConfigCard() {
                 {isLoadingStorage ? (
                   <p className="text-xs text-gray-400 mt-1">加载中...</p>
                 ) : (
-                  <div className="flex items-center gap-1 mt-1">
-                    <span className="text-xs text-gray-500 truncate">{displayName}</span>
-                    {isReady ? (
-                      <CheckCircle className="w-3.5 h-3.5 text-green-500 shrink-0" />
-                    ) : needsPermission ? (
-                      <AlertCircle className="w-3.5 h-3.5 text-yellow-500 shrink-0" />
-                    ) : (
-                      <AlertCircle className="w-3.5 h-3.5 text-red-500 shrink-0" />
-                    )}
-                  </div>
+                  <p className="text-xs text-gray-500 mt-1 truncate">{displayName}</p>
                 )}
               </div>
-              <button
-                onClick={handleRefreshStorage}
-                disabled={isLoadingStorage}
-                className="ml-3 shrink-0 p-1.5 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100 disabled:opacity-50 transition-colors"
-                title="刷新状态"
-              >
-                <RefreshCw className={`w-4 h-4 ${isLoadingStorage ? 'animate-spin' : ''}`} />
-              </button>
             </div>
-
-            {/* 权限提示 */}
-            {needsPermission && (
-              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
-                <div className="flex items-start gap-2">
-                  <AlertCircle className="w-4 h-4 text-yellow-600 flex-shrink-0 mt-0.5" />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-xs font-medium text-yellow-800">需要存储权限</p>
-                    <p className="text-xs text-yellow-700 mt-0.5">
-                      应用需要"所有文件访问权限"才能接收照片
-                    </p>
-                    <button
-                      onClick={handleRequestPermission}
-                      className="mt-2 flex items-center gap-1 px-2 py-1 bg-yellow-600 text-white text-xs rounded hover:bg-yellow-700 transition-colors"
-                    >
-                      <Settings className="w-3 h-3" />
-                      前往授权
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
 
             {/* 创建目录 */}
             {storageInfo && !storageInfo.exists && !needsPermission && (
