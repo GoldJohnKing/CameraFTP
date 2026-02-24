@@ -87,6 +87,8 @@ pub fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
                 if let Some(window) = app.get_webview_window("main") {
                     // 重置 skip_taskbar 状态，确保窗口能正常显示在任务栏
                     let _ = window.set_skip_taskbar(false);
+                    // 如果窗口被最小化，先恢复
+                    let _ = window.unminimize();
                     let _ = window.show();
                     let _ = window.set_focus();
                 }
@@ -98,6 +100,8 @@ pub fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
                     if let Some(window) = app.get_webview_window("main") {
                         // 重置 skip_taskbar 状态，确保窗口能正常显示在任务栏
                         let _ = window.set_skip_taskbar(false);
+                        // 如果窗口被最小化，先恢复
+                        let _ = window.unminimize();
                         let _ = window.show();
                         let _ = window.set_focus();
                     }
