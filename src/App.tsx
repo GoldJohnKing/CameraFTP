@@ -29,8 +29,8 @@ function App() {
           // 如果组件已卸载，立即清理
           cleanup();
         }
-      } catch (err) {
-        console.error('Failed to initialize listeners:', err);
+      } catch {
+        // Silently ignore listener initialization errors
       }
     };
 
@@ -68,8 +68,8 @@ function App() {
       // 通过Rust命令隐藏窗口
       try {
         await invoke('hide_main_window');
-      } catch (err) {
-        console.error('Failed to hide window:', err);
+      } catch {
+        // Silently ignore window hide errors
       }
     }
   };

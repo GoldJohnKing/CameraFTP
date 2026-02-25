@@ -53,7 +53,6 @@ export function ServerCard() {
       // 不再显示Toast - 系统通知栏已提供状态提示
       
     } catch (err) {
-      console.error('Failed to start server:', err);
       toast.error('启动服务器失败：' + formatError(err));
     } finally {
       setIsStarting(false);
@@ -67,9 +66,8 @@ export function ServerCard() {
       } else {
         await handleStartServer();
       }
-    } catch (err) {
+    } catch {
       // 错误已在 store 中处理
-      console.error('Server toggle failed:', err);
     }
   };
 

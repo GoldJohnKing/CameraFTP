@@ -1,5 +1,4 @@
 use crate::error::{AppError, AppResult};
-use crate::ftp::error::FtpError;
 use crate::ftp::events::EventBus;
 use crate::ftp::listeners::{FtpDataListener, FtpPresenceListener};
 use crate::ftp::stats::{StatsActor, StatsActorWorker};
@@ -220,7 +219,6 @@ impl FtpServerActor {
 
         let root_path = config.root_path.clone();
         let port = config.port;
-        let (start_tx, _) = oneshot::channel::<AppResult<SocketAddr>>();
 
         // 构建并启动服务器
         let result = ServerBuilder::new(Box::new(move || {
@@ -254,8 +252,6 @@ impl FtpServerActor {
         let bind_str = bind_addr.to_string();
 
         // 启动服务器任务
-        let start_tx = Arc::new(RwLock::new(Some(start_tx)));
-
         tokio::spawn(async move {
             info!(bind_addr = %bind_str, "FTP server starting");
 
@@ -265,15 +261,6 @@ impl FtpServerActor {
                 }
                 Err(e) => {
                     error!(error = %e, "FTP server error");
-                    if let Some(tx) = start_tx.write().await.take() {
-                        let _ = tx.send(Err(FtpError::BindFailed {
-                            addr: bind_str,
-                            source: std::io::Error::new(
-                                std::io::ErrorKind::Other,
-                                e.to_string(),
-                            ),
-                        }.into()));
-                    }
                 }
             }
         });

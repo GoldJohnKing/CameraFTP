@@ -67,8 +67,7 @@ export function useStoragePermission() {
         setNeedsPermission(status.needs_user_action);
       }
       return status;
-    } catch (err) {
-      console.error('Failed to check permission status:', err);
+    } catch {
       return null;
     }
   }, []);
@@ -100,8 +99,7 @@ export function useStoragePermission() {
   const requestAllFilesPermission = useCallback(async () => {
     try {
       await invoke('request_all_files_permission');
-    } catch (err) {
-      console.error('Failed to request permission:', err);
+    } catch {
       toast.error('无法打开设置页面');
     }
   }, []);

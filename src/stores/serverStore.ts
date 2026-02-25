@@ -46,8 +46,8 @@ const updateAndroidServiceState = (isRunning: boolean, stats: ServerStatus | nul
           bytes_transferred: stats.bytes_received || 0,
         }) : null;
         window.ServerStateAndroid.onServerStateChanged(isRunning, statsJson, connectedClients);
-      } catch (e) {
-        console.error('[Android] Failed to update service state:', e);
+      } catch {
+        // Silently ignore Android service state update errors
       }
     } else if (retriesLeft > 0) {
       setTimeout(() => tryUpdate(retriesLeft - 1), RETRY_DELAY_MS);
@@ -106,8 +106,8 @@ const createEventRegistrations = (get: () => ServerState, set: (fn: (state: Serv
       if (window.FileUploadAndroid?.onFileUploaded) {
         try {
           window.FileUploadAndroid.onFileUploaded(payload.path, payload.size);
-        } catch (err) {
-          console.error('Failed to trigger media scan:', err);
+        } catch {
+          // Silently ignore media scan errors
         }
       }
     },
@@ -117,8 +117,8 @@ const createEventRegistrations = (get: () => ServerState, set: (fn: (state: Serv
     handler: async () => {
       try {
         await get().startServer();
-      } catch (err) {
-        console.error('Failed to start server from tray:', err);
+      } catch {
+        // Silently ignore tray start server errors
       }
     },
   },
@@ -127,8 +127,8 @@ const createEventRegistrations = (get: () => ServerState, set: (fn: (state: Serv
     handler: async () => {
       try {
         await get().stopServer();
-      } catch (err) {
-        console.error('Failed to stop server from tray:', err);
+      } catch {
+        // Silently ignore tray stop server errors
       }
     },
   },
@@ -141,11 +141,11 @@ const createEventRegistrations = (get: () => ServerState, set: (fn: (state: Serv
   {
     name: 'android-open-manage-storage-settings',
     handler: () => {
-      if (window.SAFPickerAndroid?.openAllFilesAccessSettings) {
+      if (window.StorageSettingsAndroid?.openAllFilesAccessSettings) {
         try {
-          window.SAFPickerAndroid.openAllFilesAccessSettings();
-        } catch (err) {
-          console.error('Failed to open settings:', err);
+          window.StorageSettingsAndroid.openAllFilesAccessSettings();
+        } catch {
+          // Silently ignore settings open errors
         }
       }
     },
@@ -165,8 +165,8 @@ const syncInitialState = async (set: (fn: (state: ServerState) => ServerState) =
         stats: status || { ...defaultStats, is_running: true },
       }));
     }
-  } catch (err) {
-    console.error('Failed to sync initial server state:', err);
+  } catch {
+    // Silently ignore initial state sync errors
   }
 };
 

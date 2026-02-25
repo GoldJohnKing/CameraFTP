@@ -31,18 +31,18 @@ async function registerEvents(
     try {
       const unlisten = await listen(name, handler);
       unlisteners.push(unlisten);
-    } catch (err) {
-      console.error(`Failed to register event listener for '${name}':`, err);
+    } catch {
+      // Silently ignore registration errors
     }
   }
 
   // 返回统一的清理函数
   return () => {
-    unlisteners.forEach((unlisten, index) => {
+    unlisteners.forEach((unlisten) => {
       try {
         unlisten();
-      } catch (err) {
-        console.error(`Failed to unregister event listener #${index}:`, err);
+      } catch {
+        // Silently ignore cleanup errors
       }
     });
   };
@@ -62,14 +62,13 @@ export function createEventManager() {
      */
     async on<T>(name: string, handler: EventHandler<T>): Promise<void> {
       if (isCleanedUp) {
-        console.warn(`Cannot register event '${name}': EventManager already cleaned up`);
         return;
       }
       try {
         const unlisten = await listen<T>(name, handler);
         unlisteners.push(unlisten);
-      } catch (err) {
-        console.error(`Failed to register event '${name}':`, err);
+      } catch {
+        // Silently ignore registration errors
       }
     },
 
@@ -78,7 +77,6 @@ export function createEventManager() {
      */
     async registerAll(registrations: EventRegistration<unknown>[]): Promise<void> {
       if (isCleanedUp) {
-        console.warn('Cannot register events: EventManager already cleaned up');
         return;
       }
       const cleanup = await registerEvents(registrations);
@@ -92,11 +90,11 @@ export function createEventManager() {
       if (isCleanedUp) return;
       isCleanedUp = true;
 
-      unlisteners.forEach((unlisten, index) => {
+      unlisteners.forEach((unlisten) => {
         try {
           unlisten();
-        } catch (err) {
-          console.error(`Failed to cleanup event listener #${index}:`, err);
+        } catch {
+          // Silently ignore cleanup errors
         }
       });
       unlisteners.length = 0;

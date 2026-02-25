@@ -3,9 +3,6 @@ use super::types::{PermissionStatus, StorageInfo};
 use tauri::{AppHandle, Emitter};
 use tracing::{debug, error, info};
 
-/// 默认存储目录名称
-pub const DEFAULT_STORAGE_DIR_NAME: &str = "CameraFTP";
-
 /// 默认存储路径：DCIM/CameraFTP
 /// 这是固定路径，用户不能更改
 pub const DEFAULT_STORAGE_PATH: &str = "/storage/emulated/0/DCIM/CameraFTP";

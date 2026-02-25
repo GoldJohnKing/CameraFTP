@@ -1,11 +1,11 @@
-import React from "react";
+import { StrictMode } from "react";
 import ReactDOM from "react-dom/client";
 import { Toaster } from 'sonner';
 import App from "./App";
 import "./index.css";
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
-  <React.StrictMode>
+  <StrictMode>
     <App />
     <Toaster 
       position="bottom-center" 
@@ -13,5 +13,5 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
       closeButton
       duration={4000}
     />
-  </React.StrictMode>,
+  </StrictMode>,
 );

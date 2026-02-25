@@ -1,5 +1,3 @@
-// src/utils/format.ts
-
 /**
  * 将字节数格式化为可读的 MB 字符串
  * @param bytes 字节数

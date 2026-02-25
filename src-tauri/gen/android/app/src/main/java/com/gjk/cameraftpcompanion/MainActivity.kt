@@ -103,13 +103,13 @@ class ServerStateBridge(activity: MainActivity) : BaseJsBridge(activity, "Server
 }
 
 /**
- * SAF (Storage Access Framework) JavaScript Bridge
- * 仅保留所有文件访问权限设置功能
+ * 存储权限设置 JavaScript Bridge
+ * 用于打开系统存储权限设置页面
  */
-class SAFPickerBridge(activity: MainActivity) : BaseJsBridge(activity, "SAFPickerBridge") {
+class StorageSettingsBridge(activity: MainActivity) : BaseJsBridge(activity, "StorageSettingsBridge") {
 
     /**
-     * 打开所有文件访问权限设置页面
+     * 打开"所有文件访问权限"设置页面
      * 直接跳转到系统设置中的权限开关页面
      */
     @JavascriptInterface
@@ -133,7 +133,7 @@ class MainActivity : TauriActivity() {
         var currentActivity: MainActivity? = null
     }
     
-    private var safBridge: SAFPickerBridge? = null
+    private var storageSettingsBridge: StorageSettingsBridge? = null
     private var webViewRef: WebView? = null
     private var fileUploadListener: FileUploadListener? = null
     private var fileUploadBridge: FileUploadBridge? = null
@@ -159,7 +159,7 @@ class MainActivity : TauriActivity() {
         Log.d(TAG, "MainActivity created")
         
         // 初始化Bridge
-        safBridge = SAFPickerBridge(this)
+        storageSettingsBridge = StorageSettingsBridge(this)
         
         // 初始化权限Bridge
         permissionBridge = PermissionBridge(this)
@@ -184,7 +184,7 @@ class MainActivity : TauriActivity() {
         webViewRef = webView
         
         // 添加JavaScript Bridge - 此时WebView已创建完成
-        addJsBridge(webView, safBridge, "SAFPickerAndroid")
+        addJsBridge(webView, storageSettingsBridge, "StorageSettingsAndroid")
         addJsBridge(webView, fileUploadBridge, "FileUploadAndroid")
         addJsBridge(webView, serverStateBridge, "ServerStateAndroid")
         addJsBridge(webView, permissionBridge, "PermissionAndroid")

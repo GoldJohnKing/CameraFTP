@@ -22,7 +22,7 @@ export interface FileUploadAndroid {
  * Android 存储权限设置接口
  * 由 Android WebView 注入
  */
-export interface SAFPickerAndroid {
+export interface StorageSettingsAndroid {
   /**
    * 打开"所有文件访问权限"设置页面
    */
@@ -92,7 +92,7 @@ declare global {
     /**
      * Android 存储权限设置 JS Bridge
      */
-    SAFPickerAndroid?: SAFPickerAndroid;
+    StorageSettingsAndroid?: StorageSettingsAndroid;
     
     /**
      * Android Server State JS Bridge

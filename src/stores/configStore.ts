@@ -31,8 +31,7 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
     try {
       const platform = await invoke<string>('get_platform');
       set((state) => ({ ...state, platform }));
-    } catch (err: unknown) {
-      console.error('Failed to load platform:', err);
+    } catch {
       set((state) => ({ ...state, platform: 'unknown' }));
     }
   },
@@ -86,7 +85,7 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
   updateAutoSelectPort: async (autoSelect: boolean) => {
     const { config, saveConfig } = get();
     if (!config) return;
-    const newConfig = { ...config, autoSelectPort: autoSelect };
+    const newConfig = { ...config, auto_select_port: autoSelect };
     await saveConfig(newConfig);
   },
 }));

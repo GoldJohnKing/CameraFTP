@@ -66,7 +66,6 @@ export const usePermissionStore = create<PermissionStoreState>()((set, get) => (
     // Actions - 必须传入完整对象，内部计算 allGranted
     setPermissions: (newPerms) => {
       const allGranted = checkAllGranted(newPerms);
-      console.log('[PermissionStore] Setting permissions:', newPerms, 'allGranted:', allGranted);
       set({
         permissions: newPerms,
         allGranted,
@@ -106,7 +105,6 @@ export const usePermissionStore = create<PermissionStoreState>()((set, get) => (
     // Request storage permission (does NOT start polling - caller must call startPolling)
     requestStoragePermission: () => {
       if (isPermissionAndroidAvailable() && window.PermissionAndroid) {
-        console.log('[PermissionStore] Requesting storage permission');
         window.PermissionAndroid.requestStoragePermission();
       }
     },
@@ -114,7 +112,6 @@ export const usePermissionStore = create<PermissionStoreState>()((set, get) => (
     // Request notification permission (does NOT start polling - caller must call startPolling)
     requestNotificationPermission: () => {
       if (isPermissionAndroidAvailable() && window.PermissionAndroid) {
-        console.log('[PermissionStore] Requesting notification permission');
         window.PermissionAndroid.requestNotificationPermission();
       }
     },
@@ -122,7 +119,6 @@ export const usePermissionStore = create<PermissionStoreState>()((set, get) => (
     // Request battery optimization (does NOT start polling - caller must call startPolling)
     requestBatteryOptimization: () => {
       if (isPermissionAndroidAvailable() && window.PermissionAndroid) {
-        console.log('[PermissionStore] Requesting battery optimization');
         window.PermissionAndroid.requestBatteryOptimization();
       }
     },
@@ -137,7 +133,6 @@ export const usePermissionStore = create<PermissionStoreState>()((set, get) => (
         window.clearInterval(pollingIntervalId);
       }
       
-      console.log('[PermissionStore] Starting permission polling');
       set({ isPolling: true });
       
       // Store previous state to detect changes
@@ -152,7 +147,6 @@ export const usePermissionStore = create<PermissionStoreState>()((set, get) => (
           
           // If all already granted, stop immediately
           if (perms.storage && perms.notification && perms.batteryOptimization) {
-            console.log('[PermissionStore] All permissions already granted, stopping polling');
             get().stopPolling();
             return;
           }
@@ -173,14 +167,12 @@ export const usePermissionStore = create<PermissionStoreState>()((set, get) => (
             perms.batteryOptimization !== previousState.batteryOptimization;
           
           if (hasChanged) {
-            console.log('[PermissionStore] Permission change detected:', perms);
             previousState = perms;
             get().setPermissions(perms);
           }
           
           // If all granted, request stop (but let this interval finish)
           if (perms.storage && perms.notification && perms.batteryOptimization) {
-            console.log('[PermissionStore] All permissions granted, will stop polling');
             stopPollingRequested = true;
             // Delay stop to ensure state is propagated
             window.setTimeout(() => {
@@ -194,7 +186,6 @@ export const usePermissionStore = create<PermissionStoreState>()((set, get) => (
     // Stop polling
     stopPolling: () => {
       if (pollingIntervalId !== null) {
-        console.log('[PermissionStore] Stopping permission polling');
         window.clearInterval(pollingIntervalId);
         pollingIntervalId = null;
       }

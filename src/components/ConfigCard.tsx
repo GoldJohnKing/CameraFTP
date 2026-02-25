@@ -6,8 +6,6 @@ import { usePermissionStore } from '../stores/permissionStore';
 import { useStoragePermission } from '../hooks/useStoragePermission';
 import { Card, CardHeader, ToggleSwitch } from './ui';
 
-// Window.PermissionAndroid 类型已在 global.ts 中声明，无需重复
-
 export function ConfigCard() {
   const {
     config,
@@ -82,8 +80,8 @@ export function ConfigCard() {
       if (!isCancelled.current) {
         setAutostartEnabled(status);
       }
-    } catch (err) {
-      console.error('Failed to load autostart status:', err);
+    } catch {
+      // Silently ignore autostart status load errors
     }
   };
 
@@ -150,8 +148,7 @@ export function ConfigCard() {
       }
 
       await updatePort(port);
-    } catch (err) {
-      console.error('Failed to check port:', err);
+    } catch {
       setPortError('检查端口时出错');
     } finally {
       setIsCheckingPort(false);
