@@ -236,18 +236,26 @@ export const useServerStore = create<ServerState>((set, get) => ({
   pendingServerStart: false,
 
   startServer: async () => {
+    // 先设置 loading 状态，让 UI 有时间渲染动画
+    // 这是因为后续的 checkAndroidPermissions() 是同步阻塞调用
+    set((state) => ({ ...state, isLoading: true, error: null }));
+    
+    // 等待一帧，确保 React 完成渲染
+    await new Promise(resolve => requestAnimationFrame(resolve));
+    
     // Check if we're on Android and need to check permissions
     const permissions = await checkAndroidPermissions();
     
     if (permissions !== null) {
       if (!permissions.storage || !permissions.notification || !permissions.batteryOptimization) {
         // Show permission dialog instead of starting server
-        set({ showPermissionDialog: true, pendingServerStart: true });
+        set({ showPermissionDialog: true, pendingServerStart: true, isLoading: false });
         return false; // Return false to indicate server was NOT started
       }
     }
     
     // Permissions OK or not on Android, proceed to start
+    // 注意：doStartServer 也会设置 isLoading: true，但这里保持一致性
     await doStartServer(set, get);
     return true; // Return true to indicate server was successfully started
   },
