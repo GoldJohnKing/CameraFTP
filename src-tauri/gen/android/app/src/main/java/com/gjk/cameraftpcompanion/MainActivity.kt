@@ -144,7 +144,6 @@ class MainActivity : TauriActivity() {
     private var fileUploadBridge: FileUploadBridge? = null
     private var serverStateBridge: ServerStateBridge? = null
     private var permissionBridge: PermissionBridge? = null
-    private var ftpService: FtpForegroundService? = null
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -281,21 +280,6 @@ class MainActivity : TauriActivity() {
         webViewRef = null
         if (currentActivity == this) {
             currentActivity = null
-        }
-    }
-    
-    /**
-     * 在WebView中执行JavaScript
-     * 使用保存的WebView引用
-     */
-    fun evaluateJavascript(jsCode: String) {
-        runOnUiThread {
-            try {
-                webViewRef?.evaluateJavascript(jsCode, null)
-                    ?: Log.e(TAG, "WebView reference is null, cannot execute: $jsCode")
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to execute JavaScript", e)
-            }
         }
     }
     
