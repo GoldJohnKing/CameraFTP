@@ -4,7 +4,7 @@ use crate::ftp::events::EventBus;
 use crate::ftp::listeners::{FtpDataListener, FtpPresenceListener};
 use crate::ftp::stats::{StatsActor, StatsActorWorker};
 use crate::ftp::types::{
-    ServerConfig, ServerInfo, ServerStateSnapshot, ServerStatus, ServerStats,
+    ServerConfig, ServerInfo, ServerStateSnapshot, ServerStatus,
     StopReason,
 };
 use dashmap::DashSet;
@@ -27,9 +27,6 @@ pub enum ServerCommand {
     },
     GetStatus {
         respond_to: oneshot::Sender<ServerStatus>,
-    },
-    GetStats {
-        respond_to: oneshot::Sender<Option<ServerStats>>,
     },
     GetSnapshot {
         respond_to: oneshot::Sender<ServerStateSnapshot>,
@@ -94,18 +91,6 @@ impl FtpServerHandle {
         }
 
         rx.await.unwrap_or(ServerStatus::Stopped)
-    }
-
-    /// 获取统计数据
-    pub async fn get_stats(&self) -> Option<ServerStats> {
-        let (tx, rx) = oneshot::channel();
-        let cmd = ServerCommand::GetStats { respond_to: tx };
-
-        if self.tx.send(cmd).await.is_err() {
-            return None;
-        }
-
-        rx.await.ok().flatten()
     }
 
     /// 获取状态快照
@@ -210,10 +195,6 @@ impl FtpServerActor {
             ServerCommand::GetStatus { respond_to } => {
                 let status = self.get_current_status().await;
                 let _ = respond_to.send(status);
-            }
-            ServerCommand::GetStats { respond_to } => {
-                let stats = Some(self.stats_actor.get_stats_direct().await);
-                let _ = respond_to.send(stats);
             }
             ServerCommand::GetSnapshot { respond_to } => {
                 let snapshot = self.get_current_snapshot().await;

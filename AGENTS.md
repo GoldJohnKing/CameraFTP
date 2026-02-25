@@ -188,7 +188,6 @@ platform.setup(app.handle())?;
 
 **工具函数** (`utils/format.ts`):
 - `formatBytes()`: 字节数格式化为 MB
-- `formatBytesAuto()`: 自动选择最佳单位
 
 **事件监听** (统一在 `serverStore.initializeListeners()`):
 - `server-started`/`server-stopped`: 服务器状态变化

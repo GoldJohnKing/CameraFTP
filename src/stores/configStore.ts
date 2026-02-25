@@ -9,14 +9,12 @@ interface ConfigState {
   error: string | null;
   activeTab: 'home' | 'config';
   platform: string;
-  
+
   // Actions
   loadConfig: () => Promise<void>;
   saveConfig: (config: AppConfig) => Promise<void>;
-  updateSavePath: (path: string) => Promise<void>;
   setAutostart: (enabled: boolean) => Promise<void>;
   setActiveTab: (tab: 'home' | 'config') => void;
-  selectDirectory: () => Promise<string | null>;
   updatePort: (port: number) => Promise<void>;
   updateAutoSelectPort: (autoSelect: boolean) => Promise<void>;
   loadPlatform: () => Promise<void>;
@@ -62,13 +60,6 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
     }
   },
 
-  updateSavePath: async (path: string) => {
-    const { config, saveConfig } = get();
-    if (!config) return;
-    const newConfig = { ...config, save_path: path };
-    await saveConfig(newConfig);
-  },
-
   setAutostart: async (enabled: boolean) => {
     set((state) => ({ ...state, isLoading: true, error: null }));
     try {
@@ -83,16 +74,6 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
 
   setActiveTab: (tab: 'home' | 'config') => {
     set((state) => ({ ...state, activeTab: tab }));
-  },
-
-  selectDirectory: async () => {
-    try {
-      const selected = await invoke<string | null>('select_save_directory');
-      return selected;
-    } catch (err: unknown) {
-      console.error('Failed to select directory:', err);
-      return null;
-    }
   },
 
   updatePort: async (port: number) => {
