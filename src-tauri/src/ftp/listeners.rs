@@ -74,16 +74,6 @@ impl FtpPresenceListener {
     pub fn new(stats: StatsActor, sessions: Arc<DashSet<String>>) -> Self {
         Self { stats, sessions }
     }
-
-    /// 获取当前会话数量
-    pub fn session_count(&self) -> usize {
-        self.sessions.len()
-    }
-
-    /// 获取所有会话ID
-    pub fn session_ids(&self) -> Vec<String> {
-        self.sessions.iter().map(|s| s.clone()).collect()
-    }
 }
 
 impl PresenceListener for FtpPresenceListener {

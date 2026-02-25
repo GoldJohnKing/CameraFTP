@@ -12,11 +12,6 @@ pub struct ServerStats {
 }
 
 impl ServerStats {
-    /// 创建空统计
-    pub fn empty() -> Self {
-        Self::default()
-    }
-
     /// 检查是否与另一个统计对象不同（用于增量更新）
     pub fn has_changed(&self, other: &Self) -> bool {
         self.active_connections != other.active_connections

@@ -6,8 +6,6 @@
 //! - 服务器Actor（FtpServerActor）
 //! - 监听器（Listeners）
 
-use tracing::info;
-
 pub mod error;
 pub mod events;
 pub mod listeners;
@@ -17,7 +15,7 @@ pub mod stats;
 pub mod types;
 
 // 重新导出主要类型
-pub use error::{FtpError, FtpResult};
+pub use error::FtpError;
 pub use events::{EventBus, EventBusConfig, EventProcessor, StatsEventHandler};
 pub use server::{create_ftp_server, FtpServerActor, FtpServerHandle};
 pub use server_factory::{
@@ -28,11 +26,6 @@ pub use types::{
     DomainEvent, ServerConfig, ServerInfo, ServerStateSnapshot, ServerStatus,
     ServerStats, StopReason,
 };
-
-/// 初始化FTP模块
-pub fn init() {
-    info!("FTP module initialized");
-}
 
 #[cfg(test)]
 mod tests {

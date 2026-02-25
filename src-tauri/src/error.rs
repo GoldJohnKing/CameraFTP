@@ -1,6 +1,5 @@
 use serde::Serialize;
 use thiserror::Error;
-use tracing::warn;
 
 /// 应用统一错误类型
 #[derive(Error, Debug, Clone)]
@@ -96,25 +95,6 @@ impl AppError {
                 | Self::PlatformNotSupported(_)
                 | Self::StoragePermissionError(_)
         )
-    }
-
-    /// 结构化日志记录
-    pub fn log(&self, context: &str) {
-        if self.is_critical() {
-            tracing::error!(
-                context = context,
-                error_code = self.code(),
-                message = %self,
-                "Critical error occurred"
-            );
-        } else {
-            warn!(
-                context = context,
-                error_code = self.code(),
-                message = %self,
-                "Error occurred"
-            );
-        }
     }
 }
 

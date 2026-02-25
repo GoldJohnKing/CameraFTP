@@ -8,7 +8,7 @@ import { listen, Event, UnlistenFn } from '@tauri-apps/api/event';
 /**
  * 事件处理器类型
  */
-export type EventHandler<T = unknown> = (event: Event<T>) => void;
+type EventHandler<T = unknown> = (event: Event<T>) => void;
 
 /**
  * 事件注册配置
@@ -22,7 +22,7 @@ export interface EventRegistration<T = unknown> {
  * 批量注册事件监听器
  * 返回统一的清理函数
  */
-export async function registerEvents(
+async function registerEvents(
   registrations: EventRegistration<unknown>[]
 ): Promise<UnlistenFn> {
   const unlisteners: UnlistenFn[] = [];

@@ -4,7 +4,7 @@ import type { PermissionCheckResult } from '../types/global';
 
 // Window.PermissionAndroid 类型已在 global.ts 中声明，无需重复
 
-export interface PermissionStoreState {
+interface PermissionStoreState {
   // Permission states
   permissions: PermissionCheckResult;
   isLoading: boolean;

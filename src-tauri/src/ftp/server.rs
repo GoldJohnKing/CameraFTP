@@ -307,8 +307,6 @@ impl FtpServerActor {
         let bind_str = bind_addr.to_string();
 
         // 启动服务器任务
-        let _status = self.status.clone();
-        let _event_bus = self.event_bus.clone();
         let start_tx = Arc::new(RwLock::new(Some(start_tx)));
 
         tokio::spawn(async move {

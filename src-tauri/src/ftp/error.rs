@@ -37,6 +37,3 @@ impl From<std::io::Error> for FtpError {
         Self::Io(err)
     }
 }
-
-/// FTP操作结果类型
-pub type FtpResult<T> = Result<T, FtpError>;
