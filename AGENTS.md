@@ -119,7 +119,7 @@ camera-ftp-companion/
 │
 ├── 📁 src-tauri/gen/android/     # Android原生代码（Tauri自动生成）
 │   └── app/src/main/java/com/gjk/cameraftpcompanion/
-│       ├── MainActivity.kt       # 主活动 + JS Bridge（SAF/文件上传/服务器状态）
+│       ├── MainActivity.kt       # 主活动 + JS Bridge（存储设置/文件上传/服务器状态）
 │       ├── PermissionBridge.kt   # 权限JS Bridge（存储/通知/电池优化）
 │       ├── FtpForegroundService.kt # FTP前台服务（通知/WakeLock/WifiLock）
 │       ├── MediaScannerHelper.kt # 媒体扫描（让照片出现在相册）
