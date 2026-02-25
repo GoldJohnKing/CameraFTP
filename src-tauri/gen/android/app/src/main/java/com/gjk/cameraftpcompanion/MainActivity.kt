@@ -276,6 +276,9 @@ class MainActivity : TauriActivity() {
     
     /**
      * Handle permission request results
+     * Note: We do NOT auto-start the foreground service here anymore.
+     * The foreground service is only started when the FTP server is actually running,
+     * controlled via updateServiceState(isRunning=true) from the frontend.
      */
     override fun onRequestPermissionsResult(
         requestCode: Int,
@@ -285,16 +288,13 @@ class MainActivity : TauriActivity() {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         Log.d(TAG, "onRequestPermissionsResult: requestCode=$requestCode, results=${grantResults.joinToString()}")
         
+        // Just log the result, don't start foreground service
+        // The service will be started by updateServiceState() when server actually starts
         when (requestCode) {
             REQUEST_POST_NOTIFICATIONS -> {
                 val granted = grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED
                 Log.d(TAG, "Notification permission result: granted=$granted")
-                
-                if (granted) {
-                    // Start foreground service now that permission is granted
-                    startFtpForegroundService()
-                    Log.d(TAG, "Foreground service started after permission granted")
-                }
+                // No auto-start - user must click "Start Server" button
             }
         }
     }
