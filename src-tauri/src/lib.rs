@@ -15,7 +15,6 @@ use tauri::{Manager, Emitter};
 use commands::{
     check_port_available, 
     get_autostart_status, 
-    get_network_info, 
     get_platform, 
     get_server_info,
     get_server_status, 
@@ -192,7 +191,6 @@ pub fn run() {
             validate_save_path,
             
             // 网络
-            get_network_info,
             check_port_available,
             
             // 平台

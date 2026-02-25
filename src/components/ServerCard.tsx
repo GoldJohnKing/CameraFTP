@@ -4,6 +4,7 @@ import { toast } from 'sonner';
 import { useServerStore } from '../stores/serverStore';
 import { useStoragePermission } from '../hooks/useStoragePermission';
 import { LoadingButton, ErrorMessage } from './ui';
+import { formatError } from '../utils/error';
 
 
 export function ServerCard() {
@@ -53,7 +54,7 @@ export function ServerCard() {
       
     } catch (err) {
       console.error('Failed to start server:', err);
-      toast.error('启动服务器失败：' + (err instanceof Error ? err.message : String(err)));
+      toast.error('启动服务器失败：' + formatError(err));
     } finally {
       setIsStarting(false);
     }

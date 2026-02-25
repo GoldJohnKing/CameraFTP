@@ -119,12 +119,6 @@ pub async fn get_server_info(
 
 #[command]
 #[instrument]
-pub fn get_network_info() -> Result<Vec<crate::network::NetworkInterface>, AppError> {
-    Ok(NetworkManager::list_interfaces())
-}
-
-#[command]
-#[instrument]
 pub fn load_config() -> AppConfig {
     AppConfig::load()
 }

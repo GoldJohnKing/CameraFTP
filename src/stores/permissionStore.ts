@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { subscribeWithSelector } from 'zustand/middleware';
 import type { PermissionCheckResult } from '../types/global';
+import { formatError } from '../utils/error';
 
 // Window.PermissionAndroid 类型已在 global.ts 中声明，无需重复
 
@@ -117,7 +118,7 @@ export const usePermissionStore = create<PermissionStoreState>()(
           return get().permissions;
         }
       } catch (err) {
-        const errorMsg = err instanceof Error ? err.message : String(err);
+        const errorMsg = formatError(err);
         set({ isLoading: false, error: errorMsg });
         return get().permissions;
       }

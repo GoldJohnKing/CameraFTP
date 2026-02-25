@@ -3,6 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { toast } from 'sonner';
 
 import type { StorageInfo, PermissionStatus, ServerStartCheckResult } from '../types';
+import { formatError } from '../utils/error';
 
 interface StoragePermissionState {
   storageInfo: StorageInfo | null;
@@ -51,7 +52,7 @@ export function useStoragePermission() {
       return info;
     } catch (err) {
       if (!mountedRef.current) return null;
-      const errorMsg = err instanceof Error ? err.message : String(err);
+      const errorMsg = formatError(err);
       setState(prev => ({
         ...prev,
         isLoading: false,
@@ -89,7 +90,7 @@ export function useStoragePermission() {
       
       return result;
     } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : String(err);
+      const errorMsg = formatError(err);
       return {
         can_start: false,
         reason: errorMsg,
@@ -115,7 +116,7 @@ export function useStoragePermission() {
       await loadStorageInfo();
       return { success: true };
     } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : String(err);
+      const errorMsg = formatError(err);
       toast.error(errorMsg);
       return { success: false, error: errorMsg };
     }

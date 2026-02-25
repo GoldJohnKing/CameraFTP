@@ -128,7 +128,6 @@ pub fn ensure_storage_ready() -> Result<String, String> {
 
 /// 打开"所有文件访问权限"设置页面
 pub fn open_manage_storage_settings(app: &AppHandle) {
-    use tauri::Emitter;
     let _ = app.emit("android-open-manage-storage-settings", ());
     info!("Requesting to open manage storage settings");
 }

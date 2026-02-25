@@ -1,12 +1,13 @@
 import { Wifi } from 'lucide-react';
 import { useServerStore } from '../stores/serverStore';
+import { Card, IconContainer } from './ui';
 
 export function InfoCard() {
   const { serverInfo, isRunning } = useServerStore();
 
   if (!isRunning || !serverInfo) {
     return (
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+      <Card className="p-6">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg font-semibold text-gray-800">连接信息</h2>
           <div className="w-3 h-3 rounded-full bg-red-500" />
@@ -14,17 +15,17 @@ export function InfoCard() {
         <p className="text-gray-500 text-center py-4">
           启动服务器后显示连接信息
         </p>
-      </div>
+      </Card>
     );
   }
 
   return (
-    <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+    <Card className="p-6">
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-lg font-semibold text-gray-800">连接信息</h2>
-        <div className="w-10 h-10 rounded-lg bg-indigo-50 flex items-center justify-center">
+        <IconContainer color="indigo">
           <Wifi className="w-5 h-5 text-indigo-600" />
-        </div>
+        </IconContainer>
       </div>
 
       <div className="space-y-3 text-sm">
@@ -51,6 +52,6 @@ export function InfoCard() {
           </span>
         </div>
       </div>
-    </div>
+    </Card>
   );
 }

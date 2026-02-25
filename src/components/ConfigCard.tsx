@@ -5,6 +5,7 @@ import { useConfigStore } from '../stores/configStore';
 import { usePermissionStore } from '../stores/permissionStore';
 import { useStoragePermission } from '../hooks/useStoragePermission';
 import { ToggleSwitch } from './ui/ToggleSwitch';
+import { Card, CardHeader } from './ui';
 
 // Window.PermissionAndroid 类型已在 global.ts 中声明，无需重复
 
@@ -184,11 +185,8 @@ export function ConfigCard() {
 
   return (
   <>
-    <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-      <div className="p-4 border-b border-gray-100">
-        <h2 className="text-lg font-semibold text-gray-900">应用配置</h2>
-        <p className="text-sm text-gray-500 mt-1">管理应用设置和偏好</p>
-      </div>
+    <Card className="overflow-hidden">
+      <CardHeader title="应用配置" description="管理应用设置和偏好" />
 
       <div className="p-4 space-y-6">
         {/* Android 存储设置 */}
@@ -324,11 +322,11 @@ export function ConfigCard() {
           </div>
         )}
       </div>
-    </div>
+    </Card>
 
     {/* Permission Status Section - Android Only */}
     {isAndroid && typeof window !== 'undefined' && window.PermissionAndroid && (
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+      <Card className="overflow-hidden">
         <div className="p-4 border-b border-gray-100">
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-medium text-gray-700">权限状态</h3>
@@ -395,7 +393,7 @@ export function ConfigCard() {
             </div>
           </div>
         </div>
-      </div>
+      </Card>
     )}
   </>
   );

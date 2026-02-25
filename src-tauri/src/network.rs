@@ -1,8 +1,7 @@
 use tokio::net::TcpListener;
 use local_ip_address::{local_ip, list_afinet_netifas};
 
-#[derive(Debug, Clone, serde::Serialize, ts_rs::TS)]
-#[ts(export)]
+#[derive(Debug, Clone)]
 pub struct NetworkInterface {
     pub name: String,
     pub ip: String,
