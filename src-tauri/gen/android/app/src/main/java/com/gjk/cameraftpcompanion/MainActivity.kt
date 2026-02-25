@@ -4,18 +4,12 @@ import android.Manifest
 import android.annotation.SuppressLint
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.net.Uri
 import android.os.Build
 import android.os.Bundle
-import android.os.PowerManager
-import android.provider.Settings
 import android.util.Log
 import android.webkit.JavascriptInterface
 import android.webkit.WebView
-import android.widget.Toast
 import androidx.activity.enableEdgeToEdge
-import androidx.activity.result.contract.ActivityResultContracts
-import androidx.appcompat.app.AlertDialog
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 
@@ -114,46 +108,10 @@ class ServerStateBridge(activity: MainActivity) : BaseJsBridge(activity, "Server
 }
 
 /**
- * JavaScript Bridge 接口
- * 允许前端JavaScript直接调用Android方法
+ * SAF (Storage Access Framework) JavaScript Bridge
+ * 仅保留所有文件访问权限设置功能
  */
 class SAFPickerBridge(activity: MainActivity) : BaseJsBridge(activity, "SAFPickerBridge") {
-
-    private var callbackId: String? = null
-
-    /**
-     * 打开SAF目录选择器
-     * @param initialUri 初始URI（可选）
-     * @param callback JavaScript回调函数名
-     */
-    @JavascriptInterface
-    fun openPicker(initialUri: String?, callback: String): Boolean {
-        log("openPicker called from JavaScript, callback: $callback")
-        callbackId = callback
-
-        runOnUi {
-            activity.openSAFPicker(initialUri) { uri ->
-                // 调用JavaScript回调
-                val jsCode = if (uri != null) {
-                    "$callback('$uri')"
-                } else {
-                    "$callback(null)"
-                }
-
-                activity.evaluateJavascript(jsCode)
-            }
-        }
-
-        return true
-    }
-
-    /**
-     * 检查是否拥有所有文件访问权限
-     */
-    @JavascriptInterface
-    fun hasAllFilesAccess(): Boolean {
-        return StorageHelper.hasManageExternalStoragePermission(activity)
-    }
 
     /**
      * 打开所有文件访问权限设置页面
@@ -180,7 +138,6 @@ class MainActivity : TauriActivity() {
         var currentActivity: MainActivity? = null
     }
     
-    private var pickerCallback: ((String?) -> Unit)? = null
     private var safBridge: SAFPickerBridge? = null
     private var webViewRef: WebView? = null
     private var fileUploadListener: FileUploadListener? = null
@@ -188,24 +145,6 @@ class MainActivity : TauriActivity() {
     private var serverStateBridge: ServerStateBridge? = null
     private var permissionBridge: PermissionBridge? = null
     private var ftpService: FtpForegroundService? = null
-
-    // SAF 目录选择器回调
-    private val safPickerLauncher = registerForActivityResult(
-        ActivityResultContracts.OpenDocumentTree()
-    ) { uri: Uri? ->
-        Log.d(TAG, "SAF Picker result: $uri")
-        
-        if (uri != null) {
-            // 持久化权限
-            val success = StorageHelper.persistDirectoryUri(this, uri)
-            val uriString = if (success) uri.toString() else null
-            pickerCallback?.invoke(uriString)
-        } else {
-            // 用户取消
-            pickerCallback?.invoke(null)
-        }
-        pickerCallback = null
-    }
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -244,9 +183,6 @@ class MainActivity : TauriActivity() {
         
         // 保存WebView引用
         webViewRef = webView
-        
-        // Set WebView reference for the service to send JS events
-        FtpForegroundService.getInstance()?.webView = webView
         
         // 添加JavaScript Bridge - 此时WebView已创建完成
         safBridge?.let { bridge ->
@@ -332,35 +268,7 @@ class MainActivity : TauriActivity() {
 
     override fun onResume() {
         super.onResume()
-        LogWriter.log("MainActivity.onResume() called - emitting android-on-resume event")
-        Log.d(TAG, "onResume: App resumed, emitting event to refresh permissions")
-        
-        // Emit Tauri event to notify frontend to refresh permissions
-        // Delay slightly to ensure WebView is fully ready
-        webViewRef?.postDelayed({
-            runOnUiThread {
-                webViewRef?.evaluateJavascript(
-                    """
-                    (function() {
-                        console.log('[Android] onResume triggered, checking Tauri...');
-                        if(typeof window !== 'undefined' && window.__TAURI__ && window.__TAURI__.event) {
-                            console.log('[Android] Emitting android-on-resume event');
-                            window.__TAURI__.event.emit('android-on-resume', {});
-                        } else {
-                            console.log('[Android] Tauri not ready yet, retrying...');
-                            // Retry after a short delay
-                            setTimeout(function() {
-                                if(window.__TAURI__ && window.__TAURI__.event) {
-                                    window.__TAURI__.event.emit('android-on-resume', {});
-                                }
-                            }, 500);
-                        }
-                    })();
-                    """,
-                    null
-                )
-            }
-        }, 100)
+        Log.d(TAG, "onResume: App resumed")
     }
     
     override fun onPause() {
@@ -373,24 +281,6 @@ class MainActivity : TauriActivity() {
         webViewRef = null
         if (currentActivity == this) {
             currentActivity = null
-        }
-    }
-
-    /**
-     * 启动 SAF 目录选择器
-     */
-    fun openSAFPicker(initialUri: String?, callback: (String?) -> Unit) {
-        Log.d(TAG, "Opening SAF picker, initialUri: $initialUri")
-        
-        pickerCallback = callback
-        
-        val uri = initialUri?.let { Uri.parse(it) }
-        try {
-            safPickerLauncher.launch(uri)
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to launch SAF picker", e)
-            callback(null)
-            pickerCallback = null
         }
     }
     
@@ -426,35 +316,6 @@ class MainActivity : TauriActivity() {
     }
     
     /**
-     * Request battery optimization whitelist to keep service running in background
-     */
-    private fun requestBatteryOptimization() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            val powerManager = getSystemService(POWER_SERVICE) as PowerManager
-            val packageName = packageName
-            
-            if (!powerManager.isIgnoringBatteryOptimizations(packageName)) {
-                // Show dialog explaining why we need this permission
-                AlertDialog.Builder(this)
-                    .setTitle("Battery Optimization")
-                    .setMessage("To keep the FTP server running in the background, please allow this app to ignore battery optimizations.")
-                    .setPositiveButton("Settings") { _, _ ->
-                        try {
-                            val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
-                                data = Uri.parse("package:$packageName")
-                            }
-                            startActivity(intent)
-                        } catch (e: Exception) {
-                            Toast.makeText(this, "Failed to open settings", Toast.LENGTH_SHORT).show()
-                        }
-                    }
-                    .setNegativeButton("Later", null)
-                    .show()
-            }
-        }
-    }
-    
-    /**
      * Handle permission request results
      */
     override fun onRequestPermissionsResult(
@@ -472,28 +333,9 @@ class MainActivity : TauriActivity() {
                 
                 if (granted) {
                     // Start foreground service now that permission is granted
-                    // Service will show notification immediately since permission is ready
                     startFtpForegroundService()
                     Log.d(TAG, "Foreground service started after permission granted")
                 }
-                
-                // Emit event to notify frontend to refresh permissions
-                // Delay to ensure permission state is updated by system
-                webViewRef?.postDelayed({
-                    runOnUiThread {
-                        webViewRef?.evaluateJavascript(
-                            """
-                            (function() {
-                                console.log('[Android] Permission result received, emitting event');
-                                if(typeof window !== 'undefined' && window.__TAURI__ && window.__TAURI__.event) {
-                                    window.__TAURI__.event.emit('android-permission-result', {});
-                                }
-                            })();
-                            """,
-                            null
-                        )
-                    }
-                }, 300)
             }
         }
     }

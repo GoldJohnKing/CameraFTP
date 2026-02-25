@@ -43,9 +43,6 @@ class FtpForegroundService : Service() {
     private var wakeLock: PowerManager.WakeLock? = null
     private var wifiLock: WifiManager.WifiLock? = null
     
-    // WebView reference (set by MainActivity)
-    var webView: android.webkit.WebView? = null
-    
     override fun onBind(intent: Intent?): IBinder? = null
     
     override fun onCreate() {
@@ -267,25 +264,6 @@ class FtpForegroundService : Service() {
         } catch (e: Exception) {
             LogWriter.logError("Failed to update notification", e)
             Log.e(TAG, "Failed to update notification", e)
-        }
-    }
-    
-    /**
-     * Send JS event to WebView
-     */
-    private fun sendJsEvent(eventName: String, data: JSONObject?) {
-        webView?.post {
-            try {
-                val jsCode = if (data != null) {
-                    "window.__androidBridge?.emit('$eventName', ${data.toString()})"
-                } else {
-                    "window.__androidBridge?.emit('$eventName')"
-                }
-                webView?.evaluateJavascript(jsCode, null)
-                Log.d(TAG, "JS event sent: $eventName")
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to send JS event: ${e.message}")
-            }
         }
     }
 }

@@ -19,7 +19,7 @@ export interface FileUploadAndroid {
 }
 
 /**
- * Android SAF 选择器接口
+ * Android 存储权限设置接口
  * 由 Android WebView 注入
  */
 export interface SAFPickerAndroid {
@@ -90,7 +90,7 @@ declare global {
     FileUploadAndroid?: FileUploadAndroid;
     
     /**
-     * Android SAF 选择器 JS Bridge
+     * Android 存储权限设置 JS Bridge
      */
     SAFPickerAndroid?: SAFPickerAndroid;
     
