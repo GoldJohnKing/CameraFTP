@@ -40,24 +40,12 @@ export function PermissionDialog({ isOpen, onClose, onAllGranted }: PermissionDi
       onAllGranted();
       onClose();
     }
-    // No toast needed - UI already shows permission status clearly
   }, [allGranted, onAllGranted, onClose]);
 
-  // Handle permission requests - no toast, dialog already explains what to do
-  const handleRequestStorage = useCallback(() => {
-    requestStoragePermission();
-    // Polling is already running, it will detect the change when user returns
-  }, [requestStoragePermission]);
-
-  const handleRequestNotification = useCallback(() => {
-    requestNotificationPermission();
-    // Polling is already running, it will detect the change when dialog closes
-  }, [requestNotificationPermission]);
-
-  const handleRequestBattery = useCallback(() => {
-    requestBatteryOptimization();
-    // Polling is already running, it will detect the change when user returns
-  }, [requestBatteryOptimization]);
+  // Permission request handlers (polling auto-detects changes)
+  const handleRequestStorage = useCallback(() => requestStoragePermission(), [requestStoragePermission]);
+  const handleRequestNotification = useCallback(() => requestNotificationPermission(), [requestNotificationPermission]);
+  const handleRequestBattery = useCallback(() => requestBatteryOptimization(), [requestBatteryOptimization]);
 
   if (!isOpen) return null;
 

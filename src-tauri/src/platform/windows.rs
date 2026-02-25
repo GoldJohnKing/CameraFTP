@@ -32,6 +32,18 @@ fn create_icon_from_bytes(data: &[u8]) -> Result<tauri::image::Image<'static>, B
     Ok(icon)
 }
 
+/// Show and focus the main window
+fn show_main_window(app: &AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        // 重置 skip_taskbar 状态，确保窗口能正常显示在任务栏
+        let _ = window.set_skip_taskbar(false);
+        // 如果窗口被最小化，先恢复
+        let _ = window.unminimize();
+        let _ = window.show();
+        let _ = window.set_focus();
+    }
+}
+
 /// 更新托盘图标
 /// 
 /// # Arguments
@@ -84,27 +96,13 @@ pub fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
             } = event
             {
                 let app = tray.app_handle();
-                if let Some(window) = app.get_webview_window("main") {
-                    // 重置 skip_taskbar 状态，确保窗口能正常显示在任务栏
-                    let _ = window.set_skip_taskbar(false);
-                    // 如果窗口被最小化，先恢复
-                    let _ = window.unminimize();
-                    let _ = window.show();
-                    let _ = window.set_focus();
-                }
+                show_main_window(app);
             }
         })
         .on_menu_event(move |app: &AppHandle, event: MenuEvent| {
             match event.id.as_ref() {
                 "show" => {
-                    if let Some(window) = app.get_webview_window("main") {
-                        // 重置 skip_taskbar 状态，确保窗口能正常显示在任务栏
-                        let _ = window.set_skip_taskbar(false);
-                        // 如果窗口被最小化，先恢复
-                        let _ = window.unminimize();
-                        let _ = window.show();
-                        let _ = window.set_focus();
-                    }
+                    show_main_window(app);
                 }
                 "start" => {
                     // 发送事件给前端，由前端统一处理启动逻辑

@@ -140,6 +140,16 @@ class MainActivity : TauriActivity() {
     private var serverStateBridge: ServerStateBridge? = null
     private var permissionBridge: PermissionBridge? = null
 
+    /**
+     * Helper to add a JavaScript bridge to WebView with logging
+     */
+    private fun addJsBridge(webView: WebView, bridge: Any?, name: String) {
+        bridge?.let {
+            webView.addJavascriptInterface(it, name)
+            Log.d(TAG, "JavaScript Bridge '$name' added to WebView")
+        }
+    }
+
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
@@ -177,28 +187,10 @@ class MainActivity : TauriActivity() {
         webViewRef = webView
         
         // 添加JavaScript Bridge - 此时WebView已创建完成
-        safBridge?.let { bridge ->
-            webView.addJavascriptInterface(bridge, "SAFPickerAndroid")
-            Log.d(TAG, "JavaScript Bridge 'SAFPickerAndroid' added to WebView")
-        }
-        
-        // 添加文件上传Bridge
-        fileUploadBridge?.let { bridge ->
-            webView.addJavascriptInterface(bridge, "FileUploadAndroid")
-            Log.d(TAG, "JavaScript Bridge 'FileUploadAndroid' added to WebView")
-        }
-        
-        // 添加服务器状态Bridge
-        serverStateBridge?.let { bridge ->
-            webView.addJavascriptInterface(bridge, "ServerStateAndroid")
-            Log.d(TAG, "JavaScript Bridge 'ServerStateAndroid' added to WebView")
-        }
-        
-        // 添加权限Bridge
-        permissionBridge?.let { bridge ->
-            webView.addJavascriptInterface(bridge, "PermissionAndroid")
-            Log.d(TAG, "JavaScript Bridge 'PermissionAndroid' added to WebView")
-        }
+        addJsBridge(webView, safBridge, "SAFPickerAndroid")
+        addJsBridge(webView, fileUploadBridge, "FileUploadAndroid")
+        addJsBridge(webView, serverStateBridge, "ServerStateAndroid")
+        addJsBridge(webView, permissionBridge, "PermissionAndroid")
         
         // 注册Tauri事件监听 - 监听file-uploaded事件
         registerFileUploadEventListener()

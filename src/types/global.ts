@@ -117,3 +117,21 @@ export function isPermissionAndroidAvailable(): boolean {
          !!window.PermissionAndroid && 
          typeof window.PermissionAndroid.checkAllPermissions === 'function';
 }
+
+/**
+ * 检查 Android 权限状态
+ * @returns 权限检查结果，非 Android 平台返回 null
+ */
+export async function checkAndroidPermissions(): Promise<PermissionCheckResult | null> {
+  if (!isPermissionAndroidAvailable()) {
+    return null;
+  }
+  
+  try {
+    const result = await window.PermissionAndroid!.checkAllPermissions();
+    return JSON.parse(result) as PermissionCheckResult;
+  } catch (e) {
+    console.error('Failed to check permissions:', e);
+    return null;
+  }
+}

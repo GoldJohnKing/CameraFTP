@@ -15,15 +15,16 @@ object StorageHelper {
      * 跳转到设置页面开启所有文件访问权限
      */
     fun openManageStorageSettings(activity: Activity) {
+        val packageName = activity.packageName
         val intent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             // Android 11+: 跳转到应用特定的所有文件访问权限设置
             Intent(android.provider.Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION).apply {
-                data = Uri.parse("package:${MainActivity.currentActivity?.packageName}")
+                data = Uri.parse("package:$packageName")
             }
         } else {
             // Android 10 及以下: 跳转到应用信息页面
             Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
-                data = Uri.parse("package:${MainActivity.currentActivity?.packageName}")
+                data = Uri.parse("package:$packageName")
             }
         }
         activity.startActivity(intent)

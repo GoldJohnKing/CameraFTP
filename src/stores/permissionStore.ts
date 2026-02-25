@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { subscribeWithSelector } from 'zustand/middleware';
 import type { PermissionCheckResult } from '../types/global';
-import { isPermissionAndroidAvailable } from '../types/global';
+import { isPermissionAndroidAvailable, checkAndroidPermissions } from '../types/global';
 import { formatError } from '../utils/error';
 
 // Window.PermissionAndroid 类型已在 global.ts 中声明，无需重复
@@ -32,20 +32,12 @@ interface PermissionStoreState {
   stopPolling: () => void;
 }
 
-// Internal permission check function
+/// Internal permission check that returns default values for non-Android platforms
 async function permissionCheckInternal(): Promise<PermissionCheckResult | null> {
   if (!isPermissionAndroidAvailable()) {
     return { storage: true, notification: true, batteryOptimization: true };
   }
-  
-  try {
-    const result = await window.PermissionAndroid!.checkAllPermissions();
-    const parsed: PermissionCheckResult = JSON.parse(result);
-    return parsed;
-  } catch (err) {
-    console.error('[PermissionStore] Failed to check permissions:', err);
-    return null;
-  }
+  return checkAndroidPermissions();
 }
 
 // Helper to check if all permissions are granted

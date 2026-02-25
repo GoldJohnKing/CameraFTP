@@ -3,8 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import type { ServerInfo, ServerStatus } from '../types';
 import { formatError } from '../utils/error';
 import { createEventManager, type EventRegistration } from '../utils/events';
-import { isPermissionAndroidAvailable } from '../types/global';
-import type { PermissionCheckResult } from '../types/global';
+import { checkAndroidPermissions } from '../types/global';
 
 interface ServerState {
   // 状态
@@ -224,21 +223,6 @@ const doStartServer = async (set: (fn: (state: ServerState) => ServerState) => v
     throw err;
   } finally {
     set((state) => ({ ...state, isLoading: false }));
-  }
-};
-
-// 检查 Android 权限
-const checkAndroidPermissions = async (): Promise<PermissionCheckResult | null> => {
-  if (!isPermissionAndroidAvailable()) {
-    return null;
-  }
-  
-  try {
-    const result = await window.PermissionAndroid!.checkAllPermissions();
-    return JSON.parse(result) as PermissionCheckResult;
-  } catch (e) {
-    console.error('Failed to check permissions:', e);
-    return null;
   }
 };
 

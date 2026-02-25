@@ -225,7 +225,7 @@ impl FtpServerActor {
 
         let root_path = config.root_path.clone();
         let port = config.port;
-        let (start_tx, _start_rx) = oneshot::channel::<AppResult<SocketAddr>>();
+        let (start_tx, _) = oneshot::channel::<AppResult<SocketAddr>>();
 
         // 构建并启动服务器
         let result = ServerBuilder::new(Box::new(move || {

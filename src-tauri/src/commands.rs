@@ -38,11 +38,8 @@ pub async fn start_server(
         "FTP server started successfully"
     );
 
-    // 立即发送 server-started 事件到前端（不经过 EventProcessor，减少延迟）
-    let _ = app.emit("server-started", serde_json::json!({
-        "ip": ctx.ip,
-        "port": ctx.port
-    }));
+    // Note: server-started event is emitted via EventBus by StatsEventHandler
+    // This ensures consistent event handling through the event processor
 
     // 使用 PlatformService trait 更新平台状态
     crate::platform::get_platform().on_server_started(&app);
