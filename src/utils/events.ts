@@ -19,16 +19,6 @@ export interface EventRegistration<T = unknown> {
 }
 
 /**
- * 注册单个事件监听器
- */
-export async function registerEvent<T>(
-  name: string,
-  handler: EventHandler<T>
-): Promise<UnlistenFn> {
-  return await listen<T>(name, handler);
-}
-
-/**
  * 批量注册事件监听器
  * 返回统一的清理函数
  */

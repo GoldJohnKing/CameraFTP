@@ -11,8 +11,6 @@ pub struct EventBusConfig {
     pub broadcast_capacity: usize,
     /// 是否启用增量更新
     pub enable_incremental: bool,
-    /// 统计更新防抖间隔（毫秒）
-    pub stats_debounce_ms: u64,
 }
 
 impl Default for EventBusConfig {
@@ -20,7 +18,6 @@ impl Default for EventBusConfig {
         Self {
             broadcast_capacity: 100,
             enable_incremental: true,
-            stats_debounce_ms: 500,
         }
     }
 }
@@ -71,32 +68,12 @@ impl EventBus {
         self.emit(DomainEvent::ServerStopped { reason });
     }
 
-    /// 发布服务器失败事件
-    pub fn emit_server_failed(&self, error: impl Into<String>) {
-        self.emit(DomainEvent::ServerFailed {
-            error: error.into(),
-        });
-    }
-
     /// 发布文件上传事件
     pub fn emit_file_uploaded(&self, path: impl Into<String>, size: u64) {
         self.emit(DomainEvent::FileUploaded {
             path: path.into(),
             size,
         });
-    }
-
-    /// 发布会话连接事件
-    pub fn emit_session_connected(&self, id: impl Into<String>, username: impl Into<String>) {
-        self.emit(DomainEvent::SessionConnected {
-            id: id.into(),
-            username: username.into(),
-        });
-    }
-
-    /// 发布会话断开事件
-    pub fn emit_session_disconnected(&self, id: impl Into<String>) {
-        self.emit(DomainEvent::SessionDisconnected { id: id.into() });
     }
 
     /// 发布统计更新（带增量检查）
@@ -233,7 +210,7 @@ pub struct StatsEventHandler {
 }
 
 impl StatsEventHandler {
-    pub fn new(app_handle: tauri::AppHandle, _debounce_ms: u64) -> Self {
+    pub fn new(app_handle: tauri::AppHandle) -> Self {
         Self { app_handle }
     }
 }

@@ -139,10 +139,10 @@ pub async fn start_ftp_server(
     }
 }
 
-pub fn spawn_event_processor(app_handle: AppHandle, event_bus: EventBus, debounce_ms: u64) {
+pub fn spawn_event_processor(app_handle: AppHandle, event_bus: EventBus) {
     tokio::spawn(async move {
         let processor = EventProcessor::new(&event_bus)
-            .register(StatsEventHandler::new(app_handle, debounce_ms));
+            .register(StatsEventHandler::new(app_handle));
         processor.run().await;
     });
 }

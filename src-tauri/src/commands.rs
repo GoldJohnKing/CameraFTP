@@ -30,7 +30,6 @@ pub async fn start_server(
     crate::ftp::server_factory::spawn_event_processor(
         app.clone(),
         ctx.event_bus,
-        500
     );
 
     info!(

@@ -1,6 +1,6 @@
 use serde::Serialize;
 use thiserror::Error;
-use tracing::{error, instrument, warn};
+use tracing::warn;
 
 /// 应用统一错误类型
 #[derive(Error, Debug, Clone)]
@@ -65,15 +65,8 @@ impl AppError {
         }
     }
 
-    /// 获取用户友好的错误消息
-    pub fn user_message(&self, lang: Language) -> String {
-        match lang {
-            Language::Chinese => self.user_message_cn(),
-            Language::English => self.user_message_en(),
-        }
-    }
-
-    fn user_message_cn(&self) -> String {
+    /// 获取用户友好的错误消息（中文）
+    pub fn user_message(&self) -> String {
         match self {
             Self::ServerAlreadyRunning => "FTP服务器已经在运行中，请先停止当前服务器".to_string(),
             Self::ServerNotRunning => "FTP服务器未运行，无法执行此操作".to_string(),
@@ -82,75 +75,15 @@ impl AppError {
             }
             Self::NoNetworkInterface => "未检测到可用的网络接口，请检查网络连接".to_string(),
             Self::ConfigError(msg) => format!("配置错误: {}", msg),
-            Self::FtpServerError(msg) => {
-                format!("FTP服务器错误: {}", msg)
-            }
+            Self::FtpServerError(msg) => format!("FTP服务器错误: {}", msg),
             Self::Io(msg) => format!("文件系统错误: {}", msg),
-            Self::Serialization(msg) => {
-                format!("数据序列化错误: {}", msg)
-            }
+            Self::Serialization(msg) => format!("数据序列化错误: {}", msg),
             Self::NetworkError(msg) => format!("网络错误: {}", msg),
-            Self::PermissionError(msg) => {
-                format!("权限错误: {}，请检查文件或目录权限", msg)
-            }
+            Self::PermissionError(msg) => format!("权限错误: {}，请检查文件或目录权限", msg),
             Self::PlatformNotSupported(msg) => format!("平台不支持: {}", msg),
             Self::StoragePermissionError(msg) => format!("存储权限错误: {}", msg),
             Self::Other(msg) => msg.clone(),
         }
-    }
-
-    fn user_message_en(&self) -> String {
-        match self {
-            Self::ServerAlreadyRunning => {
-                "FTP server is already running, please stop it first".to_string()
-            }
-            Self::ServerNotRunning => "FTP server is not running".to_string(),
-            Self::NoAvailablePort => {
-                "No available port found (1025-65535), please check port usage".to_string()
-            }
-            Self::NoNetworkInterface => {
-                "No network interface detected, please check your network connection".to_string()
-            }
-            Self::ConfigError(msg) => format!("Configuration error: {}", msg),
-            Self::FtpServerError(msg) => {
-                format!("FTP server error: {}", msg)
-            }
-            Self::Io(msg) => format!("File system error: {}", msg),
-            Self::Serialization(msg) => format!("Serialization error: {}", msg),
-            Self::NetworkError(msg) => format!("Network error: {}", msg),
-            Self::PermissionError(msg) => {
-                format!(
-                    "Permission error: {}, please check file/directory permissions",
-                    msg
-                )
-            }
-            Self::PlatformNotSupported(msg) => format!("Platform not supported: {}", msg),
-            Self::StoragePermissionError(msg) => format!("Storage permission error: {}", msg),
-            Self::Other(msg) => msg.clone(),
-        }
-    }
-
-    /// 判断是否应该重试
-    pub fn should_retry(&self, attempt: u32) -> bool {
-        match self {
-            // 这些错误不应该重试
-            Self::ServerAlreadyRunning
-            | Self::ServerNotRunning
-            | Self::PermissionError(_)
-            | Self::ConfigError(_) => false,
-
-            // 这些错误可以有限重试
-            Self::NoAvailablePort | Self::NoNetworkInterface | Self::NetworkError(_) => attempt < 3,
-
-            // 其他错误尝试一次
-            _ => attempt < 1,
-        }
-    }
-
-    /// 获取建议的重试延迟（毫秒）
-    pub fn retry_delay_ms(&self, attempt: u32) -> u64 {
-        // 指数退避: 100ms, 200ms, 400ms...
-        100 * (2_u64.pow(attempt))
     }
 
     /// 判断是否是严重错误
@@ -166,62 +99,29 @@ impl AppError {
     }
 
     /// 结构化日志记录
-    #[instrument(skip(self), fields(error_code = self.code()))]
     pub fn log(&self, context: &str) {
-        let error_info = ErrorInfo {
-            code: self.code(),
-            message: self.to_string(),
-            user_message_cn: self.user_message_cn(),
-            user_message_en: self.user_message_en(),
-            is_critical: self.is_critical(),
-        };
-
         if self.is_critical() {
-            error!(
+            tracing::error!(
                 context = context,
-                error = ?error_info,
+                error_code = self.code(),
+                message = %self,
                 "Critical error occurred"
             );
         } else {
             warn!(
                 context = context,
-                error = ?error_info,
+                error_code = self.code(),
+                message = %self,
                 "Error occurred"
             );
         }
     }
-
-    /// 记录错误并返回self（用于链式调用）
-    #[instrument(skip(self))]
-    pub fn logged(self) -> Self {
-        self.log("error");
-        self
-    }
-}
-
-/// 错误信息结构（用于日志）
-#[derive(Debug, Serialize)]
-struct ErrorInfo {
-    code: &'static str,
-    message: String,
-    user_message_cn: String,
-    user_message_en: String,
-    is_critical: bool,
-}
-
-/// 语言枚举
-#[derive(Debug, Clone, Copy, Default)]
-pub enum Language {
-    #[default]
-    Chinese,
-    English,
 }
 
 impl From<std::io::Error> for AppError {
     fn from(err: std::io::Error) -> Self {
         let msg = err.to_string();
 
-        // 根据错误类型分类
         match err.kind() {
             std::io::ErrorKind::PermissionDenied => AppError::PermissionError(msg),
             std::io::ErrorKind::NotFound => AppError::Io(format!("File not found: {}", msg)),
@@ -269,7 +169,7 @@ impl Serialize for AppError {
         let mut state = serializer.serialize_struct("AppError", 4)?;
         state.serialize_field("code", self.code())?;
         state.serialize_field("message", &self.to_string())?;
-        state.serialize_field("userMessage", &self.user_message(Language::Chinese))?;
+        state.serialize_field("userMessage", &self.user_message())?;
         state.serialize_field("isCritical", &self.is_critical())?;
         state.end()
     }
@@ -294,23 +194,8 @@ mod tests {
     #[test]
     fn test_user_message() {
         let err = AppError::ServerAlreadyRunning;
-        let cn_msg = err.user_message(Language::Chinese);
-        let en_msg = err.user_message(Language::English);
-
-        assert!(cn_msg.contains("运行"));
-        assert!(en_msg.contains("running"));
-    }
-
-    #[test]
-    fn test_should_retry() {
-        let err = AppError::NoAvailablePort;
-        assert!(err.should_retry(0));
-        assert!(err.should_retry(1));
-        assert!(err.should_retry(2));
-        assert!(!err.should_retry(3));
-
-        let err = AppError::ServerAlreadyRunning;
-        assert!(!err.should_retry(0));
+        let msg = err.user_message();
+        assert!(msg.contains("运行"));
     }
 
     #[test]

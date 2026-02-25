@@ -321,7 +321,6 @@ impl PlatformService for WindowsPlatform {
                     crate::ftp::server_factory::spawn_event_processor(
                         app_handle.clone(),
                         ctx.event_bus.clone(),
-                        500
                     );
 
                     // 给 EventProcessor 一点时间启动订阅（关键！）

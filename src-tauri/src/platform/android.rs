@@ -13,16 +13,6 @@ pub const DEFAULT_STORAGE_PATH: &str = "/storage/emulated/0/DCIM/CameraFTP";
 /// 显示名称
 pub const STORAGE_DISPLAY_NAME: &str = "DCIM/CameraFTP";
 
-/// 获取默认存储路径
-pub fn get_default_storage_path() -> String {
-    DEFAULT_STORAGE_PATH.to_string()
-}
-
-/// 获取存储路径显示名称
-pub fn get_storage_display_name() -> String {
-    STORAGE_DISPLAY_NAME.to_string()
-}
-
 /// 获取存储路径信息
 pub fn get_storage_info() -> StorageInfo {
     let path = DEFAULT_STORAGE_PATH;
@@ -141,65 +131,6 @@ pub fn open_manage_storage_settings(app: &AppHandle) {
     use tauri::Emitter;
     let _ = app.emit("android-open-manage-storage-settings", ());
     info!("Requesting to open manage storage settings");
-}
-
-/// 设备信息
-#[derive(Debug, Clone, serde::Serialize)]
-pub struct DeviceInfo {
-    pub platform: String,
-    pub version: String,
-    pub model: String,
-}
-
-/// 获取 Android 设备信息
-pub fn get_device_info() -> DeviceInfo {
-    // 尝试从系统属性获取设备信息
-    let version = get_android_version();
-    let model = get_device_model();
-
-    DeviceInfo {
-        platform: "android".to_string(),
-        version,
-        model,
-    }
-}
-
-/// 获取 Android 版本
-fn get_android_version() -> String {
-    std::fs::read_to_string("/system/build.prop")
-        .ok()
-        .and_then(|content| {
-            content
-                .lines()
-                .find(|line| line.starts_with("ro.build.version.release="))
-                .map(|line| line.split('=').nth(1).unwrap_or("unknown").to_string())
-        })
-        .unwrap_or_else(|| "unknown".to_string())
-}
-
-/// 获取设备型号
-fn get_device_model() -> String {
-    std::fs::read_to_string("/system/build.prop")
-        .ok()
-        .and_then(|content| {
-            content
-                .lines()
-                .find(|line| line.starts_with("ro.product.model="))
-                .map(|line| line.split('=').nth(1).unwrap_or("unknown").to_string())
-        })
-        .unwrap_or_else(|| "unknown".to_string())
-}
-
-/// 显示本地通知
-pub fn show_notification(app: &AppHandle, title: &str, body: &str) {
-    use tauri::Emitter;
-    let _ = app.emit(
-        "android-show-notification",
-        serde_json::json!({
-            "title": title,
-            "body": body,
-        }),
-    );
 }
 
 /// Android 平台实现
