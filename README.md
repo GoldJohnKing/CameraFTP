@@ -21,35 +21,103 @@
 
 ---
 
-## 🚀 快速开始
-
-### Windows用户
-
-1. **下载**：[Releases页面](../../releases)下载 `camera-ftp-companion.exe`
-2. **运行**：双击EXE文件启动
-3. **启动服务器**：点击"启动服务器"按钮
-4. **配置相机**：在相机FTP设置中输入显示的连接信息
-
-### Android用户
-
-1. **下载**：安装APK文件
-2. **授予权限**：允许所有文件访问权限（Android 11+必需）
-3. **启动服务器**：点击"启动服务器"按钮
-4. **查看照片**：照片自动保存至 `DCIM/CameraFTP`
-
-### 相机设置示例
+## 🏗️ 技术架构
 
 ```
-协议: FTP (被动模式)
-服务器: 192.168.1.100
-端口: 21
-用户名: anonymous
-密码: (任意)
+React + TypeScript + TailwindCSS (前端)
+           ↓
+     Tauri IPC (Command/Event)
+           ↓
+Rust + libunftp (FTP Server后端)
+```
+
+| 层级 | 技术 | 版本 |
+|------|------|------|
+| **框架** | Tauri v2 | ^2.0.0 |
+| **前端** | React | ^18.2.0 |
+| **语言** | TypeScript | ^5.0.2 |
+| **状态管理** | Zustand | ^5.0.11 |
+| **样式** | TailwindCSS | ^3.4.15 |
+| **构建工具** | Vite | ^5.0.0 |
+| **后端** | Rust | ≥1.75 |
+| **FTP服务器** | libunftp | 0.23.0 |
+| **Android原生** | Kotlin | - |
+
+---
+
+## 📁 项目结构
+
+```
+camera-ftp-companion/
+├── 📄 配置文件
+│   ├── package.json              # Node.js依赖
+│   ├── build.sh                  # ⭐ 统一构建入口
+│   ├── build-windows.sh          # Windows构建
+│   ├── build-android.sh          # Android构建
+│   └── ...
+│
+├── 📁 src/                       # React前端源码
+│   ├── main.tsx                  # React入口
+│   ├── App.tsx                   # 主应用组件
+│   ├── components/               # UI组件
+│   ├── stores/                   # Zustand状态管理
+│   └── utils/                    # 工具函数
+│
+├── 📁 src-tauri/                 # Rust后端源码
+│   ├── Cargo.toml                # Rust依赖
+│   ├── src/
+│   │   ├── main.rs               # 程序入口
+│   │   ├── commands.rs           # Tauri命令（IPC接口）
+│   │   ├── ftp/                  # FTP服务器实现
+│   │   └── platform/             # 平台适配（Windows/Android）
+│   │
+│   └── 📁 gen/android/           # Android原生代码 (Kotlin)
+│       └── app/src/main/java/com/gjk/cameraftpcompanion/
+│           ├── MainActivity.kt           # 主活动 + JS Bridge
+│           ├── FtpForegroundService.kt   # FTP前台服务
+│           ├── PermissionBridge.kt       # 权限JS Bridge
+│           ├── StorageHelper.kt          # 存储辅助
+│           └── MediaScannerHelper.kt     # 媒体扫描
+│
+└── 📁 dist/                      # 构建输出
 ```
 
 ---
 
-## 🛠️ 开发指南
+## 🤖 Android 原生代码
+
+Android平台使用Kotlin实现以下功能：
+
+| 文件 | 功能 |
+|------|------|
+| **MainActivity.kt** | 主活动，管理JS Bridge（文件上传、服务器状态、存储设置） |
+| **FtpForegroundService.kt** | 前台服务，保持FTP在后台运行，显示状态通知 |
+| **PermissionBridge.kt** | 权限管理（存储、通知、电池优化） |
+| **StorageHelper.kt** | 跳转到系统存储权限设置页面 |
+| **MediaScannerHelper.kt** | 文件上传后触发媒体扫描，让照片出现在相册 |
+
+### JS Bridge 说明
+
+前端通过以下Bridge与Android原生交互：
+
+```typescript
+// 存储权限设置
+window.StorageSettingsAndroid?.openAllFilesAccessSettings()
+
+// 权限检查
+window.PermissionAndroid?.checkAllPermissions()
+window.PermissionAndroid?.requestStoragePermission()
+
+// 文件上传事件（由Rust通过Tauri事件触发）
+window.FileUploadAndroid?.onFileUploaded(path, size)
+
+// 服务器状态更新
+window.ServerStateAndroid?.onServerStateChanged(isRunning, statsJson, connectedClients)
+```
+
+---
+
+## 🚀 快速开始
 
 ### 环境要求
 
@@ -70,28 +138,32 @@ cargo tauri dev
 ### 生产构建
 
 ```bash
-# 统一构建入口
+# 统一构建入口（必须使用）
 ./build.sh <command>
 
 # 常用命令：
-# ./build.sh windows         # Windows 可执行文件
-# ./build.sh windows-bundle  # Windows 安装包 (EXE + MSI)
-# ./build.sh android         # Android APK (release)
-# ./build.sh android-debug   # Android APK (debug)
-# ./build.sh android-aab     # Android AAB (Google Play)
+./build.sh windows         # Windows 可执行文件
+./build.sh windows-bundle  # Windows 安装包 (EXE + MSI)
+./build.sh android         # Android APK (release)
+./build.sh android-debug   # Android APK (debug)
+./build.sh android-aab     # Android AAB (Google Play)
+./build.sh frontend        # 仅构建前端
+./build.sh dev             # 启动开发模式
 ```
 
 ---
 
-## 🏗️ 技术架构
+## ⚙️ 配置与存储
 
-```
-React + TypeScript + TailwindCSS
-            ↓
-      Tauri IPC
-            ↓
-    Rust + libunftp (FTP Server)
-```
+### 配置文件位置
+
+- **Windows**: `%APPDATA%\camera-ftp-companion\config.json`
+- **Android**: `/data/data/com.gjk.cameraftpcompanion/files/config.json`
+
+### 照片存储路径
+
+- **Windows**: 用户图片目录下的 `CameraFTP` 文件夹（可配置）
+- **Android**: `/storage/emulated/0/DCIM/CameraFTP`（固定路径）
 
 ---
 
