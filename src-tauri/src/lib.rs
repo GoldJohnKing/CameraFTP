@@ -16,7 +16,6 @@ use tauri::{Manager, Emitter};
 use commands::{
     check_port_available, 
     get_autostart_status, 
-    get_diagnostic_info, 
     get_network_info, 
     get_platform, 
     get_server_info,
@@ -197,8 +196,7 @@ pub fn run() {
             get_network_info,
             check_port_available,
             
-            // 诊断
-            get_diagnostic_info,
+            // 平台
             get_platform,
             
             // 自动启动（Windows）

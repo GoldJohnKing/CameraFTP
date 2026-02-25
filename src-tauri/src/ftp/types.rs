@@ -106,29 +106,13 @@ impl ServerStatus {
     }
 }
 
-/// 诊断信息（用于调试）
-#[derive(Debug, Clone, serde::Serialize)]
-pub struct DiagnosticInfo {
-    pub total_sessions: usize,
-    pub session_ids: Vec<String>,
-    pub status: ServerStatus,
-}
-
 /// 领域事件 - 用于事件驱动架构
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(tag = "type", content = "data")]
 pub enum DomainEvent {
     ServerStarted { bind_addr: String },
     ServerStopped { reason: StopReason },
-    ServerFailed { error: String },
     FileUploaded { path: String, size: u64 },
-    FileDownloaded { path: String, size: u64 },
-    FileDeleted { path: String },
-    DirectoryCreated { path: String },
-    DirectoryRemoved { path: String },
-    FileRenamed { from: String, to: String },
-    SessionConnected { id: String, username: String },
-    SessionDisconnected { id: String },
     StatsUpdated(ServerStats),
 }
 

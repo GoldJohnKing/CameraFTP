@@ -19,10 +19,6 @@ interface ServerState {
   // 操作
   startServer: () => Promise<boolean>;
   stopServer: () => Promise<void>;
-  updateStats: (stats: ServerStatus) => void;
-  setError: (error: string | null) => void;
-  clearError: () => void;
-  openPermissionDialog: () => void;
   closePermissionDialog: () => void;
   continueAfterPermissionsGranted: () => Promise<void>;
   
@@ -293,14 +289,6 @@ export const useServerStore = create<ServerState>((set, get) => ({
     }
   },
 
-  updateStats: (stats: ServerStatus) => {
-    set((state) => ({ ...state, stats }));
-  },
-
-  setError: (error: string | null) => set((state) => ({ ...state, error })),
-  clearError: () => set((state) => ({ ...state, error: null })),
-
-  openPermissionDialog: () => set({ showPermissionDialog: true }),
   closePermissionDialog: () => set({ showPermissionDialog: false, pendingServerStart: false }),
 
   continueAfterPermissionsGranted: async () => {

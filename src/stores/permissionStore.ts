@@ -16,7 +16,6 @@ export interface PermissionStoreState {
   // Actions
   setPermissions: (permissions: PermissionCheckResult) => void;
   setLoading: (loading: boolean) => void;
-  setError: (error: string | null) => void;
   setPolling: (polling: boolean) => void;
   
   // Check permissions from Android
@@ -94,8 +93,6 @@ export const usePermissionStore = create<PermissionStoreState>()(
     },
     
     setLoading: (loading) => set({ isLoading: loading }),
-    
-    setError: (error) => set({ error }),
     
     setPolling: (polling) => set({ isPolling: polling }),
     

@@ -4,7 +4,7 @@ use crate::ftp::events::EventBus;
 use crate::ftp::listeners::{FtpDataListener, FtpPresenceListener};
 use crate::ftp::stats::{StatsActor, StatsActorWorker};
 use crate::ftp::types::{
-    DiagnosticInfo, ServerConfig, ServerInfo, ServerStateSnapshot, ServerStatus, ServerStats,
+    ServerConfig, ServerInfo, ServerStateSnapshot, ServerStatus, ServerStats,
     StopReason,
 };
 use dashmap::DashSet;
@@ -33,9 +33,6 @@ pub enum ServerCommand {
     },
     GetSnapshot {
         respond_to: oneshot::Sender<ServerStateSnapshot>,
-    },
-    GetDiagnosticInfo {
-        respond_to: oneshot::Sender<DiagnosticInfo>,
     },
     GetServerInfo {
         respond_to: oneshot::Sender<Option<ServerInfo>>,
@@ -135,26 +132,6 @@ impl FtpServerHandle {
         })
     }
 
-    /// 获取诊断信息
-    pub async fn get_diagnostic_info(&self) -> DiagnosticInfo {
-        let (tx, rx) = oneshot::channel();
-        let cmd = ServerCommand::GetDiagnosticInfo { respond_to: tx };
-
-        if self.tx.send(cmd).await.is_err() {
-            return DiagnosticInfo {
-                total_sessions: 0,
-                session_ids: vec![],
-                status: ServerStatus::Stopped,
-            };
-        }
-
-        rx.await.unwrap_or_else(|_| DiagnosticInfo {
-            total_sessions: 0,
-            session_ids: vec![],
-            status: ServerStatus::Stopped,
-        })
-    }
-
     /// 检查服务器是否运行中
     pub async fn is_running(&self) -> bool {
         self.get_status().await.is_running()
@@ -241,10 +218,6 @@ impl FtpServerActor {
             ServerCommand::GetSnapshot { respond_to } => {
                 let snapshot = self.get_current_snapshot().await;
                 let _ = respond_to.send(snapshot);
-            }
-            ServerCommand::GetDiagnosticInfo { respond_to } => {
-                let info = self.get_diagnostic_info().await;
-                let _ = respond_to.send(info);
             }
             ServerCommand::GetServerInfo { respond_to } => {
                 let info = self.get_server_info().await;
@@ -439,18 +412,6 @@ impl FtpServerActor {
         snapshot.connected_clients = self.sessions.len();
         snapshot.is_running = is_running;
         snapshot
-    }
-
-    /// 获取诊断信息
-    async fn get_diagnostic_info(&self) -> DiagnosticInfo {
-        let session_ids: Vec<String> =
-            self.sessions.iter().map(|s| s.clone()).collect();
-
-        DiagnosticInfo {
-            total_sessions: session_ids.len(),
-            session_ids,
-            status: self.get_current_status().await,
-        }
     }
 
     /// 获取服务器连接信息（包含 IP 和端口）

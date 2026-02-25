@@ -143,20 +143,6 @@ pub async fn check_port_available(port: u16) -> bool {
     NetworkManager::is_port_available(port).await
 }
 
-#[command]
-#[instrument(skip(state))]
-pub async fn get_diagnostic_info(
-    state: State<'_, FtpServerState>,
-) -> Result<Option<crate::ftp::types::DiagnosticInfo>, AppError> {
-    let server_guard = state.0.lock().await;
-    if let Some(server) = server_guard.as_ref() {
-        let info = server.get_diagnostic_info().await;
-        Ok(Some(info))
-    } else {
-        Ok(None)
-    }
-}
-
 /// 设置开机自启
 #[tauri::command]
 pub fn set_autostart_command(enable: bool) -> Result<(), String> {

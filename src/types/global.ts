@@ -110,24 +110,6 @@ declare global {
 // ===== 类型守卫函数 =====
 
 /**
- * 检查 Android 文件上传桥接是否可用
- */
-export function isAndroidFileUploadAvailable(): boolean {
-  return typeof window !== 'undefined' && 
-         !!window.FileUploadAndroid && 
-         typeof window.FileUploadAndroid.onFileUploaded === 'function';
-}
-
-/**
- * 检查 Android SAF 选择器是否可用
- */
-export function isSAFPickerAvailable(): boolean {
-  return typeof window !== 'undefined' && 
-         !!window.SAFPickerAndroid && 
-         typeof window.SAFPickerAndroid.openAllFilesAccessSettings === 'function';
-}
-
-/**
  * 检查 Android 权限管理是否可用
  */
 export function isPermissionAndroidAvailable(): boolean {

@@ -190,15 +190,7 @@ fn event_type_name(event: &DomainEvent) -> String {
     match event {
         DomainEvent::ServerStarted { .. } => "ServerStarted".to_string(),
         DomainEvent::ServerStopped { .. } => "ServerStopped".to_string(),
-        DomainEvent::ServerFailed { .. } => "ServerFailed".to_string(),
         DomainEvent::FileUploaded { .. } => "FileUploaded".to_string(),
-        DomainEvent::FileDownloaded { .. } => "FileDownloaded".to_string(),
-        DomainEvent::FileDeleted { .. } => "FileDeleted".to_string(),
-        DomainEvent::DirectoryCreated { .. } => "DirectoryCreated".to_string(),
-        DomainEvent::DirectoryRemoved { .. } => "DirectoryRemoved".to_string(),
-        DomainEvent::FileRenamed { .. } => "FileRenamed".to_string(),
-        DomainEvent::SessionConnected { .. } => "SessionConnected".to_string(),
-        DomainEvent::SessionDisconnected { .. } => "SessionDisconnected".to_string(),
         DomainEvent::StatsUpdated { .. } => "StatsUpdated".to_string(),
     }
 }
@@ -241,7 +233,6 @@ impl EventHandler for StatsEventHandler {
                     serde_json::json!({ "path": path, "size": size }),
                 );
             }
-            _ => {}
         }
     }
 

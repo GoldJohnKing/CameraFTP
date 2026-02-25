@@ -20,8 +20,6 @@ interface ConfigState {
   updatePort: (port: number) => Promise<void>;
   updateAutoSelectPort: (autoSelect: boolean) => Promise<void>;
   loadPlatform: () => Promise<void>;
-  setError: (error: string | null) => void;
-  clearError: () => void;
 }
 
 export const useConfigStore = create<ConfigState>((set, get) => ({
@@ -30,9 +28,6 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
   error: null,
   activeTab: 'home',
   platform: 'unknown',
-
-  setError: (error: string | null) => set((state) => ({ ...state, error })),
-  clearError: () => set((state) => ({ ...state, error: null })),
 
   loadPlatform: async () => {
     try {
