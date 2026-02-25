@@ -1,10 +1,16 @@
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Emitter, Manager, Wry};
 use tauri::menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconEvent};
 use super::traits::PlatformService;
 use super::types::{StorageInfo, PermissionStatus};
 use std::sync::Arc;
 use tokio::sync::Mutex;
+
+/// 托盘菜单状态 - 存储菜单项引用用于动态更新
+pub struct TrayMenuState {
+    pub start_item: MenuItem<Wry>,
+    pub stop_item: MenuItem<Wry>,
+}
 
 /// 托盘图标状态枚举
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -64,11 +70,27 @@ pub fn update_tray_icon(app: &AppHandle, state: TrayIconState) -> Result<(), Box
     Ok(())
 }
 
+/// 更新托盘菜单项状态
+/// 
+/// # Arguments
+/// * `app` - Tauri 应用句柄
+/// * `server_running` - 服务器是否正在运行
+pub fn update_tray_menu(app: &AppHandle, server_running: bool) -> Result<(), Box<dyn std::error::Error>> {
+    // 从 State 获取菜单项引用
+    if let Some(state) = app.try_state::<TrayMenuState>() {
+        state.start_item.set_enabled(!server_running)?;
+        state.stop_item.set_enabled(server_running)?;
+        tracing::info!("Tray menu updated: server_running={}", server_running);
+    }
+    Ok(())
+}
+
 pub fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
     // 创建菜单项
     let show_i = MenuItem::with_id(app, "show", "显示主窗口", true, None::<&str>)?;
+    // 初始状态：服务器未运行，所以"启动"启用，"停止"禁用
     let start_i = MenuItem::with_id(app, "start", "启动服务器", true, None::<&str>)?;
-    let stop_i = MenuItem::with_id(app, "stop", "停止服务器", true, None::<&str>)?;
+    let stop_i = MenuItem::with_id(app, "stop", "停止服务器", false, None::<&str>)?;
     let separator = PredefinedMenuItem::separator(app)?;
     let quit_i = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
 
@@ -79,6 +101,12 @@ pub fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
         &separator,
         &quit_i,
     ])?;
+
+    // 保存菜单项引用到 State，用于后续动态更新
+    app.manage(TrayMenuState {
+        start_item: start_i,
+        stop_item: stop_i,
+    });
 
     // 初始状态使用 stopped 图标（红色圆点）
     let initial_icon = create_icon_from_bytes(TRAY_STOPPED_PNG)?;
@@ -233,11 +261,17 @@ impl PlatformService for WindowsPlatform {
         if let Err(e) = update_tray_icon(app, TrayIconState::Idle) {
             tracing::warn!("Failed to update tray icon: {}", e);
         }
+        if let Err(e) = update_tray_menu(app, true) {
+            tracing::warn!("Failed to update tray menu: {}", e);
+        }
     }
     
     fn on_server_stopped(&self, app: &AppHandle) {
         if let Err(e) = update_tray_icon(app, TrayIconState::Stopped) {
             tracing::warn!("Failed to update tray icon: {}", e);
+        }
+        if let Err(e) = update_tray_menu(app, false) {
+            tracing::warn!("Failed to update tray menu: {}", e);
         }
     }
     

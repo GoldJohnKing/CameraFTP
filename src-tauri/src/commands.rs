@@ -20,6 +20,17 @@ pub async fn start_server(
 ) -> Result<ServerInfo, AppError> {
     info!("Starting FTP server...");
 
+    // 幂等性检查：如果服务器已运行，静默返回当前状态
+    {
+        let server_guard = state.0.lock().await;
+        if let Some(server) = server_guard.as_ref() {
+            if let Some(info) = server.get_server_info().await {
+                info!(ip = %info.ip, port = info.port, "Server already running, returning current state");
+                return Ok(info);
+            }
+        }
+    }
+
     // 使用 server_factory 启动服务器
     let ctx = crate::ftp::server_factory::start_ftp_server(
         &state.0,
@@ -81,8 +92,9 @@ pub async fn stop_server(
             }
         }
     } else {
-        warn!("Server not running, cannot stop");
-        Err(AppError::ServerNotRunning)
+        // 幂等性：服务器未运行时静默返回成功
+        info!("Server not running, returning success (idempotent)");
+        Ok(())
     }
 }
 
