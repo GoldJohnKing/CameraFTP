@@ -4,8 +4,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { useConfigStore } from '../stores/configStore';
 import { usePermissionStore } from '../stores/permissionStore';
 import { useStoragePermission } from '../hooks/useStoragePermission';
-import { ToggleSwitch } from './ui/ToggleSwitch';
-import { Card, CardHeader } from './ui';
+import { Card, CardHeader, ToggleSwitch } from './ui';
 
 // Window.PermissionAndroid 类型已在 global.ts 中声明，无需重复
 
