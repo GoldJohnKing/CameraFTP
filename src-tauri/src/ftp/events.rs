@@ -4,45 +4,20 @@ use tokio::sync::{broadcast, RwLock};
 use tracing::{trace, warn};
 use tauri::Emitter;
 
-/// 事件总线配置
-#[derive(Debug, Clone)]
-pub struct EventBusConfig {
-    /// 广播通道容量
-    pub broadcast_capacity: usize,
-    /// 是否启用增量更新
-    pub enable_incremental: bool,
-}
-
-impl Default for EventBusConfig {
-    fn default() -> Self {
-        Self {
-            broadcast_capacity: 100,
-            enable_incremental: true,
-        }
-    }
-}
-
 /// 事件总线 - 中心化的领域事件分发
 #[derive(Debug, Clone)]
 pub struct EventBus {
     tx: broadcast::Sender<DomainEvent>,
     last_stats: Arc<RwLock<Option<ServerStats>>>,
-    config: EventBusConfig,
 }
 
 impl EventBus {
     /// 创建新的事件总线
     pub fn new() -> Self {
-        Self::with_config(EventBusConfig::default())
-    }
-
-    /// 使用配置创建事件总线
-    pub fn with_config(config: EventBusConfig) -> Self {
-        let (tx, _) = broadcast::channel(config.broadcast_capacity);
+        let (tx, _) = broadcast::channel(100);
         Self {
             tx,
             last_stats: Arc::new(RwLock::new(None)),
-            config,
         }
     }
 
@@ -78,35 +53,26 @@ impl EventBus {
 
     /// 发布统计更新（带增量检查）
     pub async fn emit_stats_updated(&self, stats: ServerStats) {
-        if self.config.enable_incremental {
-            let should_emit = {
-                let last = self.last_stats.read().await;
-                match last.as_ref() {
-                    None => true,
-                    Some(last_stats) => last_stats.has_changed(&stats),
-                }
-            };
-
-            if should_emit {
-                // 更新最后统计
-                let mut last = self.last_stats.write().await;
-                *last = Some(stats.clone());
-                drop(last);
-
-                // 发布事件
-                self.emit(DomainEvent::StatsUpdated(stats));
-                trace!("Stats updated event emitted");
-            } else {
-                trace!("Stats unchanged, skipping event");
+        let should_emit = {
+            let last = self.last_stats.read().await;
+            match last.as_ref() {
+                None => true,
+                Some(last_stats) => last_stats.has_changed(&stats),
             }
-        } else {
-            self.emit(DomainEvent::StatsUpdated(stats));
-        }
-    }
+        };
 
-    /// 获取订阅者数量
-    pub fn subscriber_count(&self) -> usize {
-        self.tx.receiver_count()
+        if should_emit {
+            // 更新最后统计
+            let mut last = self.last_stats.write().await;
+            *last = Some(stats.clone());
+            drop(last);
+
+            // 发布事件
+            self.emit(DomainEvent::StatsUpdated(stats));
+            trace!("Stats updated event emitted");
+        } else {
+            trace!("Stats unchanged, skipping event");
+        }
     }
 }
 

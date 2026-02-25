@@ -22,14 +22,12 @@ pub struct ServerStartupContext {
 
 #[derive(Debug, Clone)]
 pub struct ServerStartupOptions {
-    pub auto_select_port: bool,
     pub min_port: u16,
 }
 
 impl Default for ServerStartupOptions {
     fn default() -> Self {
         Self {
-            auto_select_port: true,
             min_port: 1025,
         }
     }
@@ -64,7 +62,7 @@ pub async fn start_ftp_server(
     // 查找可用端口
     let port = if NetworkManager::is_port_available(config.port).await {
         config.port
-    } else if options.auto_select_port {
+    } else if config.auto_select_port {
         warn!(
             requested_port = config.port,
             "Port not available, searching for alternative"

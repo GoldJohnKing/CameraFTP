@@ -16,7 +16,7 @@ pub mod types;
 
 // 重新导出主要类型
 pub use error::FtpError;
-pub use events::{EventBus, EventBusConfig, EventProcessor, StatsEventHandler};
+pub use events::{EventBus, EventProcessor, StatsEventHandler};
 pub use server::{create_ftp_server, FtpServerActor, FtpServerHandle};
 pub use server_factory::{
     spawn_event_processor, start_ftp_server, ServerStartupContext, ServerStartupOptions,
@@ -30,21 +30,6 @@ pub use types::{
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_server_status_transitions() {
-        assert!(ServerStatus::Stopped.can_start());
-        assert!(!ServerStatus::Stopped.can_stop());
-
-        assert!(!ServerStatus::Running.can_start());
-        assert!(ServerStatus::Running.can_stop());
-
-        assert!(!ServerStatus::Starting.can_start());
-        assert!(!ServerStatus::Starting.can_stop());
-
-        assert!(!ServerStatus::Stopping.can_start());
-        assert!(!ServerStatus::Stopping.can_stop());
-    }
 
     #[test]
     fn test_server_stats_has_changed() {
@@ -75,7 +60,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_stats_actor() {
-        let (handle, mut worker) = StatsActor::new();
+        let (handle, mut worker) = StatsActor::with_event_bus(None);
 
         // 在后台运行worker
         let worker_task = tokio::spawn(async move {
@@ -92,19 +77,6 @@ mod tests {
         // 停止worker
         drop(handle);
         let _ = worker_task.await;
-    }
-
-    #[test]
-    fn test_event_bus() {
-        let bus = EventBus::new();
-
-        let mut rx = bus.subscribe();
-
-        bus.emit_server_started("127.0.0.1:21".to_string());
-
-        // 注意：由于广播通道的特性，这里只能测试发送是否成功
-        // 在实际使用中，接收方会在另一个任务中接收事件
-        assert_eq!(bus.subscriber_count(), 1);
     }
 
     #[test]

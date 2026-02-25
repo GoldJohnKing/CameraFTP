@@ -78,14 +78,6 @@ impl ServerStatus {
     pub fn is_running(&self) -> bool {
         matches!(self, Self::Running)
     }
-
-    pub fn can_start(&self) -> bool {
-        matches!(self, Self::Stopped)
-    }
-
-    pub fn can_stop(&self) -> bool {
-        matches!(self, Self::Running)
-    }
 }
 
 /// 领域事件 - 用于事件驱动架构

@@ -26,11 +26,6 @@ pub struct StatsActor {
 }
 
 impl StatsActor {
-    /// 创建新的统计Actor（不带事件总线）
-    pub fn new() -> (Self, StatsActorWorker) {
-        Self::with_event_bus(None)
-    }
-
     /// 创建带 EventBus 的 StatsActor
     /// 当统计信息变化时，会通过 EventBus 发送 StatsUpdated 事件
     pub fn with_event_bus(event_bus: Option<EventBus>) -> (Self, StatsActorWorker) {
