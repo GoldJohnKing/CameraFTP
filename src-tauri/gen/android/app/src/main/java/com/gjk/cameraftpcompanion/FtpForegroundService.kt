@@ -48,17 +48,11 @@ class FtpForegroundService : Service() {
     override fun onCreate() {
         super.onCreate()
         instance = this
-        LogWriter.init()
-        LogWriter.log("FtpForegroundService.onCreate() called")
-        LogWriter.log("instance=$instance")
         createNotificationChannel()
-        LogWriter.log("Notification channel created")
         acquireLocks()
-        LogWriter.log("Locks acquired")
         
         // Note: startForeground() is called in onStartCommand() to satisfy Android's
         // 5-second requirement after startForegroundService().
-        LogWriter.log("Service created, foreground notification will be shown in onStartCommand()")
         Log.d(TAG, "Service created, foreground notification will be shown in onStartCommand()")
     }
     
@@ -220,9 +214,6 @@ class FtpForegroundService : Service() {
      * Called when server is running to update stats display.
      */
     fun updateServerState(isRunning: Boolean, statsJson: String?, connectedClients: Int) {
-        LogWriter.log("========== updateServerState ==========")
-        LogWriter.log("Parameters: isRunning=$isRunning, statsJson=$statsJson, connectedClients=$connectedClients")
-        
         Log.d(TAG, "========== updateServerState called ==========")
         Log.d(TAG, "Parameters: isRunning=$isRunning, statsJson=$statsJson, connectedClients=$connectedClients")
         
@@ -231,10 +222,8 @@ class FtpForegroundService : Service() {
         if (statsJson != null) {
             try {
                 serverStats = JSONObject(statsJson)
-                LogWriter.log("Parsed stats: $serverStats")
                 Log.d(TAG, "Parsed stats: $serverStats")
             } catch (e: Exception) {
-                LogWriter.logError("Error parsing stats JSON: $statsJson", e)
                 Log.e(TAG, "Error parsing stats JSON: $statsJson", e)
                 serverStats = null
             }
@@ -243,11 +232,9 @@ class FtpForegroundService : Service() {
         }
         
         // Update notification with new stats
-        LogWriter.log(">>> Updating notification with new stats")
         Log.d(TAG, ">>> Updating notification with new stats")
         updateNotification()
         
-        LogWriter.log("========== updateServerState completed ==========")
         Log.d(TAG, "========== updateServerState completed ==========")
     }
     
@@ -259,10 +246,8 @@ class FtpForegroundService : Service() {
             val notification = buildNotification()
             val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             notificationManager.notify(NOTIFICATION_ID, notification)
-            LogWriter.log("Notification updated successfully")
             Log.d(TAG, "Notification updated successfully")
         } catch (e: Exception) {
-            LogWriter.logError("Failed to update notification", e)
             Log.e(TAG, "Failed to update notification", e)
         }
     }

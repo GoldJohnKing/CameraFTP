@@ -162,21 +162,4 @@ class PermissionBridge(private val activity: Activity) {
             }
         }
     }
-
-    /**
-     * Open app settings page
-     */
-    @JavascriptInterface
-    fun openAppSettings() {
-        Log.d(TAG, "Opening app settings")
-        try {
-            val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
-                data = Uri.parse("package:${activity.packageName}")
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            }
-            activity.startActivity(intent)
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to open app settings", e)
-        }
-    }
 }

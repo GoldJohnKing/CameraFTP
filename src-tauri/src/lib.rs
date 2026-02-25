@@ -18,7 +18,6 @@ use commands::{
     get_platform, 
     get_server_info,
     get_server_status, 
-    get_server_status_for_android,
     get_storage_path,
     hide_main_window, 
     load_config, 
@@ -180,7 +179,6 @@ pub fn run() {
             start_server,
             stop_server,
             get_server_status,
-            get_server_status_for_android,
             get_server_info,
             
             // 配置管理

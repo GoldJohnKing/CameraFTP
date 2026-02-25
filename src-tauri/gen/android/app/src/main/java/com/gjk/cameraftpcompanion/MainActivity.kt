@@ -100,8 +100,6 @@ class ServerStateBridge(activity: MainActivity) : BaseJsBridge(activity, "Server
      */
     @JavascriptInterface
     fun onServerStateChanged(isRunning: Boolean, statsJson: String?, connectedClients: Int) {
-        LogWriter.log("ServerStateBridge.onServerStateChanged() called")
-        LogWriter.log("isRunning=$isRunning, statsJson=$statsJson, connectedClients=$connectedClients")
         log("onServerStateChanged: running=$isRunning, clients=$connectedClients, stats=$statsJson")
         activity.updateServiceState(isRunning, statsJson, connectedClients)
     }
@@ -151,8 +149,6 @@ class MainActivity : TauriActivity() {
         super.onCreate(savedInstanceState)
         currentActivity = this
         
-        LogWriter.init()
-        LogWriter.log("MainActivity.onCreate() called")
         Log.d(TAG, "MainActivity created")
         
         // 初始化Bridge
@@ -329,8 +325,6 @@ class MainActivity : TauriActivity() {
      * This also handles starting/stopping the foreground service based on server state
      */
     fun updateServiceState(isRunning: Boolean, statsJson: String?, connectedClients: Int) {
-        LogWriter.log("MainActivity.updateServiceState() called")
-        LogWriter.log("isRunning=$isRunning, statsJson=$statsJson, connectedClients=$connectedClients")
         Log.d(TAG, "updateServiceState: running=$isRunning, clients=$connectedClients, stats=$statsJson")
         
         val service = FtpForegroundService.getInstance()
@@ -338,7 +332,6 @@ class MainActivity : TauriActivity() {
         if (isRunning) {
             // Server is running - ensure foreground service is started
             if (service == null) {
-                LogWriter.log("Foreground service not running, starting it now")
                 Log.d(TAG, "Starting foreground service before updating state")
                 startFtpForegroundService()
             }
@@ -348,7 +341,6 @@ class MainActivity : TauriActivity() {
         } else {
             // Server is stopped - stop foreground service
             if (service != null) {
-                LogWriter.log("Server stopped, stopping foreground service")
                 Log.d(TAG, "Stopping foreground service")
                 stopFtpForegroundService()
             }

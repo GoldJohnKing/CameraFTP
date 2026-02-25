@@ -208,39 +208,6 @@ pub fn get_platform() -> String {
     crate::platform::get_platform().name().to_string()
 }
 
-/// 获取服务器状态（Android 前台服务使用）
-#[command]
-#[instrument(skip(state))]
-pub async fn get_server_status_for_android(
-    state: State<'_, FtpServerState>,
-) -> Result<serde_json::Value, AppError> {
-    let server_guard = state.0.lock().await;
-    
-    if let Some(server) = server_guard.as_ref() {
-        let snapshot = server.get_snapshot().await;
-        
-        let result = serde_json::json!({
-            "is_running": snapshot.is_running,
-            "connected_clients": snapshot.connected_clients,
-            "stats": {
-                "files_transferred": snapshot.files_received,
-                "bytes_transferred": snapshot.bytes_received,
-            }
-        });
-        
-        Ok(result)
-    } else {
-        Ok(serde_json::json!({
-            "is_running": false,
-            "connected_clients": 0,
-            "stats": {
-                "files_transferred": 0,
-                "bytes_transferred": 0,
-            }
-        }))
-    }
-}
-
 /// 打开"所有文件访问权限"设置页面（Android）
 #[tauri::command]
 pub fn open_all_files_access_settings(app: tauri::AppHandle) -> Result<(), String> {
