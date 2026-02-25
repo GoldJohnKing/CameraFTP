@@ -23,8 +23,8 @@ import org.json.JSONObject
 class PermissionBridge(private val activity: Activity) {
     companion object {
         private const val TAG = "PermissionBridge"
-        // Must match MainActivity.REQUEST_POST_NOTIFICATIONS for permission result handling
-        private const val REQUEST_POST_NOTIFICATIONS = 1001
+        // Request code for notification permission - shared with MainActivity
+        const val REQUEST_POST_NOTIFICATIONS = 1001
     }
 
     /**
@@ -50,8 +50,8 @@ class PermissionBridge(private val activity: Activity) {
 
     /**
      * Check storage permission (MANAGE_EXTERNAL_STORAGE for Android 11+)
+     * Internal helper - not exposed to JavaScript
      */
-    @JavascriptInterface
     fun checkStoragePermission(): Boolean {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             Environment.isExternalStorageManager()
@@ -65,8 +65,8 @@ class PermissionBridge(private val activity: Activity) {
 
     /**
      * Check notification permission (Android 13+)
+     * Internal helper - not exposed to JavaScript
      */
-    @JavascriptInterface
     fun checkNotificationPermission(): Boolean {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             ContextCompat.checkSelfPermission(
@@ -80,8 +80,8 @@ class PermissionBridge(private val activity: Activity) {
 
     /**
      * Check battery optimization whitelist
+     * Internal helper - not exposed to JavaScript
      */
-    @JavascriptInterface
     fun checkBatteryOptimization(): Boolean {
         val result = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             val powerManager = activity.getSystemService(Context.POWER_SERVICE) as PowerManager

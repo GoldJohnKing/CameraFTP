@@ -5,7 +5,7 @@ interface LoadingButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   isLoading: boolean;
   loadingText?: string;
   children: ReactNode;
-  variant?: 'primary' | 'danger' | 'secondary';
+  variant?: 'primary' | 'danger';
   icon?: ReactNode;
 }
 
@@ -24,7 +24,6 @@ export function LoadingButton({
   const variantStyles = {
     primary: 'bg-blue-600 text-white hover:bg-blue-700',
     danger: 'bg-red-50 text-red-600 hover:bg-red-100',
-    secondary: 'bg-gray-100 text-gray-800 hover:bg-gray-200',
   };
 
   return (

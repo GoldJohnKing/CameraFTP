@@ -3,7 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import type { ServerInfo, ServerStatus } from '../types';
 import { formatError } from '../utils/error';
 import { createEventManager, type EventRegistration } from '../utils/events';
-import { checkAndroidPermissions } from '../types/global';
+import { checkAndroidPermissions } from '../types';
 
 interface ServerState {
   // 状态

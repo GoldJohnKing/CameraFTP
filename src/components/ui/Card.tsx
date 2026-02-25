@@ -16,10 +16,9 @@ export function Card({ children, className = '' }: CardProps) {
 interface CardHeaderProps {
   title: string;
   description?: string;
-  icon?: ReactNode;
 }
 
-export function CardHeader({ title, description, icon }: CardHeaderProps) {
+export function CardHeader({ title, description }: CardHeaderProps) {
   return (
     <div className="p-4 border-b border-gray-100">
       <div className="flex items-center justify-between">
@@ -29,7 +28,6 @@ export function CardHeader({ title, description, icon }: CardHeaderProps) {
             <p className="text-sm text-gray-500 mt-1">{description}</p>
           )}
         </div>
-        {icon}
       </div>
     </div>
   );

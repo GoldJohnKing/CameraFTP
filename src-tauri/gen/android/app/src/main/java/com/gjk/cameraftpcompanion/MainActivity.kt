@@ -128,7 +128,6 @@ class MainActivity : TauriActivity() {
     
     companion object {
         private const val TAG = "MainActivity"
-        private const val REQUEST_POST_NOTIFICATIONS = 1001
         @JvmStatic
         var currentActivity: MainActivity? = null
     }
@@ -285,7 +284,7 @@ class MainActivity : TauriActivity() {
         // Just log the result, don't start foreground service
         // The service will be started by updateServiceState() when server actually starts
         when (requestCode) {
-            REQUEST_POST_NOTIFICATIONS -> {
+            PermissionBridge.REQUEST_POST_NOTIFICATIONS -> {
                 val granted = grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED
                 Log.d(TAG, "Notification permission result: granted=$granted")
                 // No auto-start - user must click "Start Server" button

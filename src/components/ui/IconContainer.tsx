@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 
-type ColorVariant = 'blue' | 'green' | 'purple' | 'orange' | 'indigo' | 'red';
+type ColorVariant = 'blue' | 'green' | 'purple' | 'orange' | 'indigo';
 
 interface IconContainerProps {
   children: ReactNode;
@@ -14,7 +14,6 @@ const colorClasses: Record<ColorVariant, string> = {
   purple: 'bg-purple-50',
   orange: 'bg-orange-50',
   indigo: 'bg-indigo-50',
-  red: 'bg-red-50',
 };
 
 export function IconContainer({ 

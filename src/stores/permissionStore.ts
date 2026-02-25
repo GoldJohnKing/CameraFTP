@@ -1,20 +1,18 @@
 import { create } from 'zustand';
-import type { PermissionCheckResult } from '../types/global';
-import { isPermissionAndroidAvailable, checkAndroidPermissions } from '../types/global';
+import type { PermissionCheckResult } from '../types';
+import { isPermissionAndroidAvailable, checkAndroidPermissions } from '../types';
 import { formatError } from '../utils/error';
 
 interface PermissionStoreState {
   // Permission states
   permissions: PermissionCheckResult;
   isLoading: boolean;
-  lastCheckedAt: number | null;
   error: string | null;
   isPolling: boolean;
   allGranted: boolean; // 实际状态字段，不是计算属性
   
   // Actions
   setPermissions: (permissions: PermissionCheckResult) => void;
-  setPolling: (polling: boolean) => void;
   
   // Check permissions from Android
   checkPermissions: () => Promise<PermissionCheckResult>;
@@ -58,7 +56,6 @@ export const usePermissionStore = create<PermissionStoreState>()((set, get) => (
       batteryOptimization: false,
     },
     isLoading: false,
-    lastCheckedAt: null,
     error: null,
     isPolling: false,
     allGranted: false,
@@ -69,11 +66,8 @@ export const usePermissionStore = create<PermissionStoreState>()((set, get) => (
       set({
         permissions: newPerms,
         allGranted,
-        lastCheckedAt: Date.now(),
       });
     },
-    
-    setPolling: (polling) => set({ isPolling: polling }),
     
     // Check permissions from Android
     checkPermissions: async () => {
@@ -88,7 +82,6 @@ export const usePermissionStore = create<PermissionStoreState>()((set, get) => (
             permissions: perms, 
             allGranted,
             isLoading: false,
-            lastCheckedAt: Date.now(),
           });
           return perms;
         } else {
