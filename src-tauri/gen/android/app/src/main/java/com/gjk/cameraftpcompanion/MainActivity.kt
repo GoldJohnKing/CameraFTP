@@ -170,9 +170,6 @@ class MainActivity : TauriActivity() {
         
         // 初始化服务器状态Bridge
         serverStateBridge = ServerStateBridge(this)
-        
-        // Note: Foreground service is started when user clicks "启动服务器"
-        // This avoids showing notification before server is actually running
     }
 
     /**
@@ -276,9 +273,6 @@ class MainActivity : TauriActivity() {
     
     /**
      * Handle permission request results
-     * Note: We do NOT auto-start the foreground service here anymore.
-     * The foreground service is only started when the FTP server is actually running,
-     * controlled via updateServiceState(isRunning=true) from the frontend.
      */
     override fun onRequestPermissionsResult(
         requestCode: Int,
@@ -330,8 +324,9 @@ class MainActivity : TauriActivity() {
      * Stop the foreground service
      */
     private fun stopFtpForegroundService() {
-        val intent = Intent(this, FtpForegroundService::class.java)
-        intent.action = "com.gjk.cameraftpcompanion.STOP_SERVICE"
+        val intent = Intent(this, FtpForegroundService::class.java).apply {
+            action = FtpForegroundService.ACTION_STOP
+        }
         stopService(intent)
         Log.d(TAG, "Foreground service stop requested")
     }

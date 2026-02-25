@@ -1,7 +1,7 @@
 use tauri::{command, AppHandle, Emitter, State};
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use tracing::{error, info, instrument, warn};
+use tracing::{error, info, instrument};
 
 use crate::config::AppConfig;
 use crate::error::AppError;

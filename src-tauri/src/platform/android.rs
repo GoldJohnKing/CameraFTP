@@ -48,7 +48,7 @@ pub fn check_permission_status() -> PermissionStatus {
 
 /// 检查是否有"所有文件访问权限"
 /// 通过尝试写入 DCIM 目录来判断
-pub fn check_all_files_permission() -> bool {
+fn check_all_files_permission() -> bool {
     can_write_to_dcim()
 }
 
@@ -72,7 +72,7 @@ fn can_write_to_dcim() -> bool {
 }
 
 /// 验证路径是否可写
-pub fn validate_path_writable(path: &str) -> bool {
+fn validate_path_writable(path: &str) -> bool {
     let path_buf = std::path::PathBuf::from(path);
 
     // 如果路径不存在，尝试创建

@@ -25,9 +25,7 @@ pub enum ServerCommand {
     Stop {
         respond_to: oneshot::Sender<AppResult<()>>,
     },
-    GetStatus {
-        respond_to: oneshot::Sender<ServerStatus>,
-    },
+
     GetSnapshot {
         respond_to: oneshot::Sender<ServerStateSnapshot>,
     },
@@ -163,10 +161,7 @@ impl FtpServerActor {
                 let result = self.do_stop().await;
                 let _ = respond_to.send(result);
             }
-            ServerCommand::GetStatus { respond_to } => {
-                let status = self.get_current_status().await;
-                let _ = respond_to.send(status);
-            }
+
             ServerCommand::GetSnapshot { respond_to } => {
                 let snapshot = self.get_current_snapshot().await;
                 let _ = respond_to.send(snapshot);
@@ -283,10 +278,8 @@ impl FtpServerActor {
             }
         });
 
-        // 等待启动确认
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
-        // 更新状态
         {
             let mut s = self.status.write().await;
             *s = ServerStatus::Running;
@@ -294,7 +287,6 @@ impl FtpServerActor {
         self.config = Some(config);
         self.bind_addr = Some(bind_addr);
 
-        // 发布事件
         self.event_bus.emit_server_started(bind_addr.to_string());
 
         info!(bind_addr = %bind_addr, "FTP server started successfully");
@@ -314,18 +306,15 @@ impl FtpServerActor {
 
         info!("Stopping FTP server");
 
-        // 发送关闭信号
         if let Some(tx) = self.shutdown_tx.take() {
             let _ = tx.send(());
         }
 
-        // 更新状态
         {
             let mut status = self.status.write().await;
             *status = ServerStatus::Stopping;
         }
 
-        // 等待停止
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
         {
@@ -336,7 +325,6 @@ impl FtpServerActor {
         self.config = None;
         self.bind_addr = None;
 
-        // 发布事件
         self.event_bus.emit_server_stopped(StopReason::UserRequest);
 
         info!("FTP server stopped");

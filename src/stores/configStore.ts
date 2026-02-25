@@ -86,7 +86,7 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
   updateAutoSelectPort: async (autoSelect: boolean) => {
     const { config, saveConfig } = get();
     if (!config) return;
-    const newConfig = { ...config, auto_select_port: autoSelect };
+    const newConfig = { ...config, autoSelectPort: autoSelect };
     await saveConfig(newConfig);
   },
 }));

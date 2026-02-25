@@ -35,13 +35,9 @@ const defaultStats: ServerStatus = {
 
 // Update Android foreground service with current server state
 const updateAndroidServiceState = (isRunning: boolean, stats: ServerStatus | null, connectedClients: number, immediate = false) => {
-  console.log('[Android] updateAndroidServiceState called:', { isRunning, connectedClients, stats, immediate });
-  console.log('[Android] window.ServerStateAndroid available:', !!window.ServerStateAndroid);
-  
-  // 立即模式：更多重试次数但更短间隔（用于服务器启动时）
   const MAX_RETRIES = immediate ? 30 : 5;
   const RETRY_DELAY_MS = immediate ? 50 : 200;
-  
+
   const tryUpdate = (retriesLeft: number) => {
     if (window.ServerStateAndroid) {
       try {
@@ -49,31 +45,23 @@ const updateAndroidServiceState = (isRunning: boolean, stats: ServerStatus | nul
           files_transferred: stats.files_received || 0,
           bytes_transferred: stats.bytes_received || 0,
         }) : null;
-        
-        console.log('[Android] Calling ServerStateAndroid.onServerStateChanged with:', { isRunning, statsJson, connectedClients });
         window.ServerStateAndroid.onServerStateChanged(isRunning, statsJson, connectedClients);
-        console.log('[Android] ServerStateAndroid.onServerStateChanged call completed');
       } catch (e) {
         console.error('[Android] Failed to update service state:', e);
       }
     } else if (retriesLeft > 0) {
-      console.warn(`[Android] ServerStateAndroid bridge not available, retrying in ${RETRY_DELAY_MS}ms (${MAX_RETRIES - retriesLeft + 1}/${MAX_RETRIES})`);
       setTimeout(() => tryUpdate(retriesLeft - 1), RETRY_DELAY_MS);
-    } else {
-      console.error('[Android] ServerStateAndroid bridge not available after retries - cannot update notification');
     }
   };
-  
+
   tryUpdate(MAX_RETRIES);
 };
 
-// 定义所有事件的注册配置
+// Define all event registrations
 const createEventRegistrations = (get: () => ServerState, set: (fn: (state: ServerState) => ServerState) => void): EventRegistration<unknown>[] => [
-  // 服务器启动事件
   {
     name: 'server-started',
     handler: (event) => {
-      console.log('Server started event received:', event.payload);
       const { ip, port } = event.payload as { ip: string; port: number };
       set((state) => ({
         ...state,
@@ -88,11 +76,9 @@ const createEventRegistrations = (get: () => ServerState, set: (fn: (state: Serv
         },
         stats: { ...state.stats, is_running: true }
       }));
-      // Update Android foreground service
       updateAndroidServiceState(true, get().stats, 0);
     },
   },
-  // 服务器停止事件
   {
     name: 'server-stopped',
     handler: () => {
@@ -102,40 +88,30 @@ const createEventRegistrations = (get: () => ServerState, set: (fn: (state: Serv
         serverInfo: null,
         stats: defaultStats
       }));
-      // Update Android foreground service
       updateAndroidServiceState(false, null, 0);
     },
   },
-  // 统计更新事件
   {
     name: 'stats-update',
     handler: (event) => {
-      console.log('Stats update received:', event.payload);
       const stats = event.payload as ServerStatus;
       set((state) => ({ ...state, stats }));
-      // Update Android foreground service notification
       updateAndroidServiceState(true, stats, stats.connected_clients || 0);
     },
   },
-  // 文件上传事件
   {
     name: 'file-uploaded',
     handler: (event) => {
       const payload = event.payload as { path: string; size: number };
-      console.log('File uploaded event received:', payload);
-      
-      // Android平台：触发媒体扫描让照片出现在相册中
       if (window.FileUploadAndroid?.onFileUploaded) {
         try {
           window.FileUploadAndroid.onFileUploaded(payload.path, payload.size);
-          console.log('Media scan triggered for:', payload.path);
         } catch (err) {
           console.error('Failed to trigger media scan:', err);
         }
       }
     },
   },
-  // 托盘菜单启动服务器
   {
     name: 'tray-start-server',
     handler: async () => {
@@ -146,7 +122,6 @@ const createEventRegistrations = (get: () => ServerState, set: (fn: (state: Serv
       }
     },
   },
-  // 托盘菜单停止服务器
   {
     name: 'tray-stop-server',
     handler: async () => {
@@ -157,14 +132,12 @@ const createEventRegistrations = (get: () => ServerState, set: (fn: (state: Serv
       }
     },
   },
-  // 窗口关闭请求
   {
     name: 'window-close-requested',
     handler: () => {
       window.dispatchEvent(new CustomEvent('app-quit-requested'));
     },
   },
-  // Android 设置页面请求
   {
     name: 'android-open-manage-storage-settings',
     handler: () => {
@@ -174,14 +147,12 @@ const createEventRegistrations = (get: () => ServerState, set: (fn: (state: Serv
         } catch (err) {
           console.error('Failed to open settings:', err);
         }
-      } else {
-        console.warn('SAFPickerAndroid.openAllFilesAccessSettings not available');
       }
     },
   },
 ];
 
-// 同步服务器初始状态
+// Sync initial server state
 const syncInitialState = async (set: (fn: (state: ServerState) => ServerState) => void): Promise<void> => {
   try {
     const info = await invoke<ServerInfo | null>('get_server_info');
@@ -199,18 +170,15 @@ const syncInitialState = async (set: (fn: (state: ServerState) => ServerState) =
   }
 };
 
-// 实际启动服务器的逻辑（跳过权限检查）
+// Start server logic (permission check skipped)
 const doStartServer = async (set: (fn: (state: ServerState) => ServerState) => void, get: () => ServerState): Promise<void> => {
   set((state) => ({ ...state, isLoading: true, error: null }));
   try {
     const info = await invoke<ServerInfo>('start_server');
-    
-    // 立即更新 Android 通知（在设置状态之前，确保最低延迟）
-    // 使用局部变量而不是 get()，避免状态未更新问题
+
     const initialStats = { ...get().stats, is_running: true };
-    // immediate=true: 使用更短间隔和更多重试，确保快速显示
     updateAndroidServiceState(true, initialStats, 0, true);
-    
+
     set((state) => ({
       ...state,
       isRunning: true,
@@ -236,28 +204,21 @@ export const useServerStore = create<ServerState>((set, get) => ({
   pendingServerStart: false,
 
   startServer: async () => {
-    // 先设置 loading 状态，让 UI 有时间渲染动画
-    // 这是因为后续的 checkAndroidPermissions() 是同步阻塞调用
     set((state) => ({ ...state, isLoading: true, error: null }));
-    
-    // 等待一帧，确保 React 完成渲染
+
     await new Promise(resolve => requestAnimationFrame(resolve));
-    
-    // Check if we're on Android and need to check permissions
+
     const permissions = await checkAndroidPermissions();
-    
+
     if (permissions !== null) {
       if (!permissions.storage || !permissions.notification || !permissions.batteryOptimization) {
-        // Show permission dialog instead of starting server
         set({ showPermissionDialog: true, pendingServerStart: true, isLoading: false });
-        return false; // Return false to indicate server was NOT started
+        return false;
       }
     }
-    
-    // Permissions OK or not on Android, proceed to start
-    // 注意：doStartServer 也会设置 isLoading: true，但这里保持一致性
+
     await doStartServer(set, get);
-    return true; // Return true to indicate server was successfully started
+    return true;
   },
 
   stopServer: async () => {
@@ -291,14 +252,11 @@ export const useServerStore = create<ServerState>((set, get) => ({
 
   initializeListeners: async () => {
     const eventManager = createEventManager();
-    
-    // 使用 EventManager 批量注册所有事件
+
     await eventManager.registerAll(createEventRegistrations(get, set));
-    
-    // 同步初始状态
+
     await syncInitialState(set);
 
-    // 返回清理函数
     return () => {
       eventManager.cleanup();
     };

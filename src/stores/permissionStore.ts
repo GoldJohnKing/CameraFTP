@@ -1,10 +1,7 @@
 import { create } from 'zustand';
-import { subscribeWithSelector } from 'zustand/middleware';
 import type { PermissionCheckResult } from '../types/global';
 import { isPermissionAndroidAvailable, checkAndroidPermissions } from '../types/global';
 import { formatError } from '../utils/error';
-
-// Window.PermissionAndroid 类型已在 global.ts 中声明，无需重复
 
 interface PermissionStoreState {
   // Permission states
@@ -50,11 +47,10 @@ let pollingIntervalId: number | null = null;
 const POLLING_INTERVAL_MS = 200; // Poll every 200ms when active
 
 /**
- * Permission Store using Zustand with selector subscription
+ * Permission Store using Zustand
  * Uses polling instead of events for reliability
  */
-export const usePermissionStore = create<PermissionStoreState>()(
-  subscribeWithSelector((set, get) => ({
+export const usePermissionStore = create<PermissionStoreState>()((set, get) => ({
     // Initial state
     permissions: {
       storage: false,
@@ -204,8 +200,7 @@ export const usePermissionStore = create<PermissionStoreState>()(
       }
       set({ isPolling: false });
     },
-  }))
-);
+  }));
 
 // Initial check on Android only
 if (typeof window !== 'undefined' && isPermissionAndroidAvailable()) {
@@ -217,5 +212,3 @@ if (typeof window !== 'undefined' && isPermissionAndroidAvailable()) {
     });
   }, 100);
 }
-
-// Window.PermissionAndroid 类型已在 global.ts 中声明
