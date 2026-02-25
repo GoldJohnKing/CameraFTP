@@ -1,6 +1,5 @@
 package com.gjk.cameraftpcompanion
 
-import android.Manifest
 import android.annotation.SuppressLint
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -10,8 +9,6 @@ import android.util.Log
 import android.webkit.JavascriptInterface
 import android.webkit.WebView
 import androidx.activity.enableEdgeToEdge
-import androidx.core.app.ActivityCompat
-import androidx.core.content.ContextCompat
 
 /**
  * JavaScript Bridge 抽象基类
@@ -259,16 +256,6 @@ class MainActivity : TauriActivity() {
         } ?: run {
             Log.e(TAG, "WebView is null, cannot register event listeners")
         }
-    }
-
-    override fun onResume() {
-        super.onResume()
-        Log.d(TAG, "onResume: App resumed")
-    }
-    
-    override fun onPause() {
-        super.onPause()
-        Log.d(TAG, "onPause: App paused")
     }
 
     override fun onDestroy() {

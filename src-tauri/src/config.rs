@@ -37,37 +37,18 @@ fn get_android_config_path() -> PathBuf {
 pub struct AppConfig {
     /// 存储路径（桌面端可自定义，Android 端固定为 DCIM/CameraFTP）
     pub save_path: PathBuf,
-    /// 自动打开接收的文件
-    pub auto_open: bool,
-    /// 自动打开程序路径
-    pub auto_open_program: Option<String>,
     /// FTP 端口
     pub port: u16,
     /// 自动选择端口
     pub auto_select_port: bool,
-    /// 支持的文件扩展名
-    pub file_extensions: Vec<String>,
 }
 
 impl Default for AppConfig {
     fn default() -> Self {
         Self {
             save_path: Self::default_pictures_dir(),
-            auto_open: true,
-            auto_open_program: None,
             port: 2121,
             auto_select_port: true,
-            file_extensions: vec![
-                "jpg".to_string(),
-                "jpeg".to_string(),
-                "raw".to_string(),
-                "png".to_string(),
-                "arw".to_string(),
-                "cr2".to_string(),
-                "nef".to_string(),
-                "orf".to_string(),
-                "rw2".to_string(),
-            ],
         }
     }
 }

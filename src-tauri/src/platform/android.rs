@@ -215,10 +215,6 @@ impl PlatformService for AndroidPlatform {
         Ok(Some(DEFAULT_STORAGE_PATH.to_string()))
     }
 
-    fn get_log_directory(&self) -> std::path::PathBuf {
-        std::path::PathBuf::from("/storage/emulated/0/DCIM/CameraFTP/logs")
-    }
-
     fn open_all_files_access_settings(&self, app: &AppHandle) -> Result<(), String> {
         open_manage_storage_settings(app);
         Ok(())

@@ -82,11 +82,6 @@ pub trait PlatformService: Send + Sync {
 
     // ========== 开机自启相关 ==========
 
-    /// 是否支持开机自启动
-    fn supports_autostart(&self) -> bool {
-        false
-    }
-
     /// 设置开机自启动
     fn set_autostart(&self, _enable: bool) -> Result<(), String> {
         Err(format!("开机自启在 {} 平台不支持", self.name()))
@@ -127,12 +122,6 @@ pub trait PlatformService: Send + Sync {
     fn select_save_directory(&self, _app: &AppHandle) -> Result<Option<String>, String> {
         // 默认实现：返回 None
         Ok(None)
-    }
-
-    /// 获取日志目录
-    fn get_log_directory(&self) -> std::path::PathBuf {
-        // 默认实现：使用系统临时目录
-        std::env::temp_dir().join("camera-ftp-companion")
     }
 
     /// 打开所有文件访问权限设置（仅 Android 有效）

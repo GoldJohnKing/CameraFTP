@@ -7,7 +7,6 @@ pub struct NetworkInterface {
     pub ip: String,
     pub is_wifi: bool,
     pub is_ethernet: bool,
-    pub is_up: bool,
 }
 
 pub struct NetworkManager;
@@ -94,7 +93,6 @@ impl NetworkManager {
                         ip: ip.to_string(),
                         is_wifi,
                         is_ethernet,
-                        is_up: true,
                     });
                 }
             }
@@ -116,7 +114,6 @@ impl NetworkManager {
                         ip: ip.to_string(),
                         is_wifi: false,
                         is_ethernet: true,
-                        is_up: true,
                     });
                 }
             }

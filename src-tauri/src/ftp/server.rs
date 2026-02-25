@@ -81,45 +81,16 @@ impl FtpServerHandle {
         }
     }
 
-    /// 获取服务器状态
-    pub async fn get_status(&self) -> ServerStatus {
-        let (tx, rx) = oneshot::channel();
-        let cmd = ServerCommand::GetStatus { respond_to: tx };
-
-        if self.tx.send(cmd).await.is_err() {
-            return ServerStatus::Stopped;
-        }
-
-        rx.await.unwrap_or(ServerStatus::Stopped)
-    }
-
     /// 获取状态快照
     pub async fn get_snapshot(&self) -> ServerStateSnapshot {
         let (tx, rx) = oneshot::channel();
         let cmd = ServerCommand::GetSnapshot { respond_to: tx };
 
         if self.tx.send(cmd).await.is_err() {
-            return ServerStateSnapshot {
-                is_running: false,
-                connected_clients: 0,
-                files_received: 0,
-                bytes_received: 0,
-                last_file: None,
-            };
+            return ServerStateSnapshot::default();
         }
 
-        rx.await.unwrap_or_else(|_| ServerStateSnapshot {
-            is_running: false,
-            connected_clients: 0,
-            files_received: 0,
-            bytes_received: 0,
-            last_file: None,
-        })
-    }
-
-    /// 检查服务器是否运行中
-    pub async fn is_running(&self) -> bool {
-        self.get_status().await.is_running()
+        rx.await.unwrap_or_default()
     }
 
     /// 获取服务器连接信息（包含 IP 和端口）

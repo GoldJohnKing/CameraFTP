@@ -89,7 +89,6 @@ pub async fn start_ftp_server(
     let server_config = ServerConfig {
         port,
         root_path: save_path.clone(),
-        allow_anonymous: true,
         passive_port_range: (50000, 50100),
         idle_timeout_seconds: 600,
     };

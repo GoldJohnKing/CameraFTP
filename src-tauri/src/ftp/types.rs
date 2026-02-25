@@ -26,21 +26,8 @@ impl ServerStats {
 pub struct ServerConfig {
     pub port: u16,
     pub root_path: PathBuf,
-    pub allow_anonymous: bool,
     pub passive_port_range: (u16, u16),
     pub idle_timeout_seconds: u64,
-}
-
-impl Default for ServerConfig {
-    fn default() -> Self {
-        Self {
-            port: 21,
-            root_path: PathBuf::from("./ftp_root"),
-            allow_anonymous: true,
-            passive_port_range: (50000, 50100),
-            idle_timeout_seconds: 600,
-        }
-    }
 }
 
 /// 服务器运行时统计快照
@@ -115,8 +102,6 @@ pub enum DomainEvent {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 pub enum StopReason {
     UserRequest,
-    Error,
-    Shutdown,
 }
 
 /// 服务器连接信息（用于前端显示）

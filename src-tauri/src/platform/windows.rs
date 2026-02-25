@@ -256,10 +256,6 @@ impl PlatformService for WindowsPlatform {
 
     // ========== 开机自启相关 ==========
 
-    fn supports_autostart(&self) -> bool {
-        true
-    }
-
     fn set_autostart(&self, enable: bool) -> Result<(), String> {
         set_autostart(enable).map_err(|e| format!("设置开机自启失败: {}", e))
     }
@@ -359,12 +355,5 @@ impl PlatformService for WindowsPlatform {
     fn select_save_directory(&self, _app: &AppHandle) -> Result<Option<String>, String> {
         // Windows 平台通过前端对话框选择，这里返回 None 表示使用前端选择
         Ok(None)
-    }
-
-    fn get_log_directory(&self) -> std::path::PathBuf {
-        dirs::data_dir()
-            .unwrap_or_else(|| std::path::PathBuf::from("."))
-            .join("camera-ftp-companion")
-            .join("logs")
     }
 }

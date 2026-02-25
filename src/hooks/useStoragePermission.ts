@@ -7,9 +7,7 @@ import { formatError } from '../utils/error';
 
 interface StoragePermissionState {
   storageInfo: StorageInfo | null;
-  permissionStatus: PermissionStatus | null;
   isLoading: boolean;
-  error: string | null;
 }
 
 /**
@@ -22,12 +20,11 @@ interface StoragePermissionState {
 export function useStoragePermission() {
   const [state, setState] = useState<StoragePermissionState>({
     storageInfo: null,
-    permissionStatus: null,
     isLoading: false,
-    error: null,
   });
 
   const mountedRef = useRef(true);
+  const [needsPermission, setNeedsPermission] = useState(false);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -38,7 +35,7 @@ export function useStoragePermission() {
 
   /// 加载存储信息
   const loadStorageInfo = useCallback(async () => {
-    setState(prev => ({ ...prev, isLoading: true, error: null }));
+    setState(prev => ({ ...prev, isLoading: true }));
     
     try {
       const info = await invoke<StorageInfo>('get_storage_info');
@@ -53,10 +50,10 @@ export function useStoragePermission() {
     } catch (err) {
       if (!mountedRef.current) return null;
       const errorMsg = formatError(err);
+      toast.error(errorMsg);
       setState(prev => ({
         ...prev,
         isLoading: false,
-        error: errorMsg,
       }));
       return null;
     }
@@ -67,7 +64,7 @@ export function useStoragePermission() {
     try {
       const status = await invoke<PermissionStatus>('check_permission_status');
       if (mountedRef.current) {
-        setState(prev => ({ ...prev, permissionStatus: status }));
+        setNeedsPermission(status.needs_user_action);
       }
       return status;
     } catch (err) {
@@ -129,11 +126,12 @@ export function useStoragePermission() {
   }, [loadStorageInfo, checkPermissionStatus]);
 
   return {
-    ...state,
+    storageInfo: state.storageInfo,
+    isLoading: state.isLoading,
     checkPrerequisites,
     requestAllFilesPermission,
     ensureStorageReady,
-    needsPermission: state.permissionStatus?.needs_user_action ?? false,
+    needsPermission,
     displayName: state.storageInfo?.display_name ?? 'DCIM/CameraFTP',
   };
 }

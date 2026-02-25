@@ -23,9 +23,8 @@ import org.json.JSONObject
 class PermissionBridge(private val activity: Activity) {
     companion object {
         private const val TAG = "PermissionBridge"
-        private const val REQUEST_MANAGE_STORAGE = 1003
-        private const val REQUEST_POST_NOTIFICATIONS = 1002
-        private const val REQUEST_IGNORE_BATTERY_OPTIMIZATIONS = 1001
+        // Must match MainActivity.REQUEST_POST_NOTIFICATIONS for permission result handling
+        private const val REQUEST_POST_NOTIFICATIONS = 1001
     }
 
     /**
@@ -97,33 +96,13 @@ class PermissionBridge(private val activity: Activity) {
     }
 
     /**
-     * Request storage permission
+     * Request storage permission - opens the manage storage settings page
      */
     @JavascriptInterface
     fun requestStoragePermission() {
         Log.d(TAG, "Requesting storage permission")
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            try {
-                val intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION).apply {
-                    data = Uri.parse("package:${activity.packageName}")
-                }
-                activity.startActivity(intent)
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to open storage settings", e)
-                // Fallback to general settings
-                val intent = Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)
-                activity.startActivity(intent)
-            }
-        } else {
-            ActivityCompat.requestPermissions(
-                activity,
-                arrayOf(
-                    Manifest.permission.READ_EXTERNAL_STORAGE,
-                    Manifest.permission.WRITE_EXTERNAL_STORAGE
-                ),
-                REQUEST_MANAGE_STORAGE
-            )
-        }
+        // Delegate to StorageHelper to avoid code duplication
+        StorageHelper.openManageStorageSettings(activity)
     }
 
     /**
@@ -142,7 +121,7 @@ class PermissionBridge(private val activity: Activity) {
     }
 
     /**
-     * Request battery optimization whitelist
+     * Request battery optimization whitelist - opens the settings page
      */
     @JavascriptInterface
     fun requestBatteryOptimization() {
@@ -154,8 +133,7 @@ class PermissionBridge(private val activity: Activity) {
                     val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
                         data = Uri.parse("package:${activity.packageName}")
                     }
-                    // Use startActivityForResult so we can detect when user returns
-                    activity.startActivityForResult(intent, REQUEST_IGNORE_BATTERY_OPTIMIZATIONS)
+                    activity.startActivity(intent)
                 } catch (e: Exception) {
                     Log.e(TAG, "Failed to open battery optimization settings", e)
                 }

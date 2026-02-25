@@ -16,9 +16,6 @@ pub enum AppError {
     #[error("无可用网络接口")]
     NoNetworkInterface,
 
-    #[error("配置错误: {0}")]
-    ConfigError(String),
-
     #[error("FTP服务器错误: {0}")]
     FtpServerError(String),
 
@@ -33,9 +30,6 @@ pub enum AppError {
 
     #[error("权限错误: {0}")]
     PermissionError(String),
-
-    #[error("平台不支持: {0}")]
-    PlatformNotSupported(String),
 
     #[error("存储权限错误: {0}")]
     StoragePermissionError(String),
@@ -52,13 +46,11 @@ impl AppError {
             Self::ServerNotRunning => "SERVER_NOT_RUNNING",
             Self::NoAvailablePort => "NO_AVAILABLE_PORT",
             Self::NoNetworkInterface => "NO_NETWORK_INTERFACE",
-            Self::ConfigError(_) => "CONFIG_ERROR",
             Self::FtpServerError(_) => "FTP_SERVER_ERROR",
             Self::Io(_) => "IO_ERROR",
             Self::Serialization(_) => "SERIALIZATION_ERROR",
             Self::NetworkError(_) => "NETWORK_ERROR",
             Self::PermissionError(_) => "PERMISSION_ERROR",
-            Self::PlatformNotSupported(_) => "PLATFORM_NOT_SUPPORTED",
             Self::StoragePermissionError(_) => "STORAGE_PERMISSION_ERROR",
             Self::Other(_) => "OTHER_ERROR",
         }
@@ -73,13 +65,11 @@ impl AppError {
                 "无法找到可用的端口（1025-65535），请检查系统端口占用情况".to_string()
             }
             Self::NoNetworkInterface => "未检测到可用的网络接口，请检查网络连接".to_string(),
-            Self::ConfigError(msg) => format!("配置错误: {}", msg),
             Self::FtpServerError(msg) => format!("FTP服务器错误: {}", msg),
             Self::Io(msg) => format!("文件系统错误: {}", msg),
             Self::Serialization(msg) => format!("数据序列化错误: {}", msg),
             Self::NetworkError(msg) => format!("网络错误: {}", msg),
             Self::PermissionError(msg) => format!("权限错误: {}，请检查文件或目录权限", msg),
-            Self::PlatformNotSupported(msg) => format!("平台不支持: {}", msg),
             Self::StoragePermissionError(msg) => format!("存储权限错误: {}", msg),
             Self::Other(msg) => msg.clone(),
         }
@@ -89,11 +79,7 @@ impl AppError {
     pub fn is_critical(&self) -> bool {
         matches!(
             self,
-            Self::PermissionError(_)
-                | Self::ConfigError(_)
-                | Self::FtpServerError(_)
-                | Self::PlatformNotSupported(_)
-                | Self::StoragePermissionError(_)
+            Self::PermissionError(_) | Self::FtpServerError(_) | Self::StoragePermissionError(_)
         )
     }
 }

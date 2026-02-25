@@ -32,6 +32,9 @@ export function ConfigCard() {
 
   const permissionState = usePermissionStore((state) => state.permissions);
   const checkPermissions = usePermissionStore((state) => state.checkPermissions);
+  const requestStoragePermission = usePermissionStore((state) => state.requestStoragePermission);
+  const requestNotificationPermission = usePermissionStore((state) => state.requestNotificationPermission);
+  const requestBatteryOptimization = usePermissionStore((state) => state.requestBatteryOptimization);
 
   const [autostartEnabled, setAutostartEnabled] = useState(false);
   const [isLoadingAutostart, setIsLoadingAutostart] = useState(false);
@@ -94,24 +97,6 @@ export function ConfigCard() {
       setTimeout(() => setIsChecking(false), 300);
     }
   }, [checkPermissions]);
-
-  const handleRequestStorage = useCallback(() => {
-    if (window.PermissionAndroid) {
-      window.PermissionAndroid.requestStoragePermission();
-    }
-  }, []);
-
-  const handleRequestNotification = useCallback(() => {
-    if (window.PermissionAndroid) {
-      window.PermissionAndroid.requestNotificationPermission();
-    }
-  }, []);
-
-  const handleRequestBattery = useCallback(() => {
-    if (window.PermissionAndroid) {
-      window.PermissionAndroid.requestBatteryOptimization();
-    }
-  }, []);
 
   const handleAutostartToggle = async () => {
     setIsLoadingAutostart(true);
@@ -357,7 +342,7 @@ export function ConfigCard() {
                 <span className="text-sm text-gray-700">文件访问权限</span>
               </div>
               <button
-                onClick={handleRequestStorage}
+                onClick={requestStoragePermission}
                 className={`text-xs ${permissionState.storage ? 'text-green-600' : 'text-blue-500 hover:text-blue-600'}`}
               >
                 {permissionState.storage ? '已授权' : '授权'}
@@ -371,7 +356,7 @@ export function ConfigCard() {
                 <span className="text-sm text-gray-700">通知权限</span>
               </div>
               <button
-                onClick={handleRequestNotification}
+                onClick={requestNotificationPermission}
                 className={`text-xs ${permissionState.notification ? 'text-green-600' : 'text-blue-500 hover:text-blue-600'}`}
               >
                 {permissionState.notification ? '已授权' : '授权'}
@@ -385,7 +370,7 @@ export function ConfigCard() {
                 <span className="text-sm text-gray-700">电池优化白名单</span>
               </div>
               <button
-                onClick={handleRequestBattery}
+                onClick={requestBatteryOptimization}
                 className={`text-xs ${permissionState.batteryOptimization ? 'text-green-600' : 'text-blue-500 hover:text-blue-600'}`}
               >
                 {permissionState.batteryOptimization ? '已授权' : '授权'}

@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { subscribeWithSelector } from 'zustand/middleware';
 import type { PermissionCheckResult } from '../types/global';
+import { isPermissionAndroidAvailable } from '../types/global';
 import { formatError } from '../utils/error';
 
 // Window.PermissionAndroid 类型已在 global.ts 中声明，无需重复
@@ -31,16 +32,9 @@ interface PermissionStoreState {
   stopPolling: () => void;
 }
 
-// Check if we're on Android platform
-function isAndroid(): boolean {
-  return typeof window !== 'undefined' && 
-         window.PermissionAndroid !== undefined &&
-         typeof window.PermissionAndroid?.checkAllPermissions === 'function';
-}
-
 // Internal permission check function
 async function permissionCheckInternal(): Promise<PermissionCheckResult | null> {
-  if (!isAndroid()) {
+  if (!isPermissionAndroidAvailable()) {
     return { storage: true, notification: true, batteryOptimization: true };
   }
   
@@ -123,7 +117,7 @@ export const usePermissionStore = create<PermissionStoreState>()(
     
     // Request storage permission (does NOT start polling - caller must call startPolling)
     requestStoragePermission: () => {
-      if (isAndroid() && window.PermissionAndroid) {
+      if (isPermissionAndroidAvailable() && window.PermissionAndroid) {
         console.log('[PermissionStore] Requesting storage permission');
         window.PermissionAndroid.requestStoragePermission();
       }
@@ -131,7 +125,7 @@ export const usePermissionStore = create<PermissionStoreState>()(
     
     // Request notification permission (does NOT start polling - caller must call startPolling)
     requestNotificationPermission: () => {
-      if (isAndroid() && window.PermissionAndroid) {
+      if (isPermissionAndroidAvailable() && window.PermissionAndroid) {
         console.log('[PermissionStore] Requesting notification permission');
         window.PermissionAndroid.requestNotificationPermission();
       }
@@ -139,7 +133,7 @@ export const usePermissionStore = create<PermissionStoreState>()(
     
     // Request battery optimization (does NOT start polling - caller must call startPolling)
     requestBatteryOptimization: () => {
-      if (isAndroid() && window.PermissionAndroid) {
+      if (isPermissionAndroidAvailable() && window.PermissionAndroid) {
         console.log('[PermissionStore] Requesting battery optimization');
         window.PermissionAndroid.requestBatteryOptimization();
       }
@@ -148,7 +142,7 @@ export const usePermissionStore = create<PermissionStoreState>()(
     // Start polling for permission changes
     // Only PermissionDialog should call this
     startPolling: () => {
-      if (!isAndroid()) return;
+      if (!isPermissionAndroidAvailable()) return;
       
       // Stop existing polling first
       if (pollingIntervalId !== null) {
@@ -222,7 +216,7 @@ export const usePermissionStore = create<PermissionStoreState>()(
 );
 
 // Initial check on Android only
-if (typeof window !== 'undefined' && isAndroid()) {
+if (typeof window !== 'undefined' && isPermissionAndroidAvailable()) {
   setTimeout(() => {
     permissionCheckInternal().then(perms => {
       if (perms) {
