@@ -204,21 +204,20 @@ export const useServerStore = create<ServerState>((set, get) => ({
   pendingServerStart: false,
 
   startServer: async () => {
-    set((state) => ({ ...state, isLoading: true, error: null }));
-
-    await new Promise(resolve => requestAnimationFrame(resolve));
-
+    // Check if we're on Android and need to check permissions
     const permissions = await checkAndroidPermissions();
-
+    
     if (permissions !== null) {
       if (!permissions.storage || !permissions.notification || !permissions.batteryOptimization) {
-        set({ showPermissionDialog: true, pendingServerStart: true, isLoading: false });
-        return false;
+        // Show permission dialog instead of starting server
+        set({ showPermissionDialog: true, pendingServerStart: true });
+        return false; // Return false to indicate server was NOT started
       }
     }
-
+    
+    // Permissions OK or not on Android, proceed to start
     await doStartServer(set, get);
-    return true;
+    return true; // Return true to indicate server was successfully started
   },
 
   stopServer: async () => {
