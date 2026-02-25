@@ -29,6 +29,8 @@ React + TypeScript + TailwindCSS (前端)
      Tauri IPC (Command/Event)
            ↓
 Rust + libunftp (FTP Server后端)
+           ↓
+Kotlin + JS Bridge (Android原生)
 ```
 
 | 层级 | 技术 | 版本 |
@@ -41,7 +43,9 @@ Rust + libunftp (FTP Server后端)
 | **构建工具** | Vite | ^5.0.0 |
 | **后端** | Rust | ≥1.75 |
 | **FTP服务器** | libunftp | 0.23.0 |
-| **Android原生** | Kotlin | - |
+| **Android Native** | Kotlin | 1.9.25 |
+| **Android API Level** | min 30 / target 36 | Android 11+ |
+| **Java** | JDK | 17 |
 
 ---
 
