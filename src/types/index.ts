@@ -21,7 +21,6 @@ export interface AppConfig {
   auto_open_program: string | null;
   port: number;
   auto_select_port: boolean;
-  file_extensions: string[];
 }
 
 /// 存储路径信息（与后端 StorageInfo 对应）
