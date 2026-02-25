@@ -73,10 +73,12 @@ camera-ftp-companion/
 │   │   ├── StatsCard.tsx         # 统计显示卡片
 │   │   ├── InfoCard.tsx          # 连接信息卡片
 │   │   ├── ConfigCard.tsx        # 配置管理卡片（含存储设置）
-│   │   └── BottomNav.tsx         # 底部导航栏
+│   │   ├── BottomNav.tsx         # 底部导航栏
+│   │   └── PermissionDialog.tsx  # 权限请求对话框
 │   ├── stores/
 │   │   ├── serverStore.ts        # 服务器状态管理 + 统一事件监听
-│   │   └── configStore.ts        # 配置状态管理
+│   │   ├── configStore.ts        # 配置状态管理
+│   │   └── permissionStore.ts    # 权限状态管理
 │   └── hooks/
 │       └── useStoragePermission.ts # 存储权限管理Hook
 │
@@ -99,7 +101,6 @@ camera-ftp-companion/
 │       ├── network.rs            # 网络管理（IP/端口检测）
 │       ├── error.rs              # 统一错误类型（AppError）
 │       ├── storage_permission.rs # 存储权限管理命令
-│       ├── constants.rs          # 应用常量定义
 │       ├── ftp/                  # FTP模块
 │       │   ├── mod.rs            # 模块入口与测试
 │       │   ├── server.rs         # FTP服务器Actor实现
@@ -115,6 +116,14 @@ camera-ftp-companion/
 │           ├── traits.rs         # PlatformService Trait定义
 │           ├── windows.rs        # Windows平台实现
 │           └── android.rs        # Android平台实现
+│
+├── 📁 src-tauri/gen/android/     # Android原生代码（Tauri自动生成）
+│   └── app/src/main/java/com/gjk/cameraftpcompanion/
+│       ├── MainActivity.kt       # 主活动 + JS Bridge（SAF/文件上传/服务器状态）
+│       ├── PermissionBridge.kt   # 权限JS Bridge（存储/通知/电池优化）
+│       ├── FtpForegroundService.kt # FTP前台服务（通知/WakeLock/WifiLock）
+│       ├── MediaScannerHelper.kt # 媒体扫描（让照片出现在相册）
+│       └── StorageHelper.kt      # 存储辅助（打开权限设置页面）
 │
 ├── 📁 dist/                      # 前端构建输出
 └── 📁 release/                   # 发布包
@@ -214,8 +223,12 @@ platform.setup(app.handle())?;
 | 命令 | 说明 |
 |------|------|
 | `./build.sh windows` | 构建 Windows 可执行文件 |
-| `./build.sh android` | 构建 Android APK |
+| `./build.sh windows-bundle` | 构建 Windows 安装包 (EXE + MSI) |
+| `./build.sh android` | 构建 Android APK (release) |
+| `./build.sh android-debug` | 构建 Android APK (debug) |
+| `./build.sh android-aab` | 构建 Android AAB (Google Play) |
 | `./build.sh frontend` | 仅构建前端 |
+| `./build.sh dev` | 启动开发模式 |
 
 ---
 
@@ -436,7 +449,7 @@ ci: CI配置更改
 
 ## Agent 指令总结
 
-1. **构建平台产物**: 必须使用 `./build-full.sh`, `./build-android.sh` 等编译脚本
+1. **构建平台产物**: 使用 `./build.sh <command>` 统一构建入口
 2. **代码验证**: 不要使用 `lsp_diagnostics`，不要直接使用`cargo build`命令，而是始终使用编译脚本进行验证
 3. **平台代码**: 使用 `#[cfg(target_os = "...")]` 进行条件编译
 4. **日志记录**: 使用 `tracing::info!`, `tracing::error!` 等宏

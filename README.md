@@ -69,11 +69,15 @@ cargo tauri dev
 ### 生产构建
 
 ```bash
-# Windows构建
-./build-full.sh
+# 统一构建入口
+./build.sh <command>
 
-# Android构建
-./build-android.sh release
+# 常用命令：
+# ./build.sh windows         # Windows 可执行文件
+# ./build.sh windows-bundle  # Windows 安装包 (EXE + MSI)
+# ./build.sh android         # Android APK (release)
+# ./build.sh android-debug   # Android APK (debug)
+# ./build.sh android-aab     # Android AAB (Google Play)
 ```
 
 ---
