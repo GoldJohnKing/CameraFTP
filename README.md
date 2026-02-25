@@ -24,13 +24,17 @@
 ## 🏗️ 技术架构
 
 ```
-React + TypeScript + TailwindCSS (前端)
-           ↓
-     Tauri IPC (Command/Event)
-           ↓
-Rust + libunftp (FTP Server后端)
-           ↓
-Kotlin + JS Bridge (Android原生)
+    React + TypeScript + TailwindCSS (前端)
+                        │
+          ┌─────────────┴─────────────┐
+          │                           │
+          ▼                           ▼
+    Tauri IPC                   JS Bridge
+    (Command/Event)             (Android)
+          │                           │
+          ▼                           ▼
+    Rust + libunftp             Kotlin
+    (FTP Server)                (Android原生服务)
 ```
 
 | 层级 | 技术 | 版本 |
