@@ -49,23 +49,32 @@ fn check_all_files_permission() -> bool {
     can_write_to_dcim()
 }
 
-/// 尝试写入 DCIM 目录来检查权限
-fn can_write_to_dcim() -> bool {
-    let dcim_path = "/storage/emulated/0/DCIM";
-    let test_file = format!("{}/.permission_test_{}", dcim_path, std::process::id());
-
-    // 尝试创建测试文件
+/// 检查路径是否可写（通过创建临时测试文件）
+fn is_path_writable(path: &std::path::Path) -> bool {
+    let test_file = path.join(".write_test");
     match std::fs::File::create(&test_file) {
         Ok(_) => {
             let _ = std::fs::remove_file(&test_file);
-            debug!("All files access permission: granted (DCIM writable)");
             true
         }
-        Err(e) => {
-            debug!("All files access permission: denied ({})", e);
-            false
-        }
+        Err(_) => false,
     }
+}
+
+/// 尝试写入 DCIM 目录来检查权限
+fn can_write_to_dcim() -> bool {
+    let dcim_path = std::path::Path::new("/storage/emulated/0/DCIM");
+    if !dcim_path.exists() {
+        debug!("DCIM path does not exist");
+        return false;
+    }
+    let writable = is_path_writable(dcim_path);
+    if writable {
+        debug!("All files access permission: granted (DCIM writable)");
+    } else {
+        debug!("All files access permission: denied (DCIM not writable)");
+    }
+    writable
 }
 
 /// 验证路径是否可写
@@ -92,19 +101,14 @@ fn validate_path_writable(path: &str) -> bool {
         return false;
     }
 
-    // 尝试写入测试文件
-    let test_file = path_buf.join(".ftp_write_test");
-    match std::fs::File::create(&test_file) {
-        Ok(_) => {
-            let _ = std::fs::remove_file(&test_file);
-            debug!("Path is writable: {:?}", path_buf);
-            true
-        }
-        Err(e) => {
-            error!("Path is not writable: {:?}, error: {}", path_buf, e);
-            false
-        }
+    // 使用共享辅助函数检查可写性
+    let writable = is_path_writable(&path_buf);
+    if writable {
+        debug!("Path is writable: {:?}", path_buf);
+    } else {
+        error!("Path is not writable: {:?}", path_buf);
     }
+    writable
 }
 
 /// 确保存储目录存在且可写
