@@ -99,19 +99,5 @@ export function createEventManager() {
       });
       unlisteners.length = 0;
     },
-
-    /**
-     * 获取当前注册的监听器数量
-     */
-    get listenerCount(): number {
-      return unlisteners.length;
-    },
-
-    /**
-     * 是否已清理
-     */
-    get isCleanedUp(): boolean {
-      return isCleanedUp;
-    },
   };
 }
