@@ -303,7 +303,7 @@ class MainActivity : TauriActivity() {
             }
             
             // Now update the state
-            FtpForegroundService.getInstance()?.updateServerState(isRunning, statsJson, connectedClients)
+            FtpForegroundService.getInstance()?.updateServerState(statsJson, connectedClients)
         } else {
             // Server is stopped - stop foreground service
             if (service != null) {

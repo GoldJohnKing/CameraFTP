@@ -213,9 +213,9 @@ class FtpForegroundService : Service() {
      * Update server stats and notification content.
      * Called when server is running to update stats display.
      */
-    fun updateServerState(isRunning: Boolean, statsJson: String?, connectedClients: Int) {
+    fun updateServerState(statsJson: String?, connectedClients: Int) {
         Log.d(TAG, "========== updateServerState called ==========")
-        Log.d(TAG, "Parameters: isRunning=$isRunning, statsJson=$statsJson, connectedClients=$connectedClients")
+        Log.d(TAG, "Parameters: statsJson=$statsJson, connectedClients=$connectedClients")
         
         this.connectedClients = connectedClients
         
