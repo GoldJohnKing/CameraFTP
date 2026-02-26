@@ -73,7 +73,10 @@ fn setup_logging() {
                     .create(true)
                     .append(true)
                     .open(&log_file_for_writer)
-                    .unwrap_or_else(|_| std::fs::File::create("/dev/null").unwrap())
+                    .unwrap_or_else(|_| {
+                        std::fs::File::create("/dev/null")
+                            .expect("Failed to create /dev/null")
+                    })
             })
             .with_ansi(false)
             .with_thread_ids(true)
