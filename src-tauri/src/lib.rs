@@ -30,6 +30,7 @@ use commands::{
     load_config,
     needs_storage_permission,
     open_all_files_access_settings,
+    open_folder_select_file,
     open_preview_window,
     quit_application,
     request_all_files_permission,
@@ -226,6 +227,7 @@ pub fn run() {
             set_preview_config,
             open_preview_window,
             select_executable_file,
+            open_folder_select_file,
         ])
         .run(tauri::generate_context!())
         .unwrap_or_else(|e| {

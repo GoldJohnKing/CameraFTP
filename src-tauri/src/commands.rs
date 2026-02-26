@@ -334,3 +334,18 @@ pub async fn select_executable_file(app: AppHandle) -> Result<Option<String>, Ap
         Ok(None)
     }
 }
+
+/// 打开文件夹并选中文件（Windows 资源管理器）
+#[tauri::command]
+pub async fn open_folder_select_file(file_path: String) -> Result<(), AppError> {
+    #[cfg(target_os = "windows")]
+    {
+        crate::auto_open::windows::open_folder_and_select_file(&std::path::PathBuf::from(&file_path))
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = file_path;
+        Ok(())
+    }
+}

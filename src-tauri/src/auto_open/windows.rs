@@ -32,6 +32,44 @@ pub fn open_with_program(file_path: &PathBuf, program: &str) -> Result<(), AppEr
     open_with_program_execute(file_path, program)
 }
 
+/// 打开文件夹并选中文件
+pub fn open_folder_and_select_file(file_path: &PathBuf) -> Result<(), AppError> {
+    // 使用 explorer /select,<path> 命令打开文件夹并选中文件
+    let path_str = file_path.to_string_lossy();
+    let arg = format!("/select,{}", path_str);
+
+    unsafe {
+        let _ = CoInitialize(None);
+    }
+
+    let explorer_wide: Vec<u16> = OsStr::new("explorer")
+        .encode_wide()
+        .chain(Some(0))
+        .collect();
+
+    let arg_wide: Vec<u16> = OsStr::new(&arg).encode_wide().chain(Some(0)).collect();
+
+    let result = unsafe {
+        ShellExecuteW(
+            None,
+            None,
+            windows::core::PCWSTR(explorer_wide.as_ptr()),
+            windows::core::PCWSTR(arg_wide.as_ptr()),
+            None,
+            SW_SHOWNORMAL,
+        )
+    };
+
+    if result.0 as usize <= 32 {
+        return Err(AppError::Other(format!(
+            "ShellExecute explorer failed with code {:?}",
+            result.0
+        )));
+    }
+
+    Ok(())
+}
+
 fn open_with_shell_execute(file_path: &PathBuf, operation: Option<&str>) -> Result<(), AppError> {
     unsafe {
         let _ = CoInitialize(None);
