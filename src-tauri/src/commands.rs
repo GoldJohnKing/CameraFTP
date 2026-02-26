@@ -316,7 +316,7 @@ pub async fn select_executable_file(app: AppHandle) -> Result<Option<String>, Ap
     {
         use tauri_plugin_dialog::DialogExt;
 
-        let file_path = tokio::task::spawn_blocking(move || {
+        let file_path: Option<tauri_plugin_dialog::FilePath> = tokio::task::spawn_blocking(move || {
             app.dialog()
                 .file()
                 .set_title("选择程序")

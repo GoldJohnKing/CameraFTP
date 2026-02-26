@@ -9,85 +9,93 @@ use crate::error::AppError;
 
 pub struct AutoOpenService {
     app_handle: AppHandle,
+    #[cfg(target_os = "windows")]
     config: Arc<Mutex<PreviewWindowConfig>>,
 }
 
 impl AutoOpenService {
     pub fn new(app_handle: AppHandle) -> Self {
-        let config = AppConfig::load().preview_config;
-        Self {
-            app_handle,
-            config: Arc::new(Mutex::new(config)),
+        #[cfg(target_os = "windows")]
+        {
+            let config = AppConfig::load().preview_config;
+            Self {
+                app_handle,
+                config: Arc::new(Mutex::new(config)),
+            }
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            Self { app_handle }
         }
     }
 
     /// 处理文件上传事件
-    pub async fn on_file_uploaded(&self, file_path: PathBuf) -> Result<(), AppError> {
-        let config = self.config.lock().await.clone();
-        
-        if !config.enabled {
-            return Ok(());
-        }
+    pub async fn on_file_uploaded(&self, _file_path: PathBuf) -> Result<(), AppError> {
+        #[cfg(target_os = "windows")]
+        {
+            let config = self.config.lock().await.clone();
+            
+            if !config.enabled {
+                return Ok(());
+            }
 
-        match &config.method {
-            ImageOpenMethod::BuiltInPreview => {
-                // 创建或更新预览窗口
-                self.open_or_update_preview_window(&file_path, config.auto_bring_to_front).await?;
-            }
-            ImageOpenMethod::SystemDefault => {
-                #[cfg(target_os = "windows")]
-                {
-                    crate::auto_open::windows::open_with_default(&file_path)?;
+            match &config.method {
+                ImageOpenMethod::BuiltInPreview => {
+                    // 创建或更新预览窗口
+                    self.open_or_update_preview_window(&_file_path, config.auto_bring_to_front).await?;
                 }
-            }
-            ImageOpenMethod::WindowsPhotos => {
-                #[cfg(target_os = "windows")]
-                {
-                    crate::auto_open::windows::open_with_photos(&file_path)?;
+                ImageOpenMethod::SystemDefault => {
+                    crate::auto_open::windows::open_with_default(&_file_path)?;
                 }
-            }
-            ImageOpenMethod::Custom => {
-                #[cfg(target_os = "windows")]
-                {
+                ImageOpenMethod::WindowsPhotos => {
+                    crate::auto_open::windows::open_with_photos(&_file_path)?;
+                }
+                ImageOpenMethod::Custom => {
                     if let Some(program_path) = &config.custom_path {
-                        crate::auto_open::windows::open_with_program(&file_path, program_path)?;
+                        crate::auto_open::windows::open_with_program(&_file_path, program_path)?;
                     }
                 }
             }
         }
-
+        
+        // Android 上暂时不支持自动打开
         Ok(())
     }
 
     /// 根据配置打开图片（用于手动触发）
-    pub async fn open_image(&self, file_path: &PathBuf) -> Result<(), AppError> {
-        let config = self.config.lock().await.clone();
-        
-        match &config.method {
-            ImageOpenMethod::BuiltInPreview => {
-                self.open_or_update_preview_window(file_path, true).await?;
-            }
-            ImageOpenMethod::SystemDefault => {
-                #[cfg(target_os = "windows")]
-                crate::auto_open::windows::open_with_default(file_path)?;
-            }
-            ImageOpenMethod::WindowsPhotos => {
-                #[cfg(target_os = "windows")]
-                crate::auto_open::windows::open_with_photos(file_path)?;
-            }
-            ImageOpenMethod::Custom => {
-                #[cfg(target_os = "windows")]
-                if let Some(program_path) = &config.custom_path {
-                    crate::auto_open::windows::open_with_program(file_path, program_path)?;
+    pub async fn open_image(&self, _file_path: &PathBuf) -> Result<(), AppError> {
+        #[cfg(target_os = "windows")]
+        {
+            let config = self.config.lock().await.clone();
+            
+            match &config.method {
+                ImageOpenMethod::BuiltInPreview => {
+                    self.open_or_update_preview_window(_file_path, true).await?;
+                }
+                ImageOpenMethod::SystemDefault => {
+                    crate::auto_open::windows::open_with_default(_file_path)?;
+                }
+                ImageOpenMethod::WindowsPhotos => {
+                    crate::auto_open::windows::open_with_photos(_file_path)?;
+                }
+                ImageOpenMethod::Custom => {
+                    if let Some(program_path) = &config.custom_path {
+                        crate::auto_open::windows::open_with_program(_file_path, program_path)?;
+                    }
                 }
             }
         }
-
+        
         Ok(())
     }
 
-    /// 创建或更新预览窗口
-    async fn open_or_update_preview_window(&self, file_path: &PathBuf, bring_to_front: bool) -> Result<(), AppError> {
+    /// 创建或更新预览窗口（仅 Windows）
+    #[cfg(target_os = "windows")]
+    async fn open_or_update_preview_window(
+        &self, 
+        file_path: &PathBuf, 
+        bring_to_front: bool
+    ) -> Result<(), AppError> {
         let event = PreviewEvent {
             file_path: file_path.to_string_lossy().to_string(),
             bring_to_front,
@@ -96,7 +104,7 @@ impl AutoOpenService {
         // 检查预览窗口是否已存在
         if let Some(window) = self.app_handle.get_webview_window("preview") {
             // 窗口已存在，发送事件更新图片
-            window.emit("preview-image", event.clone())
+            window.emit::<serde_json::Value>("preview-image", serde_json::to_value(&event).unwrap())
                 .map_err(|e| AppError::Other(format!("Failed to emit preview event: {}", e)))?;
             
             // 如果需要置顶
@@ -152,7 +160,8 @@ impl AutoOpenService {
         Ok(())
     }
 
-    /// 更新配置
+    /// 更新配置（仅 Windows）
+    #[cfg(target_os = "windows")]
     pub async fn update_config(&self, new_config: PreviewWindowConfig) {
         let mut config = self.config.lock().await;
         *config = new_config.clone();
@@ -173,9 +182,22 @@ impl AutoOpenService {
         }
     }
 
-    /// 获取当前配置
+    /// 更新配置（Android 空实现）
+    #[cfg(not(target_os = "windows"))]
+    pub async fn update_config(&self, _new_config: PreviewWindowConfig) {
+        // Android 上暂时不支持
+    }
+
+    /// 获取当前配置（仅 Windows）
+    #[cfg(target_os = "windows")]
     pub async fn get_config(&self) -> PreviewWindowConfig {
         self.config.lock().await.clone()
+    }
+
+    /// 获取当前配置（Android 返回默认）
+    #[cfg(not(target_os = "windows"))]
+    pub async fn get_config(&self) -> PreviewWindowConfig {
+        PreviewWindowConfig::default()
     }
 }
 
@@ -187,5 +209,8 @@ pub struct PreviewEvent {
 
 #[derive(Clone, serde::Serialize)]
 pub struct ConfigChangedEvent {
+    #[cfg(target_os = "windows")]
     pub config: PreviewWindowConfig,
+    #[cfg(not(target_os = "windows"))]
+    pub config: crate::config::PreviewWindowConfig,
 }

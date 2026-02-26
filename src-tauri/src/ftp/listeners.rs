@@ -3,7 +3,9 @@ use crate::ftp::stats::StatsActor;
 use dashmap::DashSet;
 use libunftp::notification::{DataEvent, DataListener, EventMeta, PresenceEvent, PresenceListener};
 use std::sync::Arc;
-use tauri::{AppHandle, Manager};
+use tauri::AppHandle;
+#[cfg(target_os = "windows")]
+use tauri::Manager;
 use tracing::{info, warn};
 
 /// 数据事件监听器（上传、下载等）
@@ -36,7 +38,9 @@ impl DataListener for FtpDataListener {
     {
         let stats = self.stats.clone();
         let event_bus = self.event_bus.clone();
+        #[cfg(target_os = "windows")]
         let save_path = self.save_path.clone();
+        #[cfg(target_os = "windows")]
         let app_handle = self.app_handle.clone();
         Box::pin(async move {
             match event {
