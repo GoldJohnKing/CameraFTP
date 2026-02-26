@@ -43,9 +43,7 @@ class PermissionBridge(private val activity: Activity) {
         json.put("notification", notificationGranted)
         json.put("batteryOptimization", batteryOptimizationGranted)
         
-        val result = json.toString()
-        Log.d(TAG, "checkAllPermissions: $result")
-        return result
+        return json.toString()
     }
 
     /**
@@ -83,16 +81,12 @@ class PermissionBridge(private val activity: Activity) {
      * Internal helper - not exposed to JavaScript
      */
     fun checkBatteryOptimization(): Boolean {
-        val result = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             val powerManager = activity.getSystemService(Context.POWER_SERVICE) as PowerManager
-            val isIgnoring = powerManager.isIgnoringBatteryOptimizations(activity.packageName)
-            Log.d(TAG, "checkBatteryOptimization: isIgnoring=$isIgnoring")
-            isIgnoring
+            powerManager.isIgnoringBatteryOptimizations(activity.packageName)
         } else {
-            Log.d(TAG, "checkBatteryOptimization: not required (API < 23)")
             true // Not required before Android 6
         }
-        return result
     }
 
     /**
@@ -100,7 +94,6 @@ class PermissionBridge(private val activity: Activity) {
      */
     @JavascriptInterface
     fun requestStoragePermission() {
-        Log.d(TAG, "Requesting storage permission")
         // Delegate to StorageHelper to avoid code duplication
         StorageHelper.openManageStorageSettings(activity)
     }
@@ -110,7 +103,6 @@ class PermissionBridge(private val activity: Activity) {
      */
     @JavascriptInterface
     fun requestNotificationPermission() {
-        Log.d(TAG, "Requesting notification permission")
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             ActivityCompat.requestPermissions(
                 activity,
@@ -125,7 +117,6 @@ class PermissionBridge(private val activity: Activity) {
      */
     @JavascriptInterface
     fun requestBatteryOptimization() {
-        Log.d(TAG, "Requesting battery optimization whitelist")
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             val powerManager = activity.getSystemService(Context.POWER_SERVICE) as PowerManager
             if (!powerManager.isIgnoringBatteryOptimizations(activity.packageName)) {
