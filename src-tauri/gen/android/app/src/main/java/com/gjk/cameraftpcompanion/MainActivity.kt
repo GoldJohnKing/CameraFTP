@@ -293,17 +293,18 @@ class MainActivity : TauriActivity() {
     fun updateServiceState(isRunning: Boolean, statsJson: String?, connectedClients: Int) {
         Log.d(TAG, "updateServiceState: running=$isRunning, clients=$connectedClients, stats=$statsJson")
         
-        val service = FtpForegroundService.getInstance()
+        var service = FtpForegroundService.getInstance()
         
         if (isRunning) {
             // Server is running - ensure foreground service is started
             if (service == null) {
                 Log.d(TAG, "Starting foreground service before updating state")
                 startFtpForegroundService()
+                service = FtpForegroundService.getInstance()
             }
             
             // Now update the state
-            FtpForegroundService.getInstance()?.updateServerState(statsJson, connectedClients)
+            service?.updateServerState(statsJson, connectedClients)
         } else {
             // Server is stopped - stop foreground service
             if (service != null) {
