@@ -8,6 +8,7 @@ use crate::error::AppError;
 use crate::ftp::types::{ServerInfo, ServerStateSnapshot};
 use crate::ftp::FtpServerHandle;
 use crate::network::NetworkManager;
+use crate::platform::{get_platform as get_platform_service, PermissionStatus, ServerStartCheckResult, StorageInfo};
 
 /// FTP 服务器状态（使用 Arc<Mutex> 包装以支持异步操作）
 pub struct FtpServerState(pub Arc<Mutex<Option<FtpServerHandle>>>);
@@ -215,4 +216,60 @@ pub fn get_platform() -> String {
 #[tauri::command]
 pub fn open_all_files_access_settings(app: tauri::AppHandle) -> Result<(), String> {
     crate::platform::get_platform().open_all_files_access_settings(&app)
+}
+
+// ============================================================================
+// 存储权限管理命令（从 storage_permission.rs 迁移）
+// ============================================================================
+
+/// 获取固定存储路径信息
+#[tauri::command]
+pub async fn get_storage_info() -> Result<StorageInfo, AppError> {
+    Ok(get_platform_service().get_storage_info())
+}
+
+/// 检查权限状态
+#[tauri::command]
+pub async fn check_permission_status() -> Result<PermissionStatus, AppError> {
+    Ok(get_platform_service().check_permission_status())
+}
+
+/// 请求"所有文件访问权限"
+#[tauri::command]
+pub async fn request_all_files_permission(app: AppHandle) -> Result<(), AppError> {
+    let platform = get_platform_service();
+    
+    platform
+        .request_all_files_permission(&app)
+        .map_err(AppError::StoragePermissionError)?;
+
+    // 如果返回 false，说明需要用户去设置页面授权
+    // 这里我们不返回错误，让前端决定如何处理
+    Ok(())
+}
+
+/// 确保存储目录存在且可写
+#[tauri::command]
+pub async fn ensure_storage_ready() -> Result<String, AppError> {
+    get_platform_service()
+        .ensure_storage_ready()
+        .map_err(AppError::StoragePermissionError)
+}
+
+/// 检查存储权限
+#[tauri::command]
+pub async fn check_storage_permission() -> Result<bool, AppError> {
+    Ok(get_platform_service().check_permission_status().has_all_files_access)
+}
+
+/// 检查服务器启动前提条件
+#[tauri::command]
+pub async fn check_server_start_prerequisites() -> Result<ServerStartCheckResult, AppError> {
+    Ok(get_platform_service().check_server_start_prerequisites())
+}
+
+/// 检查是否需要存储权限（用于前端 UI 判断）
+#[tauri::command]
+pub async fn needs_storage_permission() -> bool {
+    get_platform_service().needs_storage_permission()
 }

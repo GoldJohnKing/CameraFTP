@@ -85,15 +85,9 @@ impl ServerStatus {
 #[serde(tag = "type", content = "data")]
 pub enum DomainEvent {
     ServerStarted { bind_addr: String },
-    ServerStopped { reason: StopReason },
+    ServerStopped,
     FileUploaded { path: String, size: u64 },
     StatsUpdated(ServerStats),
-}
-
-/// 服务器停止原因
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
-pub enum StopReason {
-    UserRequest,
 }
 
 /// 服务器连接信息（用于前端显示）

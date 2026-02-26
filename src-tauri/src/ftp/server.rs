@@ -4,7 +4,6 @@ use crate::ftp::listeners::{FtpDataListener, FtpPresenceListener};
 use crate::ftp::stats::{StatsActor, StatsActorWorker};
 use crate::ftp::types::{
     ServerConfig, ServerInfo, ServerStateSnapshot, ServerStatus,
-    StopReason,
 };
 use dashmap::DashSet;
 use libunftp::options::Shutdown;
@@ -326,7 +325,7 @@ impl FtpServerActor {
         self.config = None;
         self.bind_addr = None;
 
-        self.event_bus.emit_server_stopped(StopReason::UserRequest);
+        self.event_bus.emit_server_stopped();
 
         info!("FTP server stopped");
 

@@ -1,4 +1,4 @@
-use crate::ftp::types::{DomainEvent, ServerStats, StopReason};
+use crate::ftp::types::{DomainEvent, ServerStats};
 use std::sync::Arc;
 use tokio::sync::{broadcast, RwLock};
 use tracing::{trace, warn};
@@ -39,8 +39,8 @@ impl EventBus {
     }
 
     /// 发布服务器停止事件
-    pub fn emit_server_stopped(&self, reason: StopReason) {
-        self.emit(DomainEvent::ServerStopped { reason });
+    pub fn emit_server_stopped(&self) {
+        self.emit(DomainEvent::ServerStopped);
     }
 
     /// 发布文件上传事件

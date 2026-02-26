@@ -2,36 +2,32 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
 #[cfg(target_os = "android")]
-use std::sync::Mutex;
+use std::sync::OnceLock;
 #[cfg(target_os = "android")]
 use tracing::warn;
 use tracing::{error, info};
 use ts_rs::TS;
 
-/// Android 配置路径（在应用初始化时设置）
+/// Android 配置路径（在应用初始化时设置，使用 OnceLock 实现高效缓存）
 #[cfg(target_os = "android")]
-static ANDROID_CONFIG_PATH: Mutex<Option<PathBuf>> = Mutex::new(None);
+static ANDROID_CONFIG_PATH: OnceLock<PathBuf> = OnceLock::new();
 
 /// 设置 Android 配置路径（在应用初始化时调用）
 #[cfg(target_os = "android")]
 pub fn set_android_config_path(config_path: PathBuf) {
-    let mut config_guard = ANDROID_CONFIG_PATH
-        .lock()
-        .expect("ANDROID_CONFIG_PATH mutex poisoned");
-    *config_guard = Some(config_path);
-    info!("Android config path set: {:?}", config_guard);
+    if let Err(_) = ANDROID_CONFIG_PATH.set(config_path.clone()) {
+        warn!("Android config path already set, ignoring duplicate initialization");
+    } else {
+        info!("Android config path set: {:?}", config_path);
+    }
 }
 
-/// 获取 Android 配置路径
+/// 获取 Android 配置路径（从缓存读取，无需加锁）
 #[cfg(target_os = "android")]
 fn get_android_config_path() -> PathBuf {
-    ANDROID_CONFIG_PATH
-        .lock()
-        .expect("ANDROID_CONFIG_PATH mutex poisoned")
-        .clone()
-        .unwrap_or_else(|| {
-            PathBuf::from("/sdcard/Android/data/com.gjk.cameraftpcompanion/files/config.json")
-        })
+    ANDROID_CONFIG_PATH.get().cloned().unwrap_or_else(|| {
+        PathBuf::from("/sdcard/Android/data/com.gjk.cameraftpcompanion/files/config.json")
+    })
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]

@@ -4,7 +4,6 @@ pub mod error;
 pub mod ftp;
 pub mod network;
 pub mod platform;
-pub mod storage_permission;
 
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -13,16 +12,23 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use tauri::{Manager, Emitter};
 
 use commands::{
+    check_permission_status,
     check_port_available, 
+    check_server_start_prerequisites,
+    check_storage_permission,
+    ensure_storage_ready,
     get_autostart_status, 
     get_platform, 
     get_server_info,
     get_server_status, 
+    get_storage_info,
     get_storage_path,
     hide_main_window, 
     load_config, 
+    needs_storage_permission,
     open_all_files_access_settings, 
     quit_application, 
+    request_all_files_permission,
     save_config, 
     select_save_directory, 
     set_autostart_command, 
@@ -30,15 +36,6 @@ use commands::{
     stop_server, 
     validate_save_path,
     FtpServerState
-};
-use storage_permission::{
-    check_permission_status,
-    check_server_start_prerequisites,
-    check_storage_permission,
-    ensure_storage_ready,
-    get_storage_info,
-    needs_storage_permission,
-    request_all_files_permission,
 };
 
 fn setup_logging() {
