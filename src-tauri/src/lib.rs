@@ -48,7 +48,7 @@ fn setup_logging() {
         
         // 获取日志目录 - Android 使用外部存储以便用户可以访问
         #[cfg(target_os = "android")]
-        let log_dir = PathBuf::from("/storage/emulated/0/DCIM/CameraFTP/logs");
+        let log_dir = PathBuf::from(platform::android::DEFAULT_STORAGE_PATH).join("logs");
         
         #[cfg(not(target_os = "android"))]
         let log_dir = dirs::data_dir()

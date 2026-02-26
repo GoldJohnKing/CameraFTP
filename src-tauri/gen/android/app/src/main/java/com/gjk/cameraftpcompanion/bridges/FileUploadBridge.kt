@@ -9,9 +9,10 @@ import com.gjk.cameraftpcompanion.MediaScannerHelper
  * 文件上传JavaScript Bridge
  * 接收来自WebView的file-uploaded事件，触发媒体扫描
  */
-class FileUploadBridge(private val activity: MainActivity) {
+class FileUploadBridge(private val mainActivity: MainActivity) : BaseJsBridge(mainActivity) {
     companion object {
         private const val TAG = "FileUploadBridge"
+        // Must match: src-tauri/src/platform/android.rs DEFAULT_STORAGE_PATH
         private const val DEFAULT_STORAGE_PATH = "/storage/emulated/0/DCIM/CameraFTP"
     }
 
@@ -36,8 +37,8 @@ class FileUploadBridge(private val activity: MainActivity) {
         Log.i(TAG, "File uploaded: path=$fullPath")
 
         // 触发媒体扫描，让照片出现在相册中
-        activity.runOnUiThread {
-            MediaScannerHelper.scanFile(activity, fullPath)
+        runOnUiThread {
+            MediaScannerHelper.scanFile(mainActivity, fullPath)
         }
     }
 }

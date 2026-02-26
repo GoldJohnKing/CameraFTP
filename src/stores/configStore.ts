@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { invoke } from '@tauri-apps/api/core';
 import type { AppConfig } from '../types';
-import { formatError } from '../utils/error';
+import { executeAsync } from '../utils/store';
 
 interface ConfigState {
   config: AppConfig | null;
@@ -41,38 +41,37 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
   },
 
   loadConfig: async () => {
-    set((state) => ({ ...state, isLoading: true, error: null }));
-    try {
-      const config = await invoke<AppConfig>('load_config');
-      set((state) => ({ ...state, config, isLoading: false }));
-    } catch (err: unknown) {
-      const errorMessage = formatError(err);
-      set((state) => ({ ...state, error: errorMessage || 'Failed to load config', isLoading: false }));
-    }
+    await executeAsync(
+      {
+        operation: () => invoke<AppConfig>('load_config'),
+        onSuccess: (config, set) => set((state) => ({ ...state, config })),
+      },
+      set,
+    );
   },
 
   saveConfig: async (config: AppConfig) => {
-    set((state) => ({ ...state, isLoading: true, error: null }));
-    try {
-      await invoke('save_config', { config });
-      set((state) => ({ ...state, config, isLoading: false }));
-    } catch (err: unknown) {
-      const errorMessage = formatError(err);
-      set((state) => ({ ...state, error: errorMessage || 'Failed to save config', isLoading: false }));
-      throw err;
-    }
+    await executeAsync(
+      {
+        operation: () => invoke('save_config', { config }),
+        onSuccess: (_, set) => set((state) => ({ ...state, config })),
+        errorPrefix: 'Failed to save config',
+        rethrow: true,
+      },
+      set,
+    );
   },
 
   setAutostart: async (enabled: boolean) => {
-    set((state) => ({ ...state, isLoading: true, error: null }));
-    try {
-      await invoke('set_autostart_command', { enable: enabled });
-      set((state) => ({ ...state, isLoading: false }));
-    } catch (err: unknown) {
-      const errorMessage = formatError(err);
-      set((state) => ({ ...state, error: errorMessage || 'Failed to set autostart', isLoading: false }));
-      throw err;
-    }
+    await executeAsync(
+      {
+        operation: () => invoke('set_autostart_command', { enable: enabled }),
+        onSuccess: () => {},
+        errorPrefix: 'Failed to set autostart',
+        rethrow: true,
+      },
+      set,
+    );
   },
 
   setActiveTab: (tab: 'home' | 'config') => {

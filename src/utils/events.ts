@@ -36,7 +36,6 @@ async function registerEvents(
     }
   }
 
-  // 返回统一的清理函数
   return () => {
     unlisteners.forEach((unlisten) => {
       try {

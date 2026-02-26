@@ -26,7 +26,6 @@ function App() {
         if (!isCancelled) {
           cleanupFn = cleanup;
         } else {
-          // 如果组件已卸载，立即清理
           cleanup();
         }
       } catch {
