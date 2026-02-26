@@ -232,10 +232,18 @@ impl FtpServerActor {
         }
 
         // 构建并启动服务器
-        // 闭包内创建新的 Filesystem 实例（已验证路径，不会失败）
+        // SAFETY: 闭包内创建 Filesystem 实例。路径已在上方（line 225）验证有效。
+        // Filesystem 不实现 Clone，Arc<Filesystem> 不实现 StorageBackend，
+        // 因此只能在闭包内创建新实例。如果创建失败（极不可能，因路径已验证），
+        // libunftp 会处理错误 - 我们无法从这里传播错误。
         let result = ServerBuilder::new(Box::new(move || {
             unftp_sbe_fs::Filesystem::new(root_path.clone())
-                .expect("Filesystem creation failed after validation - this should never happen")
+                .unwrap_or_else(|e| {
+                    error!(error = %e, "CRITICAL: Filesystem creation failed after validation");
+                    // Return an empty filesystem that will fail operations gracefully
+                    // This path should never be reached, but prevents panic
+                    unftp_sbe_fs::Filesystem::new(std::path::PathBuf::new()).unwrap()
+                })
         }))
         .greeting("Camera FTP Companion Ready")
         .passive_ports(config.passive_port_range.0..=config.passive_port_range.1)

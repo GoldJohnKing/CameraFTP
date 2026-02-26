@@ -34,9 +34,12 @@ class FtpForegroundService : Service() {
         }
     }
     
-    // State
+    // State (accessed from multiple threads - use synchronized access)
+    @Volatile
     private var serverStats: JSONObject? = null
+    @Volatile
     private var connectedClients = 0
+    private val stateLock = Any()
     
     // Locks
     private var wakeLock: PowerManager.WakeLock? = null
@@ -152,10 +155,15 @@ class FtpForegroundService : Service() {
         val content = buildStatusContent()
         
         // Intent to open MainActivity when tapped
+        // Fallback to explicit intent if package manager returns null
+        val launchIntent = packageManager.getLaunchIntentForPackage(packageName)
+            ?: Intent(this, MainActivity::class.java).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
         val pendingIntent = PendingIntent.getActivity(
             this,
             0,
-            packageManager.getLaunchIntentForPackage(packageName),
+            launchIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
         
@@ -173,14 +181,18 @@ class FtpForegroundService : Service() {
     /**
      * Build status content: 连接状态 | 已接收图片数 | 已接收图片总大小
      * Note: This is only called when server is running
+     * Thread-safe: reads state under lock.
      */
     private fun buildStatusContent(): String {
-        val stats = serverStats
+        val (stats, clients) = synchronized(stateLock) {
+            Pair(serverStats, connectedClients)
+        }
+
         val files = stats?.optInt("files_transferred", 0) ?: 0
         val bytes = stats?.optLong("bytes_transferred", 0) ?: 0
 
         // 连接状态
-        val connectionStatus = if (connectedClients > 0) "已连接" else "未连接"
+        val connectionStatus = if (clients > 0) "已连接" else "未连接"
 
         // 格式：连接状态 | 已接收图片数 | 已接收图片总大小
         return "$connectionStatus | ${files}张 | ${formatBytes(bytes)}"
@@ -201,19 +213,22 @@ class FtpForegroundService : Service() {
     /**
      * Update server stats and notification content.
      * Called when server is running to update stats display.
+     * Thread-safe: can be called from any thread (e.g., JS bridge).
      */
     fun updateServerState(statsJson: String?, connectedClients: Int) {
-        this.connectedClients = connectedClients
+        synchronized(stateLock) {
+            this.connectedClients = connectedClients
 
-        if (statsJson != null) {
-            try {
-                serverStats = JSONObject(statsJson)
-            } catch (e: Exception) {
-                Log.e(TAG, "Error parsing stats JSON: $statsJson", e)
+            if (statsJson != null) {
+                try {
+                    serverStats = JSONObject(statsJson)
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error parsing stats JSON: $statsJson", e)
+                    serverStats = null
+                }
+            } else {
                 serverStats = null
             }
-        } else {
-            serverStats = null
         }
 
         // Update notification with new stats

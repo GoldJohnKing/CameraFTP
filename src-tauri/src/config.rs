@@ -130,7 +130,9 @@ pub fn init_android_paths(app_handle: &tauri::AppHandle) {
 
     // 确保配置目录存在
     if let Some(parent) = config_path.parent() {
-        let _ = fs::create_dir_all(parent);
+        if let Err(e) = fs::create_dir_all(parent) {
+            warn!("Failed to create config directory {:?}: {}", parent, e);
+        }
     }
 
     set_android_config_path(config_path.clone());

@@ -1,4 +1,5 @@
 use crate::ftp::types::{DomainEvent, ServerStats};
+use serde::Serialize;
 use std::sync::Arc;
 use tokio::sync::{broadcast, RwLock};
 use tracing::{trace, warn};
@@ -28,7 +29,9 @@ impl EventBus {
 
     /// 发布事件
     pub fn emit(&self, event: DomainEvent) {
-        let _ = self.tx.send(event);
+        if let Err(broadcast::error::SendError(_)) = self.tx.send(event) {
+            warn!("Event dropped: no active subscribers");
+        }
     }
 
     /// 发布服务器启动事件
@@ -168,6 +171,13 @@ impl StatsEventHandler {
     pub fn new(app_handle: tauri::AppHandle) -> Self {
         Self { app_handle }
     }
+
+    /// 向前端发送事件，失败时记录警告日志
+    fn emit_to_frontend<T: Serialize + Clone>(&self, event_name: &str, payload: T) {
+        if let Err(e) = self.app_handle.emit(event_name, payload) {
+            warn!(event = event_name, error = %e, "Failed to emit frontend event");
+        }
+    }
 }
 
 #[async_trait::async_trait]
@@ -177,21 +187,21 @@ impl EventHandler for StatsEventHandler {
             DomainEvent::StatsUpdated(stats) => {
                 // EventBus 已做增量检查，直接推送
                 let snapshot = crate::ftp::types::ServerStateSnapshot::from(stats);
-                let _ = self.app_handle.emit("stats-update", snapshot);
+                self.emit_to_frontend("stats-update", snapshot);
             }
             DomainEvent::ServerStarted { bind_addr } => {
                 // 解析 bind_addr (格式: "ip:port") 以提取 ip 和 port
                 let (ip, port) = parse_bind_addr(bind_addr);
-                let _ = self.app_handle.emit("server-started", serde_json::json!({
+                self.emit_to_frontend("server-started", serde_json::json!({
                     "ip": ip,
                     "port": port
                 }));
             }
             DomainEvent::ServerStopped { .. } => {
-                let _ = self.app_handle.emit("server-stopped", ());
+                self.emit_to_frontend("server-stopped", ());
             }
             DomainEvent::FileUploaded { path, size } => {
-                let _ = self.app_handle.emit(
+                self.emit_to_frontend(
                     "file-uploaded",
                     serde_json::json!({ "path": path, "size": size }),
                 );

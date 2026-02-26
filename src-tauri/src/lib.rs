@@ -63,7 +63,7 @@ fn setup_logging() {
             eprintln!("Failed to create log directory {:?}: {}", log_dir, e);
         }
 
-        // 创建文件追加器
+        // 创建文件追加器，失败时回退到 stderr
         let file_appender = tracing_subscriber::fmt::layer()
             .with_writer(move || {
                 std::fs::OpenOptions::new()
@@ -71,8 +71,8 @@ fn setup_logging() {
                     .append(true)
                     .open(&log_file_for_writer)
                     .unwrap_or_else(|_| {
-                        std::fs::File::create("/dev/null")
-                            .expect("Failed to create /dev/null")
+                        // Fallback to stderr if file logging fails
+                        Box::new(std::io::stderr()) as Box<dyn std::io::Write + Send>
                     })
             })
             .with_ansi(false)
@@ -214,5 +214,8 @@ pub fn run() {
             needs_storage_permission,
         ])
         .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .unwrap_or_else(|e| {
+            eprintln!("Fatal error running Tauri application: {}", e);
+            std::process::exit(1);
+        });
 }
