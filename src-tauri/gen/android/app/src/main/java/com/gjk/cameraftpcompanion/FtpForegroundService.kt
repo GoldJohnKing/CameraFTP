@@ -30,7 +30,6 @@ class FtpForegroundService : Service() {
         private var instance: FtpForegroundService? = null
         
         fun getInstance(): FtpForegroundService? {
-            Log.d(TAG, "getInstance() called, instance=$instance")
             return instance
         }
     }
@@ -53,15 +52,11 @@ class FtpForegroundService : Service() {
         
         // Note: startForeground() is called in onStartCommand() to satisfy Android's
         // 5-second requirement after startForegroundService().
-        Log.d(TAG, "Service created, foreground notification will be shown in onStartCommand()")
     }
     
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        Log.d(TAG, "onStartCommand: action=${intent?.action}")
-        
         // Handle stop service action
         if (intent?.action == ACTION_STOP) {
-            Log.d(TAG, "Stop service requested, calling stopSelf()")
             stopSelf()
             return START_NOT_STICKY
         }
@@ -71,15 +66,13 @@ class FtpForegroundService : Service() {
         // Service is only started when server is running, so always show running notification
         val notification = buildNotification()
         startForeground(NOTIFICATION_ID, notification)
-        Log.d(TAG, "Foreground notification shown")
-        
+
         return START_STICKY
     }
     
     override fun onDestroy() {
         instance = null
         releaseLocks()
-        Log.d(TAG, "Service destroyed")
         super.onDestroy()
     }
     
@@ -100,7 +93,6 @@ class FtpForegroundService : Service() {
             
             val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             notificationManager.createNotificationChannel(channel)
-            Log.d(TAG, "Notification channel created")
         }
     }
     
@@ -116,8 +108,7 @@ class FtpForegroundService : Service() {
         ).apply {
             acquire(10 * 60 * 1000L) // 10 minutes timeout, will be re-acquired
         }
-        Log.d(TAG, "WakeLock acquired")
-        
+
         // Acquire WiFi lock to keep WiFi connection alive
         val wifiManager = applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
         @Suppress("DEPRECATION")
@@ -127,7 +118,6 @@ class FtpForegroundService : Service() {
         ).apply {
             acquire()
         }
-        Log.d(TAG, "WifiLock acquired")
     }
     
     /**
@@ -137,15 +127,13 @@ class FtpForegroundService : Service() {
         wakeLock?.let {
             if (it.isHeld) {
                 it.release()
-                Log.d(TAG, "WakeLock released")
             }
         }
         wakeLock = null
-        
+
         wifiLock?.let {
             if (it.isHeld) {
                 it.release()
-                Log.d(TAG, "WifiLock released")
             }
         }
         wifiLock = null
@@ -214,15 +202,11 @@ class FtpForegroundService : Service() {
      * Called when server is running to update stats display.
      */
     fun updateServerState(statsJson: String?, connectedClients: Int) {
-        Log.d(TAG, "========== updateServerState called ==========")
-        Log.d(TAG, "Parameters: statsJson=$statsJson, connectedClients=$connectedClients")
-        
         this.connectedClients = connectedClients
-        
+
         if (statsJson != null) {
             try {
                 serverStats = JSONObject(statsJson)
-                Log.d(TAG, "Parsed stats: $serverStats")
             } catch (e: Exception) {
                 Log.e(TAG, "Error parsing stats JSON: $statsJson", e)
                 serverStats = null
@@ -230,12 +214,9 @@ class FtpForegroundService : Service() {
         } else {
             serverStats = null
         }
-        
+
         // Update notification with new stats
-        Log.d(TAG, ">>> Updating notification with new stats")
         updateNotification()
-        
-        Log.d(TAG, "========== updateServerState completed ==========")
     }
     
     /**
@@ -246,7 +227,6 @@ class FtpForegroundService : Service() {
             val notification = buildNotification()
             val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             notificationManager.notify(NOTIFICATION_ID, notification)
-            Log.d(TAG, "Notification updated successfully")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to update notification", e)
         }
