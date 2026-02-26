@@ -1,10 +1,16 @@
 import { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
 import { Card, CardHeader } from './ui';
 import type { PreviewWindowConfig } from '../types';
 
 interface PreviewConfigCardProps {
   platform: string;
+}
+
+// 全局配置变化事件类型
+interface ConfigChangedEvent {
+  config: PreviewWindowConfig;
 }
 
 export function PreviewConfigCard({ platform }: PreviewConfigCardProps) {
@@ -17,6 +23,26 @@ export function PreviewConfigCard({ platform }: PreviewConfigCardProps) {
     if (isWindows) {
       loadConfig();
     }
+  }, [isWindows]);
+
+  // 监听全局配置变化事件
+  useEffect(() => {
+    if (!isWindows) return;
+
+    const setupListener = async () => {
+      const unlisten = await listen<ConfigChangedEvent>('preview-config-changed', (event) => {
+        setConfig(event.payload.config);
+        if (event.payload.config.customPath) {
+          setCustomPath(event.payload.config.customPath);
+        }
+      });
+      return unlisten;
+    };
+
+    const unlistenPromise = setupListener();
+    return () => {
+      unlistenPromise.then(unlisten => unlisten());
+    };
   }, [isWindows]);
 
   const loadConfig = async () => {

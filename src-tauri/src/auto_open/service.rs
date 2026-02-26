@@ -159,9 +159,17 @@ impl AutoOpenService {
         
         // 持久化到配置文件
         let mut app_config = AppConfig::load();
-        app_config.preview_config = new_config;
+        app_config.preview_config = new_config.clone();
         if let Err(e) = app_config.save() {
             error!("Failed to save preview config: {}", e);
+        }
+        
+        // 广播配置变化事件给所有窗口
+        let event = ConfigChangedEvent {
+            config: new_config,
+        };
+        if let Err(e) = self.app_handle.emit("preview-config-changed", event) {
+            error!("Failed to emit config changed event: {}", e);
         }
     }
 
@@ -175,4 +183,9 @@ impl AutoOpenService {
 pub struct PreviewEvent {
     pub file_path: String,
     pub bring_to_front: bool,
+}
+
+#[derive(Clone, serde::Serialize)]
+pub struct ConfigChangedEvent {
+    pub config: PreviewWindowConfig,
 }

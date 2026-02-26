@@ -15,6 +15,15 @@ interface PreviewWindowState {
   autoBringToFront: boolean;
 }
 
+// 全局配置变化事件类型
+interface ConfigChangedEvent {
+  config: {
+    enabled: boolean;
+    method: string;
+    autoBringToFront: boolean;
+  };
+}
+
 export function PreviewWindow() {
   const [state, setState] = useState<PreviewWindowState>({
     isOpen: false,
@@ -91,6 +100,21 @@ function PreviewWindowContent({
     setLocalAutoBringToFront(autoBringToFront);
   }, [autoBringToFront]);
 
+  // 监听全局配置变化事件
+  useEffect(() => {
+    const setupListener = async () => {
+      const unlisten = await listen<ConfigChangedEvent>('preview-config-changed', (event) => {
+        setLocalAutoBringToFront(event.payload.config.autoBringToFront);
+      });
+      return unlisten;
+    };
+
+    const unlistenPromise = setupListener();
+    return () => {
+      unlistenPromise.then(unlisten => unlisten());
+    };
+  }, []);
+
   // 自动隐藏工具栏
   useEffect(() => {
     if (toolbarTimeoutRef.current) {
@@ -128,21 +152,22 @@ function PreviewWindowContent({
     };
   }, [appWindow]);
 
-  // 监听全屏状态变化
+  // 监听全屏状态变化 - 使用更可靠的方式
   useEffect(() => {
-    const updateFullscreenState = async () => {
+    let animationFrameId: number;
+
+    const checkFullscreen = async () => {
       const fullscreen = await appWindow.isFullscreen();
       setIsFullscreen(fullscreen);
+      animationFrameId = requestAnimationFrame(checkFullscreen);
     };
 
-    // 初始检查
-    updateFullscreenState();
+    checkFullscreen();
 
-    // 监听全屏变化（使用 resize 事件作为近似）
-    const unlisten = appWindow.onResized(updateFullscreenState);
-    
     return () => {
-      unlisten.then(fn => fn());
+      if (animationFrameId) {
+        cancelAnimationFrame(animationFrameId);
+      }
     };
   }, [appWindow]);
 
@@ -156,9 +181,7 @@ function PreviewWindowContent({
   // 切换全屏
   const toggleFullscreen = useCallback(async () => {
     try {
-      const newFullscreen = !isFullscreen;
-      await appWindow.setFullscreen(newFullscreen);
-      setIsFullscreen(newFullscreen);
+      await appWindow.setFullscreen(!isFullscreen);
     } catch (error) {
       console.error('Failed to toggle fullscreen:', error);
     }
@@ -367,7 +390,7 @@ function PreviewWindowContent({
             )}
           </button>
 
-          {/* 自动前台按钮 */}
+          {/* 自动前台按钮 - 使用窗口图标 */}
           <button
             onClick={handleToggleAutoFront}
             className={`
@@ -379,9 +402,15 @@ function PreviewWindowContent({
             `}
             title={localAutoBringToFront ? '新图片时自动前台显示 (已开启)' : '新图片时自动前台显示 (已关闭)'}
           >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
-            </svg>
+            {localAutoBringToFront ? (
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+              </svg>
+            ) : (
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
+              </svg>
+            )}
           </button>
 
           {/* 打开文件夹 */}
