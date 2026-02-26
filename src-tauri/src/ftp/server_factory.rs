@@ -17,7 +17,6 @@ pub struct ServerStartupContext {
     pub ip: String,
     pub server_handle: FtpServerHandle,
     pub event_bus: EventBus,
-    pub actor_handle: tokio::task::JoinHandle<()>,
 }
 
 #[derive(Debug, Clone)]
@@ -125,7 +124,6 @@ pub async fn start_ftp_server(
                 ip,
                 server_handle,
                 event_bus,
-                actor_handle,
             })
         }
         Err(e) => {

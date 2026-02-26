@@ -1,4 +1,4 @@
-use tauri::{command, AppHandle, Emitter, State};
+use tauri::{command, AppHandle, State};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tracing::{error, info, instrument};
@@ -71,7 +71,8 @@ pub async fn stop_server(
     if let Some(server) = server_guard.take() {
         match server.stop().await {
             Ok(_) => {
-                let _ = app.emit("server-stopped", ());
+                // Note: server-stopped event is emitted via EventBus by StatsEventHandler
+                // (server.rs:do_stop() calls event_bus.emit_server_stopped())
                 
                 // 使用 PlatformService trait 更新平台状态
                 crate::platform::get_platform().on_server_stopped(&app);

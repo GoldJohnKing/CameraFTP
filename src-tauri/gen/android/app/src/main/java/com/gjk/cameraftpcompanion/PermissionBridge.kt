@@ -1,7 +1,6 @@
 package com.gjk.cameraftpcompanion
 
 import android.Manifest
-import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -20,7 +19,7 @@ import org.json.JSONObject
  * Permission JavaScript Bridge
  * Provides permission checking and requesting functionality to the frontend
  */
-class PermissionBridge(private val activity: Activity) {
+class PermissionBridge(activity: MainActivity) : BaseJsBridge(activity) {
     companion object {
         private const val TAG = "PermissionBridge"
         // Request code for notification permission - shared with MainActivity
