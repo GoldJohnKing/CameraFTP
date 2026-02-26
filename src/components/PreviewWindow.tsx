@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { convertFileSrc } from '@tauri-apps/api/core';
@@ -75,6 +75,14 @@ function PreviewWindowContent({
   const [localAutoBringToFront, setLocalAutoBringToFront] = useState(autoBringToFront);
   const toolbarTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // 缩放和拖拽状态
+  const [scale, setScale] = useState(1);
+  const [panX, setPanX] = useState(0);
+  const [panY, setPanY] = useState(0);
+  const [isDragging, setIsDragging] = useState(false);
+  const dragStartRef = useRef({ x: 0, y: 0 });
+  const containerRef = useRef<HTMLDivElement>(null);
+
   // 同步外部状态
   useEffect(() => {
     setLocalAutoBringToFront(autoBringToFront);
@@ -97,14 +105,84 @@ function PreviewWindowContent({
     };
   }, [showToolbar]);
 
-  // 重置图片错误状态
+  // 重置图片错误状态和缩放
   useEffect(() => {
     setImageError(false);
+    resetZoom();
   }, [imagePath]);
 
-  const handleMouseMove = () => {
+  // 重置缩放
+  const resetZoom = useCallback(() => {
+    setScale(1);
+    setPanX(0);
+    setPanY(0);
+  }, []);
+
+  // 处理鼠标滚轮缩放
+  const handleWheel = useCallback((e: React.WheelEvent) => {
+    e.preventDefault();
+    
+    const container = containerRef.current;
+    if (!container) return;
+
+    const rect = container.getBoundingClientRect();
+    const mouseX = e.clientX - rect.left;
+    const mouseY = e.clientY - rect.top;
+
+    // 计算缩放因子
+    const zoomFactor = e.deltaY > 0 ? 0.9 : 1.1;
+    const newScale = Math.max(0.5, Math.min(5, scale * zoomFactor));
+
+    if (newScale !== scale) {
+      // 以鼠标位置为中心缩放
+      const scaleRatio = newScale / scale;
+      const newPanX = mouseX - (mouseX - panX) * scaleRatio;
+      const newPanY = mouseY - (mouseY - panY) * scaleRatio;
+
+      setScale(newScale);
+      setPanX(newPanX);
+      setPanY(newPanY);
+    }
+  }, [scale, panX, panY]);
+
+  // 处理鼠标按下（开始拖拽）
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    if (scale > 1) {
+      setIsDragging(true);
+      dragStartRef.current = {
+        x: e.clientX - panX,
+        y: e.clientY - panY,
+      };
+    }
+  }, [scale, panX, panY]);
+
+  // 处理鼠标移动（拖拽中）
+  const handleMouseMove = useCallback((e: React.MouseEvent) => {
+    // 更新工具栏显示
     setShowToolbar(true);
-  };
+
+    if (isDragging && scale > 1) {
+      setPanX(e.clientX - dragStartRef.current.x);
+      setPanY(e.clientY - dragStartRef.current.y);
+    }
+  }, [isDragging, scale]);
+
+  // 处理鼠标释放（结束拖拽）
+  const handleMouseUp = useCallback(() => {
+    setIsDragging(false);
+  }, []);
+
+  // 处理双击重置
+  const handleDoubleClick = useCallback(() => {
+    resetZoom();
+  }, [resetZoom]);
+
+  // 全局鼠标释放监听（防止拖拽时移出窗口）
+  useEffect(() => {
+    const handleGlobalMouseUp = () => setIsDragging(false);
+    window.addEventListener('mouseup', handleGlobalMouseUp);
+    return () => window.removeEventListener('mouseup', handleGlobalMouseUp);
+  }, []);
 
   const handleOpenFolder = async () => {
     if (imagePath) {
@@ -146,10 +224,19 @@ function PreviewWindowContent({
   return (
     <div
       className="w-full h-screen flex flex-col bg-black overflow-hidden"
-      onMouseMove={handleMouseMove}
     >
-      {/* 图片区域 - 居中显示，保持比例，黑色背景 */}
-      <div className="flex-1 min-h-0 relative flex items-center justify-center bg-black">
+      {/* 图片区域 - 支持缩放和拖拽 */}
+      <div 
+        ref={containerRef}
+        className={`flex-1 min-h-0 flex items-center justify-center bg-black ${
+          isDragging ? 'cursor-grabbing' : scale > 1 ? 'cursor-grab' : 'cursor-default'
+        }`}
+        onWheel={handleWheel}
+        onMouseDown={handleMouseDown}
+        onMouseMove={handleMouseMove}
+        onMouseUp={handleMouseUp}
+        onDoubleClick={handleDoubleClick}
+      >
         {imageError ? (
           <div className="text-gray-400 text-center">
             <p>无法加载图片</p>
@@ -159,7 +246,11 @@ function PreviewWindowContent({
           <img
             src={imageSrc}
             alt="Preview"
-            className="max-w-full max-h-full object-contain"
+            className="max-w-full max-h-full object-contain select-none"
+            style={{
+              transform: `translate(${panX}px, ${panY}px) scale(${scale})`,
+              transformOrigin: 'center center',
+            }}
             draggable={false}
             onError={() => setImageError(true)}
           />
@@ -173,14 +264,35 @@ function PreviewWindowContent({
           transition-opacity duration-300
           ${showToolbar ? 'opacity-100' : 'opacity-0'}
         `}
+        onMouseMove={() => setShowToolbar(true)}
       >
-        {/* 左侧：图片信息 */}
-        <div className="text-sm text-gray-300 truncate flex-1">
-          {imagePath.split(/[/\\]/).pop()}
+        {/* 左侧：图片信息和缩放比例 */}
+        <div className="flex items-center gap-3 flex-1 min-w-0">
+          <div className="text-sm text-gray-300 truncate">
+            {imagePath.split(/[/\\]/).pop()}
+          </div>
+          {scale !== 1 && (
+            <span className="text-xs text-blue-400 bg-blue-400/20 px-2 py-0.5 rounded">
+              {Math.round(scale * 100)}%
+            </span>
+          )}
         </div>
 
         {/* 右侧：操作按钮 */}
         <div className="flex items-center gap-3">
+          {/* 重置缩放按钮 */}
+          {scale !== 1 && (
+            <button
+              onClick={resetZoom}
+              className="p-2 text-gray-300 hover:text-white hover:bg-gray-700 rounded transition-colors"
+              title="重置缩放 (双击图片也可重置)"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
+              </svg>
+            </button>
+          )}
+
           {/* 自动前台按钮 */}
           <button
             onClick={handleToggleAutoFront}
