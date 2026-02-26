@@ -389,11 +389,11 @@ function PreviewWindowContent({
 
         {/* 右侧：操作按钮 */}
         <div className="flex items-center gap-2">
-          {/* 重置缩放按钮 - 放大镜图标 */}
+          {/* 重置缩放按钮 - 放大镜图标（缩放状态下高亮） */}
           {scale !== 1 && (
             <button
               onClick={resetZoom}
-              className="p-2 text-blue-300 hover:text-blue-200 hover:bg-blue-500/20 rounded-lg transition-colors"
+              className="p-2 text-blue-300 bg-blue-500/20 hover:bg-blue-500/30 rounded-lg transition-colors"
               title="重置缩放 (双击图片也可重置)"
             >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
