@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 use tracing::error;
 
 use crate::config::{AppConfig, ImageOpenMethod, PreviewWindowConfig};
@@ -23,25 +23,142 @@ impl AutoOpenService {
 
     /// 处理文件上传事件
     pub async fn on_file_uploaded(&self, file_path: PathBuf) -> Result<(), AppError> {
-        let config = self.config.lock().await;
+        let config = self.config.lock().await.clone();
         
         if !config.enabled {
             return Ok(());
         }
 
-        match config.method {
+        match &config.method {
             ImageOpenMethod::BuiltInPreview => {
-                // 发送事件到前端，打开/更新预览窗口
-                self.emit_preview_event(file_path, config.auto_bring_to_front).await?;
+                // 创建或更新预览窗口
+                self.open_or_update_preview_window(&file_path, config.auto_bring_to_front).await?;
             }
             ImageOpenMethod::SystemDefault => {
-                self.open_with_system_default(&file_path).await?;
+                #[cfg(target_os = "windows")]
+                {
+                    crate::auto_open::windows::open_with_default(&file_path)?;
+                    if config.auto_bring_to_front {
+                        // 给外部程序一点时间启动
+                        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+                        crate::auto_open::windows::bring_app_to_front(&self.app_handle)?;
+                    }
+                }
             }
             ImageOpenMethod::WindowsPhotos => {
-                self.open_with_windows_photos(&file_path).await?;
+                #[cfg(target_os = "windows")]
+                {
+                    crate::auto_open::windows::open_with_photos(&file_path)?;
+                    if config.auto_bring_to_front {
+                        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+                        crate::auto_open::windows::bring_app_to_front(&self.app_handle)?;
+                    }
+                }
             }
-            ImageOpenMethod::Custom(ref program_path) => {
-                self.open_with_custom_program(&file_path, program_path).await?;
+            ImageOpenMethod::Custom => {
+                #[cfg(target_os = "windows")]
+                {
+                    if let Some(program_path) = &config.custom_path {
+                        crate::auto_open::windows::open_with_program(&file_path, program_path)?;
+                        if config.auto_bring_to_front {
+                            tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+                            crate::auto_open::windows::bring_app_to_front(&self.app_handle)?;
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    /// 根据配置打开图片（用于手动触发）
+    pub async fn open_image(&self, file_path: &PathBuf) -> Result<(), AppError> {
+        let config = self.config.lock().await.clone();
+        
+        match &config.method {
+            ImageOpenMethod::BuiltInPreview => {
+                self.open_or_update_preview_window(file_path, true).await?;
+            }
+            ImageOpenMethod::SystemDefault => {
+                #[cfg(target_os = "windows")]
+                crate::auto_open::windows::open_with_default(file_path)?;
+            }
+            ImageOpenMethod::WindowsPhotos => {
+                #[cfg(target_os = "windows")]
+                crate::auto_open::windows::open_with_photos(file_path)?;
+            }
+            ImageOpenMethod::Custom => {
+                #[cfg(target_os = "windows")]
+                if let Some(program_path) = &config.custom_path {
+                    crate::auto_open::windows::open_with_program(file_path, program_path)?;
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    /// 创建或更新预览窗口
+    async fn open_or_update_preview_window(&self, file_path: &PathBuf, bring_to_front: bool) -> Result<(), AppError> {
+        let event = PreviewEvent {
+            file_path: file_path.to_string_lossy().to_string(),
+            bring_to_front,
+        };
+
+        // 检查预览窗口是否已存在
+        if let Some(window) = self.app_handle.get_webview_window("preview") {
+            // 窗口已存在，发送事件更新图片
+            window.emit("preview-image", event.clone())
+                .map_err(|e| AppError::Other(format!("Failed to emit preview event: {}", e)))?;
+            
+            // 如果需要置顶
+            if bring_to_front {
+                window.set_focus()
+                    .map_err(|e| AppError::Other(format!("Failed to focus window: {}", e)))?;
+                window.set_always_on_top(true)
+                    .map_err(|e| AppError::Other(format!("Failed to set always on top: {}", e)))?;
+                // 短暂置顶后恢复
+                let window_clone = window.clone();
+                tokio::spawn(async move {
+                    tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+                    let _ = window_clone.set_always_on_top(false);
+                });
+            }
+        } else {
+            // 创建新窗口
+            let window = tauri::WebviewWindowBuilder::new(
+                &self.app_handle,
+                "preview",
+                tauri::WebviewUrl::App("/preview".into())
+            )
+            .title("图片预览")
+            .inner_size(1024.0, 768.0)
+            .center()
+            .resizable(true)
+            .visible(true)
+            .build()
+            .map_err(|e| AppError::Other(format!("Failed to create preview window: {}", e)))?;
+            
+            // 延迟发送事件，确保窗口已加载
+            let event_clone = event.clone();
+            let window_clone = window.clone();
+            tokio::spawn(async move {
+                tokio::time::sleep(tokio::time::Duration::from_millis(300)).await;
+                let _ = window_clone.emit("preview-image", event_clone);
+            });
+
+            // 如果需要置顶
+            if bring_to_front {
+                window.set_focus()
+                    .map_err(|e| AppError::Other(format!("Failed to focus window: {}", e)))?;
+                window.set_always_on_top(true)
+                    .map_err(|e| AppError::Other(format!("Failed to set always on top: {}", e)))?;
+                let window_clone = window.clone();
+                tokio::spawn(async move {
+                    tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+                    let _ = window_clone.set_always_on_top(false);
+                });
             }
         }
 
@@ -65,52 +182,10 @@ impl AutoOpenService {
     pub async fn get_config(&self) -> PreviewWindowConfig {
         self.config.lock().await.clone()
     }
-
-    async fn emit_preview_event(&self, file_path: PathBuf, bring_to_front: bool) -> Result<(), AppError> {
-        let event = PreviewEvent {
-            file_path: file_path.to_string_lossy().to_string(),
-            bring_to_front,
-        };
-        
-        self.app_handle.emit("preview-image", event)
-            .map_err(|e| AppError::Other(format!("Failed to emit preview event: {}", e)))?;
-        
-        Ok(())
-    }
-
-    #[cfg(target_os = "windows")]
-    async fn open_with_system_default(&self, file_path: &PathBuf) -> Result<(), AppError> {
-        crate::auto_open::windows::open_with_default(file_path)
-    }
-
-    #[cfg(target_os = "windows")]
-    async fn open_with_windows_photos(&self, file_path: &PathBuf) -> Result<(), AppError> {
-        crate::auto_open::windows::open_with_photos(file_path)
-    }
-
-    #[cfg(target_os = "windows")]
-    async fn open_with_custom_program(&self, file_path: &PathBuf, program: &str) -> Result<(), AppError> {
-        crate::auto_open::windows::open_with_program(file_path, program)
-    }
-    
-    #[cfg(not(target_os = "windows"))]
-    async fn open_with_system_default(&self, _file_path: &PathBuf) -> Result<(), AppError> {
-        Ok(())
-    }
-
-    #[cfg(not(target_os = "windows"))]
-    async fn open_with_windows_photos(&self, _file_path: &PathBuf) -> Result<(), AppError> {
-        Ok(())
-    }
-
-    #[cfg(not(target_os = "windows"))]
-    async fn open_with_custom_program(&self, _file_path: &PathBuf, _program: &str) -> Result<(), AppError> {
-        Ok(())
-    }
 }
 
 #[derive(Clone, serde::Serialize)]
-struct PreviewEvent {
-    file_path: String,
-    bring_to_front: bool,
+pub struct PreviewEvent {
+    pub file_path: String,
+    pub bring_to_front: bool,
 }

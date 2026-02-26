@@ -1,6 +1,7 @@
 use std::ffi::OsStr;
 use std::os::windows::ffi::OsStrExt;
 use std::path::PathBuf;
+use tauri::{AppHandle, Manager};
 use windows::Win32::System::Com::CoInitialize;
 use windows::Win32::UI::Shell::ShellExecuteW;
 use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
@@ -29,9 +30,18 @@ pub fn open_with_photos(file_path: &PathBuf) -> Result<(), AppError> {
 
 /// 使用自定义程序打开
 pub fn open_with_program(file_path: &PathBuf, program: &str) -> Result<(), AppError> {
-    // 对于自定义程序，我们需要使用 program 作为操作，file_path 作为参数
-    // 这里我们使用 runas 操作来执行自定义程序
     open_with_program_execute(file_path, program)
+}
+
+/// 将应用窗口置于前台
+pub fn bring_app_to_front(app_handle: &AppHandle) -> Result<(), AppError> {
+    // 获取主窗口并置于前台
+    if let Some(window) = app_handle.get_webview_window("main") {
+        window
+            .set_focus()
+            .map_err(|e| AppError::Other(format!("Failed to set focus: {}", e)))?;
+    }
+    Ok(())
 }
 
 fn open_with_shell_execute(file_path: &PathBuf, operation: Option<&str>) -> Result<(), AppError> {

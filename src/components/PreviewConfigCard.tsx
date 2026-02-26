@@ -23,8 +23,9 @@ export function PreviewConfigCard({ platform }: PreviewConfigCardProps) {
     try {
       const loaded = await invoke<PreviewWindowConfig>('get_preview_config');
       setConfig(loaded);
-      if (loaded.method === 'custom') {
-        // 从配置中恢复自定义路径
+      // 恢复自定义路径显示
+      if (loaded.customPath) {
+        setCustomPath(loaded.customPath);
       }
     } catch (error) {
       console.error('Failed to load preview config:', error);
@@ -51,7 +52,8 @@ export function PreviewConfigCard({ platform }: PreviewConfigCardProps) {
       const selected = await invoke<string | null>('select_executable_file');
       if (selected) {
         setCustomPath(selected);
-        updateConfig({ method: 'custom' });
+        // 同时更新 method 和 customPath
+        updateConfig({ method: 'custom', customPath: selected });
       }
     } catch (error) {
       console.error('Failed to select executable:', error);
@@ -136,6 +138,20 @@ export function PreviewConfigCard({ platform }: PreviewConfigCardProps) {
               )}
             </div>
 
+            {/* 通用设置 */}
+            <hr className="border-gray-100" />
+
+            <div className="space-y-3">
+              <h4 className="text-sm font-medium text-gray-700">通用设置</h4>
+
+              <Checkbox
+                checked={config.autoBringToFront}
+                onChange={(checked) => updateConfig({ autoBringToFront: checked })}
+                label="新图片时自动前台显示"
+                description="打开图片后将窗口置于最前"
+              />
+            </div>
+
             {/* 内置预览专属设置 */}
             {config.method === 'built-in-preview' && (
               <>
@@ -143,13 +159,6 @@ export function PreviewConfigCard({ platform }: PreviewConfigCardProps) {
 
                 <div className="space-y-3">
                   <h4 className="text-sm font-medium text-gray-700">预览窗口设置</h4>
-
-                  <Checkbox
-                    checked={config.autoBringToFront}
-                    onChange={(checked) => updateConfig({ autoBringToFront: checked })}
-                    label="新图片时自动前台显示"
-                    description="预览窗口将获得焦点并显示在最前"
-                  />
 
                   <Checkbox
                     checked={config.rememberPosition}

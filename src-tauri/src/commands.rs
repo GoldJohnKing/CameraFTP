@@ -1,4 +1,4 @@
-use tauri::{command, AppHandle, Emitter, Manager, State};
+use tauri::{command, AppHandle, Manager, State};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tracing::{error, info, instrument};
@@ -280,12 +280,6 @@ pub async fn needs_storage_permission() -> bool {
 // 自动预览配置命令（Windows）
 // ============================================================================
 
-#[derive(Clone, serde::Serialize)]
-struct PreviewEvent {
-    file_path: String,
-    bring_to_front: bool,
-}
-
 /// 获取预览窗口配置
 #[tauri::command]
 pub async fn get_preview_config(
@@ -304,53 +298,15 @@ pub async fn set_preview_config(
     Ok(())
 }
 
-/// 手动打开预览窗口
+/// 手动打开预览窗口（遵循用户配置的打开方式）
 #[tauri::command]
 pub async fn open_preview_window(
     app: AppHandle,
     file_path: String,
 ) -> Result<(), AppError> {
-    // 检查预览窗口是否已存在
-    if let Some(window) = app.get_webview_window("preview") {
-        // 窗口已存在，发送事件更新图片
-        let event = PreviewEvent {
-            file_path,
-            bring_to_front: true,
-        };
-        window.emit("preview-image", event)
-            .map_err(|e| AppError::Other(format!("Failed to emit preview event: {}", e)))?;
-        
-        // 将窗口带到前台
-        window.set_focus()
-            .map_err(|e| AppError::Other(format!("Failed to focus window: {}", e)))?;
-    } else {
-        // 创建新窗口
-        let window = tauri::WebviewWindowBuilder::new(
-            &app,
-            "preview",
-            tauri::WebviewUrl::App("/preview".into())
-        )
-        .title("图片预览")
-        .inner_size(1024.0, 768.0)
-        .center()
-        .resizable(true)
-        .visible(true)
-        .build()
-        .map_err(|e| AppError::Other(format!("Failed to create preview window: {}", e)))?;
-        
-        // 延迟发送事件，确保窗口已加载
-        let event = PreviewEvent {
-            file_path,
-            bring_to_front: true,
-        };
-        
-        tokio::spawn(async move {
-            tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-            let _ = window.emit("preview-image", event);
-        });
-    }
-
-    Ok(())
+    // 使用 AutoOpenService 来处理，它会根据配置决定打开方式
+    let auto_open = app.state::<AutoOpenService>();
+    auto_open.open_image(&std::path::PathBuf::from(&file_path)).await
 }
 
 /// 选择可执行文件（用于自定义打开程序）

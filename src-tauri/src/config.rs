@@ -16,7 +16,7 @@ pub enum ImageOpenMethod {
     BuiltInPreview,
     SystemDefault,
     WindowsPhotos,
-    Custom(String),
+    Custom,
 }
 
 impl Default for ImageOpenMethod {
@@ -31,6 +31,8 @@ impl Default for ImageOpenMethod {
 pub struct PreviewWindowConfig {
     pub enabled: bool,
     pub method: ImageOpenMethod,
+    /// 自定义程序路径（仅当 method 为 Custom 时有效）
+    pub custom_path: Option<String>,
     pub auto_bring_to_front: bool,
     pub remember_position: bool,
     pub window_x: Option<i32>,
@@ -44,6 +46,7 @@ impl Default for PreviewWindowConfig {
         Self {
             enabled: true,
             method: ImageOpenMethod::BuiltInPreview,
+            custom_path: None,
             auto_bring_to_front: false,
             remember_position: false,
             window_x: None,

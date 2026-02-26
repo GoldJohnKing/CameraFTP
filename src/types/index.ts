@@ -55,6 +55,7 @@ export type ImageOpenMethod =
 export interface PreviewWindowConfig {
   enabled: boolean;
   method: ImageOpenMethod;
+  customPath?: string;
   autoBringToFront: boolean;
   rememberPosition: boolean;
   windowX?: number;

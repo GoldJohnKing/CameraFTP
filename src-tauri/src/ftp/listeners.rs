@@ -1,6 +1,5 @@
 use crate::ftp::events::EventBus;
 use crate::ftp::stats::StatsActor;
-use crate::config::AppConfig;
 use dashmap::DashSet;
 use libunftp::notification::{DataEvent, DataListener, EventMeta, PresenceEvent, PresenceListener};
 use std::sync::Arc;
@@ -52,33 +51,28 @@ impl DataListener for FtpDataListener {
                     #[cfg(target_os = "windows")]
                     {
                         if let Some(handle) = app_handle {
-                            let config = AppConfig::load();
-                            if config.preview_config.enabled {
-                                // 检查是否是图片文件
-                                let is_image = path.to_lowercase().ends_with(".jpg")
-                                    || path.to_lowercase().ends_with(".jpeg")
-                                    || path.to_lowercase().ends_with(".png")
-                                    || path.to_lowercase().ends_with(".gif")
-                                    || path.to_lowercase().ends_with(".bmp")
-                                    || path.to_lowercase().ends_with(".webp");
+                            // 检查是否是图片文件
+                            let is_image = path.to_lowercase().ends_with(".jpg")
+                                || path.to_lowercase().ends_with(".jpeg")
+                                || path.to_lowercase().ends_with(".png")
+                                || path.to_lowercase().ends_with(".gif")
+                                || path.to_lowercase().ends_with(".bmp")
+                                || path.to_lowercase().ends_with(".webp");
 
-                                if is_image {
-                                    let full_path = save_path.join(&path);
-                                    let handle_clone = handle.clone();
-                                    // 使用 tokio::spawn 启动异步任务，避免阻塞事件处理
-                                    tokio::spawn(async move {
-                                        // 延迟一小段时间确保文件写入完成
-                                        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-                                        
-                                        // 调用 AutoOpenService 处理预览
-                                        let auto_open: tauri::State<'_, crate::auto_open::AutoOpenService> = handle_clone.state();
-                                        if let Err(e) = auto_open.on_file_uploaded(full_path.clone()).await {
-                                            tracing::error!("Failed to auto open image: {}", e);
-                                        } else {
-                                            info!("Windows auto preview triggered for: {:?}", full_path);
-                                        }
-                                    });
-                                }
+                            if is_image {
+                                let full_path = save_path.join(&path);
+                                let handle_clone = handle.clone();
+                                // 使用 tokio::spawn 启动异步任务，避免阻塞事件处理
+                                tokio::spawn(async move {
+                                    // 延迟一小段时间确保文件写入完成
+                                    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+                                    
+                                    // 调用 AutoOpenService 处理预览（服务内部会检查 enabled 状态）
+                                    let auto_open: tauri::State<'_, crate::auto_open::AutoOpenService> = handle_clone.state();
+                                    if let Err(e) = auto_open.on_file_uploaded(full_path.clone()).await {
+                                        tracing::error!("Failed to auto open image: {}", e);
+                                    }
+                                });
                             }
                         }
                     }
