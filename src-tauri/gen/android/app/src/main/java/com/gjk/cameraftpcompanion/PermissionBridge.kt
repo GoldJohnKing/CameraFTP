@@ -13,6 +13,7 @@ import android.util.Log
 import android.webkit.JavascriptInterface
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import com.gjk.cameraftpcompanion.bridges.BaseJsBridge
 import org.json.JSONObject
 
 /**

@@ -5,113 +5,9 @@ import android.content.Intent
 import android.os.Build
 import android.os.Bundle
 import android.util.Log
-import android.webkit.JavascriptInterface
 import android.webkit.WebView
 import androidx.activity.enableEdgeToEdge
-
-/**
- * JavaScript Bridge 抽象基类
- * 提供通用的日志和 UI 线程处理功能
- */
-abstract class BaseJsBridge(
-    protected val activity: MainActivity
-) {
-    protected fun runOnUi(block: () -> Unit) = activity.runOnUiThread(block)
-}
-
-/**
- * 文件上传事件监听器
- * 监听Rust后端的file-uploaded事件，触发媒体扫描
- */
-class FileUploadListener(private val activity: MainActivity) {
-    companion object {
-        private const val TAG = "FileUploadListener"
-        // 默认存储路径
-        private const val DEFAULT_STORAGE_PATH = "/storage/emulated/0/DCIM/CameraFTP"
-    }
-
-    /**
-     * 处理文件上传事件
-     * 由Rust后端通过Tauri事件系统调用
-     * @param path 文件路径（可能是相对路径或绝对路径）
-     * @param size 文件大小（字节）
-     */
-    fun onFileUploaded(path: String?, size: Long) {
-        if (path.isNullOrEmpty()) {
-            Log.w(TAG, "Received empty file path, skipping media scan")
-            return
-        }
-        
-        // 构建完整文件路径
-        val fullPath = if (path.startsWith("/")) {
-            // 已经是绝对路径
-            path
-        } else {
-            // 相对路径，拼接基础路径
-            "$DEFAULT_STORAGE_PATH/$path"
-        }
-        
-        Log.i(TAG, "File uploaded: relativePath=$path, fullPath=$fullPath, size=$size bytes")
-        
-        // 触发媒体扫描，让照片出现在相册中
-        activity.runOnUiThread {
-            MediaScannerHelper.scanFile(activity, fullPath)
-        }
-    }
-}
-
-/**
- * 文件上传JavaScript Bridge
- * 接收来自WebView的file-uploaded事件
- * 注：此类不继承BaseJsBridge，因为它依赖的是FileUploadListener而非MainActivity
- */
-class FileUploadBridge(private val listener: FileUploadListener) {
-    /**
-     * 由JavaScript调用，处理文件上传事件
-     */
-    @JavascriptInterface
-    fun onFileUploaded(path: String?, size: Long) {
-        listener.onFileUploaded(path, size)
-    }
-}
-
-/**
- * Server State JavaScript Bridge
- * Receives server state updates from Tauri/Rust and forwards to foreground service
- */
-class ServerStateBridge(activity: MainActivity) : BaseJsBridge(activity) {
-
-    /**
-     * Called from JavaScript when server state changes
-     * @param isRunning Whether FTP server is running
-     * @param statsJson JSON string with stats (files_transferred, bytes_transferred)
-     * @param connectedClients Number of connected clients
-     */
-    @JavascriptInterface
-    fun onServerStateChanged(isRunning: Boolean, statsJson: String?, connectedClients: Int) {
-        activity.updateServiceState(isRunning, statsJson, connectedClients)
-    }
-}
-
-/**
- * 存储权限设置 JavaScript Bridge
- * 用于打开系统存储权限设置页面
- */
-class StorageSettingsBridge(activity: MainActivity) : BaseJsBridge(activity) {
-
-    /**
-     * 打开"所有文件访问权限"设置页面
-     * 直接跳转到系统设置中的权限开关页面
-     */
-    @JavascriptInterface
-    fun openAllFilesAccessSettings(): Boolean {
-        runOnUi {
-            StorageHelper.openManageStorageSettings(activity)
-        }
-
-        return true
-    }
-}
+import com.gjk.cameraftpcompanion.bridges.*
 
 class MainActivity : TauriActivity() {
     
@@ -121,7 +17,6 @@ class MainActivity : TauriActivity() {
     
     private var storageSettingsBridge: StorageSettingsBridge? = null
     private var webViewRef: WebView? = null
-    private var fileUploadListener: FileUploadListener? = null
     private var fileUploadBridge: FileUploadBridge? = null
     private var serverStateBridge: ServerStateBridge? = null
     private var permissionBridge: PermissionBridge? = null
@@ -142,16 +37,9 @@ class MainActivity : TauriActivity() {
         
         // 初始化Bridge
         storageSettingsBridge = StorageSettingsBridge(this)
-        
-        // 初始化权限Bridge
-        permissionBridge = PermissionBridge(this)
-        
-        // 初始化文件上传监听器
-        fileUploadListener = FileUploadListener(this)
-        fileUploadBridge = FileUploadBridge(fileUploadListener!!)
-        
-        // 初始化服务器状态Bridge
+        fileUploadBridge = FileUploadBridge(this)
         serverStateBridge = ServerStateBridge(this)
+        permissionBridge = PermissionBridge(this)
     }
 
     /**
@@ -195,8 +83,7 @@ class MainActivity : TauriActivity() {
                                 // 调用原生方法
                                 if (window.FileUploadAndroid) {
                                     window.FileUploadAndroid.onFileUploaded(
-                                        event.payload.path || '',
-                                        event.payload.size || 0
+                                        event.payload.path || ''
                                     );
                                 }
                             });
