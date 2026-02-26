@@ -192,21 +192,37 @@ function PreviewWindowContent({
     e.preventDefault();
     
     const container = containerRef.current;
-    if (!container) return;
+    const img = container?.querySelector('img');
+    if (!container || !img) return;
 
-    const rect = container.getBoundingClientRect();
-    const mouseX = e.clientX - rect.left;
-    const mouseY = e.clientY - rect.top;
-
+    const containerRect = container.getBoundingClientRect();
+    const imgRect = img.getBoundingClientRect();
+    
+    // 鼠标相对于容器的位置
+    const mouseX = e.clientX - containerRect.left;
+    const mouseY = e.clientY - containerRect.top;
+    
     // 计算缩放因子 - 最小为1（不裁切充满窗口）
     const zoomFactor = e.deltaY > 0 ? 0.9 : 1.1;
     const newScale = Math.max(1, Math.min(5, scale * zoomFactor));
 
     if (newScale !== scale) {
-      // 以鼠标位置为中心缩放
+      // 计算图片当前实际显示尺寸（考虑object-contain）
+      const currentImgWidth = imgRect.width;
+      const currentImgHeight = imgRect.height;
+      
+      // 图片中心相对于容器中心的位置
+      const imgCenterX = imgRect.left + currentImgWidth / 2 - containerRect.left;
+      const imgCenterY = imgRect.top + currentImgHeight / 2 - containerRect.top;
+      
+      // 鼠标相对于图片中心的位置
+      const mouseOffsetX = mouseX - imgCenterX;
+      const mouseOffsetY = mouseY - imgCenterY;
+      
+      // 以鼠标位置为中心缩放的平移计算
       const scaleRatio = newScale / scale;
-      const newPanX = mouseX - (mouseX - panX) * scaleRatio;
-      const newPanY = mouseY - (mouseY - panY) * scaleRatio;
+      const newPanX = panX - mouseOffsetX * (scaleRatio - 1);
+      const newPanY = panY - mouseOffsetY * (scaleRatio - 1);
 
       setScale(newScale);
       // 只有在缩放大于1时才允许有平移
@@ -390,7 +406,7 @@ function PreviewWindowContent({
             )}
           </button>
 
-          {/* 自动前台按钮 - 使用窗口图标 */}
+          {/* 自动前台按钮 - 使用窗口叠加图标 */}
           <button
             onClick={handleToggleAutoFront}
             className={`
@@ -404,11 +420,13 @@ function PreviewWindowContent({
           >
             {localAutoBringToFront ? (
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+                <rect x="3" y="3" width="16" height="16" rx="2" strokeWidth="2" />
+                <rect x="8" y="8" width="13" height="13" rx="2" strokeWidth="2" />
               </svg>
             ) : (
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
+                <rect x="6" y="6" width="12" height="12" rx="2" strokeWidth="2" />
+                <rect x="3" y="3" width="16" height="16" rx="2" strokeWidth="2" strokeDasharray="4 2" />
               </svg>
             )}
           </button>
