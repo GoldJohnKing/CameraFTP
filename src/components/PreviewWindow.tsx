@@ -110,7 +110,13 @@ function PreviewWindowContent({
 }) {
   const [showToolbar, setShowToolbar] = useState(true);
   const [imageError, setImageError] = useState(false);
+  const [localAutoBringToFront, setLocalAutoBringToFront] = useState(autoBringToFront);
   const toolbarTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // 同步外部状态
+  useEffect(() => {
+    setLocalAutoBringToFront(autoBringToFront);
+  }, [autoBringToFront]);
 
   // 自动隐藏工具栏
   useEffect(() => {
@@ -152,11 +158,13 @@ function PreviewWindowContent({
         autoBringToFront: boolean;
       }>('get_preview_config');
 
+      const newValue = !localAutoBringToFront;
       const newConfig = {
         ...config,
-        autoBringToFront: !autoBringToFront,
+        autoBringToFront: newValue,
       };
       await invoke('set_preview_config', { config: newConfig });
+      setLocalAutoBringToFront(newValue);
     } catch (error) {
       console.error('Failed to update config:', error);
     }
@@ -234,12 +242,12 @@ function PreviewWindowContent({
             onClick={handleToggleAutoFront}
             className={`
               p-2 rounded transition-colors
-              ${autoBringToFront
+              ${localAutoBringToFront
                 ? 'text-blue-400 bg-blue-400/20 hover:bg-blue-400/30'
                 : 'text-gray-400 hover:text-gray-300 hover:bg-gray-700'
               }
             `}
-            title={autoBringToFront ? '新图片时自动前台显示 (已开启)' : '新图片时自动前台显示 (已关闭)'}
+            title={localAutoBringToFront ? '新图片时自动前台显示 (已开启)' : '新图片时自动前台显示 (已关闭)'}
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
