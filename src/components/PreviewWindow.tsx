@@ -178,7 +178,10 @@ function PreviewWindowContent({
   // 切换全屏
   const toggleFullscreen = useCallback(async () => {
     try {
-      await appWindow.setFullscreen(!isFullscreen);
+      const newFullscreen = !isFullscreen;
+      await appWindow.setFullscreen(newFullscreen);
+      // 全屏时置顶，退出全屏时取消置顶
+      await appWindow.setAlwaysOnTop(newFullscreen);
     } catch (error) {
       console.error('Failed to toggle fullscreen:', error);
     }
@@ -265,12 +268,25 @@ function PreviewWindowContent({
     resetZoom();
   }, [resetZoom]);
 
-  // 全局鼠标释放监听（防止拖拽时移出窗口）
+  // 全局键盘和鼠标释放监听
   useEffect(() => {
     const handleGlobalMouseUp = () => setIsDragging(false);
+    
+    const handleKeyDown = async (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && isFullscreen) {
+        await appWindow.setFullscreen(false);
+        await appWindow.setAlwaysOnTop(false);
+      }
+    };
+    
     window.addEventListener('mouseup', handleGlobalMouseUp);
-    return () => window.removeEventListener('mouseup', handleGlobalMouseUp);
-  }, []);
+    window.addEventListener('keydown', handleKeyDown);
+    
+    return () => {
+      window.removeEventListener('mouseup', handleGlobalMouseUp);
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isFullscreen, appWindow]);
 
   const handleOpenFolder = async () => {
     if (imagePath) {
@@ -416,7 +432,7 @@ function PreviewWindowContent({
             title={localAutoBringToFront ? '新图片时自动前台显示 (已开启)' : '新图片时自动前台显示 (已关闭)'}
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19V5M5 12l7-7 7 7M5 5h14" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 18V8m0 0l-5-5m5 5l5-5M5 21h14" />
             </svg>
           </button>
 

@@ -4,6 +4,9 @@
   "description": "Default permissions",
   "windows": ["main", "preview"],
   "permissions": [
-    "core:default"
+    "core:default",
+    "core:window:allow-set-fullscreen",
+    "core:window:allow-is-fullscreen",
+    "core:window:allow-set-always-on-top"
   ]
 }
