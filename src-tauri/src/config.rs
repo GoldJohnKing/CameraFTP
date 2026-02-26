@@ -15,7 +15,9 @@ static ANDROID_CONFIG_PATH: Mutex<Option<PathBuf>> = Mutex::new(None);
 /// 设置 Android 配置路径（在应用初始化时调用）
 #[cfg(target_os = "android")]
 pub fn set_android_config_path(config_path: PathBuf) {
-    let mut config_guard = ANDROID_CONFIG_PATH.lock().unwrap();
+    let mut config_guard = ANDROID_CONFIG_PATH
+        .lock()
+        .expect("ANDROID_CONFIG_PATH mutex poisoned");
     *config_guard = Some(config_path);
     info!("Android config path set: {:?}", config_guard);
 }
@@ -25,7 +27,7 @@ pub fn set_android_config_path(config_path: PathBuf) {
 fn get_android_config_path() -> PathBuf {
     ANDROID_CONFIG_PATH
         .lock()
-        .unwrap()
+        .expect("ANDROID_CONFIG_PATH mutex poisoned")
         .clone()
         .unwrap_or_else(|| {
             PathBuf::from("/sdcard/Android/data/com.gjk.cameraftpcompanion/files/config.json")
