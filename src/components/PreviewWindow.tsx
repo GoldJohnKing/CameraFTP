@@ -1,7 +1,6 @@
-import { useEffect, useState, useCallback, useRef } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-import { getCurrentWindow } from '@tauri-apps/api/window';
 import { convertFileSrc } from '@tauri-apps/api/core';
 
 interface PreviewEvent {
@@ -12,7 +11,6 @@ interface PreviewEvent {
 interface PreviewWindowState {
   isOpen: boolean;
   currentImage: string | null;
-  isFullscreen: boolean;
   autoBringToFront: boolean;
 }
 
@@ -20,11 +18,8 @@ export function PreviewWindow() {
   const [state, setState] = useState<PreviewWindowState>({
     isOpen: false,
     currentImage: null,
-    isFullscreen: false,
     autoBringToFront: false,
   });
-
-  const appWindow = getCurrentWindow();
 
   // 监听 Rust 发来的预览事件
   useEffect(() => {
@@ -50,37 +45,10 @@ export function PreviewWindow() {
     };
   }, []);
 
-  // 处理全屏切换
-  const toggleFullscreen = useCallback(async () => {
-    try {
-      const isFullscreen = await appWindow.isFullscreen();
-      await appWindow.setFullscreen(!isFullscreen);
-      setState(prev => ({ ...prev, isFullscreen: !isFullscreen }));
-    } catch (error) {
-      console.error('Failed to toggle fullscreen:', error);
-    }
-  }, [appWindow]);
-
-  // ESC 键退出全屏
-  useEffect(() => {
-    const handleKeyDown = async (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        const isFullscreen = await appWindow.isFullscreen();
-        if (isFullscreen) {
-          await appWindow.setFullscreen(false);
-          setState(prev => ({ ...prev, isFullscreen: false }));
-        }
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [appWindow]);
-
   // 实际预览窗口内容组件
   if (!state.isOpen) {
     return (
-      <div className="w-full h-full flex items-center justify-center bg-gray-900">
+      <div className="w-full h-full flex items-center justify-center bg-black">
         <p className="text-gray-400">等待图片...</p>
       </div>
     );
@@ -89,9 +57,7 @@ export function PreviewWindow() {
   return (
     <PreviewWindowContent
       imagePath={state.currentImage}
-      isFullscreen={state.isFullscreen}
       autoBringToFront={state.autoBringToFront}
-      onFullscreenToggle={toggleFullscreen}
     />
   );
 }
@@ -99,14 +65,10 @@ export function PreviewWindow() {
 // 预览窗口内容组件
 function PreviewWindowContent({
   imagePath,
-  isFullscreen,
   autoBringToFront,
-  onFullscreenToggle,
 }: {
   imagePath: string | null;
-  isFullscreen: boolean;
   autoBringToFront: boolean;
-  onFullscreenToggle: () => void;
 }) {
   const [showToolbar, setShowToolbar] = useState(true);
   const [imageError, setImageError] = useState(false);
@@ -172,7 +134,7 @@ function PreviewWindowContent({
 
   if (!imagePath) {
     return (
-      <div className="w-full h-full flex items-center justify-center bg-gray-900">
+      <div className="w-full h-full flex items-center justify-center bg-black">
         <p className="text-gray-400">等待图片...</p>
       </div>
     );
@@ -183,11 +145,11 @@ function PreviewWindowContent({
 
   return (
     <div
-      className={`w-full h-full flex flex-col bg-gray-900 ${isFullscreen ? 'fixed inset-0 z-50' : ''}`}
+      className="w-full h-full flex flex-col bg-black"
       onMouseMove={handleMouseMove}
     >
-      {/* 图片区域 - 始终填满，object-cover 保持比例裁剪 */}
-      <div className="flex-1 relative overflow-hidden flex items-center justify-center">
+      {/* 图片区域 - 居中显示，保持比例，黑色背景 */}
+      <div className="flex-1 relative overflow-hidden flex items-center justify-center bg-black">
         {imageError ? (
           <div className="text-gray-400 text-center">
             <p>无法加载图片</p>
@@ -197,9 +159,8 @@ function PreviewWindowContent({
           <img
             src={imageSrc}
             alt="Preview"
-            className="w-full h-full object-cover"
+            className="max-w-full max-h-full object-contain"
             draggable={false}
-            onDoubleClick={onFullscreenToggle}
             onError={() => setImageError(true)}
           />
         )}
@@ -220,23 +181,6 @@ function PreviewWindowContent({
 
         {/* 右侧：操作按钮 */}
         <div className="flex items-center gap-3">
-          {/* 全屏按钮 */}
-          <button
-            onClick={onFullscreenToggle}
-            className="p-2 text-gray-300 hover:text-white hover:bg-gray-700 rounded transition-colors"
-            title={isFullscreen ? '退出全屏' : '全屏'}
-          >
-            {isFullscreen ? (
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 9V4.5M9 9H4.5M9 9L3.75 3.75M9 15v4.5M9 15H4.5M9 15l-5.25 5.25M15 9h4.5M15 9V4.5M15 9l5.25-5.25M15 15h4.5M15 15v4.5m0-4.5l5.25 5.25" />
-              </svg>
-            ) : (
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3.75 3.75v4.5m0-4.5h4.5m-4.5 0L9 9M3.75 20.25v-4.5m0 4.5h4.5m-4.5 0L9 15M20.25 3.75h-4.5m4.5 0v4.5m0-4.5L15 9m5.25 11.25h-4.5m4.5 0v-4.5m0 4.5L15 15" />
-              </svg>
-            )}
-          </button>
-
           {/* 自动前台按钮 */}
           <button
             onClick={handleToggleAutoFront}
