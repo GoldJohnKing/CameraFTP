@@ -152,22 +152,19 @@ function PreviewWindowContent({
     };
   }, [appWindow]);
 
-  // 监听全屏状态变化 - 使用更可靠的方式
+  // 监听全屏状态变化
   useEffect(() => {
-    let animationFrameId: number;
+    // 初始检查
+    appWindow.isFullscreen().then(setIsFullscreen);
 
-    const checkFullscreen = async () => {
+    // 监听窗口大小变化来检测全屏状态变化
+    const unlisten = appWindow.onResized(async () => {
       const fullscreen = await appWindow.isFullscreen();
       setIsFullscreen(fullscreen);
-      animationFrameId = requestAnimationFrame(checkFullscreen);
-    };
-
-    checkFullscreen();
+    });
 
     return () => {
-      if (animationFrameId) {
-        cancelAnimationFrame(animationFrameId);
-      }
+      unlisten.then(fn => fn());
     };
   }, [appWindow]);
 
@@ -406,7 +403,7 @@ function PreviewWindowContent({
             )}
           </button>
 
-          {/* 自动前台按钮 - 使用窗口叠加图标 */}
+          {/* 自动前台按钮 - 使用置顶图标（向上箭头指向横线） */}
           <button
             onClick={handleToggleAutoFront}
             className={`
@@ -418,17 +415,9 @@ function PreviewWindowContent({
             `}
             title={localAutoBringToFront ? '新图片时自动前台显示 (已开启)' : '新图片时自动前台显示 (已关闭)'}
           >
-            {localAutoBringToFront ? (
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <rect x="3" y="3" width="16" height="16" rx="2" strokeWidth="2" />
-                <rect x="8" y="8" width="13" height="13" rx="2" strokeWidth="2" />
-              </svg>
-            ) : (
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <rect x="6" y="6" width="12" height="12" rx="2" strokeWidth="2" />
-                <rect x="3" y="3" width="16" height="16" rx="2" strokeWidth="2" strokeDasharray="4 2" />
-              </svg>
-            )}
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19V5M5 12l7-7 7 7M5 5h14" />
+            </svg>
           </button>
 
           {/* 打开文件夹 */}
