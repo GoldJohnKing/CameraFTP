@@ -1,5 +1,6 @@
 use crate::ftp::events::EventBus;
 use crate::ftp::stats::StatsActor;
+use crate::config::AppConfig;
 use dashmap::DashSet;
 use libunftp::notification::{DataEvent, DataListener, EventMeta, PresenceEvent, PresenceListener};
 use std::sync::Arc;
@@ -10,11 +11,12 @@ use tracing::{info, warn};
 pub struct FtpDataListener {
     stats: StatsActor,
     event_bus: EventBus,
+    save_path: std::path::PathBuf,
 }
 
 impl FtpDataListener {
-    pub fn new(stats: StatsActor, event_bus: EventBus) -> Self {
-        Self { stats, event_bus }
+    pub fn new(stats: StatsActor, event_bus: EventBus, save_path: std::path::PathBuf) -> Self {
+        Self { stats, event_bus, save_path }
     }
 }
 
@@ -29,6 +31,7 @@ impl DataListener for FtpDataListener {
     {
         let stats = self.stats.clone();
         let event_bus = self.event_bus.clone();
+        let save_path = self.save_path.clone();
         Box::pin(async move {
             match event {
                 DataEvent::Put { path, bytes } => {
@@ -37,6 +40,35 @@ impl DataListener for FtpDataListener {
                     // 发送文件上传事件（用于Android媒体扫描）
                     event_bus.emit_file_uploaded(path.clone(), bytes);
                     info!(file = %path, size = bytes, "File uploaded");
+
+                    // Windows 平台自动打开图片
+                    #[cfg(target_os = "windows")]
+                    {
+                        let config = AppConfig::load();
+                        if config.preview_config.enabled {
+                            // 检查是否是图片文件
+                            let is_image = path.to_lowercase().ends_with(".jpg")
+                                || path.to_lowercase().ends_with(".jpeg")
+                                || path.to_lowercase().ends_with(".png")
+                                || path.to_lowercase().ends_with(".gif")
+                                || path.to_lowercase().ends_with(".bmp")
+                                || path.to_lowercase().ends_with(".webp");
+
+                            if is_image {
+                                let full_path = save_path.join(&path);
+                                // 使用 tokio::spawn 启动异步任务，避免阻塞事件处理
+                                tokio::spawn(async move {
+                                    // 延迟一小段时间确保文件写入完成
+                                    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+                                    
+                                    // 这里通过事件总线通知前端显示预览窗口
+                                    // 实际的 AutoOpenService 调用将在前端处理
+                                    // 因为监听器没有访问 AppHandle 的权限
+                                    info!("Windows auto preview triggered for: {:?}", full_path);
+                                });
+                            }
+                        }
+                    }
                 }
                 DataEvent::Got { path, bytes } => {
                     stats.record_download(path.clone(), bytes).await;

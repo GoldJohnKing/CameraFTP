@@ -208,15 +208,14 @@ impl FtpServerActor {
         }
 
         // 创建监听器
-        let data_listener = FtpDataListener::new(self.stats_actor.clone(), self.event_bus.clone());
+        let root_path = config.root_path.clone();
+        let data_listener = FtpDataListener::new(self.stats_actor.clone(), self.event_bus.clone(), root_path.clone());
         let presence_listener =
             FtpPresenceListener::new(self.stats_actor.clone(), self.sessions.clone());
 
         // 创建关闭通道
         let (shutdown_tx, shutdown_rx) = oneshot::channel();
         self.shutdown_tx = Some(shutdown_tx);
-
-        let root_path = config.root_path.clone();
         let port = config.port;
 
         // 预先验证文件系统创建，避免运行时闭包内panic

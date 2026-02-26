@@ -7,6 +7,7 @@ import { PermissionList } from './PermissionList';
 import { PathSelector } from './PathSelector';
 import { PortSelector } from './PortSelector';
 import { AutoStartToggle } from './AutoStartToggle';
+import { PreviewConfigCard } from './PreviewConfigCard';
 
 export function ConfigCard() {
   const {
@@ -166,10 +167,10 @@ export function ConfigCard() {
                 disabled={isChecking}
                 className="text-xs text-blue-500 hover:text-blue-600 flex items-center gap-1 disabled:opacity-50"
               >
-                <svg 
-                  className={`w-3.5 h-3.5 ${isChecking ? 'animate-spin' : ''}`} 
-                  fill="none" 
-                  stroke="currentColor" 
+                <svg
+                  className={`w-3.5 h-3.5 ${isChecking ? 'animate-spin' : ''}`}
+                  fill="none"
+                  stroke="currentColor"
                   viewBox="0 0 24 24"
                 >
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
@@ -178,12 +179,15 @@ export function ConfigCard() {
               </button>
             </div>
           </div>
-          
+
           <div className="p-4">
             <PermissionList variant="compact" />
           </div>
         </Card>
       )}
+
+      {/* 预览配置卡片（Windows 专属） */}
+      <PreviewConfigCard platform={platform} />
     </>
   );
 }

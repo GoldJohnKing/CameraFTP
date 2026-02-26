@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { invoke } from '@tauri-apps/api/core';
-import type { AppConfig } from '../types';
+import type { AppConfig, PreviewWindowConfig } from '../types';
 import { executeAsync } from '../utils/store';
 
 interface ConfigState {
@@ -9,6 +9,7 @@ interface ConfigState {
   error: string | null;
   activeTab: 'home' | 'config';
   platform: string;
+  previewConfig: PreviewWindowConfig | null;
 
   // Actions
   loadConfig: () => Promise<void>;
@@ -18,6 +19,8 @@ interface ConfigState {
   updatePort: (port: number) => Promise<void>;
   updateAutoSelectPort: (autoSelect: boolean) => Promise<void>;
   loadPlatform: () => Promise<void>;
+  loadPreviewConfig: () => Promise<void>;
+  updatePreviewConfig: (config: PreviewWindowConfig) => Promise<void>;
 }
 
 export const useConfigStore = create<ConfigState>((set, get) => ({
@@ -26,6 +29,7 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
   error: null,
   activeTab: 'home',
   platform: 'unknown',
+  previewConfig: null,
 
   loadPlatform: async () => {
     const { platform } = get();
@@ -90,5 +94,24 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
     if (!config) return;
     const newConfig = { ...config, auto_select_port: autoSelect };
     await saveConfig(newConfig);
+  },
+
+  loadPreviewConfig: async () => {
+    try {
+      const config = await invoke<PreviewWindowConfig>('get_preview_config');
+      set((state) => ({ ...state, previewConfig: config }));
+    } catch (error) {
+      console.error('Failed to load preview config:', error);
+    }
+  },
+
+  updatePreviewConfig: async (config: PreviewWindowConfig) => {
+    try {
+      await invoke('set_preview_config', { config });
+      set((state) => ({ ...state, previewConfig: config }));
+    } catch (error) {
+      console.error('Failed to update preview config:', error);
+      throw error;
+    }
   },
 }));

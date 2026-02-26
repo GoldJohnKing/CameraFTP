@@ -43,3 +43,22 @@ export interface ServerStartCheckResult {
 
 // 重新导出全局类型
 export * from './global';
+
+// 图片打开方式
+export type ImageOpenMethod =
+  | 'built-in-preview'
+  | 'system-default'
+  | 'windows-photos'
+  | 'custom';
+
+// 预览窗口配置
+export interface PreviewWindowConfig {
+  enabled: boolean;
+  method: ImageOpenMethod;
+  autoBringToFront: boolean;
+  rememberPosition: boolean;
+  windowX?: number;
+  windowY?: number;
+  windowWidth?: number;
+  windowHeight?: number;
+}

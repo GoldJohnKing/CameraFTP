@@ -1,3 +1,4 @@
+pub mod auto_open;
 pub mod commands;
 pub mod config;
 pub mod error;
@@ -11,6 +12,7 @@ use tokio::sync::Mutex;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use tauri::{Manager, Emitter};
 
+use auto_open::AutoOpenService;
 use commands::{
     check_permission_status,
     check_port_available, 
@@ -19,6 +21,7 @@ use commands::{
     ensure_storage_ready,
     get_autostart_status, 
     get_platform, 
+    get_preview_config,
     get_server_info,
     get_server_status, 
     get_storage_info,
@@ -27,11 +30,13 @@ use commands::{
     load_config, 
     needs_storage_permission,
     open_all_files_access_settings, 
+    open_preview_window,
     quit_application, 
     request_all_files_permission,
     save_config, 
     select_save_directory, 
     set_autostart_command, 
+    set_preview_config,
     start_server, 
     stop_server, 
     validate_save_path,
@@ -109,6 +114,8 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .manage(FtpServerState(Arc::new(Mutex::new(None))))
         .setup(move |app| {
+            // 在 setup 中管理 AutoOpenService
+            app.manage(AutoOpenService::new(app.handle().clone()));
             // 统一平台初始化（托盘、权限等）
             if let Err(e) = platform.setup(app.handle()) {
                 eprintln!("Platform setup failed: {}", e);
@@ -212,6 +219,11 @@ pub fn run() {
             check_storage_permission,
             check_server_start_prerequisites,
             needs_storage_permission,
+
+            // 自动预览配置（Windows）
+            get_preview_config,
+            set_preview_config,
+            open_preview_window,
         ])
         .run(tauri::generate_context!())
         .unwrap_or_else(|e| {

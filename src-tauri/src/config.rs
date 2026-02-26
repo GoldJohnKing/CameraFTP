@@ -8,6 +8,51 @@ use tracing::warn;
 use tracing::{error, info};
 use ts_rs::TS;
 
+/// 图片打开方式枚举
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub enum ImageOpenMethod {
+    BuiltInPreview,
+    SystemDefault,
+    WindowsPhotos,
+    Custom(String),
+}
+
+impl Default for ImageOpenMethod {
+    fn default() -> Self {
+        ImageOpenMethod::BuiltInPreview
+    }
+}
+
+/// 预览窗口配置
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct PreviewWindowConfig {
+    pub enabled: bool,
+    pub method: ImageOpenMethod,
+    pub auto_bring_to_front: bool,
+    pub remember_position: bool,
+    pub window_x: Option<i32>,
+    pub window_y: Option<i32>,
+    pub window_width: Option<u32>,
+    pub window_height: Option<u32>,
+}
+
+impl Default for PreviewWindowConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            method: ImageOpenMethod::BuiltInPreview,
+            auto_bring_to_front: false,
+            remember_position: false,
+            window_x: None,
+            window_y: None,
+            window_width: Some(1024),
+            window_height: Some(768),
+        }
+    }
+}
+
 /// Android 配置路径（在应用初始化时设置，使用 OnceLock 实现高效缓存）
 #[cfg(target_os = "android")]
 static ANDROID_CONFIG_PATH: OnceLock<PathBuf> = OnceLock::new();
@@ -39,6 +84,9 @@ pub struct AppConfig {
     pub port: u16,
     /// 自动选择端口
     pub auto_select_port: bool,
+    /// Windows 平台预览窗口配置
+    #[cfg(target_os = "windows")]
+    pub preview_config: PreviewWindowConfig,
 }
 
 impl Default for AppConfig {
@@ -47,6 +95,8 @@ impl Default for AppConfig {
             save_path: Self::default_pictures_dir(),
             port: 2121,
             auto_select_port: true,
+            #[cfg(target_os = "windows")]
+            preview_config: PreviewWindowConfig::default(),
         }
     }
 }

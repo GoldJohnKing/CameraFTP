@@ -1,9 +1,10 @@
-use tauri::{command, AppHandle, State};
+use tauri::{command, AppHandle, Emitter, State};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tracing::{error, info, instrument};
 
-use crate::config::AppConfig;
+use crate::auto_open::AutoOpenService;
+use crate::config::{AppConfig, PreviewWindowConfig};
 use crate::error::AppError;
 use crate::ftp::types::{ServerInfo, ServerStateSnapshot};
 use crate::ftp::FtpServerHandle;
@@ -272,4 +273,49 @@ pub async fn check_server_start_prerequisites() -> Result<ServerStartCheckResult
 #[tauri::command]
 pub async fn needs_storage_permission() -> bool {
     get_platform_service().needs_storage_permission()
+}
+
+// ============================================================================
+// 自动预览配置命令（Windows）
+// ============================================================================
+
+#[derive(Clone, serde::Serialize)]
+struct PreviewEvent {
+    file_path: String,
+    bring_to_front: bool,
+}
+
+/// 获取预览窗口配置
+#[tauri::command]
+pub async fn get_preview_config(
+    auto_open: State<'_, AutoOpenService>,
+) -> Result<PreviewWindowConfig, AppError> {
+    Ok(auto_open.get_config().await)
+}
+
+/// 设置预览窗口配置
+#[tauri::command]
+pub async fn set_preview_config(
+    auto_open: State<'_, AutoOpenService>,
+    config: PreviewWindowConfig,
+) -> Result<(), AppError> {
+    auto_open.update_config(config).await;
+    Ok(())
+}
+
+/// 手动打开预览窗口
+#[tauri::command]
+pub async fn open_preview_window(
+    app: AppHandle,
+    file_path: String,
+) -> Result<(), AppError> {
+    let event = PreviewEvent {
+        file_path,
+        bring_to_front: true,
+    };
+
+    app.emit("preview-image", event)
+        .map_err(|e| AppError::Other(format!("Failed to emit preview event: {}", e)))?;
+
+    Ok(())
 }
