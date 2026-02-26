@@ -6,7 +6,6 @@
 //! - 服务器Actor（FtpServerActor）
 //! - 监听器（Listeners）
 
-pub mod error;
 pub mod events;
 pub mod listeners;
 pub mod server;
@@ -15,7 +14,6 @@ pub mod stats;
 pub mod types;
 
 // 重新导出主要类型
-pub use error::FtpError;
 pub use events::{EventBus, EventProcessor, StatsEventHandler};
 pub use server::{create_ftp_server, FtpServerActor, FtpServerHandle};
 pub use server_factory::{

@@ -16,9 +16,6 @@ pub enum AppError {
     #[error("无可用网络接口")]
     NoNetworkInterface,
 
-    #[error("FTP服务器错误: {0}")]
-    FtpServerError(String),
-
     #[error("IO错误: {0}")]
     Io(String),
 
@@ -46,7 +43,6 @@ impl AppError {
             Self::ServerNotRunning => "SERVER_NOT_RUNNING",
             Self::NoAvailablePort => "NO_AVAILABLE_PORT",
             Self::NoNetworkInterface => "NO_NETWORK_INTERFACE",
-            Self::FtpServerError(_) => "FTP_SERVER_ERROR",
             Self::Io(_) => "IO_ERROR",
             Self::Serialization(_) => "SERIALIZATION_ERROR",
             Self::NetworkError(_) => "NETWORK_ERROR",
@@ -65,7 +61,6 @@ impl AppError {
                 "无法找到可用的端口（1025-65535），请检查系统端口占用情况".to_string()
             }
             Self::NoNetworkInterface => "未检测到可用的网络接口，请检查网络连接".to_string(),
-            Self::FtpServerError(msg) => format!("FTP服务器错误: {}", msg),
             Self::Io(msg) => format!("文件系统错误: {}", msg),
             Self::Serialization(msg) => format!("数据序列化错误: {}", msg),
             Self::NetworkError(msg) => format!("网络错误: {}", msg),
@@ -79,7 +74,7 @@ impl AppError {
     pub fn is_critical(&self) -> bool {
         matches!(
             self,
-            Self::PermissionError(_) | Self::FtpServerError(_) | Self::StoragePermissionError(_)
+            Self::PermissionError(_) | Self::StoragePermissionError(_)
         )
     }
 }
@@ -111,17 +106,6 @@ impl From<serde_json::Error> for AppError {
 impl From<Box<dyn std::error::Error>> for AppError {
     fn from(err: Box<dyn std::error::Error>) -> Self {
         AppError::Other(err.to_string())
-    }
-}
-
-impl From<crate::ftp::FtpError> for AppError {
-    fn from(err: crate::ftp::FtpError) -> Self {
-        match err {
-            crate::ftp::FtpError::BindFailed { addr, source } => {
-                AppError::NetworkError(format!("Failed to bind to {}: {}", addr, source))
-            }
-            crate::ftp::FtpError::Io(io_err) => AppError::from(io_err),
-        }
     }
 }
 
