@@ -145,11 +145,11 @@ function PreviewWindowContent({
 
   return (
     <div
-      className="w-full h-full flex flex-col bg-black"
+      className="w-full h-screen flex flex-col bg-black overflow-hidden"
       onMouseMove={handleMouseMove}
     >
       {/* 图片区域 - 居中显示，保持比例，黑色背景 */}
-      <div className="flex-1 relative overflow-hidden flex items-center justify-center bg-black">
+      <div className="flex-1 min-h-0 relative flex items-center justify-center bg-black">
         {imageError ? (
           <div className="text-gray-400 text-center">
             <p>无法加载图片</p>
