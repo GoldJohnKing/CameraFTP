@@ -5,6 +5,7 @@ import { useConfigStore } from '../stores/configStore';
 import { usePermissionStore } from '../stores/permissionStore';
 import { useStoragePermission } from '../hooks/useStoragePermission';
 import { Card, CardHeader, ToggleSwitch } from './ui';
+import { PermissionList } from './PermissionList';
 
 export function ConfigCard() {
   const {
@@ -27,11 +28,7 @@ export function ConfigCard() {
     ensureStorageReady,
   } = useStoragePermission();
 
-  const permissionState = usePermissionStore((state) => state.permissions);
   const checkPermissions = usePermissionStore((state) => state.checkPermissions);
-  const requestStoragePermission = usePermissionStore((state) => state.requestStoragePermission);
-  const requestNotificationPermission = usePermissionStore((state) => state.requestNotificationPermission);
-  const requestBatteryOptimization = usePermissionStore((state) => state.requestBatteryOptimization);
 
   const [autostartEnabled, setAutostartEnabled] = useState(false);
   const [isLoadingAutostart, setIsLoadingAutostart] = useState(false);
@@ -330,49 +327,7 @@ export function ConfigCard() {
         </div>
         
         <div className="p-4">
-          <div className="space-y-3">
-            {/* Storage Permission */}
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <div className={`w-3 h-3 rounded-full ${permissionState.storage ? 'bg-green-500' : 'bg-red-500'}`} />
-                <span className="text-sm text-gray-700">文件访问权限</span>
-              </div>
-              <button
-                onClick={requestStoragePermission}
-                className={`text-xs ${permissionState.storage ? 'text-green-600' : 'text-blue-500 hover:text-blue-600'}`}
-              >
-                {permissionState.storage ? '已授权' : '授权'}
-              </button>
-            </div>
-
-            {/* Notification Permission */}
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <div className={`w-3 h-3 rounded-full ${permissionState.notification ? 'bg-green-500' : 'bg-red-500'}`} />
-                <span className="text-sm text-gray-700">通知权限</span>
-              </div>
-              <button
-                onClick={requestNotificationPermission}
-                className={`text-xs ${permissionState.notification ? 'text-green-600' : 'text-blue-500 hover:text-blue-600'}`}
-              >
-                {permissionState.notification ? '已授权' : '授权'}
-              </button>
-            </div>
-
-            {/* Battery Optimization */}
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <div className={`w-3 h-3 rounded-full ${permissionState.batteryOptimization ? 'bg-green-500' : 'bg-red-500'}`} />
-                <span className="text-sm text-gray-700">电池优化白名单</span>
-              </div>
-              <button
-                onClick={requestBatteryOptimization}
-                className={`text-xs ${permissionState.batteryOptimization ? 'text-green-600' : 'text-blue-500 hover:text-blue-600'}`}
-              >
-                {permissionState.batteryOptimization ? '已授权' : '授权'}
-              </button>
-            </div>
-          </div>
+          <PermissionList variant="compact" />
         </div>
       </Card>
     )}
