@@ -128,8 +128,6 @@ class MainActivity : TauriActivity() {
     
     companion object {
         private const val TAG = "MainActivity"
-        @JvmStatic
-        var currentActivity: MainActivity? = null
     }
     
     private var storageSettingsBridge: StorageSettingsBridge? = null
@@ -153,8 +151,7 @@ class MainActivity : TauriActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
-        currentActivity = this
-        
+
         Log.d(TAG, "MainActivity created")
         
         // 初始化Bridge
@@ -249,9 +246,6 @@ class MainActivity : TauriActivity() {
     override fun onDestroy() {
         super.onDestroy()
         webViewRef = null
-        if (currentActivity == this) {
-            currentActivity = null
-        }
     }
     
     /**
