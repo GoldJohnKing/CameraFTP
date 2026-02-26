@@ -2,7 +2,7 @@ import { Power } from 'lucide-react';
 import { useState, useCallback } from 'react';
 import { toast } from 'sonner';
 import { useServerStore } from '../stores/serverStore';
-import { useStoragePermission } from '../hooks/useStoragePermission';
+import { usePermissionStore } from '../stores/permissionStore';
 import { LoadingButton, ErrorMessage } from './ui';
 import { formatError } from '../utils/error';
 
@@ -21,7 +21,7 @@ export function ServerCard() {
     checkPrerequisites, 
     requestAllFilesPermission, 
     ensureStorageReady 
-  } = useStoragePermission();
+  } = usePermissionStore();
 
   const handleStartServer = useCallback(async () => {
     if (isStarting) return;

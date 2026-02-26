@@ -1,5 +1,7 @@
 import { create } from 'zustand';
-import type { PermissionCheckResult } from '../types';
+import { invoke } from '@tauri-apps/api/core';
+import { toast } from 'sonner';
+import type { PermissionCheckResult, StorageInfo, PermissionStatus, ServerStartCheckResult } from '../types';
 import { isPermissionAndroidAvailable, checkAndroidPermissions } from '../types';
 import { formatError } from '../utils/error';
 
@@ -10,6 +12,10 @@ interface PermissionStoreState {
   error: string | null;
   isPolling: boolean;
   allGranted: boolean; // 实际状态字段，不是计算属性
+  
+  // Storage states (merged from useStoragePermission)
+  storageInfo: StorageInfo | null;
+  needsPermission: boolean;
   
   // Actions
   setPermissions: (permissions: PermissionCheckResult) => void;
@@ -25,6 +31,13 @@ interface PermissionStoreState {
   // Start/stop polling - controlled by PermissionDialog only
   startPolling: () => void;
   stopPolling: () => void;
+  
+  // Storage operations (merged from useStoragePermission)
+  loadStorageInfo: () => Promise<StorageInfo | null>;
+  checkPermissionStatus: () => Promise<PermissionStatus | null>;
+  checkPrerequisites: () => Promise<ServerStartCheckResult>;
+  requestAllFilesPermission: () => Promise<void>;
+  ensureStorageReady: () => Promise<{ success: boolean; error?: string }>;
 }
 
 /// Internal permission check that returns default values for non-Android platforms
@@ -59,6 +72,10 @@ export const usePermissionStore = create<PermissionStoreState>()((set, get) => (
     error: null,
     isPolling: false,
     allGranted: false,
+    
+    // Storage states
+    storageInfo: null,
+    needsPermission: false,
     
     // Actions - 必须传入完整对象，内部计算 allGranted
     setPermissions: (newPerms) => {
@@ -184,15 +201,93 @@ export const usePermissionStore = create<PermissionStoreState>()((set, get) => (
       }
       set({ isPolling: false });
     },
+    
+    // === Storage operations (merged from useStoragePermission) ===
+    
+    // Load storage info
+    loadStorageInfo: async () => {
+      set({ isLoading: true });
+      
+      try {
+        const info = await invoke<StorageInfo>('get_storage_info');
+        set({
+          storageInfo: info,
+          isLoading: false,
+        });
+        return info;
+      } catch (err) {
+        const errorMsg = formatError(err);
+        toast.error(errorMsg);
+        set({ isLoading: false });
+        return null;
+      }
+    },
+    
+    // Check permission status
+    checkPermissionStatus: async () => {
+      try {
+        const status = await invoke<PermissionStatus>('check_permission_status');
+        set({ needsPermission: status.needs_user_action });
+        return status;
+      } catch {
+        return null;
+      }
+    },
+    
+    // Check server start prerequisites
+    checkPrerequisites: async () => {
+      try {
+        const result = await invoke<ServerStartCheckResult>('check_server_start_prerequisites');
+        
+        if (result.storage_info) {
+          set({ storageInfo: result.storage_info });
+        }
+        
+        return result;
+      } catch (err) {
+        const errorMsg = formatError(err);
+        return {
+          can_start: false,
+          reason: errorMsg,
+        };
+      }
+    },
+    
+    // Request all files permission (opens system settings)
+    requestAllFilesPermission: async () => {
+      try {
+        await invoke('request_all_files_permission');
+      } catch {
+        toast.error('无法打开设置页面');
+      }
+    },
+    
+    // Ensure storage is ready
+    ensureStorageReady: async () => {
+      try {
+        await invoke<string>('ensure_storage_ready');
+        await get().loadStorageInfo();
+        return { success: true };
+      } catch (err) {
+        const errorMsg = formatError(err);
+        toast.error(errorMsg);
+        return { success: false, error: errorMsg };
+      }
+    },
   }));
 
 // Initial check on Android only
 if (typeof window !== 'undefined' && isPermissionAndroidAvailable()) {
   setTimeout(() => {
+    const state = usePermissionStore.getState();
+    // Check permissions
     permissionCheckInternal().then(perms => {
       if (perms) {
-        usePermissionStore.getState().setPermissions(perms);
+        state.setPermissions(perms);
       }
     });
+    // Load storage info and check permission status
+    state.loadStorageInfo();
+    state.checkPermissionStatus();
   }, 100);
 }

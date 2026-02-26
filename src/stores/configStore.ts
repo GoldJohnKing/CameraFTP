@@ -28,9 +28,13 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
   platform: 'unknown',
 
   loadPlatform: async () => {
+    const { platform } = get();
+    // Platform doesn't change during runtime - cache after first load
+    if (platform !== 'unknown') return;
+
     try {
-      const platform = await invoke<string>('get_platform');
-      set((state) => ({ ...state, platform }));
+      const platformValue = await invoke<string>('get_platform');
+      set((state) => ({ ...state, platform: platformValue }));
     } catch {
       set((state) => ({ ...state, platform: 'unknown' }));
     }
