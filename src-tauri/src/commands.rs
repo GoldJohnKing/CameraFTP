@@ -1,4 +1,4 @@
-use tauri::{command, AppHandle, Emitter, State};
+use tauri::{command, AppHandle, Emitter, Manager, State};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tracing::{error, info, instrument};
@@ -36,7 +36,8 @@ pub async fn start_server(
     // 使用 server_factory 启动服务器
     let ctx = crate::ftp::server_factory::start_ftp_server(
         &state.0,
-        Default::default()
+        Default::default(),
+        Some(app.clone())
     ).await?;
 
     // 启动事件处理器（EventBus 会发送 server-started 事件）
@@ -309,13 +310,71 @@ pub async fn open_preview_window(
     app: AppHandle,
     file_path: String,
 ) -> Result<(), AppError> {
-    let event = PreviewEvent {
-        file_path,
-        bring_to_front: true,
-    };
-
-    app.emit("preview-image", event)
-        .map_err(|e| AppError::Other(format!("Failed to emit preview event: {}", e)))?;
+    // 检查预览窗口是否已存在
+    if let Some(window) = app.get_webview_window("preview") {
+        // 窗口已存在，发送事件更新图片
+        let event = PreviewEvent {
+            file_path,
+            bring_to_front: true,
+        };
+        window.emit("preview-image", event)
+            .map_err(|e| AppError::Other(format!("Failed to emit preview event: {}", e)))?;
+        
+        // 将窗口带到前台
+        window.set_focus()
+            .map_err(|e| AppError::Other(format!("Failed to focus window: {}", e)))?;
+    } else {
+        // 创建新窗口
+        let window = tauri::WebviewWindowBuilder::new(
+            &app,
+            "preview",
+            tauri::WebviewUrl::App("/preview".into())
+        )
+        .title("图片预览")
+        .inner_size(1024.0, 768.0)
+        .center()
+        .resizable(true)
+        .visible(true)
+        .build()
+        .map_err(|e| AppError::Other(format!("Failed to create preview window: {}", e)))?;
+        
+        // 延迟发送事件，确保窗口已加载
+        let event = PreviewEvent {
+            file_path,
+            bring_to_front: true,
+        };
+        
+        tokio::spawn(async move {
+            tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+            let _ = window.emit("preview-image", event);
+        });
+    }
 
     Ok(())
+}
+
+/// 选择可执行文件（用于自定义打开程序）
+#[tauri::command]
+pub async fn select_executable_file(app: AppHandle) -> Result<Option<String>, AppError> {
+    #[cfg(not(target_os = "android"))]
+    {
+        use tauri_plugin_dialog::DialogExt;
+
+        let file_path = tokio::task::spawn_blocking(move || {
+            app.dialog()
+                .file()
+                .set_title("选择程序")
+                .add_filter("可执行文件", &["exe"])
+                .blocking_pick_file()
+        })
+        .await
+        .map_err(|e| AppError::Other(format!("Task failed: {}", e)))?;
+
+        return Ok(file_path.and_then(|p| p.as_path().map(|path| path.to_string_lossy().to_string())));
+    }
+
+    #[cfg(target_os = "android")]
+    {
+        Ok(None)
+    }
 }

@@ -4,6 +4,7 @@ use crate::config::AppConfig;
 use dashmap::DashSet;
 use libunftp::notification::{DataEvent, DataListener, EventMeta, PresenceEvent, PresenceListener};
 use std::sync::Arc;
+use tauri::{AppHandle, Manager};
 use tracing::{info, warn};
 
 /// 数据事件监听器（上传、下载等）
@@ -12,11 +13,16 @@ pub struct FtpDataListener {
     stats: StatsActor,
     event_bus: EventBus,
     save_path: std::path::PathBuf,
+    app_handle: Option<AppHandle>,
 }
 
 impl FtpDataListener {
-    pub fn new(stats: StatsActor, event_bus: EventBus, save_path: std::path::PathBuf) -> Self {
-        Self { stats, event_bus, save_path }
+    pub fn new(stats: StatsActor, event_bus: EventBus, save_path: std::path::PathBuf, app_handle: Option<AppHandle>) -> Self {
+        Self { stats, event_bus, save_path, app_handle }
+    }
+
+    pub fn set_app_handle(&mut self, app_handle: AppHandle) {
+        self.app_handle = Some(app_handle);
     }
 }
 
@@ -32,6 +38,7 @@ impl DataListener for FtpDataListener {
         let stats = self.stats.clone();
         let event_bus = self.event_bus.clone();
         let save_path = self.save_path.clone();
+        let app_handle = self.app_handle.clone();
         Box::pin(async move {
             match event {
                 DataEvent::Put { path, bytes } => {
@@ -44,28 +51,34 @@ impl DataListener for FtpDataListener {
                     // Windows 平台自动打开图片
                     #[cfg(target_os = "windows")]
                     {
-                        let config = AppConfig::load();
-                        if config.preview_config.enabled {
-                            // 检查是否是图片文件
-                            let is_image = path.to_lowercase().ends_with(".jpg")
-                                || path.to_lowercase().ends_with(".jpeg")
-                                || path.to_lowercase().ends_with(".png")
-                                || path.to_lowercase().ends_with(".gif")
-                                || path.to_lowercase().ends_with(".bmp")
-                                || path.to_lowercase().ends_with(".webp");
+                        if let Some(handle) = app_handle {
+                            let config = AppConfig::load();
+                            if config.preview_config.enabled {
+                                // 检查是否是图片文件
+                                let is_image = path.to_lowercase().ends_with(".jpg")
+                                    || path.to_lowercase().ends_with(".jpeg")
+                                    || path.to_lowercase().ends_with(".png")
+                                    || path.to_lowercase().ends_with(".gif")
+                                    || path.to_lowercase().ends_with(".bmp")
+                                    || path.to_lowercase().ends_with(".webp");
 
-                            if is_image {
-                                let full_path = save_path.join(&path);
-                                // 使用 tokio::spawn 启动异步任务，避免阻塞事件处理
-                                tokio::spawn(async move {
-                                    // 延迟一小段时间确保文件写入完成
-                                    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-                                    
-                                    // 这里通过事件总线通知前端显示预览窗口
-                                    // 实际的 AutoOpenService 调用将在前端处理
-                                    // 因为监听器没有访问 AppHandle 的权限
-                                    info!("Windows auto preview triggered for: {:?}", full_path);
-                                });
+                                if is_image {
+                                    let full_path = save_path.join(&path);
+                                    let handle_clone = handle.clone();
+                                    // 使用 tokio::spawn 启动异步任务，避免阻塞事件处理
+                                    tokio::spawn(async move {
+                                        // 延迟一小段时间确保文件写入完成
+                                        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+                                        
+                                        // 调用 AutoOpenService 处理预览
+                                        let auto_open: tauri::State<'_, crate::auto_open::AutoOpenService> = handle_clone.state();
+                                        if let Err(e) = auto_open.on_file_uploaded(full_path.clone()).await {
+                                            tracing::error!("Failed to auto open image: {}", e);
+                                        } else {
+                                            info!("Windows auto preview triggered for: {:?}", full_path);
+                                        }
+                                    });
+                                }
                             }
                         }
                     }

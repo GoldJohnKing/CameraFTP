@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 import { Camera } from 'lucide-react';
 import { ServerCard } from './components/ServerCard';
 import { StatsCard } from './components/StatsCard';
@@ -7,6 +8,7 @@ import { InfoCard } from './components/InfoCard';
 import { ConfigCard } from './components/ConfigCard';
 import { BottomNav } from './components/BottomNav';
 import { PermissionDialog } from './components/PermissionDialog';
+import { PreviewWindow } from './components/PreviewWindow';
 import { useServerStore } from './stores/serverStore';
 import { useConfigStore } from './stores/configStore';
 
@@ -14,6 +16,13 @@ function App() {
   const { initializeListeners, showPermissionDialog, closePermissionDialog, continueAfterPermissionsGranted } = useServerStore();
   const { activeTab, loadConfig } = useConfigStore();
   const [showQuitDialog, setShowQuitDialog] = useState(false);
+  const [isPreviewWindow, setIsPreviewWindow] = useState(false);
+
+  // 检测当前是否是预览窗口
+  useEffect(() => {
+    const window = getCurrentWindow();
+    setIsPreviewWindow(window.label === 'preview');
+  }, []);
 
   // 初始化 store 的监听器
   useEffect(() => {
@@ -72,6 +81,11 @@ function App() {
       }
     }
   };
+
+  // 如果是预览窗口，直接渲染预览组件
+  if (isPreviewWindow) {
+    return <PreviewWindow />;
+  }
 
   return (
     <div className="min-h-screen bg-gray-50 pb-20">

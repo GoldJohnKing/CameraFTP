@@ -10,6 +10,7 @@ use libunftp::options::Shutdown;
 use libunftp::ServerBuilder;
 use std::net::SocketAddr;
 use std::sync::Arc;
+use tauri::AppHandle;
 use tokio::sync::{mpsc, oneshot, RwLock};
 use tracing::{error, info, instrument};
 
@@ -112,11 +113,12 @@ pub struct FtpServerActor {
     event_bus: EventBus,
     sessions: Arc<DashSet<String>>,
     bind_addr: Option<SocketAddr>,
+    app_handle: Option<AppHandle>,
 }
 
 impl FtpServerActor {
     /// 创建新的FTP服务器Actor
-    pub fn new(stats_actor: StatsActor, event_bus: EventBus) -> (FtpServerHandle, Self) {
+    pub fn new(stats_actor: StatsActor, event_bus: EventBus, app_handle: Option<AppHandle>) -> (FtpServerHandle, Self) {
         let (tx, rx) = mpsc::channel(32);
         let handle = FtpServerHandle { tx };
 
@@ -129,6 +131,7 @@ impl FtpServerActor {
             event_bus,
             sessions: Arc::new(DashSet::new()),
             bind_addr: None,
+            app_handle,
         };
 
         (handle, actor)
@@ -209,7 +212,7 @@ impl FtpServerActor {
 
         // 创建监听器
         let root_path = config.root_path.clone();
-        let data_listener = FtpDataListener::new(self.stats_actor.clone(), self.event_bus.clone(), root_path.clone());
+        let data_listener = FtpDataListener::new(self.stats_actor.clone(), self.event_bus.clone(), root_path.clone(), self.app_handle.clone());
         let presence_listener =
             FtpPresenceListener::new(self.stats_actor.clone(), self.sessions.clone());
 
@@ -376,19 +379,19 @@ impl FtpServerActor {
 }
 
 /// 创建FTP服务器Actor系统
-pub fn create_ftp_server() -> (
+pub fn create_ftp_server(app_handle: Option<AppHandle>) -> (
     FtpServerHandle,
     FtpServerActor,
     StatsActorWorker,
     EventBus,
 ) {
     let event_bus = EventBus::new();
-    
+
     // StatsActor 持有 EventBus 的克隆，用于在统计变化时发送事件
     let (stats_handle, stats_worker) = StatsActor::with_event_bus(Some(event_bus.clone()));
 
     let (server_handle, server_actor) =
-        FtpServerActor::new(stats_handle, event_bus.clone());
+        FtpServerActor::new(stats_handle, event_bus.clone(), app_handle);
 
     (server_handle, server_actor, stats_worker, event_bus)
 }

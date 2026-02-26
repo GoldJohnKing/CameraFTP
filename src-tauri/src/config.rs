@@ -11,6 +11,7 @@ use ts_rs::TS;
 /// 图片打开方式枚举
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export)]
+#[serde(rename_all = "kebab-case")]
 pub enum ImageOpenMethod {
     BuiltInPreview,
     SystemDefault,

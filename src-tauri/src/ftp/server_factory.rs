@@ -35,6 +35,7 @@ impl Default for ServerStartupOptions {
 pub async fn start_ftp_server(
     state: &Arc<Mutex<Option<FtpServerHandle>>>,
     options: ServerStartupOptions,
+    app_handle: Option<AppHandle>,
 ) -> Result<ServerStartupContext, AppError> {
     // 检查是否已在运行
     {
@@ -91,7 +92,7 @@ pub async fn start_ftp_server(
     };
 
     // 创建FTP服务器Actor
-    let (server_handle, server_actor, stats_worker, event_bus) = create_ftp_server();
+    let (server_handle, server_actor, stats_worker, event_bus) = create_ftp_server(app_handle);
 
     // 运行统计Actor Worker（必须在后台运行，否则统计不会更新）
     tokio::spawn(async move {

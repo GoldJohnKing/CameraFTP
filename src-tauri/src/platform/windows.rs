@@ -341,7 +341,7 @@ impl PlatformService for WindowsPlatform {
         tauri::async_runtime::spawn(async move {
             tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
 
-            match crate::ftp::server_factory::start_ftp_server(&state_clone, Default::default()).await {
+            match crate::ftp::server_factory::start_ftp_server(&state_clone, Default::default(), Some(app_handle.clone())).await {
                 Ok(ctx) => {
                     tracing::info!("FTP server auto-started on {}:{}", ctx.ip, ctx.port);
 
