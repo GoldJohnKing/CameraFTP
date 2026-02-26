@@ -18,7 +18,6 @@ abstract class BaseJsBridge(
     protected val activity: MainActivity,
     private val bridgeName: String
 ) {
-    protected fun log(msg: String) = Log.d(bridgeName, msg)
     protected fun runOnUi(block: () -> Unit) = activity.runOnUiThread(block)
 }
 
@@ -78,7 +77,6 @@ class FileUploadBridge(private val listener: FileUploadListener) {
      */
     @JavascriptInterface
     fun onFileUploaded(path: String?, size: Long) {
-        Log.d(TAG, "onFileUploaded called from JavaScript: path=$path, size=$size")
         listener.onFileUploaded(path, size)
     }
 }
@@ -97,7 +95,6 @@ class ServerStateBridge(activity: MainActivity) : BaseJsBridge(activity, "Server
      */
     @JavascriptInterface
     fun onServerStateChanged(isRunning: Boolean, statsJson: String?, connectedClients: Int) {
-        log("onServerStateChanged: running=$isRunning, clients=$connectedClients, stats=$statsJson")
         activity.updateServiceState(isRunning, statsJson, connectedClients)
     }
 }
@@ -114,8 +111,6 @@ class StorageSettingsBridge(activity: MainActivity) : BaseJsBridge(activity, "St
      */
     @JavascriptInterface
     fun openAllFilesAccessSettings(): Boolean {
-        log("openAllFilesAccessSettings called from JavaScript")
-
         runOnUi {
             StorageHelper.openManageStorageSettings(activity)
         }
@@ -143,7 +138,6 @@ class MainActivity : TauriActivity() {
     private fun addJsBridge(webView: WebView, bridge: Any?, name: String) {
         bridge?.let {
             webView.addJavascriptInterface(it, name)
-            Log.d(TAG, "JavaScript Bridge '$name' added to WebView")
         }
     }
 
@@ -151,8 +145,6 @@ class MainActivity : TauriActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
-
-        Log.d(TAG, "MainActivity created")
         
         // 初始化Bridge
         storageSettingsBridge = StorageSettingsBridge(this)
@@ -174,7 +166,6 @@ class MainActivity : TauriActivity() {
      */
     override fun onWebViewCreate(webView: WebView) {
         super.onWebViewCreate(webView)
-        Log.d(TAG, "WebView created, setting up JavaScript Bridge")
         
         // 保存WebView引用
         webViewRef = webView
@@ -234,9 +225,7 @@ class MainActivity : TauriActivity() {
                         }
                     })();
                 """
-                webView.evaluateJavascript(jsCode) { result ->
-                    Log.d(TAG, "Tauri event listeners registration result: $result")
-                }
+                webView.evaluateJavascript(jsCode, null)
             }, 100)
         } ?: run {
             Log.e(TAG, "WebView is null, cannot register event listeners")
@@ -261,7 +250,6 @@ class MainActivity : TauriActivity() {
         } else {
             startService(serviceIntent)
         }
-        Log.d(TAG, "Foreground service started")
     }
     
     /**
@@ -273,14 +261,11 @@ class MainActivity : TauriActivity() {
         grantResults: IntArray
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        Log.d(TAG, "onRequestPermissionsResult: requestCode=$requestCode, results=${grantResults.joinToString()}")
         
         // Just log the result, don't start foreground service
         // The service will be started by updateServiceState() when server actually starts
         when (requestCode) {
             PermissionBridge.REQUEST_POST_NOTIFICATIONS -> {
-                val granted = grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED
-                Log.d(TAG, "Notification permission result: granted=$granted")
                 // No auto-start - user must click "Start Server" button
             }
         }
@@ -291,14 +276,11 @@ class MainActivity : TauriActivity() {
      * This also handles starting/stopping the foreground service based on server state
      */
     fun updateServiceState(isRunning: Boolean, statsJson: String?, connectedClients: Int) {
-        Log.d(TAG, "updateServiceState: running=$isRunning, clients=$connectedClients, stats=$statsJson")
-        
         var service = FtpForegroundService.getInstance()
         
         if (isRunning) {
             // Server is running - ensure foreground service is started
             if (service == null) {
-                Log.d(TAG, "Starting foreground service before updating state")
                 startFtpForegroundService()
                 service = FtpForegroundService.getInstance()
             }
@@ -308,7 +290,6 @@ class MainActivity : TauriActivity() {
         } else {
             // Server is stopped - stop foreground service
             if (service != null) {
-                Log.d(TAG, "Stopping foreground service")
                 stopFtpForegroundService()
             }
         }
@@ -322,6 +303,5 @@ class MainActivity : TauriActivity() {
             action = FtpForegroundService.ACTION_STOP
         }
         stopService(intent)
-        Log.d(TAG, "Foreground service stop requested")
     }
 }
