@@ -74,6 +74,7 @@ function PreviewWindowContent({
   const [showToolbar, setShowToolbar] = useState(true);
   const [imageError, setImageError] = useState(false);
   const [localAutoBringToFront, setLocalAutoBringToFront] = useState(autoBringToFront);
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const toolbarTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // 缩放和拖拽状态
@@ -127,12 +128,41 @@ function PreviewWindowContent({
     };
   }, [appWindow]);
 
+  // 监听全屏状态变化
+  useEffect(() => {
+    const updateFullscreenState = async () => {
+      const fullscreen = await appWindow.isFullscreen();
+      setIsFullscreen(fullscreen);
+    };
+
+    // 初始检查
+    updateFullscreenState();
+
+    // 监听全屏变化（使用 resize 事件作为近似）
+    const unlisten = appWindow.onResized(updateFullscreenState);
+    
+    return () => {
+      unlisten.then(fn => fn());
+    };
+  }, [appWindow]);
+
   // 重置缩放
   const resetZoom = useCallback(() => {
     setScale(1);
     setPanX(0);
     setPanY(0);
   }, []);
+
+  // 切换全屏
+  const toggleFullscreen = useCallback(async () => {
+    try {
+      const newFullscreen = !isFullscreen;
+      await appWindow.setFullscreen(newFullscreen);
+      setIsFullscreen(newFullscreen);
+    } catch (error) {
+      console.error('Failed to toggle fullscreen:', error);
+    }
+  }, [isFullscreen, appWindow]);
 
   // 处理鼠标滚轮缩放
   const handleWheel = useCallback((e: React.WheelEvent) => {
@@ -245,12 +275,12 @@ function PreviewWindowContent({
 
   return (
     <div
-      className="w-full h-screen flex flex-col bg-black overflow-hidden"
+      className="w-full h-screen relative bg-black overflow-hidden"
     >
-      {/* 图片区域 - 支持缩放和拖拽，添加 overflow-hidden 防止图片遮挡工具栏 */}
+      {/* 图片区域 - 支持缩放和拖拽 */}
       <div 
         ref={containerRef}
-        className={`flex-1 min-h-0 relative overflow-hidden flex items-center justify-center bg-black ${
+        className={`absolute inset-0 flex items-center justify-center bg-black ${
           isDragging ? 'cursor-grabbing' : scale > 1 ? 'cursor-grab' : 'cursor-default'
         }`}
         onWheel={handleWheel}
@@ -279,50 +309,72 @@ function PreviewWindowContent({
         )}
       </div>
 
-      {/* 底部工具栏 */}
+      {/* 底部工具栏 - 浮动覆盖在图片上，半透明磨砂效果 */}
       <div
         className={`
-          bg-gray-800 px-4 py-3 flex items-center justify-between shrink-0
-          transition-opacity duration-300
-          ${showToolbar ? 'opacity-100' : 'opacity-0'}
+          absolute bottom-4 left-4 right-4 
+          bg-gray-900/80 backdrop-blur-md 
+          border border-gray-700/50
+          rounded-xl
+          px-4 py-3 flex items-center justify-between
+          shadow-lg
+          transition-all duration-300
+          ${showToolbar ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4 pointer-events-none'}
         `}
         onMouseMove={() => setShowToolbar(true)}
       >
         {/* 左侧：图片信息和缩放比例 */}
         <div className="flex items-center gap-3 flex-1 min-w-0">
-          <div className="text-sm text-gray-300 truncate">
+          <div className="text-sm text-gray-200 truncate">
             {imagePath.split(/[/\\]/).pop()}
           </div>
           {scale !== 1 && (
-            <span className="text-xs text-blue-400 bg-blue-400/20 px-2 py-0.5 rounded">
+            <span className="text-xs text-blue-300 bg-blue-500/20 px-2 py-0.5 rounded">
               {Math.round(scale * 100)}%
             </span>
           )}
         </div>
 
         {/* 右侧：操作按钮 */}
-        <div className="flex items-center gap-3">
-          {/* 重置缩放按钮 */}
+        <div className="flex items-center gap-2">
+          {/* 重置缩放按钮 - 箭头向内 */}
           {scale !== 1 && (
             <button
               onClick={resetZoom}
-              className="p-2 text-gray-300 hover:text-white hover:bg-gray-700 rounded transition-colors"
+              className="p-2 text-gray-300 hover:text-white hover:bg-white/10 rounded-lg transition-colors"
               title="重置缩放 (双击图片也可重置)"
             >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 9V4.5M9 9H4.5M9 9L3.75 3.75M15 9h4.5M15 9V4.5M15 9l5.25-5.25M9 15v4.5M9 15H4.5M9 15l-5.25 5.25M15 15h4.5M15 15v4.5m0-4.5l5.25 5.25" />
               </svg>
             </button>
           )}
+
+          {/* 全屏按钮 */}
+          <button
+            onClick={toggleFullscreen}
+            className="p-2 text-gray-300 hover:text-white hover:bg-white/10 rounded-lg transition-colors"
+            title={isFullscreen ? '退出全屏' : '全屏显示'}
+          >
+            {isFullscreen ? (
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 9V4.5M9 9H4.5M9 9L3.75 3.75M15 9h4.5M15 9V4.5M15 9l5.25-5.25M9 15v4.5M9 15H4.5M9 15l-5.25 5.25M15 15h4.5M15 15v4.5m0-4.5l5.25 5.25" />
+              </svg>
+            ) : (
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3.75 3.75v4.5m0-4.5h4.5m-4.5 0L9 9M3.75 20.25v-4.5m0 4.5h4.5m-4.5 0L9 15M20.25 3.75h-4.5m4.5 0v4.5m0-4.5L15 9m5.25 11.25h-4.5m4.5 0v-4.5m0 4.5L15 15" />
+              </svg>
+            )}
+          </button>
 
           {/* 自动前台按钮 */}
           <button
             onClick={handleToggleAutoFront}
             className={`
-              p-2 rounded transition-colors
+              p-2 rounded-lg transition-colors
               ${localAutoBringToFront
-                ? 'text-blue-400 bg-blue-400/20 hover:bg-blue-400/30'
-                : 'text-gray-400 hover:text-gray-300 hover:bg-gray-700'
+                ? 'text-blue-300 bg-blue-500/20 hover:bg-blue-500/30'
+                : 'text-gray-300 hover:text-white hover:bg-white/10'
               }
             `}
             title={localAutoBringToFront ? '新图片时自动前台显示 (已开启)' : '新图片时自动前台显示 (已关闭)'}
@@ -335,7 +387,7 @@ function PreviewWindowContent({
           {/* 打开文件夹 */}
           <button
             onClick={handleOpenFolder}
-            className="p-2 text-gray-300 hover:text-white hover:bg-gray-700 rounded transition-colors"
+            className="p-2 text-gray-300 hover:text-white hover:bg-white/10 rounded-lg transition-colors"
             title="打开文件夹"
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
