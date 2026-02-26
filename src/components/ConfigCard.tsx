@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { Loader2, Folder, RefreshCw } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { useConfigStore } from '../stores/configStore';
@@ -82,15 +82,27 @@ export function ConfigCard() {
     }
   };
 
+  // Track timeout for cleanup
+  const checkingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   // Wrapper for checkPermissions with loading state
   const handleCheckPermissions = useCallback(async () => {
     setIsChecking(true);
     try {
       await checkPermissions();
     } finally {
-      setTimeout(() => setIsChecking(false), 300);
+      checkingTimeoutRef.current = setTimeout(() => setIsChecking(false), 300);
     }
   }, [checkPermissions]);
+
+  // Cleanup timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (checkingTimeoutRef.current) {
+        clearTimeout(checkingTimeoutRef.current);
+      }
+    };
+  }, []);
 
   const handleAutostartToggle = async () => {
     setIsLoadingAutostart(true);

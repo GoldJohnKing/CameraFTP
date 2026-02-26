@@ -1,7 +1,8 @@
+import { memo } from 'react';
 import { Home, Settings } from 'lucide-react';
 import { useConfigStore } from '../stores/configStore';
 
-export function BottomNav() {
+export const BottomNav = memo(function BottomNav() {
   const { activeTab, setActiveTab } = useConfigStore();
 
   return (
@@ -33,4 +34,4 @@ export function BottomNav() {
       </div>
     </nav>
   );
-}
+});

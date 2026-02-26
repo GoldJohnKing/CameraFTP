@@ -2,11 +2,11 @@ use tokio::net::TcpListener;
 use local_ip_address::{local_ip, list_afinet_netifas};
 
 #[derive(Debug, Clone)]
-pub struct NetworkInterface {
-    pub name: String,
-    pub ip: String,
-    pub is_wifi: bool,
-    pub is_ethernet: bool,
+struct NetworkInterface {
+    name: String,
+    ip: String,
+    is_wifi: bool,
+    is_ethernet: bool,
 }
 
 pub struct NetworkManager;
@@ -57,7 +57,7 @@ impl NetworkManager {
     }
 
     /// 获取所有网络接口
-    pub fn list_interfaces() -> Vec<NetworkInterface> {
+    fn list_interfaces() -> Vec<NetworkInterface> {
         let mut interfaces = Vec::new();
         
         match list_afinet_netifas() {

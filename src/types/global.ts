@@ -9,7 +9,7 @@
  * Android 文件上传回调接口
  * 由 Android WebView 注入
  */
-export interface FileUploadAndroid {
+interface FileUploadAndroid {
   /**
    * 文件上传完成回调
    * @param path 文件路径
@@ -22,7 +22,7 @@ export interface FileUploadAndroid {
  * Android 存储权限设置接口
  * 由 Android WebView 注入
  */
-export interface StorageSettingsAndroid {
+interface StorageSettingsAndroid {
   /**
    * 打开"所有文件访问权限"设置页面
    */
@@ -34,7 +34,7 @@ export interface StorageSettingsAndroid {
  * 用于与前台的 FTP 服务通信
  * 由 ServerStateBridge 注入为 "ServerStateAndroid"
  */
-export interface ServerStateAndroid {
+interface ServerStateAndroid {
   /**
    * 更新前台服务的状态
    * @param isRunning 服务器是否运行中
@@ -57,7 +57,7 @@ export interface PermissionCheckResult {
  * Android 权限管理接口
  * 由 Android WebView 注入
  */
-export interface PermissionAndroid {
+interface PermissionAndroid {
   /**
    * 检查所有必要权限的状态
    * @returns JSON 字符串，包含 storage, notification, batteryOptimization 的布尔值

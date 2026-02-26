@@ -1,8 +1,9 @@
+import { memo } from 'react';
 import { Wifi } from 'lucide-react';
 import { useServerStore } from '../stores/serverStore';
 import { Card, IconContainer } from './ui';
 
-export function InfoCard() {
+export const InfoCard = memo(function InfoCard() {
   const { serverInfo, isRunning } = useServerStore();
 
   if (!isRunning || !serverInfo) {
@@ -54,4 +55,4 @@ export function InfoCard() {
       </div>
     </Card>
   );
-}
+});

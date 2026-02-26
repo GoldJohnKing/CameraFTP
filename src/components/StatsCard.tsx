@@ -1,9 +1,10 @@
+import { memo } from 'react';
 import { Camera, Image, HardDrive, Clock } from 'lucide-react';
 import { useServerStore } from '../stores/serverStore';
 import { formatBytes } from '../utils/format';
 import { Card, IconContainer } from './ui';
 
-export function StatsCard() {
+export const StatsCard = memo(function StatsCard() {
   const { stats } = useServerStore();
 
   return (
@@ -63,4 +64,4 @@ export function StatsCard() {
       </div>
     </Card>
   );
-}
+});

@@ -2,7 +2,6 @@ package com.gjk.cameraftpcompanion
 
 import android.annotation.SuppressLint
 import android.content.Intent
-import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import android.util.Log
@@ -15,8 +14,7 @@ import androidx.activity.enableEdgeToEdge
  * 提供通用的日志和 UI 线程处理功能
  */
 abstract class BaseJsBridge(
-    protected val activity: MainActivity,
-    private val bridgeName: String
+    protected val activity: MainActivity
 ) {
     protected fun runOnUi(block: () -> Unit) = activity.runOnUiThread(block)
 }
@@ -68,10 +66,6 @@ class FileUploadListener(private val activity: MainActivity) {
  * 注：此类不继承BaseJsBridge，因为它依赖的是FileUploadListener而非MainActivity
  */
 class FileUploadBridge(private val listener: FileUploadListener) {
-    companion object {
-        private const val TAG = "FileUploadBridge"
-    }
-    
     /**
      * 由JavaScript调用，处理文件上传事件
      */
@@ -85,7 +79,7 @@ class FileUploadBridge(private val listener: FileUploadListener) {
  * Server State JavaScript Bridge
  * Receives server state updates from Tauri/Rust and forwards to foreground service
  */
-class ServerStateBridge(activity: MainActivity) : BaseJsBridge(activity, "ServerStateBridge") {
+class ServerStateBridge(activity: MainActivity) : BaseJsBridge(activity) {
 
     /**
      * Called from JavaScript when server state changes
@@ -103,7 +97,7 @@ class ServerStateBridge(activity: MainActivity) : BaseJsBridge(activity, "Server
  * 存储权限设置 JavaScript Bridge
  * 用于打开系统存储权限设置页面
  */
-class StorageSettingsBridge(activity: MainActivity) : BaseJsBridge(activity, "StorageSettingsBridge") {
+class StorageSettingsBridge(activity: MainActivity) : BaseJsBridge(activity) {
 
     /**
      * 打开"所有文件访问权限"设置页面
@@ -234,6 +228,8 @@ class MainActivity : TauriActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
+        // Clean up any pending callbacks to prevent memory leaks
+        webViewRef?.removeCallbacks(null)
         webViewRef = null
     }
     
