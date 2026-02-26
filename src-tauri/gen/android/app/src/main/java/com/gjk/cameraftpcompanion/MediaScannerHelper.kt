@@ -27,7 +27,6 @@ object MediaScannerHelper {
 
         // 获取文件的MIME类型
         val mimeType = getMimeType(filePath)
-        Log.d(TAG, "Scanning file: $filePath, MIME type: $mimeType")
 
         MediaScannerConnection.scanFile(
             activity,
