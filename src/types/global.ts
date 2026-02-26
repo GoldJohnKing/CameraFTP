@@ -130,8 +130,7 @@ export async function checkAndroidPermissions(): Promise<PermissionCheckResult |
   try {
     const result = await window.PermissionAndroid!.checkAllPermissions();
     return JSON.parse(result) as PermissionCheckResult;
-  } catch (e) {
-    console.error('Failed to check permissions:', e);
+  } catch {
     return null;
   }
 }
