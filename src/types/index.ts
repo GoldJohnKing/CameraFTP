@@ -17,8 +17,6 @@ export interface ServerStatus {
 
 export interface AppConfig {
   save_path: string;
-  auto_open: boolean;
-  auto_open_program: string | null;
   port: number;
   auto_select_port: boolean;
 }
@@ -29,12 +27,10 @@ export interface StorageInfo {
   path: string;
   exists: boolean;
   writable: boolean;
-  has_all_files_access: boolean;
 }
 
 /// 权限状态（与后端 PermissionStatus 对应）
 export interface PermissionStatus {
-  has_all_files_access: boolean;
   needs_user_action: boolean;
 }
 
