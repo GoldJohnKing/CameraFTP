@@ -38,21 +38,12 @@ impl AutoOpenService {
                 #[cfg(target_os = "windows")]
                 {
                     crate::auto_open::windows::open_with_default(&file_path)?;
-                    if config.auto_bring_to_front {
-                        // 给外部程序一点时间启动
-                        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-                        crate::auto_open::windows::bring_app_to_front(&self.app_handle)?;
-                    }
                 }
             }
             ImageOpenMethod::WindowsPhotos => {
                 #[cfg(target_os = "windows")]
                 {
                     crate::auto_open::windows::open_with_photos(&file_path)?;
-                    if config.auto_bring_to_front {
-                        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-                        crate::auto_open::windows::bring_app_to_front(&self.app_handle)?;
-                    }
                 }
             }
             ImageOpenMethod::Custom => {
@@ -60,10 +51,6 @@ impl AutoOpenService {
                 {
                     if let Some(program_path) = &config.custom_path {
                         crate::auto_open::windows::open_with_program(&file_path, program_path)?;
-                        if config.auto_bring_to_front {
-                            tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-                            crate::auto_open::windows::bring_app_to_front(&self.app_handle)?;
-                        }
                     }
                 }
             }

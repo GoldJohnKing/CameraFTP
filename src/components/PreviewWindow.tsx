@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
+import { convertFileSrc } from '@tauri-apps/api/core';
 
 interface PreviewEvent {
   file_path: string;
@@ -108,6 +109,7 @@ function PreviewWindowContent({
   onFullscreenToggle: () => void;
 }) {
   const [showToolbar, setShowToolbar] = useState(true);
+  const [imageError, setImageError] = useState(false);
   const toolbarTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // 自动隐藏工具栏
@@ -127,6 +129,11 @@ function PreviewWindowContent({
     };
   }, [showToolbar]);
 
+  // 重置图片错误状态
+  useEffect(() => {
+    setImageError(false);
+  }, [imagePath]);
+
   const handleMouseMove = () => {
     setShowToolbar(true);
   };
@@ -138,13 +145,11 @@ function PreviewWindowContent({
   };
 
   const handleToggleAutoFront = async () => {
-    // 更新配置 - 这里需要通过store或其他方式获取当前配置
     try {
       const config = await invoke<{
         enabled: boolean;
         method: string;
         autoBringToFront: boolean;
-        rememberPosition: boolean;
       }>('get_preview_config');
 
       const newConfig = {
@@ -165,20 +170,31 @@ function PreviewWindowContent({
     );
   }
 
+  // 使用 convertFileSrc 将文件路径转换为可用的 URL
+  const imageSrc = convertFileSrc(imagePath);
+
   return (
     <div
       className={`w-full h-full flex flex-col bg-gray-900 ${isFullscreen ? 'fixed inset-0 z-50' : ''}`}
       onMouseMove={handleMouseMove}
     >
       {/* 图片区域 - 始终填满，object-cover 保持比例裁剪 */}
-      <div className="flex-1 relative overflow-hidden">
-        <img
-          src={`file://${imagePath}`}
-          alt="Preview"
-          className="w-full h-full object-cover"
-          draggable={false}
-          onDoubleClick={onFullscreenToggle}
-        />
+      <div className="flex-1 relative overflow-hidden flex items-center justify-center">
+        {imageError ? (
+          <div className="text-gray-400 text-center">
+            <p>无法加载图片</p>
+            <p className="text-xs mt-2 text-gray-500">{imagePath}</p>
+          </div>
+        ) : (
+          <img
+            src={imageSrc}
+            alt="Preview"
+            className="w-full h-full object-cover"
+            draggable={false}
+            onDoubleClick={onFullscreenToggle}
+            onError={() => setImageError(true)}
+          />
+        )}
       </div>
 
       {/* 底部工具栏 */}

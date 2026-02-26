@@ -57,9 +57,4 @@ export interface PreviewWindowConfig {
   method: ImageOpenMethod;
   customPath?: string;
   autoBringToFront: boolean;
-  rememberPosition: boolean;
-  windowX?: number;
-  windowY?: number;
-  windowWidth?: number;
-  windowHeight?: number;
 }

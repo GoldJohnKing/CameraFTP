@@ -148,27 +148,9 @@ export function PreviewConfigCard({ platform }: PreviewConfigCardProps) {
                 checked={config.autoBringToFront}
                 onChange={(checked) => updateConfig({ autoBringToFront: checked })}
                 label="新图片时自动前台显示"
-                description="打开图片后将窗口置于最前"
+                description="仅对内置预览窗口生效，打开图片后预览窗口将获得焦点"
               />
             </div>
-
-            {/* 内置预览专属设置 */}
-            {config.method === 'built-in-preview' && (
-              <>
-                <hr className="border-gray-100" />
-
-                <div className="space-y-3">
-                  <h4 className="text-sm font-medium text-gray-700">预览窗口设置</h4>
-
-                  <Checkbox
-                    checked={config.rememberPosition}
-                    onChange={(checked) => updateConfig({ rememberPosition: checked })}
-                    label="记住窗口位置和大小"
-                    description="下次打开时恢复到上次关闭的状态"
-                  />
-                </div>
-              </>
-            )}
           </>
         )}
       </div>
