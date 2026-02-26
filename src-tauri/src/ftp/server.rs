@@ -365,14 +365,7 @@ impl FtpServerActor {
             .unwrap_or_else(|| "0.0.0.0".to_string());
         let port = bind_addr.port();
 
-        Some(ServerInfo {
-            is_running: true,
-            ip: ip.clone(),
-            port,
-            url: format!("ftp://{}:{}", ip, port),
-            username: "anonymous".to_string(),
-            password_info: "(任意密码)".to_string(),
-        })
+        Some(ServerInfo::new(ip, port))
     }
 }
 

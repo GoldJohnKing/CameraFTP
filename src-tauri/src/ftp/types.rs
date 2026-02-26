@@ -107,3 +107,16 @@ pub struct ServerInfo {
     pub username: String,
     pub password_info: String,
 }
+
+impl ServerInfo {
+    pub fn new(ip: String, port: u16) -> Self {
+        Self {
+            is_running: true,
+            ip: ip.clone(),
+            port,
+            url: format!("ftp://{}:{}", ip, port),
+            username: "anonymous".to_string(),
+            password_info: "(任意密码)".to_string(),
+        }
+    }
+}

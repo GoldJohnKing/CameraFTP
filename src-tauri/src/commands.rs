@@ -55,14 +55,7 @@ pub async fn start_server(
     // 使用 PlatformService trait 更新平台状态
     crate::platform::get_platform().on_server_started(&app);
 
-    Ok(ServerInfo {
-        is_running: true,
-        ip: ctx.ip.clone(),
-        port: ctx.port,
-        url: format!("ftp://{}:{}", ctx.ip, ctx.port),
-        username: "anonymous".to_string(),
-        password_info: "(任意密码)".to_string(),
-    })
+    Ok(ServerInfo::new(ctx.ip.clone(), ctx.port))
 }
 
 #[command]
