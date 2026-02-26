@@ -2,6 +2,7 @@ import { useEffect, useState, useRef, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { convertFileSrc } from '@tauri-apps/api/core';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 
 interface PreviewEvent {
   file_path: string;
@@ -82,6 +83,7 @@ function PreviewWindowContent({
   const [isDragging, setIsDragging] = useState(false);
   const dragStartRef = useRef({ x: 0, y: 0 });
   const containerRef = useRef<HTMLDivElement>(null);
+  const appWindow = getCurrentWindow();
 
   // 同步外部状态
   useEffect(() => {
@@ -111,6 +113,20 @@ function PreviewWindowContent({
     resetZoom();
   }, [imagePath]);
 
+  // 监听窗口大小变化，重置缩放
+  useEffect(() => {
+    const handleResize = () => {
+      resetZoom();
+    };
+
+    // 使用 Tauri 的窗口大小变化监听
+    const unlisten = appWindow.onResized(handleResize);
+    
+    return () => {
+      unlisten.then(fn => fn());
+    };
+  }, [appWindow]);
+
   // 重置缩放
   const resetZoom = useCallback(() => {
     setScale(1);
@@ -129,9 +145,9 @@ function PreviewWindowContent({
     const mouseX = e.clientX - rect.left;
     const mouseY = e.clientY - rect.top;
 
-    // 计算缩放因子
+    // 计算缩放因子 - 最小为1（不裁切充满窗口）
     const zoomFactor = e.deltaY > 0 ? 0.9 : 1.1;
-    const newScale = Math.max(0.5, Math.min(5, scale * zoomFactor));
+    const newScale = Math.max(1, Math.min(5, scale * zoomFactor));
 
     if (newScale !== scale) {
       // 以鼠标位置为中心缩放
@@ -140,8 +156,14 @@ function PreviewWindowContent({
       const newPanY = mouseY - (mouseY - panY) * scaleRatio;
 
       setScale(newScale);
-      setPanX(newPanX);
-      setPanY(newPanY);
+      // 只有在缩放大于1时才允许有平移
+      if (newScale > 1) {
+        setPanX(newPanX);
+        setPanY(newPanY);
+      } else {
+        setPanX(0);
+        setPanY(0);
+      }
     }
   }, [scale, panX, panY]);
 
@@ -225,10 +247,10 @@ function PreviewWindowContent({
     <div
       className="w-full h-screen flex flex-col bg-black overflow-hidden"
     >
-      {/* 图片区域 - 支持缩放和拖拽 */}
+      {/* 图片区域 - 支持缩放和拖拽，添加 overflow-hidden 防止图片遮挡工具栏 */}
       <div 
         ref={containerRef}
-        className={`flex-1 min-h-0 flex items-center justify-center bg-black ${
+        className={`flex-1 min-h-0 relative overflow-hidden flex items-center justify-center bg-black ${
           isDragging ? 'cursor-grabbing' : scale > 1 ? 'cursor-grab' : 'cursor-default'
         }`}
         onWheel={handleWheel}
@@ -260,7 +282,7 @@ function PreviewWindowContent({
       {/* 底部工具栏 */}
       <div
         className={`
-          bg-gray-800 px-4 py-3 flex items-center justify-between
+          bg-gray-800 px-4 py-3 flex items-center justify-between shrink-0
           transition-opacity duration-300
           ${showToolbar ? 'opacity-100' : 'opacity-0'}
         `}
