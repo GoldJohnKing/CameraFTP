@@ -220,9 +220,23 @@ impl FtpServerActor {
         let root_path = config.root_path.clone();
         let port = config.port;
 
+        // 预先验证文件系统创建，避免运行时闭包内panic
+        // Filesystem 不实现 Clone，Arc<Filesystem> 不实现 StorageBackend
+        // 因此只能在闭包内创建新实例，但先验证路径有效性
+        if let Err(e) = unftp_sbe_fs::Filesystem::new(root_path.clone()) {
+            error!(error = %e, "Failed to create filesystem");
+            {
+                let mut status = self.status.write().await;
+                *status = ServerStatus::Stopped;
+            }
+            return Err(AppError::Io(e.to_string()));
+        }
+
         // 构建并启动服务器
+        // 闭包内创建新的 Filesystem 实例（已验证路径，不会失败）
         let result = ServerBuilder::new(Box::new(move || {
-            unftp_sbe_fs::Filesystem::new(root_path.clone()).expect("Failed to create filesystem")
+            unftp_sbe_fs::Filesystem::new(root_path.clone())
+                .expect("Filesystem creation failed after validation - this should never happen")
         }))
         .greeting("Camera FTP Companion Ready")
         .passive_ports(config.passive_port_range.0..=config.passive_port_range.1)
