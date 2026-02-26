@@ -101,12 +101,13 @@ class FtpForegroundService : Service() {
      */
     private fun acquireLocks() {
         // Acquire partial wake lock to keep CPU running
+        // No timeout - service lifecycle manages release via onDestroy()
         val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
         wakeLock = powerManager.newWakeLock(
             PowerManager.PARTIAL_WAKE_LOCK,
             "FtpForegroundService::WakeLock"
         ).apply {
-            acquire(10 * 60 * 1000L) // 10 minutes timeout, will be re-acquired
+            acquire() // Indefinite - released when service stops
         }
 
         // Acquire WiFi lock to keep WiFi connection alive
