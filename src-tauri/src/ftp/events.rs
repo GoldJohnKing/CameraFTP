@@ -144,20 +144,17 @@ impl EventProcessor {
 fn should_handle(handler: &dyn EventHandler, event: &DomainEvent) -> bool {
     match handler.interested_types() {
         None => true,
-        Some(types) => {
-            let event_type = event_type_name(event);
-            types.contains(&event_type.as_str())
-        }
+        Some(types) => types.contains(&event_type_name(event)),
     }
 }
 
 /// 获取事件类型名称
-fn event_type_name(event: &DomainEvent) -> String {
+fn event_type_name(event: &DomainEvent) -> &'static str {
     match event {
-        DomainEvent::ServerStarted { .. } => "ServerStarted".to_string(),
-        DomainEvent::ServerStopped { .. } => "ServerStopped".to_string(),
-        DomainEvent::FileUploaded { .. } => "FileUploaded".to_string(),
-        DomainEvent::StatsUpdated { .. } => "StatsUpdated".to_string(),
+        DomainEvent::ServerStarted { .. } => "ServerStarted",
+        DomainEvent::ServerStopped { .. } => "ServerStopped",
+        DomainEvent::FileUploaded { .. } => "FileUploaded",
+        DomainEvent::StatsUpdated { .. } => "StatsUpdated",
     }
 }
 
