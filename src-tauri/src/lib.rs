@@ -2,6 +2,7 @@ pub mod auto_open;
 pub mod commands;
 pub mod config;
 pub mod error;
+pub mod file_index;
 pub mod ftp;
 pub mod network;
 pub mod platform;
