@@ -12,18 +12,14 @@ usage() {
     echo "用法: ./build.sh <command> [options]"
     echo ""
     echo "命令:"
-    echo "  windows           构建 Windows 可执行文件"
-    echo "  windows-bundle    构建 Windows 安装包 (EXE + MSI)"
+    echo "  windows           构建 Windows 可执行文件 (release)"
     echo "  android           构建 Android APK (release)"
-    echo "  android-debug     构建 Android APK (debug)"
-    echo "  android-aab       构建 Android AAB (Google Play)"
-    echo "  dev               启动开发模式"
     echo "  frontend          仅构建前端"
     echo ""
     echo "示例:"
     echo "  ./build.sh windows"
     echo "  ./build.sh android"
-    echo "  ./build.sh android-debug"
+    echo "  ./build.sh frontend"
     exit 1
 }
 
@@ -37,28 +33,12 @@ shift
 
 case $COMMAND in
     windows)
-        echo -e "${GREEN}构建 Windows 可执行文件...${NC}"
-        ./build-full.sh
-        ;;
-    windows-bundle)
-        echo -e "${GREEN}构建 Windows 安装包...${NC}"
-        ./build-windows-bundle.sh
+        echo -e "${GREEN}构建 Windows 可执行文件 (release)...${NC}"
+        ./build-windows.sh
         ;;
     android)
         echo -e "${GREEN}构建 Android APK (release)...${NC}"
         ./build-android.sh release
-        ;;
-    android-debug)
-        echo -e "${GREEN}构建 Android APK (debug)...${NC}"
-        ./build-android.sh debug
-        ;;
-    android-aab)
-        echo -e "${GREEN}构建 Android AAB...${NC}"
-        ./build-android.sh aab
-        ;;
-    dev)
-        echo -e "${GREEN}启动开发模式...${NC}"
-        cargo tauri dev
         ;;
     frontend)
         echo -e "${GREEN}构建前端...${NC}"
