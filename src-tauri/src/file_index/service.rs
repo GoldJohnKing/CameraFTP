@@ -13,7 +13,7 @@ type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
 pub struct FileIndexService {
     index: RwLock<FileIndex>,
-    save_path: PathBuf,
+    save_path: RwLock<PathBuf>,
 }
 
 impl FileIndexService {
@@ -21,19 +21,20 @@ impl FileIndexService {
         let config = AppConfig::load();
         Self {
             index: RwLock::new(FileIndex::new()),
-            save_path: config.save_path,
+            save_path: RwLock::new(config.save_path),
         }
     }
 
     /// 扫描目录建立索引
     pub async fn scan_directory(&self) -> Result<(), AppError> {
-        info!("Starting directory scan: {:?}", self.save_path);
+        let save_path = self.save_path.read().await.clone();
+        info!("Starting directory scan: {:?}", save_path);
         
         let mut files = Vec::new();
-        self.scan_recursive(&self.save_path, &mut files).await?;
+        self.scan_recursive(&save_path, &mut files).await?;
         
         // 按 sort_time 排序（新→旧）
-        files.sort_by(|a, b| b.sort_time.cmp(&a.sort_time));
+        files.sort_by(|a, b| a.sort_time.cmp(&b.sort_time));
         
         let mut index = self.index.write().await;
         index.files = files;
@@ -175,7 +176,7 @@ impl FileIndexService {
         
         // 插入到正确位置（保持排序）
         let insert_pos = index.files.iter()
-            .position(|f| f.sort_time < file_info.sort_time)
+            .position(|f| f.sort_time > file_info.sort_time)
             .unwrap_or(index.files.len());
         
         index.files.insert(insert_pos, file_info);
@@ -227,10 +228,27 @@ impl FileIndexService {
         index.files.first().cloned()
     }
 
+    /// 根据文件路径查找索引
+    pub async fn find_file_index(&self, path: &Path) -> Option<usize> {
+        let index = self.index.read().await;
+        index.files.iter().position(|f| f.path == path)
+    }
+
     /// 获取文件数量
     pub async fn get_file_count(&self) -> usize {
         let index = self.index.read().await;
         index.files.len()
+    }
+
+    /// 更新存储路径并重新扫描
+    pub async fn update_save_path(&self, new_path: PathBuf) -> Result<(), AppError> {
+        let current_path = self.save_path.read().await.clone();
+        if current_path != new_path {
+            info!("Updating save_path from {:?} to {:?}", current_path, new_path);
+            *self.save_path.write().await = new_path;
+            self.scan_directory().await?;
+        }
+        Ok(())
     }
 }
 
