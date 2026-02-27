@@ -34,7 +34,8 @@ export const StatsCard = memo(function StatsCard() {
     if (config?.save_path) {
       const targetFile = stats.last_file || scannedLatestFile;
       if (targetFile) {
-        const fullPath = `${config.save_path}/${targetFile}`;
+        // 使用正斜杠统一路径分隔符，确保跨平台兼容性
+        const fullPath = `${config.save_path}/${targetFile}`.replace(/\\/g, '/');
         try {
           await invoke('open_preview_window', { filePath: fullPath });
         } catch (error) {
