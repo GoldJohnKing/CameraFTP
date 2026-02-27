@@ -488,13 +488,38 @@ function PreviewWindowContent({
             {imagePath.split(/[/\\]/).pop()}
           </div>
           {exifInfo && (
-            <span className="text-xs text-gray-400">
-              {exifInfo.iso && `ISO ${exifInfo.iso}`}
-              {exifInfo.aperture && ` | ${exifInfo.aperture}`}
-              {exifInfo.shutterSpeed && ` | ${exifInfo.shutterSpeed}`}
-              {exifInfo.focalLength && ` | ${exifInfo.focalLength}`}
-              {exifInfo.datetime && ` | ${exifInfo.datetime}`}
-            </span>
+            <div className="flex items-center gap-2 text-xs text-gray-400">
+              {/* ISO */}
+              {exifInfo.iso && (
+                <span className="flex items-center gap-2">
+                  ISO {exifInfo.iso}
+                  <svg className="w-1 h-1 text-gray-600" fill="currentColor" viewBox="0 0 4 4"><circle cx="2" cy="2" r="2"/></svg>
+                </span>
+              )}
+              {/* 光圈 */}
+              {exifInfo.aperture && (
+                <span className="flex items-center gap-2">
+                  {exifInfo.aperture}
+                  <svg className="w-1 h-1 text-gray-600" fill="currentColor" viewBox="0 0 4 4"><circle cx="2" cy="2" r="2"/></svg>
+                </span>
+              )}
+              {/* 快门速度 */}
+              {exifInfo.shutterSpeed && (
+                <span className="flex items-center gap-2">
+                  {exifInfo.shutterSpeed}
+                  <svg className="w-1 h-1 text-gray-600" fill="currentColor" viewBox="0 0 4 4"><circle cx="2" cy="2" r="2"/></svg>
+                </span>
+              )}
+              {/* 焦距 */}
+              {exifInfo.focalLength && (
+                <span className="flex items-center gap-2">
+                  {exifInfo.focalLength}
+                  <svg className="w-1 h-1 text-gray-600" fill="currentColor" viewBox="0 0 4 4"><circle cx="2" cy="2" r="2"/></svg>
+                </span>
+              )}
+              {/* 拍摄时间 */}
+              {exifInfo.datetime && <span>{exifInfo.datetime}</span>}
+            </div>
           )}
           {scale !== 1 && (
             <span className="text-xs text-blue-300 bg-blue-500/20 px-2 py-0.5 rounded">
