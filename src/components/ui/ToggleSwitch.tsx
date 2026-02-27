@@ -22,7 +22,7 @@ export function ToggleSwitch({ enabled, onChange, label, description, disabled }
         className={`
           relative inline-flex h-6 w-11 items-center rounded-full
           transition-colors duration-200 ease-in-out
-          ${enabled ? 'bg-blue-600' : 'bg-gray-300'}
+          ${enabled ? 'bg-blue-600 hover:bg-blue-700' : 'bg-gray-300 hover:bg-gray-400'}
           ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}
         `}
       >

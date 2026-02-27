@@ -131,11 +131,12 @@ export function PreviewConfigCard({ platform }: PreviewConfigCardProps) {
                   recommended
                 >
                   {config.method === 'built-in-preview' && (
-                    <div className="pt-1.5 pb-1 border-t border-blue-200/50">
+                    <div className="mt-2 flex flex-col gap-2">
+                      <div className="h-px bg-gray-200" />
                       <div className="flex items-center justify-between">
                         <div>
                           <span className="text-sm text-gray-700">自动前台显示</span>
-                          <p className="text-xs text-gray-500">接收到新图片后，自动将预览窗口置于前台</p>
+                          <p className="text-xs text-gray-500">接收到新图片时自动置顶预览窗口</p>
                         </div>
                         <ToggleSwitch
                           checked={config.autoBringToFront}
@@ -206,7 +207,7 @@ function ToggleSwitch({ checked, onChange, disabled }: {
       disabled={disabled}
       className={`
         relative inline-flex h-6 w-11 items-center rounded-full transition-colors
-        ${checked ? 'bg-blue-600' : 'bg-gray-200'}
+        ${checked ? 'bg-blue-600 hover:bg-blue-700' : 'bg-gray-200 hover:bg-gray-300'}
         ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}
       `}
     >
