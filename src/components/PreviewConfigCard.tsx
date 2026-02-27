@@ -93,7 +93,7 @@ export function PreviewConfigCard({ platform }: PreviewConfigCardProps) {
     <Card className="overflow-hidden">
       <CardHeader
         title="自动预览图片"
-        description="Windows 专属功能：相机上传图片后自动显示"
+        description="相机上传图片后自动显示"
         icon={<ImagePlay className="w-5 h-5 text-purple-600" />}
       />
 
@@ -103,7 +103,7 @@ export function PreviewConfigCard({ platform }: PreviewConfigCardProps) {
           <div>
             <h4 className="text-sm font-medium text-gray-700">启用自动预览</h4>
             <p className="text-xs text-gray-500 mt-0.5">
-              新图片到达时自动打开预览窗口
+              接收到新图片时自动打开预览窗口
             </p>
           </div>
           <ToggleSwitch
@@ -125,17 +125,17 @@ export function PreviewConfigCard({ platform }: PreviewConfigCardProps) {
                 <RadioOption
                   value="built-in-preview"
                   label="内置预览窗口"
-                  description="独立窗口，支持全屏，单窗口始终显示最新图片"
+                  description="独立窗口，支持全屏，自动显示最新图片"
                   selected={config.method === 'built-in-preview'}
                   onSelect={() => updateConfig({ method: 'built-in-preview' })}
                   recommended
                 >
                   {config.method === 'built-in-preview' && (
-                    <div className="mt-3 pt-3 border-t border-blue-200/50">
+                    <div className="pt-1.5 pb-1 border-t border-blue-200/50">
                       <div className="flex items-center justify-between">
                         <div>
-                          <span className="text-sm text-gray-700">新图片时自动前台显示</span>
-                          <p className="text-xs text-gray-500">打开图片后预览窗口将获得焦点</p>
+                          <span className="text-sm text-gray-700">自动前台显示</span>
+                          <p className="text-xs text-gray-500">接收到新图片后，自动将预览窗口置于前台</p>
                         </div>
                         <ToggleSwitch
                           checked={config.autoBringToFront}
@@ -166,27 +166,24 @@ export function PreviewConfigCard({ platform }: PreviewConfigCardProps) {
                 <RadioOption
                   value="custom"
                   label="自定义程序"
-                  description={customPath ? undefined : '选择其他程序打开图片'}
                   selected={config.method === 'custom'}
                   onSelect={() => updateConfig({ method: 'custom' })}
+                  action={
+                    <button
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        handleSelectCustomProgram();
+                      }}
+                      className="shrink-0 px-3 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                    >
+                      更改
+                    </button>
+                  }
                 >
-                  {config.method === 'custom' && (
-                    <div className="mt-2 flex items-center gap-2">
-                      <div className="flex-1 min-w-0 px-2 py-1.5 bg-blue-50 rounded text-xs text-gray-600 truncate">
-                        {customPath || '未选择程序'}
-                      </div>
-                      <button
-                        onClick={(e) => {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          handleSelectCustomProgram();
-                        }}
-                        className="shrink-0 px-3 py-1.5 text-xs font-medium text-blue-700 bg-blue-100 rounded hover:bg-blue-200 transition-colors"
-                      >
-                        浏览
-                      </button>
-                    </div>
-                  )}
+                  <p className={`text-xs truncate ${config.method === 'custom' ? 'text-gray-500' : 'text-gray-400'}`}>
+                    {customPath || '未设置'}
+                  </p>
                 </RadioOption>
               </div>
             </div>
@@ -230,7 +227,8 @@ function RadioOption({
   selected,
   onSelect,
   recommended,
-  children
+  children,
+  action
 }: {
   value: string;
   label: string;
@@ -239,39 +237,43 @@ function RadioOption({
   onSelect: () => void;
   recommended?: boolean;
   children?: React.ReactNode;
+  action?: React.ReactNode;
 }) {
   return (
     <label 
       className={`
-        flex flex-col gap-3 p-3 rounded-lg border cursor-pointer transition-colors
+        flex flex-col gap-2 p-3 rounded-lg border cursor-pointer transition-colors
         ${selected 
           ? 'border-blue-400 bg-blue-50' 
           : 'border-gray-200 hover:border-blue-300 hover:bg-blue-50/50'
         }
       `}
     >
-      <div className="flex items-start gap-3">
-        <input
-          type="radio"
-          name="open-method"
-          value={value}
-          checked={selected}
-          onChange={onSelect}
-          className="mt-0.5"
-        />
-        <div className="flex-1">
-          <div className="flex items-center gap-2">
-            <span className="text-sm font-medium text-gray-700">{label}</span>
-            {recommended && (
-              <span className="text-xs px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded">
-                推荐
-              </span>
-            )}
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-start gap-3 flex-1 min-w-0">
+          <input
+            type="radio"
+            name="open-method"
+            value={value}
+            checked={selected}
+            onChange={onSelect}
+            className="mt-0.5 shrink-0"
+          />
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-sm font-medium text-gray-700">{label}</span>
+              {recommended && (
+                <span className="text-xs px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded">
+                  推荐
+                </span>
+              )}
+            </div>
+            {description && <p className="text-xs text-gray-500 mt-0.5 truncate">{description}</p>}
+            {children}
           </div>
-          {description && <p className="text-xs text-gray-500 mt-0.5">{description}</p>}
         </div>
+        {action && <div className="flex items-center shrink-0">{action}</div>}
       </div>
-      {children}
     </label>
   );
 }

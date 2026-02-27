@@ -37,66 +37,58 @@ export function PathSelector({
     }
   };
 
+  // 获取显示的路径文本
+  const getPathDisplay = () => {
+    if (isAndroid) {
+      return storageInfo?.display_name ?? 'DCIM/CameraFTP';
+    }
+    return savePath || '未设置';
+  };
+
   return (
-    <>
-      {/* Android 存储设置 */}
-      {isAndroid && (
-        <div className="space-y-3">
-          <div className="flex items-center justify-between py-2">
-            <div className="flex-1 min-w-0">
-              <label className="block text-sm font-medium text-gray-700">
-                存储位置
-              </label>
-              <p className="text-xs text-gray-500 mt-1 truncate">{storageInfo?.display_name ?? 'DCIM/CameraFTP'}</p>
-            </div>
-          </div>
-
-          {/* 创建目录 */}
-          {storageInfo && !storageInfo.exists && !needsPermission && (
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
-              <div className="flex items-center gap-2">
-                <Folder className="w-4 h-4 text-blue-600" />
-                <p className="text-xs text-blue-800 flex-1">存储目录尚未创建</p>
-                <button
-                  onClick={handleEnsureReady}
-                  disabled={isCreatingDir || disabled}
-                  className="flex items-center gap-1 px-2 py-1 bg-blue-600 text-white text-xs rounded hover:bg-blue-700 disabled:opacity-50 transition-colors"
-                >
-                  {isCreatingDir ? (
-                    <RefreshCw className="w-3 h-3 animate-spin" />
-                  ) : (
-                    <Folder className="w-3 h-3" />
-                  )}
-                  {isCreatingDir ? '创建中...' : '创建'}
-                </button>
-              </div>
-            </div>
-          )}
+    <div className="space-y-3">
+      <div className="flex items-center justify-between py-2">
+        <div className="flex-1 min-w-0">
+          <label className="block text-sm font-medium text-gray-700">
+            存储路径
+          </label>
+          <p className="text-xs text-gray-500 mt-1 truncate">
+            {getPathDisplay()}
+          </p>
         </div>
-      )}
+        {/* 仅在桌面平台显示更改按钮 */}
+        {isDesktop && (
+          <button
+            onClick={onSelectDirectory}
+            disabled={isLoading || disabled}
+            className="ml-3 shrink-0 px-3 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
+            更改
+          </button>
+        )}
+      </div>
 
-      {/* 桌面端存储路径配置 */}
-      {isDesktop && (
-        <div className="space-y-3">
-          <div className="flex items-center justify-between py-2">
-            <div className="flex-1 min-w-0">
-              <label className="block text-sm font-medium text-gray-700">
-                存储路径
-              </label>
-              <p className="text-xs text-gray-500 mt-1 truncate">
-                {savePath || '未设置'}
-              </p>
-            </div>
+      {/* Android 创建目录提示 */}
+      {isAndroid && storageInfo && !storageInfo.exists && !needsPermission && (
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+          <div className="flex items-center gap-2">
+            <Folder className="w-4 h-4 text-blue-600" />
+            <p className="text-xs text-blue-800 flex-1">存储目录尚未创建</p>
             <button
-              onClick={onSelectDirectory}
-              disabled={isLoading || disabled}
-              className="ml-3 shrink-0 px-3 py-1.5 text-sm bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              onClick={handleEnsureReady}
+              disabled={isCreatingDir || disabled}
+              className="flex items-center gap-1 px-2 py-1 bg-blue-600 text-white text-xs rounded hover:bg-blue-700 disabled:opacity-50 transition-colors"
             >
-              更改
+              {isCreatingDir ? (
+                <RefreshCw className="w-3 h-3 animate-spin" />
+              ) : (
+                <Folder className="w-3 h-3" />
+              )}
+              {isCreatingDir ? '创建中...' : '创建'}
             </button>
           </div>
         </div>
       )}
-    </>
+    </div>
   );
 }

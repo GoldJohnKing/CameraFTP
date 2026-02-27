@@ -1,6 +1,6 @@
-import { useEffect, useState, useCallback, useRef } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { Settings, Wifi } from 'lucide-react';
+import { Settings, Wifi, Shield } from 'lucide-react';
 import { useConfigStore } from '../stores/configStore';
 import { usePermissionStore } from '../stores/permissionStore';
 import { useServerStore } from '../stores/serverStore';
@@ -35,7 +35,7 @@ export function ConfigCard() {
 
   const [autostartEnabled, setAutostartEnabled] = useState(false);
   const [isLoadingAutostart, setIsLoadingAutostart] = useState(false);
-  const [isChecking, setIsChecking] = useState(false);
+  const [isCheckingPermissions, setIsCheckingPermissions] = useState(false);
 
   // Platform detection
   const isDesktop = platform === 'windows' || platform === 'macos' || platform === 'linux';
@@ -74,28 +74,6 @@ export function ConfigCard() {
     }
   };
 
-  // Track timeout for cleanup
-  const checkingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  // Wrapper for checkPermissions with loading state
-  const handleCheckPermissions = useCallback(async () => {
-    setIsChecking(true);
-    try {
-      await checkPermissions();
-    } finally {
-      checkingTimeoutRef.current = setTimeout(() => setIsChecking(false), 300);
-    }
-  }, [checkPermissions]);
-
-  // Cleanup timeout on unmount
-  useEffect(() => {
-    return () => {
-      if (checkingTimeoutRef.current) {
-        clearTimeout(checkingTimeoutRef.current);
-      }
-    };
-  }, []);
-
   const handleAutostartToggle = async () => {
     setIsLoadingAutostart(true);
     try {
@@ -106,6 +84,24 @@ export function ConfigCard() {
       setIsLoadingAutostart(false);
     }
   };
+
+  const handleRefreshPermissions = useCallback(async () => {
+    setIsCheckingPermissions(true);
+    const startTime = Date.now();
+    
+    try {
+      await checkPermissions();
+    } finally {
+      // 确保动画至少持续 200ms，让用户能看到刷新效果
+      const elapsed = Date.now() - startTime;
+      const minDuration = 200;
+      const remaining = Math.max(0, minDuration - elapsed);
+      
+      setTimeout(() => {
+        setIsCheckingPermissions(false);
+      }, remaining);
+    }
+  }, [checkPermissions]);
 
   const handleSelectDirectory = async () => {
     const result = await invoke<string | null>('select_save_directory');
@@ -118,11 +114,11 @@ export function ConfigCard() {
 
   return (
     <>
-      {/* 通用配置 */}
-      <Card className="overflow-hidden">
+      {/* 基础设置 - Android上增加顶部留白 */}
+      <Card className={`overflow-hidden ${isAndroid ? 'mt-6' : ''}`}>
         <CardHeader 
-          title="通用配置" 
-          description="管理应用设置和偏好"
+          title="基础设置" 
+          description="管理应用的基础设置和偏好"
           icon={<Settings className="w-5 h-5 text-cyan-600" />}
         />
 
@@ -176,48 +172,43 @@ export function ConfigCard() {
             onPortChange={updatePort}
           />
 
-          {isRunning && (
-            <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
-              <p className="text-sm text-amber-700">
-                服务器正在运行，部分设置已禁用。停止服务器后可修改。
-              </p>
-            </div>
-          )}
         </div>
       </Card>
 
-      {/* Permission Status Section - Android Only */}
+      {/* 预览配置卡片（Windows 专属） */}
+      <PreviewConfigCard platform={platform} />
+
+      {/* 权限状态 - Android 特有，放在最后 */}
       {isAndroid && typeof window !== 'undefined' && window.PermissionAndroid && (
         <Card className="overflow-hidden">
-          <div className="p-4 border-b border-gray-100">
-            <div className="flex items-center justify-between">
-              <h3 className="text-sm font-medium text-gray-700">权限状态</h3>
+          <CardHeader
+            title="权限状态"
+            description="管理应用所需权限"
+            icon={<Shield className="w-5 h-5 text-emerald-600" />}
+            action={
               <button
-                onClick={handleCheckPermissions}
-                disabled={isChecking}
-                className="text-xs text-blue-500 hover:text-blue-600 flex items-center gap-1 disabled:opacity-50"
+                onClick={handleRefreshPermissions}
+                disabled={isCheckingPermissions}
+                className="text-sm text-blue-500 hover:text-blue-600 flex items-center gap-1.5 disabled:opacity-50 transition-colors"
               >
                 <svg
-                  className={`w-3.5 h-3.5 ${isChecking ? 'animate-spin' : ''}`}
+                  className={`w-4 h-4 ${isCheckingPermissions ? 'animate-spin' : ''}`}
                   fill="none"
                   stroke="currentColor"
                   viewBox="0 0 24 24"
                 >
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                 </svg>
-                {isChecking ? '刷新中...' : '刷新'}
+                <span>{isCheckingPermissions ? '刷新中...' : '刷新'}</span>
               </button>
-            </div>
-          </div>
+            }
+          />
 
           <div className="p-4">
             <PermissionList variant="compact" />
           </div>
         </Card>
       )}
-
-      {/* 预览配置卡片（Windows 专属） */}
-      <PreviewConfigCard platform={platform} />
     </>
   );
 }

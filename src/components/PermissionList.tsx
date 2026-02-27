@@ -29,12 +29,16 @@ const PermissionItemCompact = memo(function PermissionItemCompact({
         <div className={`w-3 h-3 rounded-full ${granted ? 'bg-green-500' : 'bg-red-500'}`} />
         <span className="text-sm text-gray-700">{label}</span>
       </div>
-      <button
-        onClick={onRequest}
-        className={`text-xs ${granted ? 'text-green-600' : 'text-blue-500 hover:text-blue-600'}`}
-      >
-        {granted ? '已授权' : '授权'}
-      </button>
+      {granted ? (
+        <span className="text-xs text-green-600">已授权</span>
+      ) : (
+        <button
+          onClick={onRequest}
+          className="text-xs text-blue-500 hover:text-blue-600"
+        >
+          授权
+        </button>
+      )}
     </div>
   );
 });
