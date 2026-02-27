@@ -24,6 +24,7 @@ use commands::{
     get_autostart_status,
     get_current_file_index,
     get_file_list,
+    get_image_exif,
     get_latest_file,
     get_platform,
     get_preview_config,
@@ -250,6 +251,9 @@ pub fn run() {
             get_current_file_index,
             navigate_to_file,
             get_latest_file,
+
+            // EXIF 信息
+            get_image_exif,
         ])
         .run(tauri::generate_context!())
         .unwrap_or_else(|e| {

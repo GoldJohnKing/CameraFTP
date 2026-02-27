@@ -411,3 +411,124 @@ pub async fn get_latest_file(
 ) -> Result<Option<FileInfo>, AppError> {
     Ok(file_index.get_latest_file().await)
 }
+
+// ============================================================================
+// EXIF 信息读取
+// ============================================================================
+
+/// EXIF 信息结构体
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ExifInfo {
+    pub iso: Option<u32>,
+    pub aperture: Option<String>,       // f/2.8 格式
+    pub shutter_speed: Option<String>,  // 1/125s 格式
+    pub focal_length: Option<String>,   // 24mm 格式
+    pub datetime: Option<String>,       // 2024-02-27 14:30:00 格式
+}
+
+/// 获取图片的 EXIF 信息
+#[tauri::command]
+pub async fn get_image_exif(file_path: String) -> Result<Option<ExifInfo>, AppError> {
+    use exif::{Reader, Tag};
+    use std::fs::File;
+    use std::path::Path;
+
+    let path = Path::new(&file_path);
+
+    // 打开文件
+    let file = match File::open(path) {
+        Ok(f) => f,
+        Err(e) => {
+            tracing::warn!("Failed to open file for EXIF reading: {}: {}", file_path, e);
+            return Ok(None);
+        }
+    };
+
+    // 尝试读取 EXIF 数据
+    let exif_reader = Reader::new();
+    let exif_data = match exif_reader.read_from_container(&mut std::io::BufReader::new(&file)) {
+        Ok(data) => data,
+        Err(e) => {
+            tracing::debug!("No EXIF data found in {}: {}", file_path, e);
+            return Ok(None);
+        }
+    };
+
+    // 提取各个字段
+    let iso = exif_data.get_field(Tag::ISOSpeed, exif::In::PRIMARY)
+        .and_then(|field| field.value.get_uint(0));
+
+    let aperture = exif_data.get_field(Tag::FNumber, exif::In::PRIMARY)
+        .and_then(|field| {
+            if let exif::Value::Rational(ref rationals) = field.value {
+                if !rationals.is_empty() {
+                    let r = &rationals[0];
+                    let fstop = r.num as f64 / r.denom as f64;
+                    return Some(format!("f/{:.1}", fstop));
+                }
+            }
+            None
+        });
+
+    let shutter_speed = exif_data.get_field(Tag::ExposureTime, exif::In::PRIMARY)
+        .and_then(|field| {
+            if let exif::Value::Rational(ref rationals) = field.value {
+                if !rationals.is_empty() {
+                    let r = &rationals[0];
+                    let exposure = r.num as f64 / r.denom as f64;
+                    // 如果是小于1秒的快门，显示为分数形式
+                    if exposure < 1.0 && exposure > 0.0 {
+                        // 常见快门值：1/30, 1/60, 1/125, 1/250, 1/500, 1/1000, 1/2000, 1/4000, 1/8000
+                        let denominator = (1.0 / exposure).round() as u32;
+                        return Some(format!("1/{}s", denominator));
+                    } else {
+                        return Some(format!("{:.1}s", exposure));
+                    }
+                }
+            }
+            None
+        });
+
+    let focal_length = exif_data.get_field(Tag::FocalLength, exif::In::PRIMARY)
+        .and_then(|field| {
+            if let exif::Value::Rational(ref rationals) = field.value {
+                if !rationals.is_empty() {
+                    let r = &rationals[0];
+                    let length = r.num as f64 / r.denom as f64;
+                    return Some(format!("{}mm", length.round() as u32));
+                }
+            }
+            None
+        });
+
+    let datetime = exif_data.get_field(Tag::DateTimeOriginal, exif::In::PRIMARY)
+        .and_then(|field| {
+            if let exif::Value::Ascii(ref ascii_vals) = field.value {
+                if !ascii_vals.is_empty() {
+                    // EXIF 日期格式: "2024:02:27 14:30:00" -> "2024-02-27 14:30:00"
+                    let raw = String::from_utf8_lossy(&ascii_vals[0]);
+                    let parts: Vec<&str> = raw.split_whitespace().collect();
+                    if parts.len() == 2 {
+                        let date_part = parts[0].replace(':', "-");
+                        return Some(format!("{} {}", date_part, parts[1]));
+                    }
+                    return Some(raw.to_string());
+                }
+            }
+            None
+        });
+
+    // 如果没有任何 EXIF 信息，返回 None
+    if iso.is_none() && aperture.is_none() && shutter_speed.is_none() 
+        && focal_length.is_none() && datetime.is_none() {
+        return Ok(None);
+    }
+
+    Ok(Some(ExifInfo {
+        iso,
+        aperture,
+        shutter_speed,
+        focal_length,
+        datetime,
+    }))
+}

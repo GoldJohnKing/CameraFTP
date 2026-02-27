@@ -3,7 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import type { FileInfo } from '../types';
+import type { FileInfo, ExifInfo } from '../types';
 
 interface PreviewEvent {
   file_path: string;
@@ -104,6 +104,20 @@ function PreviewWindowContent({
   // 导航状态
   const [currentIndex, setCurrentIndex] = useState(0);
   const [totalFiles, setTotalFiles] = useState(0);
+
+  // EXIF 信息
+  const [exifInfo, setExifInfo] = useState<ExifInfo | null>(null);
+
+  // 加载 EXIF 信息
+  const loadExifInfo = async (path: string) => {
+    try {
+      const exif = await invoke<ExifInfo | null>('get_image_exif', { filePath: path });
+      setExifInfo(exif);
+    } catch (error) {
+      console.error('Failed to load EXIF:', error);
+      setExifInfo(null);
+    }
+  };
 
   // 缩放和拖拽状态
   const [scale, setScale] = useState(1);
@@ -211,6 +225,13 @@ function PreviewWindowContent({
   useEffect(() => {
     setImageError(false);
     resetZoom();
+  }, [imagePath]);
+
+  // 加载 EXIF 信息
+  useEffect(() => {
+    if (imagePath) {
+      loadExifInfo(imagePath);
+    }
   }, [imagePath]);
 
   // 监听窗口大小变化，重置缩放
@@ -466,6 +487,15 @@ function PreviewWindowContent({
           <div className="text-sm text-gray-200 truncate">
             {imagePath.split(/[/\\]/).pop()}
           </div>
+          {exifInfo && (
+            <span className="text-xs text-gray-400">
+              {exifInfo.iso && `ISO ${exifInfo.iso}`}
+              {exifInfo.aperture && ` | ${exifInfo.aperture}`}
+              {exifInfo.shutterSpeed && ` | ${exifInfo.shutterSpeed}`}
+              {exifInfo.focalLength && ` | ${exifInfo.focalLength}`}
+              {exifInfo.datetime && ` | ${exifInfo.datetime}`}
+            </span>
+          )}
           {scale !== 1 && (
             <span className="text-xs text-blue-300 bg-blue-500/20 px-2 py-0.5 rounded">
               {Math.round(scale * 100)}%

@@ -47,6 +47,15 @@ export interface FileInfo {
   filename: string;
 }
 
+/// EXIF 信息（用于图片元数据）
+export interface ExifInfo {
+  iso?: number;
+  aperture?: string;      // f/2.8
+  shutterSpeed?: string;  // 1/125s
+  focalLength?: string;   // 24mm
+  datetime?: string;      // 2024-02-27 14:30:00
+}
+
 // 重新导出全局类型
 export * from './global';
 
