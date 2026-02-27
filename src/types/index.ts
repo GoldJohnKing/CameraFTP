@@ -41,6 +41,12 @@ export interface ServerStartCheckResult {
   storage_info?: StorageInfo;
 }
 
+/// 文件信息（用于文件浏览）
+export interface FileInfo {
+  path: string;
+  filename: string;
+}
+
 // 重新导出全局类型
 export * from './global';
 
