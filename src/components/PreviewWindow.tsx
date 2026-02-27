@@ -351,10 +351,10 @@ function PreviewWindowContent({
           goToNext();
           break;
         case 'Home':
-          goToLatest();
+          goToOldest();
           break;
         case 'End':
-          goToOldest();
+          goToLatest();
           break;
         case 'Escape':
           if (isFullscreen) {
@@ -486,7 +486,7 @@ function PreviewWindowContent({
               onClick={goToOldest}
               disabled={currentIndex >= totalFiles - 1}
               className="p-2 text-gray-300 hover:text-white hover:bg-white/10 rounded-lg transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-              title="最旧 (End)"
+              title="最旧 (Home)"
             >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 19l-7-7 7-7m8 14l-7-7 7-7" />
@@ -522,7 +522,7 @@ function PreviewWindowContent({
               onClick={goToLatest}
               disabled={currentIndex <= 0}
               className="p-2 text-gray-300 hover:text-white hover:bg-white/10 rounded-lg transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-              title="最新 (Home)"
+              title="最新 (End)"
             >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 5l7 7-7 7M5 5l7 7-7 7" />
