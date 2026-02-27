@@ -18,7 +18,7 @@ export const StatsCard = memo(function StatsCard() {
       try {
         const latest = await invoke<FileInfo | null>('get_latest_file');
         if (latest) {
-          setScannedLatestFile(latest.filename);
+          setScannedLatestFile(latest.path);
         }
       } catch (error) {
         console.error('Failed to get latest file:', error);
@@ -31,16 +31,17 @@ export const StatsCard = memo(function StatsCard() {
   const displayFilename = stats.last_file || scannedLatestFile || '无';
 
   const handleOpenPreview = useCallback(async () => {
-    if (config?.save_path) {
-      const targetFile = stats.last_file || scannedLatestFile;
-      if (targetFile) {
-        // 使用正斜杠统一路径分隔符，确保跨平台兼容性
-        const fullPath = `${config.save_path}/${targetFile}`.replace(/\\/g, '/');
-        try {
-          await invoke('open_preview_window', { filePath: fullPath });
-        } catch (error) {
-          console.error('Failed to open preview:', error);
-        }
+    // stats.last_file 是相对路径，需要拼接 save_path
+    // scannedLatestFile 已经是完整路径，直接使用
+    const targetPath = stats.last_file
+      ? `${config?.save_path}/${stats.last_file}`.replace(/\\/g, '/')
+      : scannedLatestFile;
+
+    if (targetPath) {
+      try {
+        await invoke('open_preview_window', { filePath: targetPath });
+      } catch (error) {
+        console.error('Failed to open preview:', error);
       }
     }
   }, [stats.last_file, scannedLatestFile, config?.save_path]);
