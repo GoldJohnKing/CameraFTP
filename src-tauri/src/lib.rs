@@ -14,6 +14,7 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use tauri::{Manager, Emitter};
 
 use auto_open::AutoOpenService;
+use file_index::FileIndexService;
 use commands::{
     check_permission_status,
     check_port_available,
@@ -21,6 +22,9 @@ use commands::{
     check_storage_permission,
     ensure_storage_ready,
     get_autostart_status,
+    get_current_file_index,
+    get_file_list,
+    get_latest_file,
     get_platform,
     get_preview_config,
     get_server_info,
@@ -29,6 +33,7 @@ use commands::{
     get_storage_path,
     hide_main_window,
     load_config,
+    navigate_to_file,
     needs_storage_permission,
     open_all_files_access_settings,
     open_folder_select_file,
@@ -116,6 +121,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(FtpServerState(Arc::new(Mutex::new(None))))
+        .manage(FileIndexService::new())
         .setup(move |app| {
             // 在 setup 中管理 AutoOpenService
             app.manage(AutoOpenService::new(app.handle().clone()));
@@ -153,6 +159,15 @@ pub fn run() {
                 let state: tauri::State<'_, FtpServerState> = app.state();
                 platform.execute_autostart_server(app.handle(), &state.0);
             }
+
+            // 启动时扫描文件目录建立索引
+            let app_handle_for_scan = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                let file_index = app_handle_for_scan.state::<FileIndexService>();
+                if let Err(e) = file_index.scan_directory().await {
+                    tracing::error!("Failed to scan directory: {}", e);
+                }
+            });
 
             // 托盘图标状态更新（轻量级轮询，仅更新托盘）
             // 前端统计推送由 EventBus + StatsEventHandler 事件驱动处理
@@ -229,6 +244,12 @@ pub fn run() {
             open_preview_window,
             select_executable_file,
             open_folder_select_file,
+
+            // 文件索引
+            get_file_list,
+            get_current_file_index,
+            navigate_to_file,
+            get_latest_file,
         ])
         .run(tauri::generate_context!())
         .unwrap_or_else(|e| {

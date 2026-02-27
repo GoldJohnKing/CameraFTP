@@ -1,11 +1,10 @@
+use crate::file_index::FileIndexService;
 use crate::ftp::events::EventBus;
 use crate::ftp::stats::StatsActor;
 use dashmap::DashSet;
 use libunftp::notification::{DataEvent, DataListener, EventMeta, PresenceEvent, PresenceListener};
 use std::sync::Arc;
-use tauri::AppHandle;
-#[cfg(target_os = "windows")]
-use tauri::Manager;
+use tauri::{AppHandle, Manager};
 use tracing::{info, warn};
 
 /// 数据事件监听器（上传、下载等）
@@ -38,9 +37,7 @@ impl DataListener for FtpDataListener {
     {
         let stats = self.stats.clone();
         let event_bus = self.event_bus.clone();
-        #[cfg(target_os = "windows")]
         let save_path = self.save_path.clone();
-        #[cfg(target_os = "windows")]
         let app_handle = self.app_handle.clone();
         Box::pin(async move {
             match event {
@@ -51,34 +48,50 @@ impl DataListener for FtpDataListener {
                     event_bus.emit_file_uploaded(path.clone(), bytes);
                     info!(file = %path, size = bytes, "File uploaded");
 
+                    // 检查是否是支持的图片文件
+                    let is_image = path.to_lowercase().ends_with(".jpg")
+                        || path.to_lowercase().ends_with(".jpeg")
+                        || path.to_lowercase().ends_with(".heif")
+                        || path.to_lowercase().ends_with(".hif")
+                        || path.to_lowercase().ends_with(".heic");
+
                     // Windows 平台自动打开图片
                     #[cfg(target_os = "windows")]
-                    {
-                        if let Some(handle) = app_handle {
-                            // 检查是否是支持的图片文件（仅 jpg/jpeg/heif/hif/heic）
-                            let is_image = path.to_lowercase().ends_with(".jpg")
-                                || path.to_lowercase().ends_with(".jpeg")
-                                || path.to_lowercase().ends_with(".heif")
-                                || path.to_lowercase().ends_with(".hif")
-                                || path.to_lowercase().ends_with(".heic");
+                    if let Some(handle) = app_handle.as_ref() {
+                        if is_image {
+                            let full_path = save_path.join(&path);
+                            let handle_clone = handle.clone();
+                            // 使用 tokio::spawn 启动异步任务，避免阻塞事件处理
+                            tokio::spawn(async move {
+                                // 延迟一小段时间确保文件写入完成
+                                tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+                                
+                                // 调用 AutoOpenService 处理预览（服务内部会检查 enabled 状态）
+                                let auto_open: tauri::State<'_, crate::auto_open::AutoOpenService> = handle_clone.state();
+                                if let Err(e) = auto_open.on_file_uploaded(full_path.clone()).await {
+                                    tracing::error!("Failed to auto open image: {}", e);
+                                }
+                            });
+                        } else {
+                            info!(file = %path, "Non-image file uploaded, skipping auto-preview");
+                        }
+                    }
 
-                            if is_image {
-                                let full_path = save_path.join(&path);
-                                let handle_clone = handle.clone();
-                                // 使用 tokio::spawn 启动异步任务，避免阻塞事件处理
-                                tokio::spawn(async move {
-                                    // 延迟一小段时间确保文件写入完成
-                                    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-                                    
-                                    // 调用 AutoOpenService 处理预览（服务内部会检查 enabled 状态）
-                                    let auto_open: tauri::State<'_, crate::auto_open::AutoOpenService> = handle_clone.state();
-                                    if let Err(e) = auto_open.on_file_uploaded(full_path.clone()).await {
-                                        tracing::error!("Failed to auto open image: {}", e);
+                    // 添加到文件索引（所有平台）
+                    if is_image {
+                        if let Some(handle) = app_handle.as_ref() {
+                            let full_path = save_path.join(&path);
+                            let handle_clone = handle.clone();
+                            tokio::spawn(async move {
+                                // 延迟确保文件写入完成
+                                tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+                                
+                                if let Some(file_index) = handle_clone.try_state::<FileIndexService>() {
+                                    if let Err(e) = file_index.add_file(full_path).await {
+                                        tracing::warn!("Failed to add file to index: {}", e);
                                     }
-                                });
-                            } else {
-                                info!(file = %path, "Non-image file uploaded, skipping auto-preview");
-                            }
+                                }
+                            });
                         }
                     }
                 }

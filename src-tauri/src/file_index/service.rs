@@ -9,7 +9,7 @@ use crate::config::AppConfig;
 use crate::error::AppError;
 use super::types::{FileIndex, FileInfo};
 
-type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + 'a>>;
+type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
 pub struct FileIndexService {
     index: RwLock<FileIndex>,
