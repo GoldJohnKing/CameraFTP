@@ -8,6 +8,7 @@ interface PathSelectorProps {
   needsPermission: boolean;
   savePath: string | null;
   isLoading: boolean;
+  disabled?: boolean;
   ensureStorageReady: () => Promise<{ success: boolean; error?: string }>;
   onSelectDirectory: () => Promise<void>;
 }
@@ -18,6 +19,7 @@ export function PathSelector({
   needsPermission,
   savePath,
   isLoading,
+  disabled = false,
   ensureStorageReady,
   onSelectDirectory,
 }: PathSelectorProps) {
@@ -57,7 +59,7 @@ export function PathSelector({
                 <p className="text-xs text-blue-800 flex-1">存储目录尚未创建</p>
                 <button
                   onClick={handleEnsureReady}
-                  disabled={isCreatingDir}
+                  disabled={isCreatingDir || disabled}
                   className="flex items-center gap-1 px-2 py-1 bg-blue-600 text-white text-xs rounded hover:bg-blue-700 disabled:opacity-50 transition-colors"
                 >
                   {isCreatingDir ? (
@@ -87,7 +89,7 @@ export function PathSelector({
             </div>
             <button
               onClick={onSelectDirectory}
-              disabled={isLoading}
+              disabled={isLoading || disabled}
               className="ml-3 shrink-0 px-3 py-1.5 text-sm bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
               更改

@@ -7,6 +7,7 @@ interface PortSelectorProps {
   autoSelectPort: boolean;
   port: number;
   isLoading: boolean;
+  disabled?: boolean;
   onAutoSelectToggle: (enabled: boolean) => Promise<void>;
   onPortChange: (port: number) => Promise<void>;
 }
@@ -15,6 +16,7 @@ export function PortSelector({
   autoSelectPort,
   port,
   isLoading,
+  disabled = false,
   onAutoSelectToggle,
   onPortChange,
 }: PortSelectorProps) {
@@ -82,41 +84,44 @@ export function PortSelector({
         onChange={handleAutoSelectToggle}
         label="自动选择端口"
         description="自动寻找可用端口（推荐）"
-        disabled={isLoading}
+        disabled={isLoading || disabled}
       />
 
       {/* 手动端口输入 */}
       {!autoSelectPort && (
-        <div className="pl-4 border-l-2 border-gray-200">
-          <label className="block text-sm font-medium text-gray-700 mb-2">
-            端口号
-          </label>
-          <div className="relative">
-            <input
-              type="number"
-              value={portInput}
-              onChange={handlePortChange}
-              onBlur={handlePortBlur}
-              placeholder="1024-65535"
-              disabled={isLoading || isCheckingPort}
-              className={`w-full px-3 py-2 border rounded-lg text-sm transition-colors ${
-                portError
-                  ? 'border-red-300 bg-red-50 text-red-700'
-                  : 'border-gray-200 bg-white text-gray-700'
-              } disabled:opacity-50 disabled:cursor-not-allowed`}
-            />
-            {isCheckingPort && (
-              <Loader2 className="w-4 h-4 animate-spin text-gray-400 absolute right-3 top-1/2 -translate-y-1/2" />
+        <>
+          <hr className="border-gray-100" />
+          <div className="space-y-2">
+            <label className="block text-sm font-medium text-gray-700">
+              端口号
+            </label>
+            <div className="relative">
+              <input
+                type="number"
+                value={portInput}
+                onChange={handlePortChange}
+                onBlur={handlePortBlur}
+                placeholder="1024-65535"
+                disabled={isLoading || isCheckingPort || disabled}
+                className={`w-full px-3 py-2 border rounded-lg text-sm transition-colors ${
+                  portError
+                    ? 'border-red-300 bg-red-50 text-red-700'
+                    : 'border-gray-200 bg-white text-gray-700'
+                } disabled:opacity-50 disabled:cursor-not-allowed`}
+              />
+              {isCheckingPort && (
+                <Loader2 className="w-4 h-4 animate-spin text-gray-400 absolute right-3 top-1/2 -translate-y-1/2" />
+              )}
+            </div>
+            {portError ? (
+              <p className="text-xs text-red-600 mt-1">{portError}</p>
+            ) : (
+              <p className="text-xs text-gray-500 mt-1">
+                设置 FTP 服务器监听的端口号（1024-65535）
+              </p>
             )}
           </div>
-          {portError ? (
-            <p className="text-xs text-red-600 mt-1">{portError}</p>
-          ) : (
-            <p className="text-xs text-gray-500 mt-1">
-              设置 FTP 服务器监听的端口号（1024-65535）
-            </p>
-          )}
-        </div>
+        </>
       )}
     </div>
   );

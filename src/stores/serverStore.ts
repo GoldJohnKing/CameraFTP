@@ -134,7 +134,13 @@ const createEventRegistrations = (get: () => ServerState, set: (fn: (state: Serv
   },
   {
     name: 'window-close-requested',
-    handler: () => {
+    handler: async () => {
+      // 先显示并置顶主窗口，确保对话框可见
+      try {
+        await invoke('show_main_window');
+      } catch {
+        // 忽略窗口显示错误
+      }
       window.dispatchEvent(new CustomEvent('app-quit-requested'));
     },
   },

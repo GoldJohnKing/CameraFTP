@@ -46,6 +46,7 @@ use commands::{
     select_save_directory,
     set_autostart_command,
     set_preview_config,
+    show_main_window,
     start_server,
     stop_server,
     validate_save_path,
@@ -226,6 +227,7 @@ pub fn run() {
             // 应用控制
             quit_application,
             hide_main_window,
+            show_main_window,
             
             // Android 权限管理
             open_all_files_access_settings,

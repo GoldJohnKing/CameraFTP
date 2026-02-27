@@ -186,6 +186,29 @@ pub fn hide_main_window(app: tauri::AppHandle) -> Result<(), String> {
     crate::platform::get_platform().hide_main_window(&app)
 }
 
+/// 显示并置顶主窗口
+#[tauri::command]
+pub fn show_main_window(app: tauri::AppHandle) -> Result<(), String> {
+    tracing::info!("Showing and focusing main window");
+    if let Some(window) = app.get_webview_window("main") {
+        // 重置 skip_taskbar 状态，确保窗口能正常显示在任务栏
+        window
+            .set_skip_taskbar(false)
+            .map_err(|e| format!("Failed to reset skip_taskbar: {}", e))?;
+        // 如果窗口被最小化，先恢复
+        window
+            .unminimize()
+            .map_err(|e| format!("Failed to unminimize window: {}", e))?;
+        window
+            .show()
+            .map_err(|e| format!("Failed to show window: {}", e))?;
+        window
+            .set_focus()
+            .map_err(|e| format!("Failed to focus window: {}", e))?;
+    }
+    Ok(())
+}
+
 /// 选择保存目录
 #[tauri::command]
 pub async fn select_save_directory(app: AppHandle) -> Result<Option<String>, String> {

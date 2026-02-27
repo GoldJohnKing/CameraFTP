@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { Camera } from 'lucide-react';
+import { Camera, X } from 'lucide-react';
 import { ServerCard } from './components/ServerCard';
 import { StatsCard } from './components/StatsCard';
 import { InfoCard } from './components/InfoCard';
+import { LatestPhotoCard } from './components/LatestPhotoCard';
 import { ConfigCard } from './components/ConfigCard';
 import { BottomNav } from './components/BottomNav';
 import { PermissionDialog } from './components/PermissionDialog';
@@ -92,7 +93,14 @@ function App() {
       {/* 退出确认对话框 */}
       {showQuitDialog && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 max-w-sm mx-4 shadow-xl">
+          <div className="bg-white rounded-lg p-6 max-w-sm mx-4 shadow-xl relative">
+            <button
+              onClick={() => setShowQuitDialog(false)}
+              className="absolute top-3 right-3 p-1 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-full transition-colors"
+              aria-label="关闭"
+            >
+              <X className="w-5 h-5" />
+            </button>
             <h3 className="text-lg font-semibold text-gray-900 mb-2">
               确认退出
             </h3>
@@ -146,16 +154,11 @@ function App() {
             <>
               <ServerCard />
               <InfoCard />
+              <LatestPhotoCard />
               <StatsCard />
             </>
           ) : (
-            <>
-              <div className="py-4">
-                <h1 className="text-2xl font-bold text-gray-900">配置</h1>
-                <p className="text-sm text-gray-500 mt-1">管理应用设置</p>
-              </div>
-              <ConfigCard />
-            </>
+            <ConfigCard />
           )}
         </div>
 

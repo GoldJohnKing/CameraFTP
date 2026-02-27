@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
+import { ImagePlay } from 'lucide-react';
 import { Card, CardHeader } from './ui';
 import type { PreviewWindowConfig } from '../types';
 
@@ -91,8 +92,9 @@ export function PreviewConfigCard({ platform }: PreviewConfigCardProps) {
   return (
     <Card className="overflow-hidden">
       <CardHeader
-        title="🖼️ 自动预览图片"
+        title="自动预览图片"
         description="Windows 专属功能：相机上传图片后自动显示"
+        icon={<ImagePlay className="w-5 h-5 text-purple-600" />}
       />
 
       <div className="p-4 space-y-6">
@@ -127,7 +129,23 @@ export function PreviewConfigCard({ platform }: PreviewConfigCardProps) {
                   selected={config.method === 'built-in-preview'}
                   onSelect={() => updateConfig({ method: 'built-in-preview' })}
                   recommended
-                />
+                >
+                  {config.method === 'built-in-preview' && (
+                    <div className="mt-3 pt-3 border-t border-blue-200/50">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <span className="text-sm text-gray-700">新图片时自动前台显示</span>
+                          <p className="text-xs text-gray-500">打开图片后预览窗口将获得焦点</p>
+                        </div>
+                        <ToggleSwitch
+                          checked={config.autoBringToFront}
+                          onChange={(checked) => updateConfig({ autoBringToFront: checked })}
+                          disabled={isLoading}
+                        />
+                      </div>
+                    </div>
+                  )}
+                </RadioOption>
 
                 <RadioOption
                   value="system-default"
@@ -148,34 +166,29 @@ export function PreviewConfigCard({ platform }: PreviewConfigCardProps) {
                 <RadioOption
                   value="custom"
                   label="自定义程序"
-                  description={customPath || '选择其他程序打开图片'}
+                  description={customPath ? undefined : '选择其他程序打开图片'}
                   selected={config.method === 'custom'}
                   onSelect={() => updateConfig({ method: 'custom' })}
-                />
-              </div>
-
-              {config.method === 'custom' && (
-                <button
-                  onClick={handleSelectCustomProgram}
-                  className="mt-2 w-full text-left px-3 py-2 text-sm border border-gray-300 rounded-lg hover:border-blue-400 hover:bg-blue-50 transition-colors"
                 >
-                  {customPath || '点击选择程序...'}
-                </button>
-              )}
-            </div>
-
-            {/* 通用设置 */}
-            <hr className="border-gray-100" />
-
-            <div className="space-y-3">
-              <h4 className="text-sm font-medium text-gray-700">通用设置</h4>
-
-              <Checkbox
-                checked={config.autoBringToFront}
-                onChange={(checked) => updateConfig({ autoBringToFront: checked })}
-                label="新图片时自动前台显示"
-                description="仅对内置预览窗口生效，打开图片后预览窗口将获得焦点"
-              />
+                  {config.method === 'custom' && (
+                    <div className="mt-2 flex items-center gap-2">
+                      <div className="flex-1 min-w-0 px-2 py-1.5 bg-blue-50 rounded text-xs text-gray-600 truncate">
+                        {customPath || '未选择程序'}
+                      </div>
+                      <button
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          handleSelectCustomProgram();
+                        }}
+                        className="shrink-0 px-3 py-1.5 text-xs font-medium text-blue-700 bg-blue-100 rounded hover:bg-blue-200 transition-colors"
+                      >
+                        浏览
+                      </button>
+                    </div>
+                  )}
+                </RadioOption>
+              </div>
             </div>
           </>
         )}
@@ -216,66 +229,51 @@ function RadioOption({
   description,
   selected,
   onSelect,
-  recommended
+  recommended,
+  children
 }: {
   value: string;
   label: string;
-  description: string;
+  description?: string;
   selected: boolean;
   onSelect: () => void;
   recommended?: boolean;
+  children?: React.ReactNode;
 }) {
   return (
     <label 
       className={`
-        flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-colors
+        flex flex-col gap-3 p-3 rounded-lg border cursor-pointer transition-colors
         ${selected 
           ? 'border-blue-400 bg-blue-50' 
           : 'border-gray-200 hover:border-blue-300 hover:bg-blue-50/50'
         }
       `}
     >
-      <input
-        type="radio"
-        name="open-method"
-        value={value}
-        checked={selected}
-        onChange={onSelect}
-        className="mt-0.5"
-      />
-      <div className="flex-1">
-        <div className="flex items-center gap-2">
-          <span className="text-sm font-medium text-gray-700">{label}</span>
-          {recommended && (
-            <span className="text-xs px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded">
-              推荐
-            </span>
-          )}
+      <div className="flex items-start gap-3">
+        <input
+          type="radio"
+          name="open-method"
+          value={value}
+          checked={selected}
+          onChange={onSelect}
+          className="mt-0.5"
+        />
+        <div className="flex-1">
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-medium text-gray-700">{label}</span>
+            {recommended && (
+              <span className="text-xs px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded">
+                推荐
+              </span>
+            )}
+          </div>
+          {description && <p className="text-xs text-gray-500 mt-0.5">{description}</p>}
         </div>
-        <p className="text-xs text-gray-500 mt-0.5">{description}</p>
       </div>
+      {children}
     </label>
   );
 }
 
-function Checkbox({ checked, onChange, label, description }: {
-  checked: boolean;
-  onChange: (checked: boolean) => void;
-  label: string;
-  description: string;
-}) {
-  return (
-    <label className="flex items-start gap-3 cursor-pointer">
-      <input
-        type="checkbox"
-        checked={checked}
-        onChange={(e) => onChange(e.target.checked)}
-        className="mt-0.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-      />
-      <div>
-        <span className="text-sm text-gray-700">{label}</span>
-        <p className="text-xs text-gray-500">{description}</p>
-      </div>
-    </label>
-  );
-}
+

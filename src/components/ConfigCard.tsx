@@ -1,7 +1,9 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { Settings, Wifi } from 'lucide-react';
 import { useConfigStore } from '../stores/configStore';
 import { usePermissionStore } from '../stores/permissionStore';
+import { useServerStore } from '../stores/serverStore';
 import { Card, CardHeader } from './ui';
 import { PermissionList } from './PermissionList';
 import { PathSelector } from './PathSelector';
@@ -28,6 +30,8 @@ export function ConfigCard() {
     ensureStorageReady,
     checkPermissions,
   } = usePermissionStore();
+
+  const { isRunning } = useServerStore();
 
   const [autostartEnabled, setAutostartEnabled] = useState(false);
   const [isLoadingAutostart, setIsLoadingAutostart] = useState(false);
@@ -114,8 +118,13 @@ export function ConfigCard() {
 
   return (
     <>
+      {/* 通用配置 */}
       <Card className="overflow-hidden">
-        <CardHeader title="应用配置" description="管理应用设置和偏好" />
+        <CardHeader 
+          title="通用配置" 
+          description="管理应用设置和偏好"
+          icon={<Settings className="w-5 h-5 text-cyan-600" />}
+        />
 
         <div className="p-4 space-y-6">
           {/* 路径选择 */}
@@ -125,6 +134,7 @@ export function ConfigCard() {
             needsPermission={needsPermission}
             savePath={config?.save_path ?? null}
             isLoading={isLoading}
+            disabled={isRunning}
             ensureStorageReady={ensureStorageReady}
             onSelectDirectory={handleSelectDirectory}
           />
@@ -138,19 +148,39 @@ export function ConfigCard() {
             />
           )}
 
+          {/* 错误提示 */}
+          {error && (
+            <div className="p-3 bg-red-50 border border-red-200 rounded-lg">
+              <p className="text-sm text-red-600">{error}</p>
+            </div>
+          )}
+        </div>
+      </Card>
+
+      {/* 连接设置 */}
+      <Card className="overflow-hidden">
+        <CardHeader 
+          title="连接设置" 
+          description="配置 FTP 服务器连接参数"
+          icon={<Wifi className="w-5 h-5 text-indigo-600" />}
+        />
+
+        <div className="p-4 space-y-6">
           {/* 端口配置 */}
           <PortSelector
             autoSelectPort={config?.auto_select_port ?? true}
             port={config?.port ?? 2121}
             isLoading={isLoading}
+            disabled={isRunning}
             onAutoSelectToggle={updateAutoSelectPort}
             onPortChange={updatePort}
           />
 
-          {/* 错误提示 */}
-          {error && (
-            <div className="p-3 bg-red-50 border border-red-200 rounded-lg">
-              <p className="text-sm text-red-600">{error}</p>
+          {isRunning && (
+            <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
+              <p className="text-sm text-amber-700">
+                服务器正在运行，部分设置已禁用。停止服务器后可修改。
+              </p>
             </div>
           )}
         </div>
