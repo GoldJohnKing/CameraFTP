@@ -279,7 +279,6 @@ dependencies = [
  "dashmap",
  "dirs 5.0.1",
  "image",
- "jni",
  "libunftp",
  "local-ip-address",
  "serde",
