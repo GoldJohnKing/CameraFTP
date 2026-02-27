@@ -55,13 +55,12 @@ impl DataListener for FtpDataListener {
                     #[cfg(target_os = "windows")]
                     {
                         if let Some(handle) = app_handle {
-                            // 检查是否是图片文件
+                            // 检查是否是支持的图片文件（仅 jpg/jpeg/heif/hif/heic）
                             let is_image = path.to_lowercase().ends_with(".jpg")
                                 || path.to_lowercase().ends_with(".jpeg")
-                                || path.to_lowercase().ends_with(".png")
-                                || path.to_lowercase().ends_with(".gif")
-                                || path.to_lowercase().ends_with(".bmp")
-                                || path.to_lowercase().ends_with(".webp");
+                                || path.to_lowercase().ends_with(".heif")
+                                || path.to_lowercase().ends_with(".hif")
+                                || path.to_lowercase().ends_with(".heic");
 
                             if is_image {
                                 let full_path = save_path.join(&path);
@@ -77,6 +76,8 @@ impl DataListener for FtpDataListener {
                                         tracing::error!("Failed to auto open image: {}", e);
                                     }
                                 });
+                            } else {
+                                info!(file = %path, "Non-image file uploaded, skipping auto-preview");
                             }
                         }
                     }
