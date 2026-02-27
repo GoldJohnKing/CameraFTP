@@ -3,6 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
+import type { FileInfo } from '../types';
 
 interface PreviewEvent {
   file_path: string;
@@ -55,6 +56,20 @@ export function PreviewWindow() {
     };
   }, []);
 
+  // 监听内部导航事件
+  useEffect(() => {
+    const handleNavigate = (e: Event) => {
+      const customEvent = e as CustomEvent<string>;
+      setState(prev => ({
+        ...prev,
+        currentImage: customEvent.detail,
+      }));
+    };
+
+    window.addEventListener('navigate-image', handleNavigate);
+    return () => window.removeEventListener('navigate-image', handleNavigate);
+  }, []);
+
   // 实际预览窗口内容组件
   if (!state.isOpen) {
     return (
@@ -86,6 +101,10 @@ function PreviewWindowContent({
   const [isFullscreen, setIsFullscreen] = useState(false);
   const toolbarTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // 导航状态
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [totalFiles, setTotalFiles] = useState(0);
+
   // 缩放和拖拽状态
   const [scale, setScale] = useState(1);
   const [panX, setPanX] = useState(0);
@@ -94,6 +113,62 @@ function PreviewWindowContent({
   const dragStartRef = useRef({ x: 0, y: 0 });
   const containerRef = useRef<HTMLDivElement>(null);
   const appWindow = getCurrentWindow();
+
+  // 重置缩放
+  const resetZoom = useCallback(() => {
+    setScale(1);
+    setPanX(0);
+    setPanY(0);
+  }, []);
+
+  // 加载文件列表和当前索引
+  useEffect(() => {
+    const loadFileInfo = async () => {
+      try {
+        const files = await invoke<FileInfo[]>('get_file_list');
+        setTotalFiles(files.length);
+
+        const index = await invoke<number | null>('get_current_file_index');
+        setCurrentIndex(index ?? 0);
+      } catch (error) {
+        console.error('Failed to load file info:', error);
+      }
+    };
+
+    loadFileInfo();
+  }, [imagePath]);
+
+  // 导航方法
+  const navigateTo = useCallback(async (index: number) => {
+    if (index < 0 || index >= totalFiles) return;
+
+    try {
+      const file = await invoke<FileInfo>('navigate_to_file', { index });
+      setCurrentIndex(index);
+      setImageError(false);
+      // 触发父组件更新图片路径
+      window.dispatchEvent(new CustomEvent('navigate-image', { detail: file.path }));
+      resetZoom();
+    } catch (error) {
+      console.error('Failed to navigate:', error);
+    }
+  }, [totalFiles, resetZoom]);
+
+  const goToPrevious = useCallback(() => {
+    navigateTo(currentIndex + 1); // 更旧
+  }, [currentIndex, navigateTo]);
+
+  const goToNext = useCallback(() => {
+    navigateTo(currentIndex - 1); // 更新
+  }, [currentIndex, navigateTo]);
+
+  const goToOldest = useCallback(() => {
+    navigateTo(totalFiles - 1);
+  }, [totalFiles, navigateTo]);
+
+  const goToLatest = useCallback(() => {
+    navigateTo(0);
+  }, [navigateTo]);
 
   // 同步外部状态
   useEffect(() => {
@@ -167,13 +242,6 @@ function PreviewWindowContent({
       unlisten.then(fn => fn());
     };
   }, [appWindow]);
-
-  // 重置缩放
-  const resetZoom = useCallback(() => {
-    setScale(1);
-    setPanX(0);
-    setPanY(0);
-  }, []);
 
   // 切换全屏
   const toggleFullscreen = useCallback(async () => {
@@ -271,22 +339,40 @@ function PreviewWindowContent({
   // 全局键盘和鼠标释放监听
   useEffect(() => {
     const handleGlobalMouseUp = () => setIsDragging(false);
-    
+
     const handleKeyDown = async (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && isFullscreen) {
-        await appWindow.setFullscreen(false);
-        await appWindow.setAlwaysOnTop(false);
+      switch (e.key) {
+        case 'ArrowLeft':
+        case 'ArrowUp':
+          goToPrevious();
+          break;
+        case 'ArrowRight':
+        case 'ArrowDown':
+          goToNext();
+          break;
+        case 'Home':
+          goToLatest();
+          break;
+        case 'End':
+          goToOldest();
+          break;
+        case 'Escape':
+          if (isFullscreen) {
+            await appWindow.setFullscreen(false);
+            await appWindow.setAlwaysOnTop(false);
+          }
+          break;
       }
     };
-    
+
     window.addEventListener('mouseup', handleGlobalMouseUp);
     window.addEventListener('keydown', handleKeyDown);
-    
+
     return () => {
       window.removeEventListener('mouseup', handleGlobalMouseUp);
       window.removeEventListener('keydown', handleKeyDown);
     };
-  }, [isFullscreen, appWindow]);
+  }, [isFullscreen, appWindow, goToPrevious, goToNext, goToLatest, goToOldest]);
 
   const handleOpenFolder = async () => {
     if (imagePath) {
@@ -385,7 +471,65 @@ function PreviewWindowContent({
               {Math.round(scale * 100)}%
             </span>
           )}
+          {totalFiles > 0 && (
+            <span className="text-xs text-gray-400">
+              {currentIndex + 1} / {totalFiles}
+            </span>
+          )}
         </div>
+
+        {/* 中间：导航按钮 */}
+        {totalFiles > 1 && (
+          <div className="flex items-center gap-1">
+            {/* 最旧 */}
+            <button
+              onClick={goToOldest}
+              disabled={currentIndex >= totalFiles - 1}
+              className="p-2 text-gray-300 hover:text-white hover:bg-white/10 rounded-lg transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+              title="最旧 (End)"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 19l-7-7 7-7m8 14l-7-7 7-7" />
+              </svg>
+            </button>
+
+            {/* 上一张 */}
+            <button
+              onClick={goToPrevious}
+              disabled={currentIndex >= totalFiles - 1}
+              className="p-2 text-gray-300 hover:text-white hover:bg-white/10 rounded-lg transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+              title="上一张 (← ↑)"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+              </svg>
+            </button>
+
+            {/* 下一张 */}
+            <button
+              onClick={goToNext}
+              disabled={currentIndex <= 0}
+              className="p-2 text-gray-300 hover:text-white hover:bg-white/10 rounded-lg transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+              title="下一张 (→ ↓)"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+              </svg>
+            </button>
+
+            {/* 最新 */}
+            <button
+              onClick={goToLatest}
+              disabled={currentIndex <= 0}
+              className="p-2 text-gray-300 hover:text-white hover:bg-white/10 rounded-lg transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+              title="最新 (Home)"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 5l7 7-7 7M5 5l7 7-7 7" />
+              </svg>
+            </button>
+          </div>
+        )}
 
         {/* 右侧：操作按钮 */}
         <div className="flex items-center gap-2">
