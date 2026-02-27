@@ -31,15 +31,19 @@ export const StatsCard = memo(function StatsCard() {
   const getDisplayInfo = () => {
     if (stats.last_file) {
       // 优先显示上传的文件
+      const parts = stats.last_file.split(/[\\/]/);
       return {
-        filename: stats.last_file.split(/[\\/]/).pop() || stats.last_file,
-        relativePath: stats.last_file
+        filename: parts.pop() || stats.last_file,
+        relativePath: parts.join('/')
       };
     } else if (scannedLatestFile) {
       // 显示扫描到的文件
+      const relativeFullPath = scannedLatestFile.path.replace(config?.save_path || '', '').replace(/^[\\/]/, '');
+      const parts = relativeFullPath.split(/[\\/]/);
+      parts.pop(); // 移除文件名，只保留目录
       return {
         filename: scannedLatestFile.filename,
-        relativePath: scannedLatestFile.path.replace(config?.save_path || '', '').replace(/^[\\/]/, '')
+        relativePath: parts.join('/')
       };
     }
     return { filename: '无', relativePath: '' };
