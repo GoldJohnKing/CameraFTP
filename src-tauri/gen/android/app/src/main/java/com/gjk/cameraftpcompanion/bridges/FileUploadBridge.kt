@@ -34,8 +34,6 @@ class FileUploadBridge(private val mainActivity: MainActivity) : BaseJsBridge(ma
             "$DEFAULT_STORAGE_PATH/$path"
         }
 
-        Log.i(TAG, "File uploaded: path=$fullPath")
-
         // 触发媒体扫描，让照片出现在相册中
         runOnUiThread {
             MediaScannerHelper.scanFile(mainActivity, fullPath)

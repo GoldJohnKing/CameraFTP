@@ -33,9 +33,7 @@ object MediaScannerHelper {
             arrayOf(filePath),
             arrayOf(mimeType)
         ) { path: String?, uri: Uri? ->
-            if (uri != null) {
-                Log.i(TAG, "Media scan completed for: $path, URI: $uri")
-            } else {
+            if (uri == null) {
                 Log.w(TAG, "Media scan failed for: $path")
             }
         }
