@@ -131,10 +131,26 @@ pub fn load_config() -> AppConfig {
 }
 
 #[command]
-#[instrument(skip(config))]
-pub fn save_config(config: AppConfig) -> Result<(), AppError> {
+#[instrument(skip(config, file_index))]
+pub async fn save_config(
+    config: AppConfig,
+    file_index: State<'_, FileIndexService>,
+) -> Result<(), AppError> {
+    // 加载旧配置以比较 save_path
+    let old_config = AppConfig::load();
+    let old_save_path = old_config.save_path.clone();
+    let new_save_path = config.save_path.clone();
+    
+    // 保存新配置
     config.save()?;
     info!("Configuration saved successfully");
+    
+    // 如果 save_path 变化，重新扫描新目录
+    if old_save_path != new_save_path {
+        info!("save_path changed from {:?} to {:?}, triggering rescan", old_save_path, new_save_path);
+        file_index.update_save_path(new_save_path).await?;
+    }
+    
     Ok(())
 }
 
@@ -305,9 +321,17 @@ pub async fn open_preview_window(
     app: AppHandle,
     file_path: String,
 ) -> Result<(), AppError> {
+    let path = std::path::PathBuf::from(&file_path);
+    
+    // 先在 FileIndexService 中查找并设置索引
+    let file_index = app.state::<FileIndexService>();
+    if let Some(index) = file_index.find_file_index(&path).await {
+        file_index.navigate_to(index).await?;
+    }
+    
     // 使用 AutoOpenService 来处理，它会根据配置决定打开方式
     let auto_open = app.state::<AutoOpenService>();
-    auto_open.open_image(&std::path::PathBuf::from(&file_path)).await
+    auto_open.open_image(&path).await
 }
 
 /// 选择可执行文件（用于自定义打开程序）
