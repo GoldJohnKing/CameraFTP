@@ -33,8 +33,8 @@ impl FileIndexService {
         let mut files = Vec::new();
         self.scan_recursive(&save_path, &mut files).await?;
         
-        // 按 sort_time 排序（新→旧）
-        files.sort_by(|a, b| a.sort_time.cmp(&b.sort_time));
+        // 按 sort_time 排序（新→旧，最新的排在最前面）
+        files.sort_by(|a, b| b.sort_time.cmp(&a.sort_time));
         
         let mut index = self.index.write().await;
         index.files = files;
@@ -121,19 +121,35 @@ impl FileIndexService {
         // 使用 spawn_blocking 因为 EXIF 读取是同步操作
         let path = path.to_path_buf();
         tokio::task::spawn_blocking(move || {
-            let file = std::fs::File::open(&path).ok()?;
-            let mut bufreader = std::io::BufReader::new(file);
-            let exifreader = exif::Reader::new();
-            let exif = exifreader.read_from_container(&mut bufreader).ok()?;
-            
-            // 优先读取 DateTimeOriginal，不存在则读取 DateTime
-            let datetime_field = exif.get_field(exif::Tag::DateTimeOriginal, exif::In::PRIMARY)
-                .or_else(|| exif.get_field(exif::Tag::DateTime, exif::In::PRIMARY))?;
-            
-            let datetime_str = datetime_field.display_value().with_unit(&exif).to_string();
-            
-            // 解析 EXIF 时间格式: "2024:02:26 14:30:00"
-            Self::parse_exif_datetime(&datetime_str)
+            use nom_exif::*;
+            use chrono::{Datelike, Timelike};
+
+            let mut parser = MediaParser::new();
+            let ms = MediaSource::file_path(&path).ok()?;
+
+            if !ms.has_exif() {
+                return None;
+            }
+
+            let iter: ExifIter = parser.parse(ms).ok()?;
+            let exif: Exif = iter.into();
+
+            // 优先读取 DateTimeOriginal
+            let datetime = exif
+                .get(ExifTag::DateTimeOriginal)
+                .and_then(|v| v.as_time_components())
+                .map(|(ndt, _offset)| ndt)?;
+
+            // 转换为 SystemTime
+            use std::time::{SystemTime, Duration};
+            let days_since_epoch = (datetime.year() - 1970) as u64 * 365
+                + (datetime.month() as u64 - 1) * 30
+                + datetime.day() as u64;
+            let seconds = days_since_epoch * 24 * 3600
+                + datetime.hour() as u64 * 3600
+                + datetime.minute() as u64 * 60
+                + datetime.second() as u64;
+            Some(SystemTime::UNIX_EPOCH + Duration::from_secs(seconds))
         }).await.ok()?
     }
 
@@ -174,9 +190,9 @@ impl FileIndexService {
         
         let mut index = self.index.write().await;
         
-        // 插入到正确位置（保持排序）
+        // 插入到正确位置（保持排序：新→旧）
         let insert_pos = index.files.iter()
-            .position(|f| f.sort_time > file_info.sort_time)
+            .position(|f| f.sort_time < file_info.sort_time)
             .unwrap_or(index.files.len());
         
         index.files.insert(insert_pos, file_info);

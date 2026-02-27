@@ -96,6 +96,7 @@ function PreviewWindowContent({
   autoBringToFront: boolean;
 }) {
   const [showToolbar, setShowToolbar] = useState(true);
+  const [isToolbarHovered, setIsToolbarHovered] = useState(false);
   const [imageError, setImageError] = useState(false);
   const [localAutoBringToFront, setLocalAutoBringToFront] = useState(autoBringToFront);
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -204,8 +205,13 @@ function PreviewWindowContent({
     };
   }, []);
 
-  // 自动隐藏工具栏
+  // 自动隐藏工具栏（鼠标悬停在工具栏上时不隐藏）
   useEffect(() => {
+    // 如果工具栏隐藏或鼠标悬停在工具栏上，不设置定时器
+    if (!showToolbar || isToolbarHovered) {
+      return;
+    }
+
     if (toolbarTimeoutRef.current) {
       clearTimeout(toolbarTimeoutRef.current);
     }
@@ -219,7 +225,7 @@ function PreviewWindowContent({
         clearTimeout(toolbarTimeoutRef.current);
       }
     };
-  }, [showToolbar]);
+  }, [showToolbar, isToolbarHovered]);
 
   // 重置图片错误状态和缩放
   useEffect(() => {
@@ -471,70 +477,68 @@ function PreviewWindowContent({
       {/* 底部工具栏 - 浮动覆盖在图片上，半透明磨砂效果 */}
       <div
         className={`
-          absolute bottom-4 left-4 right-4 
-          bg-gray-900/80 backdrop-blur-md 
+          absolute bottom-4 left-4 right-4
+          bg-gray-900/80 backdrop-blur-md
           border border-gray-700/50
           rounded-xl
-          px-4 py-3 flex items-center justify-between
+          px-4 py-3 flex items-center
           shadow-lg
           transition-all duration-300
           ${showToolbar ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4 pointer-events-none'}
         `}
-        onMouseMove={() => setShowToolbar(true)}
+        onMouseEnter={() => setIsToolbarHovered(true)}
+        onMouseLeave={() => setIsToolbarHovered(false)}
       >
-        {/* 左侧：图片信息和缩放比例 */}
-        <div className="flex items-center gap-3 flex-1 min-w-0">
-          <div className="text-sm text-gray-200 truncate">
-            {imagePath.split(/[/\\]/).pop()}
+        {/* 左侧：文件名和拍摄信息 */}
+        <div className="flex items-center gap-3 min-w-0">
+          {/* 文件名 - 跨两行 */}
+          <div className="flex flex-col justify-center min-w-0">
+            <span className="text-sm text-gray-200 truncate">
+              {imagePath.split(/[/\\]/).pop()}
+            </span>
           </div>
+          {/* 竖线分隔符 - 跨两行高度 */}
           {exifInfo && (
-            <div className="flex items-center gap-2 text-xs text-gray-400">
-              {/* ISO */}
-              {exifInfo.iso && (
-                <span className="flex items-center gap-2">
-                  ISO {exifInfo.iso}
-                  <svg className="w-1 h-1 text-gray-600" fill="currentColor" viewBox="0 0 4 4"><circle cx="2" cy="2" r="2"/></svg>
-                </span>
+            <div className="w-px h-8 bg-gray-600 mx-1"></div>
+          )}
+          {/* 拍摄信息 - 双行布局 */}
+          {exifInfo && (
+            <div className="flex flex-col text-xs text-gray-400 gap-0.5">
+              {/* 第一行：ISO | 光圈 | 快门速度 | 焦距 */}
+              <div className="flex items-center gap-2">
+                {exifInfo.iso !== undefined && (
+                  <span className="flex items-center gap-2">
+                    ISO {exifInfo.iso}
+                    <svg className="w-1 h-1 text-gray-600" fill="currentColor" viewBox="0 0 4 4"><circle cx="2" cy="2" r="2"/></svg>
+                  </span>
+                )}
+                {exifInfo.aperture && (
+                  <span className="flex items-center gap-2">
+                    {exifInfo.aperture}
+                    <svg className="w-1 h-1 text-gray-600" fill="currentColor" viewBox="0 0 4 4"><circle cx="2" cy="2" r="2"/></svg>
+                  </span>
+                )}
+                {exifInfo.shutterSpeed && (
+                  <span className="flex items-center gap-2">
+                    {exifInfo.shutterSpeed}
+                    <svg className="w-1 h-1 text-gray-600" fill="currentColor" viewBox="0 0 4 4"><circle cx="2" cy="2" r="2"/></svg>
+                  </span>
+                )}
+                {exifInfo.focalLength && (
+                  <span>{exifInfo.focalLength}</span>
+                )}
+              </div>
+              {/* 第二行：拍摄时间 */}
+              {exifInfo.datetime && (
+                <span className="text-gray-500">{exifInfo.datetime}</span>
               )}
-              {/* 光圈 */}
-              {exifInfo.aperture && (
-                <span className="flex items-center gap-2">
-                  {exifInfo.aperture}
-                  <svg className="w-1 h-1 text-gray-600" fill="currentColor" viewBox="0 0 4 4"><circle cx="2" cy="2" r="2"/></svg>
-                </span>
-              )}
-              {/* 快门速度 */}
-              {exifInfo.shutterSpeed && (
-                <span className="flex items-center gap-2">
-                  {exifInfo.shutterSpeed}
-                  <svg className="w-1 h-1 text-gray-600" fill="currentColor" viewBox="0 0 4 4"><circle cx="2" cy="2" r="2"/></svg>
-                </span>
-              )}
-              {/* 焦距 */}
-              {exifInfo.focalLength && (
-                <span className="flex items-center gap-2">
-                  {exifInfo.focalLength}
-                  <svg className="w-1 h-1 text-gray-600" fill="currentColor" viewBox="0 0 4 4"><circle cx="2" cy="2" r="2"/></svg>
-                </span>
-              )}
-              {/* 拍摄时间 */}
-              {exifInfo.datetime && <span>{exifInfo.datetime}</span>}
             </div>
-          )}
-          {scale !== 1 && (
-            <span className="text-xs text-blue-300 bg-blue-500/20 px-2 py-0.5 rounded">
-              {Math.round(scale * 100)}%
-            </span>
-          )}
-          {totalFiles > 0 && (
-            <span className="text-xs text-gray-400">
-              {currentIndex + 1} / {totalFiles}
-            </span>
           )}
         </div>
 
-        {/* 中间：导航按钮 */}
-        {totalFiles > 1 && (
+        {/* 中间：导航按钮 - 绝对居中 */}
+        <div className="absolute left-1/2 -translate-x-1/2 flex items-center">
+          {totalFiles > 1 && (
           <div className="flex items-center gap-1">
             {/* 最旧 */}
             <button
@@ -584,10 +588,17 @@ function PreviewWindowContent({
               </svg>
             </button>
           </div>
-        )}
+          )}
+        </div>
 
         {/* 右侧：操作按钮 */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 ml-auto">
+          {/* 缩放比例 - 在放大镜图标左侧 */}
+          {scale !== 1 && (
+            <span className="text-xs text-blue-300 bg-blue-500/20 px-2 py-0.5 rounded">
+              {Math.round(scale * 100)}%
+            </span>
+          )}
           {/* 重置缩放按钮 - 放大镜图标（缩放状态下高亮） */}
           {scale !== 1 && (
             <button
