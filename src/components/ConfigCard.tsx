@@ -35,7 +35,6 @@ export function ConfigCard() {
   const { isRunning } = useServerStore();
 
   const [autostartEnabled, setAutostartEnabled] = useState(false);
-  const [isLoadingAutostart, setIsLoadingAutostart] = useState(false);
   const [isCheckingPermissions, setIsCheckingPermissions] = useState(false);
 
   // Platform detection
@@ -76,13 +75,14 @@ export function ConfigCard() {
   };
 
   const handleAutostartToggle = async () => {
-    setIsLoadingAutostart(true);
+    const newValue = !autostartEnabled;
+    // 乐观更新：立即反映 UI 变化
+    setAutostartEnabled(newValue);
     try {
-      const newValue = !autostartEnabled;
       await setAutostart(newValue);
-      setAutostartEnabled(newValue);
-    } finally {
-      setIsLoadingAutostart(false);
+    } catch {
+      // 失败时回滚
+      setAutostartEnabled(!newValue);
     }
   };
 
@@ -147,7 +147,6 @@ export function ConfigCard() {
           {isDesktop && (
             <AutoStartToggle
               enabled={autostartEnabled}
-              isLoading={isLoadingAutostart}
               onToggle={handleAutostartToggle}
             />
           )}
