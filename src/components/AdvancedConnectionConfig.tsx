@@ -288,7 +288,7 @@ export function AdvancedConnectionConfigPanel({
                   onBlur={handlePortBlur}
                   placeholder={`${minPort}-${maxPort}`}
                   disabled={isLoading || isCheckingPort || disabled}
-                  className={`w-full px-3 py-2 border rounded-lg text-sm transition-colors ${
+                  className={`w-full px-3 py-2 border rounded-lg text-sm ${
                     portError
                       ? 'border-red-300 bg-red-50 text-red-700'
                       : 'border-gray-200 bg-white text-gray-700'
@@ -334,7 +334,7 @@ export function AdvancedConnectionConfigPanel({
                     onBlur={handleUsernameBlur}
                     placeholder="输入用户名"
                     disabled={isLoading || disabled}
-                    className={`w-full px-3 py-2 border rounded-lg text-sm transition-colors ${
+                    className={`w-full px-3 py-2 border rounded-lg text-sm ${
                       usernameInput.trim() === '' && !config.auth.anonymous
                         ? 'border-red-300 bg-red-50'
                         : 'border-gray-200 bg-white'
@@ -354,7 +354,7 @@ export function AdvancedConnectionConfigPanel({
                       onBlur={handlePasswordBlur}
                       placeholder="输入密码"
                       disabled={isLoading || disabled}
-                      className={`w-full px-3 py-2 border rounded-lg text-sm transition-colors pr-10 ${
+                      className={`w-full px-3 py-2 border rounded-lg text-sm pr-10 ${
                         passwordInput === '' && !config.auth.anonymous
                           ? 'border-red-300 bg-red-50'
                           : 'border-gray-200 bg-white'
@@ -408,7 +408,7 @@ export function AdvancedConnectionConfigPanel({
                       onBlur={handlePasvBlur}
                       placeholder="50000"
                       disabled={isLoading || disabled}
-                      className={`w-full px-3 py-2 border rounded-lg text-sm transition-colors ${
+                      className={`w-full px-3 py-2 border rounded-lg text-sm ${
                         pasvError && (pasvError.type === 'start_empty' || pasvError.type === 'both_empty' || pasvError.type === 'start_invalid' || pasvError.type === 'start_out_of_range' || pasvError.type === 'start_greater_than_end')
                           ? 'border-red-300 bg-red-50 text-red-700'
                           : 'border-gray-200 bg-white text-gray-700'
@@ -426,7 +426,7 @@ export function AdvancedConnectionConfigPanel({
                       onBlur={handlePasvBlur}
                       placeholder="50100"
                       disabled={isLoading || disabled}
-                      className={`w-full px-3 py-2 border rounded-lg text-sm transition-colors ${
+                      className={`w-full px-3 py-2 border rounded-lg text-sm ${
                         pasvError && (pasvError.type === 'end_empty' || pasvError.type === 'both_empty' || pasvError.type === 'end_invalid' || pasvError.type === 'end_out_of_range' || pasvError.type === 'start_greater_than_end')
                           ? 'border-red-300 bg-red-50 text-red-700'
                           : 'border-gray-200 bg-white text-gray-700'
