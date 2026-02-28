@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Loader2, Eye, EyeOff, ChevronDown, ChevronUp } from 'lucide-react';
+import { Loader2, Eye, EyeOff, AlertCircle } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { ToggleSwitch } from './ui';
 import type { AdvancedConnectionConfig } from '../types';
@@ -7,32 +7,49 @@ import type { AdvancedConnectionConfig } from '../types';
 interface AdvancedConnectionConfigPanelProps {
   config: AdvancedConnectionConfig;
   port: number;
-  autoSelectPort: boolean;
+  platform: string;
   isLoading: boolean;
   disabled?: boolean;
   onConfigChange: (config: AdvancedConnectionConfig) => Promise<void>;
   onPortChange: (port: number) => Promise<void>;
-  onAutoSelectPortChange: (autoSelect: boolean) => Promise<void>;
 }
+
+type PortValidationError = 
+  | { type: 'empty' }
+  | { type: 'invalid_number' }
+  | { type: 'out_of_range'; min: number; max: number }
+  | { type: 'port_in_use'; port: number };
+
+type PasvValidationError =
+  | { type: 'start_empty' }
+  | { type: 'end_empty' }
+  | { type: 'both_empty' }
+  | { type: 'start_invalid' }
+  | { type: 'end_invalid' }
+  | { type: 'start_out_of_range' }
+  | { type: 'end_out_of_range' }
+  | { type: 'start_greater_than_end' };
 
 export function AdvancedConnectionConfigPanel({
   config,
   port,
-  autoSelectPort,
+  platform,
   isLoading,
   disabled = false,
   onConfigChange,
   onPortChange,
-  onAutoSelectPortChange,
 }: AdvancedConnectionConfigPanelProps) {
-  const [isExpanded, setIsExpanded] = useState(config.enabled);
   const [portInput, setPortInput] = useState(port.toString());
-  const [portError, setPortError] = useState<string | null>(null);
+  const [portError, setPortError] = useState<PortValidationError | null>(null);
   const [isCheckingPort, setIsCheckingPort] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [pasvStartInput, setPasvStartInput] = useState(config.pasv.portStart.toString());
   const [pasvEndInput, setPasvEndInput] = useState(config.pasv.portEnd.toString());
-  const [pasvError, setPasvError] = useState<string | null>(null);
+  const [pasvError, setPasvError] = useState<PasvValidationError | null>(null);
+
+  // Android 上禁止特权端口，Windows 上允许
+  const minPort = platform === 'android' ? 1024 : 1;
+  const maxPort = 65535;
 
   // Sync inputs when config changes
   useEffect(() => {
@@ -44,70 +61,129 @@ export function AdvancedConnectionConfigPanel({
     setPasvEndInput(config.pasv.portEnd.toString());
   }, [config.pasv.portStart, config.pasv.portEnd]);
 
-  // Update expanded state when config.enabled changes externally
-  useEffect(() => {
-    setIsExpanded(config.enabled);
-  }, [config.enabled]);
-
-  const validatePort = (value: string): number | null => {
-    const portNum = parseInt(value, 10);
-    if (isNaN(portNum) || portNum < 1024 || portNum > 65535) {
-      return null;
+  const getPortErrorMessage = (error: PortValidationError): string => {
+    switch (error.type) {
+      case 'empty':
+        return '端口号不能为空';
+      case 'invalid_number':
+        return '请输入有效的端口号';
+      case 'out_of_range':
+        return `端口号必须在 ${error.min}-${error.max} 之间`;
+      case 'port_in_use':
+        return `端口 ${error.port} 已被占用`;
     }
-    return portNum;
   };
 
-  const validatePasvRange = (start: string, end: string): { start: number; end: number } | null => {
+  const getPasvErrorMessage = (error: PasvValidationError): string => {
+    switch (error.type) {
+      case 'start_empty':
+        return '起始端口不能为空';
+      case 'end_empty':
+        return '结束端口不能为空';
+      case 'both_empty':
+        return '起始端口和结束端口不能为空';
+      case 'start_invalid':
+        return '起始端口不是有效的数字';
+      case 'end_invalid':
+        return '结束端口不是有效的数字';
+      case 'start_out_of_range':
+        return `起始端口必须在 ${minPort}-${maxPort} 之间`;
+      case 'end_out_of_range':
+        return `结束端口必须在 ${minPort}-${maxPort} 之间`;
+      case 'start_greater_than_end':
+        return '起始端口必须小于结束端口';
+    }
+  };
+
+  const validatePort = (value: string): { valid: boolean; port?: number; error?: PortValidationError } => {
+    if (value.trim() === '') {
+      return { valid: false, error: { type: 'empty' } };
+    }
+    
+    const portNum = parseInt(value, 10);
+    
+    if (isNaN(portNum)) {
+      return { valid: false, error: { type: 'invalid_number' } };
+    }
+    
+    if (portNum < minPort || portNum > maxPort) {
+      return { valid: false, error: { type: 'out_of_range', min: minPort, max: maxPort } };
+    }
+    
+    return { valid: true, port: portNum };
+  };
+
+  const validatePasvRange = (start: string, end: string): { valid: boolean; startPort?: number; endPort?: number; error?: PasvValidationError } => {
+    const startEmpty = start.trim() === '';
+    const endEmpty = end.trim() === '';
+    
+    if (startEmpty && endEmpty) {
+      return { valid: false, error: { type: 'both_empty' } };
+    }
+    if (startEmpty) {
+      return { valid: false, error: { type: 'start_empty' } };
+    }
+    if (endEmpty) {
+      return { valid: false, error: { type: 'end_empty' } };
+    }
+    
     const startNum = parseInt(start, 10);
     const endNum = parseInt(end, 10);
-    if (isNaN(startNum) || isNaN(endNum)) return null;
-    if (startNum < 1024 || endNum > 65535) return null;
-    if (startNum >= endNum) return null;
-    return { start: startNum, end: endNum };
+    
+    if (isNaN(startNum)) {
+      return { valid: false, error: { type: 'start_invalid' } };
+    }
+    if (isNaN(endNum)) {
+      return { valid: false, error: { type: 'end_invalid' } };
+    }
+    
+    if (startNum < minPort || startNum > maxPort) {
+      return { valid: false, error: { type: 'start_out_of_range' } };
+    }
+    if (endNum < minPort || endNum > maxPort) {
+      return { valid: false, error: { type: 'end_out_of_range' } };
+    }
+    
+    if (startNum >= endNum) {
+      return { valid: false, error: { type: 'start_greater_than_end' } };
+    }
+    
+    return { valid: true, startPort: startNum, endPort: endNum };
   };
 
   const handleToggleEnabled = async () => {
     const newEnabled = !config.enabled;
     const newConfig = { ...config, enabled: newEnabled };
     await onConfigChange(newConfig);
-    setIsExpanded(newEnabled);
   };
 
   const handlePortChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value;
     setPortInput(value);
 
-    const portNum = validatePort(value);
-    if (portNum === null) {
-      setPortError('端口号必须在 1024-65535 之间');
-    } else {
-      setPortError(null);
-    }
+    const result = validatePort(value);
+    setPortError(result.valid ? null : result.error || null);
   };
 
   const handlePortBlur = async () => {
-    const portNum = validatePort(portInput);
-    if (portNum === null) return;
-    if (portNum === port) return;
+    const result = validatePort(portInput);
+    if (!result.valid || result.port === undefined) return;
+    if (result.port === port) return;
 
     setIsCheckingPort(true);
     try {
-      const isAvailable = await invoke<boolean>('check_port_available', { port: portNum });
+      const isAvailable = await invoke<boolean>('check_port_available', { port: result.port });
       if (!isAvailable) {
-        setPortError(`端口 ${portNum} 已被占用`);
+        setPortError({ type: 'port_in_use', port: result.port });
         setIsCheckingPort(false);
         return;
       }
-      await onPortChange(portNum);
+      await onPortChange(result.port);
     } catch {
-      setPortError('检查端口时出错');
+      setPortError({ type: 'invalid_number' });
     } finally {
       setIsCheckingPort(false);
     }
-  };
-
-  const handleAutoSelectToggle = async () => {
-    await onAutoSelectPortChange(!autoSelectPort);
   };
 
   const handleAnonymousToggle = async () => {
@@ -145,35 +221,27 @@ export function AdvancedConnectionConfigPanel({
   const handlePasvStartChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value;
     setPasvStartInput(value);
-    const range = validatePasvRange(value, pasvEndInput);
-    if (range === null) {
-      setPasvError('起始端口必须小于结束端口，且都在 1024-65535 范围内');
-    } else {
-      setPasvError(null);
-    }
+    const result = validatePasvRange(value, pasvEndInput);
+    setPasvError(result.valid ? null : result.error || null);
   };
 
   const handlePasvEndChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value;
     setPasvEndInput(value);
-    const range = validatePasvRange(pasvStartInput, value);
-    if (range === null) {
-      setPasvError('结束端口必须大于起始端口，且都在 1024-65535 范围内');
-    } else {
-      setPasvError(null);
-    }
+    const result = validatePasvRange(pasvStartInput, value);
+    setPasvError(result.valid ? null : result.error || null);
   };
 
   const handlePasvBlur = async () => {
-    const range = validatePasvRange(pasvStartInput, pasvEndInput);
-    if (range === null) return;
+    const result = validatePasvRange(pasvStartInput, pasvEndInput);
+    if (!result.valid || result.startPort === undefined || result.endPort === undefined) return;
 
     const newConfig = {
       ...config,
       pasv: {
         ...config.pasv,
-        portStart: range.start,
-        portEnd: range.end,
+        portStart: result.startPort,
+        portEnd: result.endPort,
       },
     };
     await onConfigChange(newConfig);
@@ -195,54 +263,39 @@ export function AdvancedConnectionConfigPanel({
         <div className="mt-4 space-y-6 border-t border-gray-100 pt-4">
           {/* 端口配置 */}
           <div className="space-y-3">
-            <h4 className="text-sm font-semibold text-gray-800 flex items-center gap-2">
-              端口配置
-              <button
-                onClick={() => setIsExpanded(!isExpanded)}
-                className="text-gray-400 hover:text-gray-600"
-              >
-                {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-              </button>
-            </h4>
+            <h4 className="text-sm font-semibold text-gray-800">端口配置</h4>
 
-            <ToggleSwitch
-              enabled={autoSelectPort}
-              onChange={handleAutoSelectToggle}
-              label="自动选择端口"
-              description="自动寻找可用端口（推荐）"
-              disabled={isLoading || disabled}
-            />
-
-            {!autoSelectPort && (
-              <div className="space-y-2 pl-4 border-l-2 border-gray-100">
-                <label className="block text-sm font-medium text-gray-700">
-                  端口号
-                </label>
-                <div className="relative">
-                  <input
-                    type="number"
-                    value={portInput}
-                    onChange={handlePortChange}
-                    onBlur={handlePortBlur}
-                    placeholder="1024-65535"
-                    disabled={isLoading || isCheckingPort || disabled}
-                    className={`w-full px-3 py-2 border rounded-lg text-sm transition-colors ${
-                      portError
-                        ? 'border-red-300 bg-red-50 text-red-700'
-                        : 'border-gray-200 bg-white text-gray-700'
-                    } disabled:opacity-50 disabled:cursor-not-allowed`}
-                  />
-                  {isCheckingPort && (
-                    <Loader2 className="w-4 h-4 animate-spin text-gray-400 absolute right-3 top-1/2 -translate-y-1/2" />
-                  )}
-                </div>
-                {portError ? (
-                  <p className="text-xs text-red-600">{portError}</p>
-                ) : (
-                  <p className="text-xs text-gray-500">设置 FTP 服务器监听的端口号</p>
+            <div className="space-y-2">
+              <label className="block text-sm font-medium text-gray-700">
+                端口号
+              </label>
+              <div className="relative">
+                <input
+                  type="number"
+                  value={portInput}
+                  onChange={handlePortChange}
+                  onBlur={handlePortBlur}
+                  placeholder={`${minPort}-${maxPort}`}
+                  disabled={isLoading || isCheckingPort || disabled}
+                  className={`w-full px-3 py-2 border rounded-lg text-sm transition-colors ${
+                    portError
+                      ? 'border-red-300 bg-red-50 text-red-700'
+                      : 'border-gray-200 bg-white text-gray-700'
+                  } disabled:opacity-50 disabled:cursor-not-allowed`}
+                />
+                {isCheckingPort && (
+                  <Loader2 className="w-4 h-4 animate-spin text-gray-400 absolute right-3 top-1/2 -translate-y-1/2" />
                 )}
               </div>
-            )}
+              {portError ? (
+                <p className="text-xs text-red-600 flex items-center gap-1">
+                  <AlertCircle className="w-3 h-3" />
+                  {getPortErrorMessage(portError)}
+                </p>
+              ) : (
+                <p className="text-xs text-gray-500">设置 FTP 服务器监听的端口号</p>
+              )}
+            </div>
           </div>
 
           {/* 认证配置 */}
@@ -269,7 +322,11 @@ export function AdvancedConnectionConfigPanel({
                     onChange={handleUsernameChange}
                     placeholder="输入用户名"
                     disabled={isLoading || disabled}
-                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white text-gray-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                    className={`w-full px-3 py-2 border rounded-lg text-sm transition-colors ${
+                      config.auth.username.trim() === '' && !config.auth.anonymous
+                        ? 'border-red-300 bg-red-50'
+                        : 'border-gray-200 bg-white'
+                    } text-gray-700 disabled:opacity-50 disabled:cursor-not-allowed`}
                   />
                 </div>
 
@@ -284,7 +341,11 @@ export function AdvancedConnectionConfigPanel({
                       onChange={handlePasswordChange}
                       placeholder="输入密码"
                       disabled={isLoading || disabled}
-                      className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white text-gray-700 pr-10 disabled:opacity-50 disabled:cursor-not-allowed"
+                      className={`w-full px-3 py-2 border rounded-lg text-sm transition-colors pr-10 ${
+                        config.auth.password === '' && !config.auth.anonymous
+                          ? 'border-red-300 bg-red-50'
+                          : 'border-gray-200 bg-white'
+                      } text-gray-700 disabled:opacity-50 disabled:cursor-not-allowed`}
                     />
                     <button
                       type="button"
@@ -296,6 +357,14 @@ export function AdvancedConnectionConfigPanel({
                     </button>
                   </div>
                 </div>
+
+                {/* 凭据未完整配置警告 */}
+                {(config.auth.username.trim() === '' || config.auth.password === '') && (
+                  <p className="text-xs text-red-600 flex items-center gap-1">
+                    <AlertCircle className="w-3 h-3" />
+                    用户名或密码未配置，将回退到匿名访问模式
+                  </p>
+                )}
               </div>
             )}
           </div>
@@ -327,7 +396,7 @@ export function AdvancedConnectionConfigPanel({
                       placeholder="50000"
                       disabled={isLoading || disabled}
                       className={`w-full px-3 py-2 border rounded-lg text-sm transition-colors ${
-                        pasvError
+                        pasvError && (pasvError.type === 'start_empty' || pasvError.type === 'both_empty' || pasvError.type === 'start_invalid' || pasvError.type === 'start_out_of_range' || pasvError.type === 'start_greater_than_end')
                           ? 'border-red-300 bg-red-50 text-red-700'
                           : 'border-gray-200 bg-white text-gray-700'
                       } disabled:opacity-50 disabled:cursor-not-allowed`}
@@ -345,7 +414,7 @@ export function AdvancedConnectionConfigPanel({
                       placeholder="50100"
                       disabled={isLoading || disabled}
                       className={`w-full px-3 py-2 border rounded-lg text-sm transition-colors ${
-                        pasvError
+                        pasvError && (pasvError.type === 'end_empty' || pasvError.type === 'both_empty' || pasvError.type === 'end_invalid' || pasvError.type === 'end_out_of_range' || pasvError.type === 'start_greater_than_end')
                           ? 'border-red-300 bg-red-50 text-red-700'
                           : 'border-gray-200 bg-white text-gray-700'
                       } disabled:opacity-50 disabled:cursor-not-allowed`}
@@ -353,7 +422,10 @@ export function AdvancedConnectionConfigPanel({
                   </div>
                 </div>
                 {pasvError ? (
-                  <p className="text-xs text-red-600">{pasvError}</p>
+                  <p className="text-xs text-red-600 flex items-center gap-1">
+                    <AlertCircle className="w-3 h-3" />
+                    {getPasvErrorMessage(pasvError)}
+                  </p>
                 ) : (
                   <p className="text-xs text-gray-500">
                     设置 PASV 数据传输端口范围（默认 50000-50100）

@@ -21,7 +21,6 @@ export function ConfigCard() {
     loadPlatform,
     setAutostart,
     updatePort,
-    updateAutoSelectPort,
     updateAdvancedConnectionConfig,
   } = useConfigStore();
 
@@ -171,12 +170,11 @@ export function ConfigCard() {
               pasv: { enabled: true, portStart: 50000, portEnd: 50100 }
             }}
             port={config?.port ?? 2121}
-            autoSelectPort={config?.autoSelectPort ?? true}
+            platform={platform}
             isLoading={isLoading}
             disabled={isRunning}
             onConfigChange={updateAdvancedConnectionConfig}
             onPortChange={updatePort}
-            onAutoSelectPortChange={updateAutoSelectPort}
           />
         </div>
       </Card>

@@ -94,10 +94,15 @@ pub async fn start_ftp_server(
         },
         idle_timeout_seconds: 600,
         auth: if config.advanced_connection.enabled {
+            let auth = &config.advanced_connection.auth;
+            // 如果禁用了匿名访问但用户名或密码为空，则回退到匿名模式
+            let should_be_anonymous = auth.anonymous 
+                || auth.username.trim().is_empty() 
+                || auth.password.is_empty();
             FtpAuthConfig {
-                anonymous: config.advanced_connection.auth.anonymous,
-                username: config.advanced_connection.auth.username.clone(),
-                password: config.advanced_connection.auth.password.clone(),
+                anonymous: should_be_anonymous,
+                username: auth.username.clone(),
+                password: auth.password.clone(),
             }
         } else {
             FtpAuthConfig::default()
