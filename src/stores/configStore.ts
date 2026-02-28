@@ -150,16 +150,14 @@ export const useConfigStore = create<ConfigState>((set, get) => {
     },
 
     // ========== 开机自启动 ==========
+    // 注意：此操作不修改全局 isLoading，避免触发其他组件重渲染
     setAutostart: async (enabled: boolean) => {
-      await executeAsync(
-        {
-          operation: () => invoke('set_autostart_command', { enable: enabled }),
-          onSuccess: () => {},
-          errorPrefix: 'Failed to set autostart',
-          rethrow: true,
-        },
-        set,
-      );
+      try {
+        await invoke('set_autostart_command', { enable: enabled });
+      } catch (e) {
+        console.error('Failed to set autostart:', e);
+        throw e;
+      }
     },
 
     // ========== Tab 切换 ==========
