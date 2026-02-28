@@ -3,7 +3,7 @@ use crate::ftp::events::EventBus;
 use crate::ftp::listeners::{FtpDataListener, FtpPresenceListener};
 use crate::ftp::stats::{StatsActor, StatsActorWorker};
 use crate::ftp::types::{
-    ServerConfig, ServerInfo, ServerStateSnapshot, ServerStatus,
+    ServerConfig, ServerInfo, ServerStateSnapshot, ServerStatus, FtpAuthConfig,
 };
 use dashmap::DashSet;
 use libunftp::options::Shutdown;
@@ -13,6 +13,46 @@ use std::sync::Arc;
 use tauri::AppHandle;
 use tokio::sync::{mpsc, oneshot, RwLock};
 use tracing::{error, info, instrument};
+use unftp_core::auth::{Authenticator, Credentials, AuthenticationError, Principal};
+
+/// 自定义 FTP 认证器
+#[derive(Debug)]
+struct CustomAuthenticator {
+    auth_config: FtpAuthConfig,
+}
+
+impl CustomAuthenticator {
+    fn new(auth_config: FtpAuthConfig) -> Self {
+        Self { auth_config }
+    }
+}
+
+#[async_trait::async_trait]
+impl Authenticator for CustomAuthenticator {
+    async fn authenticate(
+        &self,
+        username: &str,
+        creds: &Credentials,
+    ) -> Result<Principal, AuthenticationError> {
+        if self.auth_config.anonymous {
+            // 允许匿名访问
+            return Ok(Principal {
+                username: username.to_string(),
+            });
+        }
+
+        // 验证用户名和密码
+        let password = creds.password.as_deref().unwrap_or("");
+
+        if username == self.auth_config.username && password == self.auth_config.password {
+            Ok(Principal {
+                username: username.to_string(),
+            })
+        } else {
+            Err(AuthenticationError::BadPassword)
+        }
+    }
+}
 
 /// FTP服务器Actor命令
 #[derive(Debug)]
@@ -233,20 +273,26 @@ impl FtpServerActor {
             return Err(AppError::Io(e.to_string()));
         }
 
+        // 创建认证器
+        let authenticator = Arc::new(CustomAuthenticator::new(config.auth.clone()));
+
         // 构建并启动服务器
         // SAFETY: 闭包内创建 Filesystem 实例。路径已在上方（line 225）验证有效。
         // Filesystem 不实现 Clone，Arc<Filesystem> 不实现 StorageBackend，
         // 因此只能在闭包内创建新实例。如果创建失败（极不可能，因路径已验证），
         // libunftp 会处理错误 - 我们无法从这里传播错误。
-        let result = ServerBuilder::new(Box::new(move || {
-            unftp_sbe_fs::Filesystem::new(root_path.clone())
-                .unwrap_or_else(|e| {
-                    error!(error = %e, "CRITICAL: Filesystem creation failed after validation");
-                    // Return an empty filesystem that will fail operations gracefully
-                    // This path should never be reached, but prevents panic
-                    unftp_sbe_fs::Filesystem::new(std::path::PathBuf::new()).unwrap()
-                })
-        }))
+        let result = ServerBuilder::with_authenticator(
+            Box::new(move || {
+                unftp_sbe_fs::Filesystem::new(root_path.clone())
+                    .unwrap_or_else(|e| {
+                        error!(error = %e, "CRITICAL: Filesystem creation failed after validation");
+                        // Return an empty filesystem that will fail operations gracefully
+                        // This path should never be reached, but prevents panic
+                        unftp_sbe_fs::Filesystem::new(std::path::PathBuf::new()).unwrap()
+                    })
+            }),
+            authenticator,
+        )
         .greeting("Camera FTP Companion Ready")
         .passive_ports(config.passive_port_range.0..=config.passive_port_range.1)
         .idle_session_timeout(config.idle_timeout_seconds)
@@ -374,7 +420,21 @@ impl FtpServerActor {
             .unwrap_or_else(|| "0.0.0.0".to_string());
         let port = bind_addr.port();
 
-        Some(ServerInfo::new(ip, port))
+        // 获取认证信息
+        let (username, password_info) = if let Some(ref config) = self.config {
+            if config.auth.anonymous {
+                (None, None)
+            } else {
+                (
+                    Some(config.auth.username.clone()),
+                    Some("(配置密码)".to_string()),
+                )
+            }
+        } else {
+            (None, None)
+        };
+
+        Some(ServerInfo::new(ip, port, username, password_info))
     }
 }
 

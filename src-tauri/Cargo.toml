@@ -24,6 +24,7 @@ dirs = "5.0"
 # FTP 服务器
 libunftp = { version = "0.23.0", default-features = false, features = ["ring"] }
 unftp-sbe-fs = "0.4.0"
+unftp-core = "0.1.0"
 dashmap = "6.0"
 # 类型生成
 ts-rs = "10.1"

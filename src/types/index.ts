@@ -1,44 +1,65 @@
 export interface ServerInfo {
-  is_running: boolean;
+  isRunning: boolean;
   ip: string;
   port: number;
   url: string;
   username: string;
-  password_info: string;
+  passwordInfo: string;
 }
 
 export interface ServerStatus {
-  is_running: boolean;
-  connected_clients: number;
-  files_received: number;
-  bytes_received: number;
-  last_file: string | null;
+  isRunning: boolean;
+  connectedClients: number;
+  filesReceived: number;
+  bytesReceived: number;
+  lastFile: string | null;
+}
+
+export interface AuthConfig {
+  anonymous: boolean;
+  username: string;
+  password: string;
+}
+
+export interface PasvConfig {
+  enabled: boolean;
+  portStart: number;
+  portEnd: number;
+}
+
+export interface AdvancedConnectionConfig {
+  enabled: boolean;
+  auth: AuthConfig;
+  pasv: PasvConfig;
 }
 
 export interface AppConfig {
-  save_path: string;
+  savePath: string;
   port: number;
-  auto_select_port: boolean;
+  autoSelectPort: boolean;
+  advancedConnection: AdvancedConnectionConfig;
 }
 
 /// 存储路径信息（与后端 StorageInfo 对应）
 export interface StorageInfo {
-  display_name: string;
+  displayName: string;
   path: string;
   exists: boolean;
   writable: boolean;
+  hasAllFilesAccess: boolean;
 }
 
 /// 权限状态（与后端 PermissionStatus 对应）
 export interface PermissionStatus {
-  needs_user_action: boolean;
+  hasAllFilesAccess: boolean;
+  needsUserAction: boolean;
 }
 
 /// 服务器启动检查结果
 export interface ServerStartCheckResult {
-  can_start: boolean;
+  canStart: boolean;
   reason?: string;
-  storage_info?: StorageInfo;
+  storageInfo?: StorageInfo;
 }
 
 /// 文件信息（用于文件浏览）

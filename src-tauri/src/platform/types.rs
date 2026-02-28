@@ -4,6 +4,7 @@ use ts_rs::TS;
 /// 存储路径信息
 #[derive(Debug, Clone, Serialize, TS)]
 #[ts(export)]
+#[serde(rename_all = "camelCase")]
 pub struct StorageInfo {
     /// 显示名称
     pub display_name: String,
@@ -20,6 +21,7 @@ pub struct StorageInfo {
 /// 权限状态
 #[derive(Debug, Clone, Serialize, TS)]
 #[ts(export)]
+#[serde(rename_all = "camelCase")]
 pub struct PermissionStatus {
     /// 是否有"所有文件访问权限"
     pub has_all_files_access: bool,
@@ -30,6 +32,7 @@ pub struct PermissionStatus {
 /// 服务器启动检查结果
 #[derive(Debug, Clone, Serialize, TS)]
 #[ts(export)]
+#[serde(rename_all = "camelCase")]
 pub struct ServerStartCheckResult {
     pub can_start: bool,
     pub reason: Option<String>,

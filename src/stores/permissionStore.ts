@@ -227,7 +227,7 @@ export const usePermissionStore = create<PermissionStoreState>()((set, get) => (
     checkPermissionStatus: async () => {
       try {
         const status = await invoke<PermissionStatus>('check_permission_status');
-        set({ needsPermission: status.needs_user_action });
+        set({ needsPermission: status.needsUserAction });
         return status;
       } catch {
         return null;
@@ -239,15 +239,15 @@ export const usePermissionStore = create<PermissionStoreState>()((set, get) => (
       try {
         const result = await invoke<ServerStartCheckResult>('check_server_start_prerequisites');
         
-        if (result.storage_info) {
-          set({ storageInfo: result.storage_info });
+        if (result.storageInfo) {
+          set({ storageInfo: result.storageInfo });
         }
         
         return result;
       } catch (err) {
         const errorMsg = formatError(err);
         return {
-          can_start: false,
+          canStart: false,
           reason: errorMsg,
         };
       }

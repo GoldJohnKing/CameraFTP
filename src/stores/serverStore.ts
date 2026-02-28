@@ -26,11 +26,11 @@ interface ServerState {
 }
 
 const defaultStats: ServerStatus = {
-  is_running: false,
-  connected_clients: 0,
-  files_received: 0,
-  bytes_received: 0,
-  last_file: null,
+  isRunning: false,
+  connectedClients: 0,
+  filesReceived: 0,
+  bytesReceived: 0,
+  lastFile: null,
 };
 
 // Update Android foreground service with current server state
@@ -42,8 +42,8 @@ const updateAndroidServiceState = (isRunning: boolean, stats: ServerStatus | nul
     if (window.ServerStateAndroid) {
       try {
         const statsJson = stats ? JSON.stringify({
-          files_transferred: stats.files_received || 0,
-          bytes_transferred: stats.bytes_received || 0,
+          files_transferred: stats.filesReceived || 0,
+          bytes_transferred: stats.bytesReceived || 0,
         }) : null;
         window.ServerStateAndroid.onServerStateChanged(isRunning, statsJson, connectedClients);
       } catch {
@@ -67,14 +67,14 @@ const createEventRegistrations = (get: () => ServerState, set: (fn: (state: Serv
         ...state,
         isRunning: true,
         serverInfo: {
-          is_running: true,
+          isRunning: true,
           ip,
           port,
           url: `ftp://${ip}:${port}`,
           username: 'anonymous',
-          password_info: '(任意密码)',
+          passwordInfo: '(任意密码)',
         },
-        stats: { ...state.stats, is_running: true }
+        stats: { ...state.stats, isRunning: true }
       }));
       updateAndroidServiceState(true, get().stats, 0);
     },
@@ -96,7 +96,7 @@ const createEventRegistrations = (get: () => ServerState, set: (fn: (state: Serv
     handler: (event) => {
       const stats = event.payload as ServerStatus;
       set((state) => ({ ...state, stats }));
-      updateAndroidServiceState(true, stats, stats.connected_clients || 0);
+      updateAndroidServiceState(true, stats, stats.connectedClients || 0);
     },
   },
   {
@@ -162,13 +162,13 @@ const createEventRegistrations = (get: () => ServerState, set: (fn: (state: Serv
 const syncInitialState = async (set: (fn: (state: ServerState) => ServerState) => void): Promise<void> => {
   try {
     const info = await invoke<ServerInfo | null>('get_server_info');
-    if (info?.is_running) {
+    if (info?.isRunning) {
       const status = await invoke<ServerStatus | null>('get_server_status');
       set((state) => ({
         ...state,
         isRunning: true,
         serverInfo: info,
-        stats: status || { ...defaultStats, is_running: true },
+        stats: status || { ...defaultStats, isRunning: true },
       }));
     }
   } catch {
@@ -182,7 +182,7 @@ const doStartServer = async (set: (fn: (state: ServerState) => ServerState) => v
   try {
     const info = await invoke<ServerInfo>('start_server');
 
-    const initialStats = { ...get().stats, is_running: true };
+    const initialStats = { ...get().stats, isRunning: true };
     updateAndroidServiceState(true, initialStats, 0, true);
 
     set((state) => ({

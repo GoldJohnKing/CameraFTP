@@ -302,6 +302,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "ts-rs",
+ "unftp-core",
  "unftp-sbe-fs",
  "urlencoding",
  "windows 0.58.0",

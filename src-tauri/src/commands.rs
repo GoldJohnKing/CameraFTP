@@ -59,7 +59,22 @@ pub async fn start_server(
     // 使用 PlatformService trait 更新平台状态
     crate::platform::get_platform().on_server_started(&app);
 
-    Ok(ServerInfo::new(ctx.ip.clone(), ctx.port))
+    // 加载配置获取认证信息
+    let app_config = AppConfig::load();
+    let (username, password_info) = if app_config.advanced_connection.enabled {
+        if app_config.advanced_connection.auth.anonymous {
+            (None, None)
+        } else {
+            (
+                Some(app_config.advanced_connection.auth.username),
+                Some("(配置密码)".to_string()),
+            )
+        }
+    } else {
+        (None, None)
+    };
+
+    Ok(ServerInfo::new(ctx.ip.clone(), ctx.port, username, password_info))
 }
 
 #[command]

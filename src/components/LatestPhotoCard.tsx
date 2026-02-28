@@ -28,10 +28,10 @@ export const LatestPhotoCard = memo(function LatestPhotoCard() {
 
   // 获取显示用的文件名
   const getFilename = () => {
-    if (stats.last_file) {
+    if (stats.lastFile) {
       // 优先显示上传的文件
-      const parts = stats.last_file.split(/[\\/]/);
-      return parts.pop() || stats.last_file;
+      const parts = stats.lastFile.split(/[\\/]/);
+      return parts.pop() || stats.lastFile;
     } else if (scannedLatestFile) {
       // 显示扫描到的文件
       return scannedLatestFile.filename;
@@ -42,13 +42,13 @@ export const LatestPhotoCard = memo(function LatestPhotoCard() {
   const filename = getFilename();
 
   const handleOpenPreview = useCallback(async () => {
-    if (!config?.save_path) return;
+    if (!config?.savePath) return;
     
     let targetPath: string | null = null;
     
-    if (stats.last_file) {
-      // stats.last_file 是相对路径，需要拼接 save_path
-      targetPath = `${config.save_path}/${stats.last_file}`.replace(/\\/g, '/');
+    if (stats.lastFile) {
+      // stats.lastFile 是相对路径，需要拼接 savePath
+      targetPath = `${config.savePath}/${stats.lastFile}`.replace(/\\/g, '/');
     } else if (scannedLatestFile) {
       // scannedLatestFile.path 已经是完整路径
       targetPath = scannedLatestFile.path.replace(/\\/g, '/');
@@ -61,9 +61,9 @@ export const LatestPhotoCard = memo(function LatestPhotoCard() {
         console.error('Failed to open preview:', error);
       }
     }
-  }, [stats.last_file, scannedLatestFile, config?.save_path]);
+  }, [stats.lastFile, scannedLatestFile, config?.savePath]);
 
-  const hasFile = stats.last_file || scannedLatestFile;
+  const hasFile = stats.lastFile || scannedLatestFile;
 
   return (
     <button

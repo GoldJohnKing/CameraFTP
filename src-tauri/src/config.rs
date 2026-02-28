@@ -8,6 +8,75 @@ use tracing::warn;
 use tracing::{error, info};
 use ts_rs::TS;
 
+/// 认证配置
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+#[serde(rename_all = "camelCase", default)]
+pub struct AuthConfig {
+    /// 是否启用匿名访问
+    pub anonymous: bool,
+    /// 自定义用户名（匿名关闭时使用）
+    pub username: String,
+    /// 自定义密码（匿名关闭时使用）
+    pub password: String,
+}
+
+impl Default for AuthConfig {
+    fn default() -> Self {
+        Self {
+            anonymous: true,
+            username: String::new(),
+            password: String::new(),
+        }
+    }
+}
+
+/// PASV 模式配置
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PasvConfig {
+    /// 是否启用 PASV 模式
+    pub enabled: bool,
+    /// PASV 端口范围起始
+    pub port_start: u16,
+    /// PASV 端口范围结束
+    pub port_end: u16,
+}
+
+impl Default for PasvConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            port_start: 50000,
+            port_end: 50100,
+        }
+    }
+}
+
+/// 高级连接配置
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+#[serde(rename_all = "camelCase", default)]
+pub struct AdvancedConnectionConfig {
+    /// 是否启用高级连接配置
+    pub enabled: bool,
+    /// 认证配置
+    pub auth: AuthConfig,
+    /// PASV 配置
+    pub pasv: PasvConfig,
+}
+
+impl Default for AdvancedConnectionConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            auth: AuthConfig::default(),
+            pasv: PasvConfig::default(),
+        }
+    }
+}
+
 /// 图片打开方式枚举
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export)]
@@ -72,6 +141,7 @@ fn get_android_config_path() -> PathBuf {
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export)]
+#[serde(rename_all = "camelCase")]
 pub struct AppConfig {
     /// 存储路径（桌面端可自定义，Android 端固定为 DCIM/CameraFTP）
     pub save_path: PathBuf,
@@ -79,6 +149,9 @@ pub struct AppConfig {
     pub port: u16,
     /// 自动选择端口
     pub auto_select_port: bool,
+    /// 高级连接配置
+    #[serde(default)]
+    pub advanced_connection: AdvancedConnectionConfig,
     /// Windows 平台预览窗口配置
     #[cfg(target_os = "windows")]
     pub preview_config: PreviewWindowConfig,
@@ -90,6 +163,7 @@ impl Default for AppConfig {
             save_path: Self::default_pictures_dir(),
             port: 2121,
             auto_select_port: true,
+            advanced_connection: AdvancedConnectionConfig::default(),
             #[cfg(target_os = "windows")]
             preview_config: PreviewWindowConfig::default(),
         }

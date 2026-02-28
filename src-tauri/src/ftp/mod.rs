@@ -21,6 +21,6 @@ pub use server_factory::{
 };
 pub use stats::{StatsActor, StatsActorWorker};
 pub use types::{
-    DomainEvent, ServerConfig, ServerInfo, ServerStateSnapshot, ServerStatus,
+    DomainEvent, FtpAuthConfig, ServerConfig, ServerInfo, ServerStateSnapshot, ServerStatus,
     ServerStats,
 };

@@ -32,7 +32,7 @@ export function ServerCard() {
       // 1. Check prerequisites
       const check = await checkPrerequisites();
       
-      if (!check.can_start) {
+      if (!check.canStart) {
         if (needsPermission) {
           // 需要权限 - 直接跳转到设置页面
           await requestAllFilesPermission();

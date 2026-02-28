@@ -3,7 +3,7 @@
 use crate::config::AppConfig;
 use crate::error::AppError;
 use crate::ftp::{
-    create_ftp_server, EventBus, EventProcessor, FtpServerHandle, ServerConfig, StatsEventHandler,
+    create_ftp_server, EventBus, EventProcessor, FtpServerHandle, FtpAuthConfig, ServerConfig, StatsEventHandler,
 };
 use crate::network::NetworkManager;
 use std::sync::Arc;
@@ -87,8 +87,21 @@ pub async fn start_ftp_server(
     let server_config = ServerConfig {
         port,
         root_path: save_path.clone(),
-        passive_port_range: (50000, 50100),
+        passive_port_range: if config.advanced_connection.enabled {
+            (config.advanced_connection.pasv.port_start, config.advanced_connection.pasv.port_end)
+        } else {
+            (50000, 50100)
+        },
         idle_timeout_seconds: 600,
+        auth: if config.advanced_connection.enabled {
+            FtpAuthConfig {
+                anonymous: config.advanced_connection.auth.anonymous,
+                username: config.advanced_connection.auth.username.clone(),
+                password: config.advanced_connection.auth.password.clone(),
+            }
+        } else {
+            FtpAuthConfig::default()
+        },
     };
 
     // 创建FTP服务器Actor

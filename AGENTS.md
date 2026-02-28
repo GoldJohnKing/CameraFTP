@@ -160,6 +160,104 @@ adb.exe shell am start -n com.gjk.cameraftpcompanion/.MainActivity
 
 ---
 
+## ⚠️ Common Pitfalls
+
+### Frontend-Backend Type Synchronization
+
+When adding new Rust structs with `#[serde(rename_all = "camelCase")]`, the TypeScript types MUST use camelCase too.
+
+**Problem:**
+```rust
+// Rust - serde converts to camelCase in JSON
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PasvConfig {
+    pub port_start: u16,  // JSON: "portStart"
+    pub port_end: u16,    // JSON: "portEnd"
+}
+```
+
+```typescript
+// ❌ WRONG - uses snake_case, gets undefined at runtime
+interface PasvConfig {
+  port_start: number;  // undefined!
+  port_end: number;    // undefined!
+}
+
+// ✅ CORRECT - matches camelCase JSON
+interface PasvConfig {
+  portStart: number;
+  portEnd: number;
+}
+```
+
+**Symptoms:** White screen, runtime errors when accessing nested properties (`config.pasv.port_start.toString()` throws).
+
+### Type Generation with ts-rs (Recommended)
+
+`ts-rs` auto-generates TypeScript types from Rust structs, preventing sync errors.
+
+**1. Add ts-rs to Rust struct**
+```rust
+use ts_rs::TS;
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+#[serde(rename_all = "camelCase")]
+pub struct PasvConfig {
+    pub enabled: bool,
+    pub port_start: u16,  // → portStart in TypeScript
+    pub port_end: u16,    // → portEnd in TypeScript
+}
+```
+
+**2. Generate TypeScript types**
+```bash
+cd src-tauri && cargo test --features ts-rs/export
+```
+
+Output at `src-tauri/export/PasvConfig.ts`:
+```typescript
+export interface PasvConfig { 
+  enabled: boolean; 
+  portStart: number; 
+  portEnd: number; 
+}
+```
+
+**3. Import in TypeScript**
+```typescript
+import type { PasvConfig } from './generated/PasvConfig';
+```
+
+### Manual Type Sync
+
+Without ts-rs, use this mapping:
+
+| Rust Field | JSON Key | TypeScript |
+|-----------|----------|------------|
+| `port_start` | `portStart` | `portStart` |
+| `auto_select_port` | `autoSelectPort` | `autoSelectPort` |
+| `pasv.port_start` | `pasv.portStart` | `pasv.portStart` |
+
+### Backward Compatibility for Config Fields
+
+When adding new fields to `AppConfig`, use `#[serde(default)]` to support old config files:
+
+```rust
+#[derive(Serialize, Deserialize)]
+pub struct AppConfig {
+    pub save_path: PathBuf,
+    pub port: u16,
+    #[serde(default)]  // ← Required for backward compatibility
+    pub new_field: NewConfig,
+}
+```
+
+Without `#[serde(default)]`, loading old config files (missing new fields) will fail.
+
+---
+
 ## References
 
 - [Tauri v2](https://tauri.app/)

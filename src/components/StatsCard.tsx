@@ -19,7 +19,7 @@ export const StatsCard = memo(function StatsCard() {
           <div>
             <p className="text-sm text-gray-500">相机状态</p>
             <p className="text-lg font-semibold text-gray-900">
-              {stats.connected_clients > 0 ? '已连接' : '未连接'}
+              {stats.connectedClients > 0 ? '已连接' : '未连接'}
             </p>
           </div>
         </div>
@@ -31,7 +31,7 @@ export const StatsCard = memo(function StatsCard() {
           <div>
             <p className="text-sm text-gray-500">已接收照片</p>
             <p className="text-lg font-semibold text-gray-800">
-              {stats.files_received} 张
+              {stats.filesReceived} 张
             </p>
           </div>
         </div>
@@ -43,7 +43,7 @@ export const StatsCard = memo(function StatsCard() {
           <div>
             <p className="text-sm text-gray-500">总数据量</p>
             <p className="text-lg font-semibold text-gray-800">
-              {formatBytes(stats.bytes_received)}
+              {formatBytes(stats.bytesReceived)}
             </p>
           </div>
         </div>

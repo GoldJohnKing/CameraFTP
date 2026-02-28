@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { invoke } from '@tauri-apps/api/core';
-import type { AppConfig, PreviewWindowConfig } from '../types';
+import type { AppConfig, PreviewWindowConfig, AdvancedConnectionConfig } from '../types';
 import { executeAsync } from '../utils/store';
 
 interface ConfigState {
@@ -18,6 +18,7 @@ interface ConfigState {
   setActiveTab: (tab: 'home' | 'config') => void;
   updatePort: (port: number) => Promise<void>;
   updateAutoSelectPort: (autoSelect: boolean) => Promise<void>;
+  updateAdvancedConnectionConfig: (config: AdvancedConnectionConfig) => Promise<void>;
   loadPlatform: () => Promise<void>;
   loadPreviewConfig: () => Promise<void>;
   updatePreviewConfig: (config: PreviewWindowConfig) => Promise<void>;
@@ -92,7 +93,14 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
   updateAutoSelectPort: async (autoSelect: boolean) => {
     const { config, saveConfig } = get();
     if (!config) return;
-    const newConfig = { ...config, auto_select_port: autoSelect };
+    const newConfig = { ...config, autoSelectPort: autoSelect };
+    await saveConfig(newConfig);
+  },
+
+  updateAdvancedConnectionConfig: async (advancedConfig: AdvancedConnectionConfig) => {
+    const { config, saveConfig } = get();
+    if (!config) return;
+    const newConfig = { ...config, advancedConnection: advancedConfig };
     await saveConfig(newConfig);
   },
 

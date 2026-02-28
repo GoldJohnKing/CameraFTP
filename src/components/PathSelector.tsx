@@ -40,7 +40,7 @@ export function PathSelector({
   // 获取显示的路径文本
   const getPathDisplay = () => {
     if (isAndroid) {
-      return storageInfo?.display_name ?? 'DCIM/CameraFTP';
+      return storageInfo?.displayName ?? 'DCIM/CameraFTP';
     }
     return savePath || '未设置';
   };

@@ -7,7 +7,7 @@ import { useServerStore } from '../stores/serverStore';
 import { Card, CardHeader } from './ui';
 import { PermissionList } from './PermissionList';
 import { PathSelector } from './PathSelector';
-import { PortSelector } from './PortSelector';
+import { AdvancedConnectionConfigPanel } from './AdvancedConnectionConfig';
 import { AutoStartToggle } from './AutoStartToggle';
 import { PreviewConfigCard } from './PreviewConfigCard';
 
@@ -22,6 +22,7 @@ export function ConfigCard() {
     setAutostart,
     updatePort,
     updateAutoSelectPort,
+    updateAdvancedConnectionConfig,
   } = useConfigStore();
 
   const {
@@ -106,7 +107,7 @@ export function ConfigCard() {
   const handleSelectDirectory = async () => {
     const result = await invoke<string | null>('select_save_directory');
     if (result && config) {
-      const newConfig = { ...config, save_path: result };
+      const newConfig = { ...config, savePath: result };
       await invoke('save_config', { config: newConfig });
       loadConfig();
     }
@@ -128,7 +129,7 @@ export function ConfigCard() {
             platform={platform}
             storageInfo={storageInfo}
             needsPermission={needsPermission}
-            savePath={config?.save_path ?? null}
+            savePath={config?.savePath ?? null}
             isLoading={isLoading}
             disabled={isRunning}
             ensureStorageReady={ensureStorageReady}
@@ -162,16 +163,21 @@ export function ConfigCard() {
         />
 
         <div className="p-4 space-y-6">
-          {/* 端口配置 */}
-          <PortSelector
-            autoSelectPort={config?.auto_select_port ?? true}
+          {/* 高级连接配置 */}
+          <AdvancedConnectionConfigPanel
+            config={config?.advancedConnection ?? {
+              enabled: false,
+              auth: { anonymous: true, username: '', password: '' },
+              pasv: { enabled: true, portStart: 50000, portEnd: 50100 }
+            }}
             port={config?.port ?? 2121}
+            autoSelectPort={config?.autoSelectPort ?? true}
             isLoading={isLoading}
             disabled={isRunning}
-            onAutoSelectToggle={updateAutoSelectPort}
+            onConfigChange={updateAdvancedConnectionConfig}
             onPortChange={updatePort}
+            onAutoSelectPortChange={updateAutoSelectPort}
           />
-
         </div>
       </Card>
 

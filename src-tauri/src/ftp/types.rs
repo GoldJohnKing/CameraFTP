@@ -21,6 +21,24 @@ impl ServerStats {
     }
 }
 
+/// FTP 认证配置
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct FtpAuthConfig {
+    pub anonymous: bool,
+    pub username: String,
+    pub password: String,
+}
+
+impl Default for FtpAuthConfig {
+    fn default() -> Self {
+        Self {
+            anonymous: true,
+            username: String::new(),
+            password: String::new(),
+        }
+    }
+}
+
 /// FTP 服务器配置
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ServerConfig {
@@ -28,11 +46,13 @@ pub struct ServerConfig {
     pub root_path: PathBuf,
     pub passive_port_range: (u16, u16),
     pub idle_timeout_seconds: u64,
+    pub auth: FtpAuthConfig,
 }
 
 /// 服务器运行时统计快照
 #[derive(Debug, Clone, serde::Serialize, ts_rs::TS)]
 #[ts(export)]
+#[serde(rename_all = "camelCase")]
 pub struct ServerStateSnapshot {
     pub is_running: bool,
     pub connected_clients: usize,
@@ -93,6 +113,7 @@ pub enum DomainEvent {
 /// 服务器连接信息（用于前端显示）
 #[derive(Debug, Clone, serde::Serialize, TS)]
 #[ts(export)]
+#[serde(rename_all = "camelCase")]
 pub struct ServerInfo {
     pub is_running: bool,
     pub ip: String,
@@ -103,14 +124,19 @@ pub struct ServerInfo {
 }
 
 impl ServerInfo {
-    pub fn new(ip: String, port: u16) -> Self {
+    pub fn new(
+        ip: String,
+        port: u16,
+        username: Option<String>,
+        password_info: Option<String>,
+    ) -> Self {
         Self {
             is_running: true,
             ip: ip.clone(),
             port,
             url: format!("ftp://{}:{}", ip, port),
-            username: "anonymous".to_string(),
-            password_info: "(任意密码)".to_string(),
+            username: username.unwrap_or_else(|| "anonymous".to_string()),
+            password_info: password_info.unwrap_or_else(|| "(任意密码)".to_string()),
         }
     }
 }
