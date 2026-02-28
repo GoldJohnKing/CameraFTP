@@ -46,6 +46,8 @@ export function AdvancedConnectionConfigPanel({
   const [pasvStartInput, setPasvStartInput] = useState(config.pasv.portStart.toString());
   const [pasvEndInput, setPasvEndInput] = useState(config.pasv.portEnd.toString());
   const [pasvError, setPasvError] = useState<PasvValidationError | null>(null);
+  const [usernameInput, setUsernameInput] = useState(config.auth.username);
+  const [passwordInput, setPasswordInput] = useState(config.auth.password);
 
   // Android 上禁止特权端口，Windows 上允许
   const minPort = platform === 'android' ? 1024 : 1;
@@ -60,6 +62,11 @@ export function AdvancedConnectionConfigPanel({
     setPasvStartInput(config.pasv.portStart.toString());
     setPasvEndInput(config.pasv.portEnd.toString());
   }, [config.pasv.portStart, config.pasv.portEnd]);
+
+  useEffect(() => {
+    setUsernameInput(config.auth.username);
+    setPasswordInput(config.auth.password);
+  }, [config.auth.username, config.auth.password]);
 
   const getPortErrorMessage = (error: PortValidationError): string => {
     switch (error.type) {
@@ -195,19 +202,45 @@ export function AdvancedConnectionConfigPanel({
   };
 
   const handleUsernameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const newConfig = {
-      ...config,
-      auth: { ...config.auth, username: e.target.value },
-    };
-    onConfigChange(newConfig);
+    setUsernameInput(e.target.value);
+  };
+
+  const handleUsernameBlur = () => {
+    const newValue = usernameInput;
+    const currentValue = config.auth.username;
+    const currentConfig = config;
+    
+    if (newValue === currentValue) return;
+    
+    // 延迟更新配置，避免与焦点转移冲突
+    requestAnimationFrame(async () => {
+      const newConfig = {
+        ...currentConfig,
+        auth: { ...currentConfig.auth, username: newValue },
+      };
+      await onConfigChange(newConfig);
+    });
   };
 
   const handlePasswordChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const newConfig = {
-      ...config,
-      auth: { ...config.auth, password: e.target.value },
-    };
-    onConfigChange(newConfig);
+    setPasswordInput(e.target.value);
+  };
+
+  const handlePasswordBlur = () => {
+    const newValue = passwordInput;
+    const currentValue = config.auth.password;
+    const currentConfig = config;
+    
+    if (newValue === currentValue) return;
+    
+    // 延迟更新配置，避免与焦点转移冲突
+    requestAnimationFrame(async () => {
+      const newConfig = {
+        ...currentConfig,
+        auth: { ...currentConfig.auth, password: newValue },
+      };
+      await onConfigChange(newConfig);
+    });
   };
 
   const handlePasvToggle = async () => {
@@ -232,19 +265,30 @@ export function AdvancedConnectionConfigPanel({
     setPasvError(result.valid ? null : result.error || null);
   };
 
-  const handlePasvBlur = async () => {
+  const handlePasvBlur = () => {
     const result = validatePasvRange(pasvStartInput, pasvEndInput);
     if (!result.valid || result.startPort === undefined || result.endPort === undefined) return;
+    
+    // 检查值是否真正改变
+    if (result.startPort === config.pasv.portStart && result.endPort === config.pasv.portEnd) return;
 
-    const newConfig = {
-      ...config,
-      pasv: {
-        ...config.pasv,
-        portStart: result.startPort,
-        portEnd: result.endPort,
-      },
-    };
-    await onConfigChange(newConfig);
+    // 捕获当前值，避免闭包问题
+    const newStartPort = result.startPort;
+    const newEndPort = result.endPort;
+    const currentConfig = config;
+    
+    // 延迟更新配置，避免与焦点转移冲突
+    requestAnimationFrame(async () => {
+      const newConfig = {
+        ...currentConfig,
+        pasv: {
+          ...currentConfig.pasv,
+          portStart: newStartPort!,
+          portEnd: newEndPort!,
+        },
+      };
+      await onConfigChange(newConfig);
+    });
   };
 
   return (
@@ -318,12 +362,13 @@ export function AdvancedConnectionConfigPanel({
                   </label>
                   <input
                     type="text"
-                    value={config.auth.username}
+                    value={usernameInput}
                     onChange={handleUsernameChange}
+                    onBlur={handleUsernameBlur}
                     placeholder="输入用户名"
                     disabled={isLoading || disabled}
                     className={`w-full px-3 py-2 border rounded-lg text-sm transition-colors ${
-                      config.auth.username.trim() === '' && !config.auth.anonymous
+                      usernameInput.trim() === '' && !config.auth.anonymous
                         ? 'border-red-300 bg-red-50'
                         : 'border-gray-200 bg-white'
                     } text-gray-700 disabled:opacity-50 disabled:cursor-not-allowed`}
@@ -337,12 +382,13 @@ export function AdvancedConnectionConfigPanel({
                   <div className="relative">
                     <input
                       type={showPassword ? 'text' : 'password'}
-                      value={config.auth.password}
+                      value={passwordInput}
                       onChange={handlePasswordChange}
+                      onBlur={handlePasswordBlur}
                       placeholder="输入密码"
                       disabled={isLoading || disabled}
                       className={`w-full px-3 py-2 border rounded-lg text-sm transition-colors pr-10 ${
-                        config.auth.password === '' && !config.auth.anonymous
+                        passwordInput === '' && !config.auth.anonymous
                           ? 'border-red-300 bg-red-50'
                           : 'border-gray-200 bg-white'
                       } text-gray-700 disabled:opacity-50 disabled:cursor-not-allowed`}
@@ -359,7 +405,7 @@ export function AdvancedConnectionConfigPanel({
                 </div>
 
                 {/* 凭据未完整配置警告 */}
-                {(config.auth.username.trim() === '' || config.auth.password === '') && (
+                {(usernameInput.trim() === '' || passwordInput === '') && (
                   <p className="text-xs text-red-600 flex items-center gap-1">
                     <AlertCircle className="w-3 h-3" />
                     用户名或密码未配置，将回退到匿名访问模式
