@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { Loader2, Eye, EyeOff, AlertCircle } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { ToggleSwitch } from './ui';
@@ -10,8 +10,7 @@ interface AdvancedConnectionConfigPanelProps {
   platform: string;
   isLoading: boolean;
   disabled?: boolean;
-  onConfigChange: (config: AdvancedConnectionConfig) => Promise<void>;
-  onPortChange: (port: number) => Promise<void>;
+  onUpdate: (updater: (draft: any) => Partial<any>) => void;
 }
 
 type PortValidationError = 
@@ -36,38 +35,24 @@ export function AdvancedConnectionConfigPanel({
   platform,
   isLoading,
   disabled = false,
-  onConfigChange,
-  onPortChange,
+  onUpdate,
 }: AdvancedConnectionConfigPanelProps) {
-  const [portInput, setPortInput] = useState(port.toString());
+  // ========== 本地输入状态（完全独立，不从 props 同步）==========
+  const [portInput, setPortInput] = useState(() => port.toString());
   const [portError, setPortError] = useState<PortValidationError | null>(null);
   const [isCheckingPort, setIsCheckingPort] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
-  const [pasvStartInput, setPasvStartInput] = useState(config.pasv.portStart.toString());
-  const [pasvEndInput, setPasvEndInput] = useState(config.pasv.portEnd.toString());
+  const [pasvStartInput, setPasvStartInput] = useState(() => config.pasv.portStart.toString());
+  const [pasvEndInput, setPasvEndInput] = useState(() => config.pasv.portEnd.toString());
   const [pasvError, setPasvError] = useState<PasvValidationError | null>(null);
-  const [usernameInput, setUsernameInput] = useState(config.auth.username);
-  const [passwordInput, setPasswordInput] = useState(config.auth.password);
+  const [usernameInput, setUsernameInput] = useState(() => config.auth.username);
+  const [passwordInput, setPasswordInput] = useState(() => config.auth.password);
 
   // Android 上禁止特权端口，Windows 上允许
   const minPort = platform === 'android' ? 1024 : 1;
   const maxPort = 65535;
 
-  // Sync inputs when config changes
-  useEffect(() => {
-    setPortInput(port.toString());
-  }, [port]);
-
-  useEffect(() => {
-    setPasvStartInput(config.pasv.portStart.toString());
-    setPasvEndInput(config.pasv.portEnd.toString());
-  }, [config.pasv.portStart, config.pasv.portEnd]);
-
-  useEffect(() => {
-    setUsernameInput(config.auth.username);
-    setPasswordInput(config.auth.password);
-  }, [config.auth.username, config.auth.password]);
-
+  // ========== 错误消息 ==========
   const getPortErrorMessage = (error: PortValidationError): string => {
     switch (error.type) {
       case 'empty':
@@ -102,6 +87,7 @@ export function AdvancedConnectionConfigPanel({
     }
   };
 
+  // ========== 验证函数 ==========
   const validatePort = (value: string): { valid: boolean; port?: number; error?: PortValidationError } => {
     if (value.trim() === '') {
       return { valid: false, error: { type: 'empty' } };
@@ -158,97 +144,48 @@ export function AdvancedConnectionConfigPanel({
     return { valid: true, startPort: startNum, endPort: endNum };
   };
 
-  const handleToggleEnabled = async () => {
-    const newEnabled = !config.enabled;
-    const newConfig = { ...config, enabled: newEnabled };
-    await onConfigChange(newConfig);
+  // ========== 开关处理：立即更新 draft ==========
+  const handleToggleEnabled = () => {
+    onUpdate(() => ({
+      advancedConnection: {
+        ...config,
+        enabled: !config.enabled,
+      },
+    }));
   };
 
+  const handleAnonymousToggle = () => {
+    onUpdate(() => ({
+      advancedConnection: {
+        ...config,
+        auth: { ...config.auth, anonymous: !config.auth.anonymous },
+      },
+    }));
+  };
+
+  const handlePasvToggle = () => {
+    onUpdate(() => ({
+      advancedConnection: {
+        ...config,
+        pasv: { ...config.pasv, enabled: !config.pasv.enabled },
+      },
+    }));
+  };
+
+  // ========== 输入处理：仅更新本地 state ==========
   const handlePortChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value;
     setPortInput(value);
-
     const result = validatePort(value);
     setPortError(result.valid ? null : result.error || null);
-  };
-
-  const handlePortBlur = async () => {
-    const result = validatePort(portInput);
-    if (!result.valid || result.port === undefined) return;
-    if (result.port === port) return;
-
-    setIsCheckingPort(true);
-    try {
-      const isAvailable = await invoke<boolean>('check_port_available', { port: result.port });
-      if (!isAvailable) {
-        setPortError({ type: 'port_in_use', port: result.port });
-        setIsCheckingPort(false);
-        return;
-      }
-      await onPortChange(result.port);
-    } catch {
-      setPortError({ type: 'invalid_number' });
-    } finally {
-      setIsCheckingPort(false);
-    }
-  };
-
-  const handleAnonymousToggle = async () => {
-    const newConfig = {
-      ...config,
-      auth: { ...config.auth, anonymous: !config.auth.anonymous },
-    };
-    await onConfigChange(newConfig);
   };
 
   const handleUsernameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setUsernameInput(e.target.value);
   };
 
-  const handleUsernameBlur = () => {
-    const newValue = usernameInput;
-    const currentValue = config.auth.username;
-    const currentConfig = config;
-    
-    if (newValue === currentValue) return;
-    
-    // 延迟更新配置，避免与焦点转移冲突
-    requestAnimationFrame(async () => {
-      const newConfig = {
-        ...currentConfig,
-        auth: { ...currentConfig.auth, username: newValue },
-      };
-      await onConfigChange(newConfig);
-    });
-  };
-
   const handlePasswordChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setPasswordInput(e.target.value);
-  };
-
-  const handlePasswordBlur = () => {
-    const newValue = passwordInput;
-    const currentValue = config.auth.password;
-    const currentConfig = config;
-    
-    if (newValue === currentValue) return;
-    
-    // 延迟更新配置，避免与焦点转移冲突
-    requestAnimationFrame(async () => {
-      const newConfig = {
-        ...currentConfig,
-        auth: { ...currentConfig.auth, password: newValue },
-      };
-      await onConfigChange(newConfig);
-    });
-  };
-
-  const handlePasvToggle = async () => {
-    const newConfig = {
-      ...config,
-      pasv: { ...config.pasv, enabled: !config.pasv.enabled },
-    };
-    await onConfigChange(newConfig);
   };
 
   const handlePasvStartChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -265,30 +202,60 @@ export function AdvancedConnectionConfigPanel({
     setPasvError(result.valid ? null : result.error || null);
   };
 
+  // ========== 失焦处理：更新 draft（触发防抖保存）==========
+  const handlePortBlur = async () => {
+    const result = validatePort(portInput);
+    if (!result.valid || result.port === undefined) return;
+    if (result.port === port) return;
+
+    setIsCheckingPort(true);
+    try {
+      const isAvailable = await invoke<boolean>('check_port_available', { port: result.port });
+      if (!isAvailable) {
+        setPortError({ type: 'port_in_use', port: result.port });
+        setIsCheckingPort(false);
+        return;
+      }
+      // 更新 draft
+      onUpdate(() => ({ port: result.port }));
+    } catch {
+      setPortError({ type: 'invalid_number' });
+    } finally {
+      setIsCheckingPort(false);
+    }
+  };
+
+  const handleUsernameBlur = () => {
+    if (usernameInput === config.auth.username) return;
+    onUpdate(() => ({
+      advancedConnection: {
+        ...config,
+        auth: { ...config.auth, username: usernameInput },
+      },
+    }));
+  };
+
+  const handlePasswordBlur = () => {
+    if (passwordInput === config.auth.password) return;
+    onUpdate(() => ({
+      advancedConnection: {
+        ...config,
+        auth: { ...config.auth, password: passwordInput },
+      },
+    }));
+  };
+
   const handlePasvBlur = () => {
     const result = validatePasvRange(pasvStartInput, pasvEndInput);
     if (!result.valid || result.startPort === undefined || result.endPort === undefined) return;
-    
-    // 检查值是否真正改变
     if (result.startPort === config.pasv.portStart && result.endPort === config.pasv.portEnd) return;
 
-    // 捕获当前值，避免闭包问题
-    const newStartPort = result.startPort;
-    const newEndPort = result.endPort;
-    const currentConfig = config;
-    
-    // 延迟更新配置，避免与焦点转移冲突
-    requestAnimationFrame(async () => {
-      const newConfig = {
-        ...currentConfig,
-        pasv: {
-          ...currentConfig.pasv,
-          portStart: newStartPort!,
-          portEnd: newEndPort!,
-        },
-      };
-      await onConfigChange(newConfig);
-    });
+    onUpdate(() => ({
+      advancedConnection: {
+        ...config,
+        pasv: { ...config.pasv, portStart: result.startPort, portEnd: result.endPort },
+      },
+    }));
   };
 
   return (

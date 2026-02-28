@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { Settings, Wifi, Shield } from 'lucide-react';
-import { useConfigStore } from '../stores/configStore';
+import { useConfigStore, useDraftConfig } from '../stores/configStore';
 import { usePermissionStore } from '../stores/permissionStore';
 import { useServerStore } from '../stores/serverStore';
 import { Card, CardHeader } from './ui';
@@ -13,16 +13,17 @@ import { PreviewConfigCard } from './PreviewConfigCard';
 
 export function ConfigCard() {
   const {
-    config,
     isLoading,
     error,
     platform,
     loadConfig,
     loadPlatform,
     setAutostart,
-    updatePort,
-    updateAdvancedConnectionConfig,
+    updateDraft,
   } = useConfigStore();
+
+  // 使用 draft（编辑界面订阅 draft，而非 config）
+  const draft = useDraftConfig();
 
   const {
     storageInfo,
@@ -105,12 +106,19 @@ export function ConfigCard() {
 
   const handleSelectDirectory = async () => {
     const result = await invoke<string | null>('select_save_directory');
-    if (result && config) {
-      const newConfig = { ...config, savePath: result };
-      await invoke('save_config', { config: newConfig });
-      loadConfig();
+    if (result && draft) {
+      // 直接更新 draft（触发防抖保存）
+      updateDraft(d => ({ ...d, savePath: result }));
     }
   };
+
+  // 处理高级连接配置更新
+  const handleAdvancedConfigUpdate = useCallback((updater: (draft: any) => Partial<any>) => {
+    updateDraft(draft => {
+      const updates = updater(draft);
+      return { ...draft, ...updates };
+    });
+  }, [updateDraft]);
 
   return (
     <>
@@ -128,7 +136,7 @@ export function ConfigCard() {
             platform={platform}
             storageInfo={storageInfo}
             needsPermission={needsPermission}
-            savePath={config?.savePath ?? null}
+            savePath={draft?.savePath ?? null}
             isLoading={isLoading}
             disabled={isRunning}
             ensureStorageReady={ensureStorageReady}
@@ -164,17 +172,16 @@ export function ConfigCard() {
         <div className="p-4 space-y-6">
           {/* 高级连接配置 */}
           <AdvancedConnectionConfigPanel
-            config={config?.advancedConnection ?? {
+            config={draft?.advancedConnection ?? {
               enabled: false,
               auth: { anonymous: true, username: '', password: '' },
               pasv: { enabled: true, portStart: 50000, portEnd: 50100 }
             }}
-            port={config?.port ?? 2121}
+            port={draft?.port ?? 2121}
             platform={platform}
             isLoading={isLoading}
             disabled={isRunning}
-            onConfigChange={updateAdvancedConnectionConfig}
-            onPortChange={updatePort}
+            onUpdate={handleAdvancedConfigUpdate}
           />
         </div>
       </Card>
