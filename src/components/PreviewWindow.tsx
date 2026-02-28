@@ -32,6 +32,19 @@ export function PreviewWindow() {
     autoBringToFront: false,
   });
 
+  // 加载平台信息并设置 html class（用于平台自适应样式）
+  useEffect(() => {
+    const loadPlatform = async () => {
+      try {
+        const platformValue = await invoke<string>('get_platform');
+        document.documentElement.className = `platform-${platformValue}`;
+      } catch {
+        // Silently ignore
+      }
+    };
+    loadPlatform();
+  }, []);
+
   // 监听 Rust 发来的预览事件
   useEffect(() => {
     let unlisten: (() => void) | null = null;

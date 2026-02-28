@@ -15,7 +15,7 @@ import { useConfigStore } from './stores/configStore';
 
 function App() {
   const { initializeListeners, showPermissionDialog, closePermissionDialog, continueAfterPermissionsGranted } = useServerStore();
-  const { activeTab, loadConfig } = useConfigStore();
+  const { activeTab, loadConfig, loadPlatform, platform } = useConfigStore();
   const [showQuitDialog, setShowQuitDialog] = useState(false);
   const [isPreviewWindow, setIsPreviewWindow] = useState(false);
 
@@ -24,6 +24,18 @@ function App() {
     const window = getCurrentWindow();
     setIsPreviewWindow(window.label === 'preview');
   }, []);
+
+  // 加载平台信息并设置 html class（用于平台自适应样式）
+  useEffect(() => {
+    loadPlatform();
+  }, [loadPlatform]);
+
+  // 根据平台设置 html 元素的 class
+  useEffect(() => {
+    if (platform && platform !== 'unknown') {
+      document.documentElement.className = `platform-${platform}`;
+    }
+  }, [platform]);
 
   // 初始化 store 的监听器
   useEffect(() => {
