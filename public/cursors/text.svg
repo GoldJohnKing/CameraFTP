@@ -1,7 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">
-  <!-- Windows 原生风格工字光标：黑色填充 + 白色描边 -->
-  <!-- 描边填充一体化设计 -->
-  <g fill="#000000" stroke="#FFFFFF" stroke-width="1.5" stroke-linejoin="round">
-    <path d="M13 6 L19 6 L19 7.5 L16.75 7.5 L16.75 24.5 L19 24.5 L19 26 L13 26 L13 24.5 L15.25 24.5 L15.25 7.5 L13 7.5 Z"/>
-  </g>
+<?xml version="1.0" encoding="utf-8"?>
+<svg version="1.1" id="Layer_1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+	 viewBox="0 0 32 32" style="enable-background:new 0 0 32 32;" xml:space="preserve">
+<polygon style="fill:#FFFFFE;stroke:#000001;stroke-miterlimit:10;" points="21,9.5 21,7.5 17,7.5 17,8 15,8 15,7.5 11,7.5 11,9.5 
+	15,9.5 15,22.5 11,22.5 11,24.5 15,24.5 15,24 17,24 17,24.5 21,24.5 21,22.5 17,22.5 17,9.5 "/>
 </svg>

@@ -42,12 +42,12 @@ select:disabled,
 
 /* ========================================
    平台自适应自定义光标（仅 Windows）
-   使用外部 SVG 文件，Windows 原生风格
+   使用外部 PNG 文件（由 CUR 转换而来）
    ======================================== */
 
 /* 抓手光标 - 张开 */
 html.platform-windows .cursor-grab {
-  cursor: url('/cursors/grab.svg') 16 16, grab !important;
+  cursor: url('/cursors/grab.png') 16 16, grab !important;
 }
 
 html:not(.platform-windows) .cursor-grab {
@@ -56,7 +56,7 @@ html:not(.platform-windows) .cursor-grab {
 
 /* 抓手光标 - 握紧 */
 html.platform-windows .cursor-grabbing {
-  cursor: url('/cursors/grabbing.svg') 16 16, grabbing !important;
+  cursor: url('/cursors/grabbing.png') 16 16, grabbing !important;
 }
 
 html:not(.platform-windows) .cursor-grabbing {
