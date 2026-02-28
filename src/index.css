@@ -73,5 +73,5 @@ html.platform-windows input[type="tel"],
 html.platform-windows input[type="url"],
 html.platform-windows textarea,
 html.platform-windows [contenteditable="true"] {
-  cursor: url('/cursors/text.svg') 16 16, text !important;
+  cursor: url('/cursors/ibeam.png') 13 15, text !important;
 }
