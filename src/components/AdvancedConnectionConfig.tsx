@@ -296,6 +296,7 @@ export function AdvancedConnectionConfigPanel({
                   {(isEditingPassword || !hasExistingPassword) && (
                     <button
                       type="button"
+                      onMouseDown={(e) => e.preventDefault()} // 阻止点击时输入框失焦
                       onClick={() => setShowPassword(!showPassword)}
                       disabled={isLoading || disabled}
                       className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 disabled:opacity-50"
