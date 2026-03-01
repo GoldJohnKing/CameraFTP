@@ -45,6 +45,7 @@ pub fn hash_password(password: String) -> HashedPassword {
 
 /// 验证密码
 /// 使用 Zeroizing 包装密码，确保使用后内存自动清零（防止 dump 泄露）
+/// 自动从哈希字符串中提取参数（PHC 格式），支持不同参数配置的哈希验证
 pub fn verify_password(password: String, stored_hash: &str) -> bool {
     // 使用 Zeroizing 包装，离开作用域时自动清零
     let password = Zeroizing::new(password);
@@ -54,14 +55,9 @@ pub fn verify_password(password: String, stored_hash: &str) -> bool {
         Err(_) => return false,
     };
 
-    let argon2 = Argon2::new(
-        argon2::Algorithm::Argon2id,
-        argon2::Version::V0x13,
-        argon2::Params::new(MEMORY_COST, TIME_COST, PARALLELISM, Some(OUTPUT_LENGTH))
-            .expect("Invalid Argon2 parameters"),
-    );
-
-    argon2
+    // 使用 Argon2::default()，它会自动从 parsed_hash 中提取参数
+    // 这样可以兼容不同参数生成的哈希（如未来升级参数时旧配置仍可验证）
+    Argon2::default()
         .verify_password(password.as_bytes(), &parsed_hash)
         .is_ok()
     // password (Zeroizing) 离开作用域，内存自动清零
