@@ -11,7 +11,9 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 #[cfg(debug_assertions)]
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
-use tauri::{Manager, Emitter};
+use tauri::Manager;
+#[cfg(not(target_os = "android"))]
+use tauri::Emitter;
 
 use auto_open::AutoOpenService;
 use file_index::FileIndexService;

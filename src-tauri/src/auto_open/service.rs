@@ -15,6 +15,7 @@ use crate::config::PreviewWindowConfig;
 use crate::error::AppError;
 
 pub struct AutoOpenService {
+    #[allow(dead_code)]
     app_handle: AppHandle,
     #[cfg(target_os = "windows")]
     config: Arc<Mutex<PreviewWindowConfig>>,
@@ -208,16 +209,15 @@ impl AutoOpenService {
     }
 }
 
+#[cfg(target_os = "windows")]
 #[derive(Clone, serde::Serialize)]
 pub struct PreviewEvent {
     pub file_path: String,
     pub bring_to_front: bool,
 }
 
+#[cfg(target_os = "windows")]
 #[derive(Clone, serde::Serialize)]
 pub struct ConfigChangedEvent {
-    #[cfg(target_os = "windows")]
     pub config: PreviewWindowConfig,
-    #[cfg(not(target_os = "windows"))]
-    pub config: crate::config::PreviewWindowConfig,
 }
