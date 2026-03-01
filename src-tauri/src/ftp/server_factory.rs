@@ -60,11 +60,19 @@ pub async fn start_ftp_server(
     let save_path = std::path::PathBuf::from(save_path);
 
     // 查找可用端口
-    let port = if NetworkManager::is_port_available(config.port).await {
+    // 当 advanced_connection 禁用时，Windows 使用默认端口 21，Android 使用 2121
+    let default_port = if cfg!(target_os = "windows") { 21 } else { 2121 };
+    let requested_port = if config.advanced_connection.enabled {
         config.port
+    } else {
+        default_port
+    };
+
+    let port = if NetworkManager::is_port_available(requested_port).await {
+        requested_port
     } else if config.auto_select_port {
         warn!(
-            requested_port = config.port,
+            requested_port = requested_port,
             "Port not available, searching for alternative"
         );
         NetworkManager::find_available_port(options.min_port)

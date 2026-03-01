@@ -22,7 +22,6 @@ export interface AuthConfig {
 }
 
 export interface PasvConfig {
-  enabled: boolean;
   portStart: number;
   portEnd: number;
 }

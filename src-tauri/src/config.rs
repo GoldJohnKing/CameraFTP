@@ -36,8 +36,6 @@ impl Default for AuthConfig {
 #[ts(export)]
 #[serde(rename_all = "camelCase", default)]
 pub struct PasvConfig {
-    /// 是否启用 PASV 模式
-    pub enabled: bool,
     /// PASV 端口范围起始
     pub port_start: u16,
     /// PASV 端口范围结束
@@ -47,7 +45,6 @@ pub struct PasvConfig {
 impl Default for PasvConfig {
     fn default() -> Self {
         Self {
-            enabled: true,
             port_start: 50000,
             port_end: 50100,
         }
@@ -159,9 +156,16 @@ pub struct AppConfig {
 
 impl Default for AppConfig {
     fn default() -> Self {
+        // Windows 默认使用端口 21，Android 默认使用端口 2121
+        let default_port = if cfg!(target_os = "windows") {
+            21
+        } else {
+            2121
+        };
+
         Self {
             save_path: Self::default_pictures_dir(),
-            port: 2121,
+            port: default_port,
             auto_select_port: true,
             advanced_connection: AdvancedConnectionConfig::default(),
             #[cfg(target_os = "windows")]

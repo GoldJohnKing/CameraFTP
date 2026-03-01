@@ -174,7 +174,7 @@ export function ConfigCard() {
             config={draft?.advancedConnection ?? {
               enabled: false,
               auth: { anonymous: true, username: '', password: '' },
-              pasv: { enabled: true, portStart: 50000, portEnd: 50100 }
+              pasv: { portStart: 50000, portEnd: 50100 }
             }}
             port={draft?.port ?? 2121}
             platform={platform}

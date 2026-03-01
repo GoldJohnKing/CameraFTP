@@ -1,10 +1,12 @@
 import { memo } from 'react';
 import { Wifi } from 'lucide-react';
 import { useServerStore } from '../stores/serverStore';
+import { useSavedConfig } from '../stores/configStore';
 import { Card, IconContainer } from './ui';
 
 export const InfoCard = memo(function InfoCard() {
   const { serverInfo, isRunning } = useServerStore();
+  const config = useSavedConfig();
 
   if (!isRunning || !serverInfo) {
     return (
@@ -19,6 +21,14 @@ export const InfoCard = memo(function InfoCard() {
       </Card>
     );
   }
+
+  // 只有实际使用匿名模式时才显示用户名/密码行
+  // 匿名模式的情况：1. 高级连接未启用 2. 启用匿名访问 3. 用户名或密码未配置
+  const advanced = config?.advancedConnection;
+  const isAnonymous = !advanced?.enabled ||
+                      advanced.auth?.anonymous ||
+                      !advanced.auth?.username?.trim() ||
+                      !advanced.auth?.password;
 
   return (
     <Card className="p-6">
@@ -46,12 +56,12 @@ export const InfoCard = memo(function InfoCard() {
             {serverInfo.port}
           </span>
         </div>
-        <div className="flex justify-between">
-          <span className="text-gray-500">用户名 / 密码</span>
-          <span className="font-medium text-gray-800">
-            {serverInfo.username === 'anonymous' ? '匿名登陆 (任意用户名/密码)' : serverInfo.username}
-          </span>
-        </div>
+        {isAnonymous && (
+          <div className="flex justify-between">
+            <span className="text-gray-500">用户名 / 密码</span>
+            <span className="font-medium text-gray-800">匿名登陆 (任意用户名/密码)</span>
+          </div>
+        )}
       </div>
     </Card>
   );
