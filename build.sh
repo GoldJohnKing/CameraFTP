@@ -13,11 +13,13 @@ usage() {
     echo ""
     echo "命令:"
     echo "  windows           构建 Windows 可执行文件 (release)"
+    echo "  windows-debug     构建 Windows 可执行文件 (debug)"
     echo "  android           构建 Android APK (release)"
     echo "  frontend          仅构建前端"
     echo ""
     echo "示例:"
     echo "  ./build.sh windows"
+    echo "  ./build.sh windows-debug"
     echo "  ./build.sh android"
     echo "  ./build.sh frontend"
     exit 1
@@ -34,7 +36,11 @@ shift
 case $COMMAND in
     windows)
         echo -e "${GREEN}构建 Windows 可执行文件 (release)...${NC}"
-        ./build-windows.sh
+        ./build-windows.sh release
+        ;;
+    windows-debug)
+        echo -e "${GREEN}构建 Windows 可执行文件 (debug)...${NC}"
+        ./build-windows.sh debug
         ;;
     android)
         echo -e "${GREEN}构建 Android APK (release)...${NC}"

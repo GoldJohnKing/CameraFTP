@@ -56,7 +56,9 @@ check_environment() {
 
 # 构建 Windows 应用
 build_windows() {
-    info "开始构建 Windows 应用..."
+    local BUILD_TYPE="${1:-release}"
+    
+    info "开始构建 Windows 应用 ($BUILD_TYPE)..."
     
     # 获取 cargo 路径
     USERPROFILE=$(wslpath "$(cmd.exe /c "echo %USERPROFILE%" 2>/dev/null | tr -d '\r')")
@@ -79,12 +81,18 @@ build_windows() {
     fi
     
     # 构建 Windows 可执行文件
-    info "构建 Windows 可执行文件..."
+    info "构建 Windows 可执行文件 ($BUILD_TYPE)..."
     cd src-tauri
-    "$CARGO_EXE" build --release --target x86_64-pc-windows-msvc
     
-    success "Windows 构建完成"
-    info "输出位置: src-tauri/target/x86_64-pc-windows-msvc/release/camera-ftp-companion.exe"
+    if [ "$BUILD_TYPE" = "debug" ]; then
+        "$CARGO_EXE" build --target x86_64-pc-windows-msvc
+        success "Windows Debug 构建完成"
+        info "输出位置: src-tauri/target/x86_64-pc-windows-msvc/debug/camera-ftp-companion.exe"
+    else
+        "$CARGO_EXE" build --release --target x86_64-pc-windows-msvc
+        success "Windows Release 构建完成"
+        info "输出位置: src-tauri/target/x86_64-pc-windows-msvc/release/camera-ftp-companion.exe"
+    fi
 }
 
 # 主函数
@@ -104,9 +112,13 @@ main() {
         "check"|"env")
             check_environment
             ;;
+        "debug")
+            check_environment
+            build_windows "debug"
+            ;;
         "release"|"")
             check_environment
-            build_windows
+            build_windows "release"
             ;;
         "help"|"-h"|"--help")
             echo "用法: $0 [命令]"
@@ -115,14 +127,17 @@ main() {
             echo "  check, env    检查编译环境"
             echo "  (无参数)      构建 Release 可执行文件 (默认)"
             echo "  release       构建 Release 可执行文件"
+            echo "  debug         构建 Debug 可执行文件"
             echo "  help          显示此帮助信息"
             echo ""
             echo "示例:"
             echo "  $0 check      # 检查环境"
             echo "  $0 release    # 构建 Release 版本"
+            echo "  $0 debug      # 构建 Debug 版本"
             echo ""
             echo "输出位置:"
-            echo "  src-tauri/target/x86_64-pc-windows-msvc/release/camera-ftp-companion.exe"
+            echo "  Release: src-tauri/target/x86_64-pc-windows-msvc/release/camera-ftp-companion.exe"
+            echo "  Debug:   src-tauri/target/x86_64-pc-windows-msvc/debug/camera-ftp-companion.exe"
             echo ""
             ;;
         *)
