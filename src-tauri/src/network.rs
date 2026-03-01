@@ -194,4 +194,41 @@ impl NetworkManager {
 
         (available, total, first_available)
     }
+
+    /// 查找一个可用的100端口PASV范围
+    /// 从 start 开始搜索，返回 (range_start, range_end)
+    /// 如果找不到合适的范围则返回 None
+    pub async fn find_available_pasv_range(start: u16) -> Option<(u16, u16)> {
+        const RANGE_SIZE: u16 = 100;
+        const MIN_AVAILABLE: usize = 10; // 范围内至少需要有10个可用端口
+
+        // 确保 end 不会溢出
+        let max_range_start = 65535 - RANGE_SIZE + 1;
+        let search_start = start.min(max_range_start);
+
+        // 按100端口块搜索
+        let mut range_start = (search_start / RANGE_SIZE) * RANGE_SIZE;
+        if range_start < search_start {
+            range_start += RANGE_SIZE;
+        }
+
+        while range_start <= max_range_start {
+            let range_end = range_start + RANGE_SIZE - 1;
+            let (available, _, first) = Self::check_pasv_port_range(range_start, range_end).await;
+
+            if available >= MIN_AVAILABLE {
+                tracing::info!(
+                    "Found available PASV range: {}-{} ({} ports available, first: {:?})",
+                    range_start, range_end, available, first
+                );
+                return Some((range_start, range_end));
+            }
+
+            // 移动到下一个100端口块
+            range_start += RANGE_SIZE;
+        }
+
+        tracing::error!("No available 100-port PASV range found starting from {}", start);
+        None
+    }
 }

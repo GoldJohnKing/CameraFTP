@@ -92,41 +92,84 @@ pub async fn start_ftp_server(
     })?;
 
     // 确定PASV端口范围
+    // 简单模式: 使用默认范围 50000-50100，如果全部占用则自动查找
+    // 高级模式: 使用用户配置范围，如果全部占用则拒绝启动
+    let default_pasv_range = (50000, 50100);
+    
     let pasv_range = if config.advanced_connection.enabled {
-        (config.advanced_connection.pasv.port_start, config.advanced_connection.pasv.port_end)
-    } else {
-        (50000, 50100)
-    };
-
-    // 验证PASV端口范围是否有可用端口
-    let (available_count, total_count, _) = NetworkManager::check_pasv_port_range(pasv_range.0, pasv_range.1).await;
-    if available_count == 0 {
-        error!(
-            start = pasv_range.0,
-            end = pasv_range.1,
-            "No PASV ports available in configured range"
+        // 高级模式: 使用用户配置的范围
+        let user_range = (
+            config.advanced_connection.pasv.port_start,
+            config.advanced_connection.pasv.port_end,
         );
-        return Err(AppError::NoAvailablePasvPort(format!(
-            "{}-{} (共{}个端口均被占用)",
-            pasv_range.0, pasv_range.1, total_count
-        )));
-    } else if available_count < 3 {
-        warn!(
-            start = pasv_range.0,
-            end = pasv_range.1,
-            available = available_count,
-            total = total_count,
-            "Very few PASV ports available, consider expanding the range"
-        );
-    } else {
+        
+        // 验证用户配置的范围是否有可用端口
+        let (available_count, total_count, _) = NetworkManager::check_pasv_port_range(
+            user_range.0, user_range.1
+        ).await;
+        
+        if available_count == 0 {
+            error!(
+                start = user_range.0,
+                end = user_range.1,
+                "All PASV ports in user-configured range are occupied"
+            );
+            return Err(AppError::NoAvailablePasvPort(format!(
+                "{}-{} (共{}个端口均被占用)",
+                user_range.0, user_range.1, total_count
+            )));
+        }
+        
         info!(
-            start = pasv_range.0,
-            end = pasv_range.1,
+            start = user_range.0,
+            end = user_range.1,
             available = available_count,
             total = total_count,
-            "PASV port range validated"
+            "Using user-configured PASV range"
         );
-    }
+        
+        user_range
+    } else {
+        // 简单模式: 先尝试默认范围
+        let (available_count, total_count, _) = NetworkManager::check_pasv_port_range(
+            default_pasv_range.0, default_pasv_range.1
+        ).await;
+        
+        if available_count > 0 {
+            info!(
+                start = default_pasv_range.0,
+                end = default_pasv_range.1,
+                available = available_count,
+                total = total_count,
+                "Using default PASV range"
+            );
+            default_pasv_range
+        } else {
+            // 默认范围全部占用，自动查找可用范围
+            warn!(
+                start = default_pasv_range.0,
+                end = default_pasv_range.1,
+                "Default PASV range fully occupied, searching for alternative"
+            );
+            
+            match NetworkManager::find_available_pasv_range(1024).await {
+                Some((start, end)) => {
+                    info!(
+                        start = start,
+                        end = end,
+                        "Found available PASV range"
+                    );
+                    (start, end)
+                }
+                None => {
+                    error!("No available PASV port range found");
+                    return Err(AppError::NoAvailablePasvPort(
+                        "无法找到可用的PASV端口范围，请检查系统端口占用情况".to_string()
+                    ));
+                }
+            }
+        }
+    };
 
     // 创建服务器配置
     let server_config = ServerConfig {
