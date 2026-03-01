@@ -132,8 +132,20 @@ export function AdvancedConnectionConfigPanel({
 
   // ========== 失焦处理：更新 draft（触发防抖保存）==========
   const handlePortBlur = async () => {
+    // 如果为空，恢复原端口
+    if (portInput.trim() === '') {
+      setPortInput(port.toString());
+      setPortError(null);
+      return;
+    }
+    
     const result = validatePort(portInput);
-    if (!result.valid || result.port === undefined) return;
+    if (!result.valid || result.port === undefined) {
+      // 验证失败，恢复原端口
+      setPortInput(port.toString());
+      setPortError(null);
+      return;
+    }
     if (result.port === port) return;
 
     const checkResult = await checkPort(portInput);
@@ -146,6 +158,11 @@ export function AdvancedConnectionConfigPanel({
   };
 
   const handleUsernameBlur = () => {
+    // 如果为空，恢复原用户名
+    if (usernameInput.trim() === '') {
+      setUsernameInput(config.auth.username);
+      return;
+    }
     if (usernameInput === config.auth.username) return;
     onUpdate(() => ({
       advancedConnection: {

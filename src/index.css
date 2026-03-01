@@ -75,3 +75,12 @@ html.platform-windows textarea,
 html.platform-windows [contenteditable="true"] {
   cursor: url('/cursors/ibeam.png') 13 15, text !important;
 }
+
+/* ========================================
+   隐藏 Windows Edge/WebView2 密码显示按钮
+   避免与我们自定义的眼睛图标冲突
+   ======================================== */
+input[type="password"]::-ms-reveal,
+input[type="password"]::-webkit-credentials-auto-fill-button {
+  display: none;
+}
