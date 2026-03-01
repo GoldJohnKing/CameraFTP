@@ -22,6 +22,7 @@
 ```toml
 argon2 = "0.5"
 rand = "0.8"
+zeroize = "1.8"  # 内存安全：密码使用后自动清零
 ```
 
 **Step 2: 验证依赖可编译**
@@ -33,7 +34,7 @@ Expected: 无错误
 
 ```bash
 git add src-tauri/Cargo.toml
-git commit -m "chore: add argon2 and rand dependencies for password hashing"
+git commit -m "chore: add argon2, rand and zeroize dependencies for password hashing"
 ```
 
 ---
@@ -51,6 +52,7 @@ use argon2::{
     password_hash::{rand_core::OsRng, PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
     Argon2,
 };
+use zeroize::Zeroizing;
 
 /// Argon2id 参数配置
 const MEMORY_COST: u32 = 65536; // 64 MB
@@ -66,7 +68,11 @@ pub struct HashedPassword {
 }
 
 /// 对密码进行 Argon2id 哈希
-pub fn hash_password(password: &str) -> HashedPassword {
+/// 使用 Zeroizing 包装密码，确保使用后内存自动清零（防止 dump 泄露）
+pub fn hash_password(password: String) -> HashedPassword {
+    // 使用 Zeroizing 包装，离开作用域时自动清零
+    let password = Zeroizing::new(password);
+    
     let salt = SaltString::generate(&mut OsRng);
 
     let argon2 = Argon2::new(
@@ -84,10 +90,15 @@ pub fn hash_password(password: &str) -> HashedPassword {
         hash: password_hash.to_string(),
         salt: salt.to_string(),
     }
+    // password (Zeroizing) 离开作用域，内存自动清零
 }
 
 /// 验证密码
-pub fn verify_password(password: &str, stored_hash: &str) -> bool {
+/// 使用 Zeroizing 包装密码，确保使用后内存自动清零（防止 dump 泄露）
+pub fn verify_password(password: String, stored_hash: &str) -> bool {
+    // 使用 Zeroizing 包装，离开作用域时自动清零
+    let password = Zeroizing::new(password);
+    
     let parsed_hash = match PasswordHash::new(stored_hash) {
         Ok(h) => h,
         Err(_) => return false,
@@ -103,6 +114,7 @@ pub fn verify_password(password: &str, stored_hash: &str) -> bool {
     argon2
         .verify_password(password.as_bytes(), &parsed_hash)
         .is_ok()
+    // password (Zeroizing) 离开作用域，内存自动清零
 }
 
 #[cfg(test)]
@@ -111,19 +123,19 @@ mod tests {
 
     #[test]
     fn test_hash_and_verify() {
-        let password = "test_password_123";
-        let hashed = hash_password(password);
+        let password = "test_password_123".to_string();
+        let hashed = hash_password(password.clone());
 
         assert!(!hashed.hash.is_empty());
         assert!(!hashed.salt.is_empty());
-        assert!(verify_password(password, &hashed.hash));
-        assert!(!verify_password("wrong_password", &hashed.hash));
+        assert!(verify_password(password.clone(), &hashed.hash));
+        assert!(!verify_password("wrong_password".to_string(), &hashed.hash));
     }
 
     #[test]
     fn test_different_salts() {
-        let password = "same_password";
-        let hash1 = hash_password(password);
+        let password = "same_password".to_string();
+        let hash1 = hash_password(password.clone());
         let hash2 = hash_password(password);
 
         // 相同密码应产生不同的哈希值
@@ -290,7 +302,8 @@ impl Authenticator for CustomAuthenticator {
         }
 
         // 使用 Argon2id 验证密码
-        let password = creds.password.as_deref().unwrap_or("");
+        // 注意：verify_password 接受 String 以便使用 Zeroizing 清零
+        let password = creds.password.clone().unwrap_or_default();
         
         if crate::crypto::verify_password(password, &self.auth_config.password_hash) {
             Ok(Principal {
