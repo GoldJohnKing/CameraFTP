@@ -10,6 +10,13 @@ import { PathSelector } from './PathSelector';
 import { AdvancedConnectionConfigPanel } from './AdvancedConnectionConfig';
 import { AutoStartToggle } from './AutoStartToggle';
 import { PreviewConfigCard } from './PreviewConfigCard';
+import type { AdvancedConnectionConfig } from '../types';
+
+const DEFAULT_ADVANCED_CONFIG: AdvancedConnectionConfig = {
+  enabled: false,
+  auth: { anonymous: true, username: '', password: '' },
+  pasv: { portStart: 50000, portEnd: 50100 }
+};
 
 export function ConfigCard() {
   const {
@@ -170,11 +177,7 @@ export function ConfigCard() {
             <ToggleSwitch
               enabled={draft?.advancedConnection?.enabled ?? false}
               onChange={(enabled) => {
-                const currentConfig = draft?.advancedConnection ?? {
-                  enabled: false,
-                  auth: { anonymous: true, username: '', password: '' },
-                  pasv: { portStart: 50000, portEnd: 50100 }
-                };
+                const currentConfig = draft?.advancedConnection ?? DEFAULT_ADVANCED_CONFIG;
                 handleAdvancedConfigUpdate(() => ({
                   advancedConnection: {
                     ...currentConfig,
