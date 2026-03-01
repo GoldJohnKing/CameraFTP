@@ -13,6 +13,9 @@ pub mod server_factory;
 pub mod stats;
 pub mod types;
 
+#[cfg(test)]
+mod server_factory_test;
+
 // 重新导出主要类型
 pub use events::{EventBus, EventProcessor, StatsEventHandler};
 pub use server::{create_ftp_server, FtpServerActor, FtpServerHandle};

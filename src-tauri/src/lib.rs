@@ -83,14 +83,14 @@ fn setup_logging() {
         // 创建文件追加器，失败时回退到 stderr
         let file_appender = tracing_subscriber::fmt::layer()
             .with_writer(move || {
-                std::fs::OpenOptions::new()
+                match std::fs::OpenOptions::new()
                     .create(true)
                     .append(true)
                     .open(&log_file_for_writer)
-                    .unwrap_or_else(|_| {
-                        // Fallback to stderr if file logging fails
-                        Box::new(std::io::stderr()) as Box<dyn std::io::Write + Send>
-                    })
+                {
+                    Ok(file) => Box::new(file) as Box<dyn std::io::Write + Send + Sync>,
+                    Err(_) => Box::new(std::io::stderr()) as Box<dyn std::io::Write + Send + Sync>,
+                }
             })
             .with_ansi(false)
             .with_thread_ids(true)
