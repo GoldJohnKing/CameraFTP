@@ -28,6 +28,25 @@ success() {
     echo -e "${GREEN}[SUCCESS]${NC} $1"
 }
 
+# 拷贝编译产物到 release 目录
+# 用法: copy_to_release <源文件模式> <目标文件名> <文件类型描述>
+copy_to_release() {
+    local src_pattern="$1"
+    local dest_name="$2"
+    local file_type="$3"
+    
+    mkdir -p release
+    local src_file=$(ls $src_pattern 2>/dev/null | head -1)
+    
+    if [ -f "$src_file" ]; then
+        cp "$src_file" "release/$dest_name"
+        success "$file_type 构建完成"
+        info "输出位置: release/$dest_name"
+    else
+        warn "未找到 $file_type 文件，请检查构建日志"
+    fi
+}
+
 # 检查环境
 check_environment() {
     info "检查编译环境..."
@@ -137,29 +156,30 @@ build_android() {
     fi
     export PATH="$JAVA_HOME/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/cmdline-tools/latest/bin:$PATH"
     
+    check_or_create_keystore
+    
     case $build_type in
         "debug")
-            # Debug 也使用签名，便于测试
-            check_or_create_keystore
-            
             bun run tauri android build --debug --target aarch64
-            success "Debug APK 构建完成（已签名）"
-            info "APK 位置: src-tauri/gen/android/app/build/outputs/apk/"
+            copy_to_release \
+                "src-tauri/gen/android/app/build/outputs/apk/universal/debug/*.apk" \
+                "camera-ftp-companion-debug.apk" \
+                "Debug APK"
             ;;
         "release")
-            # 检查签名
-            check_or_create_keystore
-            
             bun run tauri android build --target aarch64
-            success "Release APK 构建完成"
-            info "APK 位置: src-tauri/gen/android/app/build/outputs/apk/"
+            copy_to_release \
+                "src-tauri/gen/android/app/build/outputs/apk/universal/release/*.apk" \
+                "camera-ftp-companion.apk" \
+                "Release APK"
             ;;
         "aab")
-            check_or_create_keystore
             info "构建 Android App Bundle (AAB) - 仅 arm64-v8a"
             bun run tauri android build --aab --target aarch64
-            success "AAB 构建完成"
-            info "AAB 位置: src-tauri/gen/android/app/build/outputs/bundle/"
+            copy_to_release \
+                "src-tauri/gen/android/app/build/outputs/bundle/release/*.aab" \
+                "camera-ftp-companion.aab" \
+                "AAB"
             ;;
     esac
 }
@@ -190,8 +210,15 @@ install_apk() {
     local apk_path=$1
     
     if [ -z "$apk_path" ]; then
-        # 自动查找最新构建的 APK
-        apk_path=$(find src-tauri/gen/android/app/build/outputs -name "*.apk" -type f | head -1)
+        # 优先从 release 目录查找
+        if [ -f "release/camera-ftp-companion.apk" ]; then
+            apk_path="release/camera-ftp-companion.apk"
+        elif [ -f "release/camera-ftp-companion-debug.apk" ]; then
+            apk_path="release/camera-ftp-companion-debug.apk"
+        else
+            # 回退到构建目录
+            apk_path=$(find src-tauri/gen/android/app/build/outputs -name "*.apk" -type f | head -1)
+        fi
     fi
     
     if [ -f "$apk_path" ]; then
@@ -209,7 +236,14 @@ show_apk_info() {
     local apk_path=$1
     
     if [ -z "$apk_path" ]; then
-        apk_path=$(find src-tauri/gen/android/app/build/outputs -name "*.apk" -type f | head -1)
+        # 优先从 release 目录查找
+        if [ -f "release/camera-ftp-companion.apk" ]; then
+            apk_path="release/camera-ftp-companion.apk"
+        elif [ -f "release/camera-ftp-companion-debug.apk" ]; then
+            apk_path="release/camera-ftp-companion-debug.apk"
+        else
+            apk_path=$(find src-tauri/gen/android/app/build/outputs -name "*.apk" -type f | head -1)
+        fi
     fi
     
     if [ -f "$apk_path" ]; then
@@ -294,8 +328,9 @@ main() {
             echo "  $0 aab         # 构建 AAB (Google Play)"
             echo ""
             echo "输出位置:"
-            echo "  APK: src-tauri/gen/android/app/build/outputs/apk/"
-            echo "  AAB: src-tauri/gen/android/app/build/outputs/bundle/"
+            echo "  APK (Release): release/camera-ftp-companion.apk"
+            echo "  APK (Debug):   release/camera-ftp-companion-debug.apk"
+            echo "  AAB:           release/camera-ftp-companion.aab"
             echo ""
             echo "包名: com.gjk.camera-ftp-companion"
             echo "架构: arm64-v8a (64位 ARM处理器)"

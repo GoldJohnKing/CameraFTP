@@ -28,6 +28,20 @@ success() {
     echo -e "${GREEN}[SUCCESS]${NC} $1"
 }
 
+# 拷贝编译产物到 release 目录
+# 用法: copy_to_release <源文件路径> <目标文件名> <构建类型>
+copy_to_release() {
+    local src_path="$1"
+    local dest_name="$2"
+    local build_type="$3"
+    
+    mkdir -p release
+    cp "$src_path" "release/$dest_name"
+    
+    success "Windows $build_type 构建完成"
+    info "输出位置: release/$dest_name"
+}
+
 # 检查环境
 check_environment() {
     info "检查编译环境..."
@@ -84,15 +98,20 @@ build_windows() {
     info "构建 Windows 可执行文件 ($BUILD_TYPE)..."
     cd src-tauri
     
+    local OUTPUT_NAME="camera-ftp-companion.exe"
+    local DEST_NAME="$OUTPUT_NAME"
+    
     if [ "$BUILD_TYPE" = "debug" ]; then
         "$CARGO_EXE" build --target x86_64-pc-windows-msvc
-        success "Windows Debug 构建完成"
-        info "输出位置: src-tauri/target/x86_64-pc-windows-msvc/debug/camera-ftp-companion.exe"
+        local SRC_PATH="target/x86_64-pc-windows-msvc/debug/$OUTPUT_NAME"
+        DEST_NAME="camera-ftp-companion-debug.exe"
     else
         "$CARGO_EXE" build --release --target x86_64-pc-windows-msvc
-        success "Windows Release 构建完成"
-        info "输出位置: src-tauri/target/x86_64-pc-windows-msvc/release/camera-ftp-companion.exe"
+        local SRC_PATH="target/x86_64-pc-windows-msvc/release/$OUTPUT_NAME"
     fi
+    
+    cd ..
+    copy_to_release "src-tauri/$SRC_PATH" "$DEST_NAME" "$BUILD_TYPE"
 }
 
 # 主函数
@@ -136,8 +155,8 @@ main() {
             echo "  $0 debug      # 构建 Debug 版本"
             echo ""
             echo "输出位置:"
-            echo "  Release: src-tauri/target/x86_64-pc-windows-msvc/release/camera-ftp-companion.exe"
-            echo "  Debug:   src-tauri/target/x86_64-pc-windows-msvc/debug/camera-ftp-companion.exe"
+            echo "  Release: release/camera-ftp-companion.exe"
+            echo "  Debug:   release/camera-ftp-companion-debug.exe"
             echo ""
             ;;
         *)
