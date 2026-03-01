@@ -48,15 +48,21 @@ export function AdvancedConnectionConfigPanel({
     () => !!config.auth.passwordHash,
     [config.auth.passwordHash]
   );
-  
+
+  // 首次配置密码的乐观标记：保存成功后立即标记，避免等待 config 同步导致的闪烁
+  // 只在首次配置时生效（hasExistingPassword 为 false 时）
+  // 后续 config 同步后 hasExistingPassword 变为 true，此标记不再需要
+  const [hasCompletedFirstSetup, setHasCompletedFirstSetup] = useState(false);
+  const hasPassword = hasExistingPassword || hasCompletedFirstSetup;
+
   // 编辑状态：仅在用户正在编辑时使用
   const [isEditingPassword, setIsEditingPassword] = useState(false);
   const [editPasswordValue, setEditPasswordValue] = useState('');
-  
+
   // 显示值：编辑中显示输入值，否则显示占位符或空
   const passwordDisplayValue = isEditingPassword
     ? editPasswordValue
-    : (hasExistingPassword ? PASSWORD_PLACEHOLDER : '');
+    : (hasPassword ? PASSWORD_PLACEHOLDER : '');
 
   // Android 上禁止特权端口，Windows 上允许
   const minPort = platform === 'android' ? 1024 : 1;
@@ -175,15 +181,13 @@ export function AdvancedConnectionConfigPanel({
   const handlePasswordBlur = async () => {
     // 如果不在编辑模式，不处理
     if (!isEditingPassword) return;
-    
-    // 退出编辑模式
-    setIsEditingPassword(false);
-    
-    // 如果输入为空，恢复原状（显示占位符）
+
+    // 如果输入为空，退出编辑模式并恢复原状
     if (editPasswordValue === '') {
+      setIsEditingPassword(false);
       return;
     }
-    
+
     try {
       // 传输明文密码，后端进行 Argon2id 哈希
       await invoke('save_auth_config', {
@@ -191,12 +195,17 @@ export function AdvancedConnectionConfigPanel({
         username: usernameInput,
         password: editPasswordValue,
       });
-      
-      // 重置编辑状态
+
+      // 首次配置密码成功后立即标记，避免红色边框闪烁
+      if (!hasExistingPassword) {
+        setHasCompletedFirstSetup(true);
+      }
+      setIsEditingPassword(false);
       setEditPasswordValue('');
       setShowPassword(false);
     } catch (error) {
       console.error('Failed to save auth config:', error);
+      setIsEditingPassword(false);
     }
   };
 
@@ -287,13 +296,13 @@ export function AdvancedConnectionConfigPanel({
                     placeholder="输入密码"
                     disabled={isLoading || disabled}
                     className={`w-full px-3 py-2 border rounded-lg text-sm pr-10 ${
-                      !hasExistingPassword && !isEditingPassword
+                      !hasPassword && !isEditingPassword
                         ? 'border-red-300 bg-red-50'
                         : 'border-gray-200 bg-white'
                     } text-gray-700 disabled:opacity-50 disabled:cursor-not-allowed`}
                   />
                   {/* 编辑模式或无已保存密码时显示预览按钮 */}
-                  {(isEditingPassword || !hasExistingPassword) && (
+                  {(isEditingPassword || !hasPassword) && (
                     <button
                       type="button"
                       onMouseDown={(e) => e.preventDefault()} // 阻止点击时输入框失焦
@@ -309,7 +318,7 @@ export function AdvancedConnectionConfigPanel({
             </div>
 
             {/* 凭据未完整配置警告 */}
-            {(usernameInput.trim() === '' || (!hasExistingPassword && editPasswordValue === '')) && (
+            {(usernameInput.trim() === '' || (!hasPassword && editPasswordValue === '')) && (
               <p className="text-xs text-red-600 flex items-center gap-1">
                 <AlertCircle className="w-3 h-3" />
                 用户名或密码未配置，将使用匿名访问模式
