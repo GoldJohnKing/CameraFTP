@@ -52,8 +52,8 @@ export function PreviewConfigCard({ platform }: PreviewConfigCardProps) {
       if (loaded.customPath) {
         setCustomPath(loaded.customPath);
       }
-    } catch (error) {
-      console.error('Failed to load preview config:', error);
+    } catch {
+      // Silently ignore - config will use defaults
     } finally {
       setIsLoading(false);
     }
@@ -67,8 +67,8 @@ export function PreviewConfigCard({ platform }: PreviewConfigCardProps) {
 
     try {
       await invoke('set_preview_config', { config: newConfig });
-    } catch (error) {
-      console.error('Failed to save preview config:', error);
+    } catch {
+      // Silently ignore - config change is not critical
     }
   };
 
@@ -80,8 +80,8 @@ export function PreviewConfigCard({ platform }: PreviewConfigCardProps) {
         // 同时更新 method 和 customPath
         updateConfig({ method: 'custom', customPath: selected });
       }
-    } catch (error) {
-      console.error('Failed to select executable:', error);
+    } catch {
+      // Silently ignore - user can try again
     }
   };
 

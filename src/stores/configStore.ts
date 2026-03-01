@@ -155,7 +155,7 @@ export const useConfigStore = create<ConfigState>((set, get) => {
       try {
         await invoke('set_autostart_command', { enable: enabled });
       } catch (e) {
-        console.error('Failed to set autostart:', e);
+        // Autostart is optional, but we still want to propagate the error
         throw e;
       }
     },
@@ -183,8 +183,8 @@ export const useConfigStore = create<ConfigState>((set, get) => {
       try {
         const config = await invoke<PreviewWindowConfig>('get_preview_config');
         set({ previewConfig: config });
-      } catch (error) {
-        console.error('Failed to load preview config:', error);
+      } catch {
+        // Silently ignore - preview config will use defaults
       }
     },
 
@@ -193,7 +193,7 @@ export const useConfigStore = create<ConfigState>((set, get) => {
         await invoke('set_preview_config', { config });
         set({ previewConfig: config });
       } catch (error) {
-        console.error('Failed to update preview config:', error);
+        // Config change is not critical, but we still want to propagate the error
         throw error;
       }
     },

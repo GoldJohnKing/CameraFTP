@@ -29,42 +29,6 @@ interface RetryOptions {
 }
 
 /**
- * Retry a condition check until it succeeds or max retries exhausted.
- * Useful for waiting on Android bridges or other async initializations.
- *
- * @example
- * ```ts
- * await retryUntil(
- *   () => window.ServerStateAndroid != null,
- *   { maxRetries: 5, delayMs: 200 }
- * );
- * if (window.ServerStateAndroid) {
- *   window.ServerStateAndroid.onServerStateChanged(true, null, 0);
- * }
- * ```
- */
-export function retryUntil(
-  condition: () => boolean,
-  options: RetryOptions
-): Promise<boolean> {
-  return new Promise((resolve) => {
-    const { maxRetries, delayMs } = options;
-    
-    const tryCheck = (retriesLeft: number) => {
-      if (condition()) {
-        resolve(true);
-      } else if (retriesLeft > 0) {
-        setTimeout(() => tryCheck(retriesLeft - 1), delayMs);
-      } else {
-        resolve(false);
-      }
-    };
-    
-    tryCheck(maxRetries);
-  });
-}
-
-/**
  * Execute an action with retry logic.
  * Retries the action if it throws or returns a falsy result.
  *

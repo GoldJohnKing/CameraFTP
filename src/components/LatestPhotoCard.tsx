@@ -19,8 +19,8 @@ export const LatestPhotoCard = memo(function LatestPhotoCard() {
         if (latest) {
           setScannedLatestFile(latest);
         }
-      } catch (error) {
-        console.error('Failed to get latest file:', error);
+      } catch {
+        // Silently ignore - non-critical feature
       }
     };
     fetchLatestFile();
@@ -57,8 +57,8 @@ export const LatestPhotoCard = memo(function LatestPhotoCard() {
     if (targetPath) {
       try {
         await invoke('open_preview_window', { filePath: targetPath });
-      } catch (error) {
-        console.error('Failed to open preview:', error);
+      } catch {
+        // Silently ignore - preview is optional
       }
     }
   }, [stats.lastFile, scannedLatestFile, config?.savePath]);

@@ -127,8 +127,8 @@ function PreviewWindowContent({
     try {
       const exif = await invoke<ExifInfo | null>('get_image_exif', { filePath: path });
       setExifInfo(exif);
-    } catch (error) {
-      console.error('Failed to load EXIF:', error);
+    } catch {
+      // Silently ignore - EXIF is optional metadata
       setExifInfo(null);
     }
   };
@@ -158,8 +158,8 @@ function PreviewWindowContent({
 
         const index = await invoke<number | null>('get_current_file_index');
         setCurrentIndex(index ?? 0);
-      } catch (error) {
-        console.error('Failed to load file info:', error);
+      } catch {
+        // Silently ignore - file info is non-critical
       }
     };
 
@@ -177,8 +177,8 @@ function PreviewWindowContent({
       // 触发父组件更新图片路径
       window.dispatchEvent(new CustomEvent('navigate-image', { detail: file.path }));
       resetZoom();
-    } catch (error) {
-      console.error('Failed to navigate:', error);
+    } catch {
+      // Silently ignore - navigation errors are handled by UI state
     }
   }, [totalFiles, resetZoom]);
 
@@ -290,8 +290,8 @@ function PreviewWindowContent({
       await appWindow.setFullscreen(newFullscreen);
       // 全屏时置顶，退出全屏时取消置顶
       await appWindow.setAlwaysOnTop(newFullscreen);
-    } catch (error) {
-      console.error('Failed to toggle fullscreen:', error);
+    } catch {
+      // Silently ignore - fullscreen is a user preference
     }
   }, [isFullscreen, appWindow]);
 
@@ -435,8 +435,8 @@ function PreviewWindowContent({
       };
       await invoke('set_preview_config', { config: newConfig });
       setLocalAutoBringToFront(newValue);
-    } catch (error) {
-      console.error('Failed to update config:', error);
+    } catch {
+      // Silently ignore - config change is not critical
     }
   };
 

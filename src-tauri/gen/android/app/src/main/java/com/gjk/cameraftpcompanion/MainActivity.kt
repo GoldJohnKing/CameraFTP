@@ -115,8 +115,6 @@ class MainActivity : TauriActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
-        // Clean up any pending callbacks to prevent memory leaks
-        webViewRef?.removeCallbacks(null)
         webViewRef = null
     }
     
