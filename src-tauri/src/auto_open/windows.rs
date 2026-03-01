@@ -2,7 +2,7 @@ use std::ffi::OsStr;
 use std::os::windows::ffi::OsStrExt;
 use std::path::PathBuf;
 use std::ptr;
-use windows::core::{Interface, PCWSTR};
+use windows::core::PCWSTR;
 use windows::Win32::System::Com::{CoCreateInstance, CoInitialize, CLSCTX_LOCAL_SERVER};
 use windows::Win32::UI::Shell::{
     IApplicationActivationManager, IShellItem, IShellItemArray, SHCreateItemFromParsingName,

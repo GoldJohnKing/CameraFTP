@@ -203,11 +203,11 @@ pub fn hide_main_window(app: tauri::AppHandle) -> Result<(), String> {
 
 /// 显示并置顶主窗口（桌面平台特有）
 #[tauri::command]
-pub fn show_main_window(app: tauri::AppHandle) -> Result<(), String> {
+pub fn show_main_window(_app: tauri::AppHandle) -> Result<(), String> {
     #[cfg(not(target_os = "android"))]
     {
         tracing::info!("Showing and focusing main window");
-        if let Some(window) = app.get_webview_window("main") {
+        if let Some(window) = _app.get_webview_window("main") {
             // 重置 skip_taskbar 状态，确保窗口能正常显示在任务栏
             let _ = window.set_skip_taskbar(false);
             // 如果窗口被最小化，先恢复
@@ -373,13 +373,13 @@ pub async fn open_preview_window(
 
 /// 选择可执行文件（用于自定义打开程序）
 #[tauri::command]
-pub async fn select_executable_file(app: AppHandle) -> Result<Option<String>, AppError> {
+pub async fn select_executable_file(_app: AppHandle) -> Result<Option<String>, AppError> {
     #[cfg(not(target_os = "android"))]
     {
         use tauri_plugin_dialog::DialogExt;
 
         let file_path: Option<tauri_plugin_dialog::FilePath> = tokio::task::spawn_blocking(move || {
-            app.dialog()
+            _app.dialog()
                 .file()
                 .set_title("选择程序")
                 .add_filter("可执行文件", &["exe"])
@@ -454,7 +454,9 @@ pub async fn get_latest_file(
 // ============================================================================
 
 /// EXIF 信息结构体
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize, ts_rs::TS)]
+#[ts(export)]
+#[serde(rename_all = "camelCase")]
 pub struct ExifInfo {
     pub iso: Option<u32>,
     pub aperture: Option<String>,           // f/2.8 格式

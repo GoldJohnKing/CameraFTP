@@ -153,30 +153,6 @@ impl FileIndexService {
         }).await.ok()?
     }
 
-    /// 解析 EXIF 时间字符串
-    fn parse_exif_datetime(datetime_str: &str) -> Option<SystemTime> {
-        // 格式: "2024:02:26 14:30:00"
-        let parts: Vec<&str> = datetime_str.split(&[':', ' ', '-']).collect();
-        if parts.len() >= 6 {
-            let year = parts[0].parse::<i32>().ok()?;
-            let month = parts[1].parse::<u32>().ok()?;
-            let day = parts[2].parse::<u32>().ok()?;
-            let hour = parts[3].parse::<u32>().ok()?;
-            let minute = parts[4].parse::<u32>().ok()?;
-            let second = parts[5].parse::<u32>().ok()?;
-            
-            use std::time::{SystemTime, Duration};
-            // 简化为从 UNIX_EPOCH 开始的秒数计算（简化版）
-            // 实际应该使用 chrono 库进行精确计算
-            // 这里为了演示使用近似值
-            let days_since_epoch = (year - 1970) as u64 * 365 + (month - 1) as u64 * 30 + day as u64;
-            let seconds = days_since_epoch * 24 * 3600 + hour as u64 * 3600 + minute as u64 * 60 + second as u64;
-            Some(SystemTime::UNIX_EPOCH + Duration::from_secs(seconds))
-        } else {
-            None
-        }
-    }
-
     /// 添加新文件（FTP上传时调用）
     pub async fn add_file(&self, path: PathBuf) -> Result<(), AppError> {
         if !Self::is_supported_image(&path) {

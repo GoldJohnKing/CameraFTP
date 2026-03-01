@@ -143,7 +143,8 @@ pub fn run() {
                 platform.hide_window_on_autostart(app.handle());
             }
 
-            // 获取主窗口并监听关闭请求
+            // 获取主窗口并监听关闭请求（仅桌面平台）
+            #[cfg(not(target_os = "android"))]
             if let Some(window) = app.get_webview_window("main") {
                 let app_handle = app.handle().clone();
                 window.on_window_event(move |event| {

@@ -1,10 +1,17 @@
 use std::path::PathBuf;
+#[cfg(target_os = "windows")]
 use std::sync::Arc;
+#[cfg(target_os = "windows")]
 use tokio::sync::Mutex;
-use tauri::{AppHandle, Emitter, Manager};
+#[cfg(target_os = "windows")]
+use tauri::{Emitter, Manager};
+use tauri::AppHandle;
+#[cfg(target_os = "windows")]
 use tracing::error;
 
-use crate::config::{AppConfig, ImageOpenMethod, PreviewWindowConfig};
+#[cfg(target_os = "windows")]
+use crate::config::{AppConfig, ImageOpenMethod};
+use crate::config::PreviewWindowConfig;
 use crate::error::AppError;
 
 pub struct AutoOpenService {

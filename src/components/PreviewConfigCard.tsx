@@ -1,9 +1,11 @@
 import { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+// Note: Using direct `listen` from Tauri API for simplicity in this single-event case.
+// The centralized event manager (events.ts) is better suited for multi-event scenarios.
 import { listen } from '@tauri-apps/api/event';
+import type { PreviewWindowConfig } from '../types';
 import { ImagePlay } from 'lucide-react';
 import { Card, CardHeader } from './ui';
-import type { PreviewWindowConfig } from '../types';
 
 interface PreviewConfigCardProps {
   platform: string;
@@ -30,19 +32,15 @@ export function PreviewConfigCard({ platform }: PreviewConfigCardProps) {
   useEffect(() => {
     if (!isWindows) return;
 
-    const setupListener = async () => {
-      const unlisten = await listen<ConfigChangedEvent>('preview-config-changed', (event) => {
-        setConfig(event.payload.config);
-        if (event.payload.config.customPath) {
-          setCustomPath(event.payload.config.customPath);
-        }
-      });
-      return unlisten;
-    };
+    const unlistenPromise = listen<ConfigChangedEvent>('preview-config-changed', (event) => {
+      setConfig(event.payload.config);
+      if (event.payload.config.customPath) {
+        setCustomPath(event.payload.config.customPath);
+      }
+    });
 
-    const unlistenPromise = setupListener();
     return () => {
-      unlistenPromise.then(unlisten => unlisten());
+      unlistenPromise.then(fn => fn());
     };
   }, [isWindows]);
 
