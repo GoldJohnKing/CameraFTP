@@ -2,4 +2,4 @@ mod service;
 mod types;
 
 pub use service::FileIndexService;
-pub use types::{FileIndex, FileInfo};
+pub use types::FileInfo;

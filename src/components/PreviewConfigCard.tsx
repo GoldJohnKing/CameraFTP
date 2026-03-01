@@ -5,7 +5,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import type { PreviewWindowConfig } from '../types';
 import { ImagePlay } from 'lucide-react';
-import { Card, CardHeader } from './ui';
+import { Card, CardHeader, ToggleSwitch } from './ui';
 
 interface PreviewConfigCardProps {
   platform: string;
@@ -95,8 +95,8 @@ export function PreviewConfigCard({ platform }: PreviewConfigCardProps) {
         icon={<ImagePlay className="w-5 h-5 text-purple-600" />}
         action={
           <ToggleSwitch
-            checked={config?.enabled ?? false}
-            onChange={(checked) => updateConfig({ enabled: checked })}
+            enabled={config?.enabled ?? false}
+            onChange={(enabled) => updateConfig({ enabled })}
             disabled={isLoading}
           />
         }
@@ -126,8 +126,8 @@ export function PreviewConfigCard({ platform }: PreviewConfigCardProps) {
                         <p className="text-xs text-gray-500">接收到新图片时预览窗口自动置顶</p>
                       </div>
                       <ToggleSwitch
-                        checked={config.autoBringToFront}
-                        onChange={(checked) => updateConfig({ autoBringToFront: checked })}
+                        enabled={config.autoBringToFront}
+                        onChange={(enabled) => updateConfig({ autoBringToFront: enabled })}
                         disabled={isLoading}
                       />
                     </div>
@@ -182,31 +182,6 @@ export function PreviewConfigCard({ platform }: PreviewConfigCardProps) {
 }
 
 // 辅助组件
-function ToggleSwitch({ checked, onChange, disabled }: {
-  checked: boolean;
-  onChange: (checked: boolean) => void;
-  disabled?: boolean;
-}) {
-  return (
-    <button
-      onClick={() => onChange(!checked)}
-      disabled={disabled}
-      className={`
-        relative inline-flex h-6 w-11 items-center rounded-full transition-colors
-        ${checked ? 'bg-blue-600 hover:bg-blue-700' : 'bg-gray-200 hover:bg-gray-300'}
-        ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}
-      `}
-    >
-      <span
-        className={`
-          inline-block h-4 w-4 transform rounded-full bg-white transition-transform
-          ${checked ? 'translate-x-6' : 'translate-x-1'}
-        `}
-      />
-    </button>
-  );
-}
-
 function RadioOption({
   value,
   label,

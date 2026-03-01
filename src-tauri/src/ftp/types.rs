@@ -2,6 +2,8 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use ts_rs::TS;
 
+use crate::config::AuthConfig;
+
 /// FTP 服务器统计数据快照
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
 pub struct ServerStats {
@@ -35,6 +37,21 @@ impl Default for FtpAuthConfig {
             anonymous: true,
             username: String::new(),
             password: String::new(),
+        }
+    }
+}
+
+impl From<&AuthConfig> for FtpAuthConfig {
+    /// Convert user-facing AuthConfig to internal FtpAuthConfig.
+    /// Falls back to anonymous mode if username is empty or password is empty.
+    fn from(auth: &AuthConfig) -> Self {
+        let should_be_anonymous =
+            auth.anonymous || auth.username.trim().is_empty() || auth.password.is_empty();
+
+        Self {
+            anonymous: should_be_anonymous,
+            username: auth.username.clone(),
+            password: auth.password.clone(),
         }
     }
 }

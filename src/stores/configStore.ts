@@ -207,11 +207,3 @@ export const useDraftConfig = () => useConfigStore(state => state.draft);
 
 /** 只订阅 config（用于显示已保存状态）*/
 export const useSavedConfig = () => useConfigStore(state => state.config);
-
-/** 订阅是否有未保存的更改 */
-export const useHasUnsavedChanges = () => {
-  const config = useConfigStore(state => state.config);
-  const draft = useConfigStore(state => state.draft);
-  if (!config || !draft) return false;
-  return JSON.stringify(config) !== JSON.stringify(draft);
-};

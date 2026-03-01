@@ -4,7 +4,7 @@ import { Settings, Wifi, Shield } from 'lucide-react';
 import { useConfigStore, useDraftConfig } from '../stores/configStore';
 import { usePermissionStore } from '../stores/permissionStore';
 import { useServerStore } from '../stores/serverStore';
-import { Card, CardHeader } from './ui';
+import { Card, CardHeader, ToggleSwitch } from './ui';
 import { PermissionList } from './PermissionList';
 import { PathSelector } from './PathSelector';
 import { AdvancedConnectionConfigPanel } from './AdvancedConnectionConfig';
@@ -167,9 +167,9 @@ export function ConfigCard() {
           description="自定义 FTP 服务器连接参数"
           icon={<Wifi className="w-5 h-5 text-indigo-600" />}
           action={
-            <button
-              type="button"
-              onClick={() => {
+            <ToggleSwitch
+              enabled={draft?.advancedConnection?.enabled ?? false}
+              onChange={(enabled) => {
                 const currentConfig = draft?.advancedConnection ?? {
                   enabled: false,
                   auth: { anonymous: true, username: '', password: '' },
@@ -178,26 +178,12 @@ export function ConfigCard() {
                 handleAdvancedConfigUpdate(() => ({
                   advancedConnection: {
                     ...currentConfig,
-                    enabled: !currentConfig.enabled,
+                    enabled,
                   },
                 }));
               }}
               disabled={isLoading || isRunning}
-              className={`
-                relative inline-flex h-6 w-11 items-center rounded-full
-                transition-colors duration-200 ease-in-out
-                ${draft?.advancedConnection?.enabled ? 'bg-blue-600 hover:bg-blue-700' : 'bg-gray-300 hover:bg-gray-400'}
-                ${isLoading || isRunning ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}
-              `}
-            >
-              <span
-                className={`
-                  inline-block h-4 w-4 transform rounded-full bg-white
-                  transition-transform duration-200 ease-in-out
-                  ${draft?.advancedConnection?.enabled ? 'translate-x-6' : 'translate-x-1'}
-                `}
-              />
-            </button>
+            />
           }
         />
 

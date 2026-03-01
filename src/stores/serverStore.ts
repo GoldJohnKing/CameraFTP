@@ -1,8 +1,10 @@
 import { create } from 'zustand';
 import { invoke } from '@tauri-apps/api/core';
 import type { ServerInfo, ServerStatus } from '../types';
+import { serverStateBridge } from '../types/global';
 import { formatError } from '../utils/error';
 import { createEventManager, type EventRegistration } from '../utils/events';
+import { retryAction } from '../utils/store';
 import { checkAndroidPermissions } from '../types';
 
 interface ServerState {
@@ -35,26 +37,17 @@ const defaultStats: ServerStatus = {
 
 // Update Android foreground service with current server state
 const updateAndroidServiceState = (isRunning: boolean, stats: ServerStatus | null, connectedClients: number, immediate = false) => {
-  const MAX_RETRIES = immediate ? 30 : 5;
-  const RETRY_DELAY_MS = immediate ? 50 : 200;
-
-  const tryUpdate = (retriesLeft: number) => {
-    if (window.ServerStateAndroid) {
-      try {
-        const statsJson = stats ? JSON.stringify({
-          files_transferred: stats.filesReceived || 0,
-          bytes_transferred: stats.bytesReceived || 0,
-        }) : null;
-        window.ServerStateAndroid.onServerStateChanged(isRunning, statsJson, connectedClients);
-      } catch {
-        // Silently ignore Android service state update errors
-      }
-    } else if (retriesLeft > 0) {
-      setTimeout(() => tryUpdate(retriesLeft - 1), RETRY_DELAY_MS);
-    }
-  };
-
-  tryUpdate(MAX_RETRIES);
+  retryAction(
+    () => {
+      if (!serverStateBridge.isAvailable()) return false;
+      const statsJson = stats ? JSON.stringify({
+        files_transferred: stats.filesReceived || 0,
+        bytes_transferred: stats.bytesReceived || 0,
+      }) : null;
+      return serverStateBridge.updateState(isRunning, statsJson, connectedClients);
+    },
+    { maxRetries: immediate ? 30 : 5, delayMs: immediate ? 50 : 200 }
+  );
 };
 
 // Define all event registrations

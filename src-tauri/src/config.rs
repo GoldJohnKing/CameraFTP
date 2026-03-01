@@ -176,9 +176,16 @@ impl Default for AppConfig {
 
 impl AppConfig {
     /// 获取默认图片目录
-    /// 通过 PlatformService trait 获取平台特定的默认存储路径
+    /// 使用条件编译直接确定平台特定的默认存储路径，避免对 platform 模块的循环依赖
     fn default_pictures_dir() -> PathBuf {
-        crate::platform::get_platform().get_default_storage_path()
+        #[cfg(target_os = "android")]
+        {
+            PathBuf::from("/storage/emulated/0/DCIM/CameraFTP")
+        }
+        #[cfg(not(target_os = "android"))]
+        {
+            dirs::picture_dir().unwrap_or_else(|| PathBuf::from("./pictures"))
+        }
     }
 
     pub fn config_path() -> PathBuf {

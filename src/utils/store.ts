@@ -19,6 +19,92 @@ interface AsyncActionOptions<T, S> {
 }
 
 /**
+ * Options for retry utility
+ */
+interface RetryOptions {
+  /** Maximum number of retry attempts */
+  maxRetries: number;
+  /** Delay between retries in milliseconds */
+  delayMs: number;
+}
+
+/**
+ * Retry a condition check until it succeeds or max retries exhausted.
+ * Useful for waiting on Android bridges or other async initializations.
+ *
+ * @example
+ * ```ts
+ * await retryUntil(
+ *   () => window.ServerStateAndroid != null,
+ *   { maxRetries: 5, delayMs: 200 }
+ * );
+ * if (window.ServerStateAndroid) {
+ *   window.ServerStateAndroid.onServerStateChanged(true, null, 0);
+ * }
+ * ```
+ */
+export function retryUntil(
+  condition: () => boolean,
+  options: RetryOptions
+): Promise<boolean> {
+  return new Promise((resolve) => {
+    const { maxRetries, delayMs } = options;
+    
+    const tryCheck = (retriesLeft: number) => {
+      if (condition()) {
+        resolve(true);
+      } else if (retriesLeft > 0) {
+        setTimeout(() => tryCheck(retriesLeft - 1), delayMs);
+      } else {
+        resolve(false);
+      }
+    };
+    
+    tryCheck(maxRetries);
+  });
+}
+
+/**
+ * Execute an action with retry logic.
+ * Retries the action if it throws or returns a falsy result.
+ *
+ * @example
+ * ```ts
+ * retryAction(
+ *   () => {
+ *     if (!window.SomeBridge) return false;
+ *     window.SomeBridge.doSomething();
+ *     return true;
+ *   },
+ *   { maxRetries: 5, delayMs: 200 }
+ * );
+ * ```
+ */
+export function retryAction(
+  action: () => boolean | void,
+  options: RetryOptions
+): void {
+  const { maxRetries, delayMs } = options;
+  
+  const tryAction = (retriesLeft: number) => {
+    try {
+      const result = action();
+      // If action returns explicit false, retry
+      if (result === false && retriesLeft > 0) {
+        setTimeout(() => tryAction(retriesLeft - 1), delayMs);
+      }
+    } catch {
+      // On error, retry if attempts remain
+      if (retriesLeft > 0) {
+        setTimeout(() => tryAction(retriesLeft - 1), delayMs);
+      }
+    }
+  };
+  
+  tryAction(maxRetries);
+}
+
+/**
  * Helper function to execute async actions with consistent loading/error state management.
  * Reduces boilerplate in Zustand stores.
  *

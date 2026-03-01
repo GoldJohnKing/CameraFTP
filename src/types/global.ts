@@ -134,3 +134,92 @@ export async function checkAndroidPermissions(): Promise<PermissionCheckResult |
     return null;
   }
 }
+
+// ===== Android Bridge Adapters =====
+
+/**
+ * Server state bridge adapter
+ * Provides a clean interface for updating Android foreground service state
+ */
+export const serverStateBridge = {
+  /**
+   * Check if the server state bridge is available
+   */
+  isAvailable(): boolean {
+    return typeof window !== 'undefined' && !!window.ServerStateAndroid;
+  },
+
+  /**
+   * Update the foreground service with current server state
+   */
+  updateState(isRunning: boolean, statsJson: string | null, connectedClients: number): boolean {
+    if (!window.ServerStateAndroid) return false;
+    try {
+      window.ServerStateAndroid.onServerStateChanged(isRunning, statsJson, connectedClients);
+      return true;
+    } catch {
+      return false;
+    }
+  },
+};
+
+/**
+ * Permission bridge adapter
+ * Provides a clean interface for Android permission management
+ */
+export const permissionBridge = {
+  /**
+   * Check if the permission bridge is available
+   */
+  isAvailable(): boolean {
+    return isPermissionAndroidAvailable();
+  },
+
+  /**
+   * Request storage permission
+   */
+  requestStorage(): void {
+    window.PermissionAndroid?.requestStoragePermission();
+  },
+
+  /**
+   * Request notification permission
+   */
+  requestNotification(): void {
+    window.PermissionAndroid?.requestNotificationPermission();
+  },
+
+  /**
+   * Request battery optimization exemption
+   */
+  requestBatteryOptimization(): void {
+    window.PermissionAndroid?.requestBatteryOptimization();
+  },
+
+  /**
+   * Check all permissions
+   */
+  async checkAll(): Promise<PermissionCheckResult | null> {
+    return checkAndroidPermissions();
+  },
+};
+
+/**
+ * Storage settings bridge adapter
+ * Provides a clean interface for opening Android storage settings
+ */
+export const storageSettingsBridge = {
+  /**
+   * Check if the storage settings bridge is available
+   */
+  isAvailable(): boolean {
+    return typeof window !== 'undefined' && !!window.StorageSettingsAndroid;
+  },
+
+  /**
+   * Open the all files access settings page
+   */
+  openAllFilesAccessSettings(): void {
+    window.StorageSettingsAndroid?.openAllFilesAccessSettings();
+  },
+};
