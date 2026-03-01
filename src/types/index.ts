@@ -18,7 +18,8 @@ export interface ServerStatus {
 export interface AuthConfig {
   anonymous: boolean;
   username: string;
-  password: string;
+  passwordHash: string;
+  passwordSalt: string;
 }
 
 export interface PasvConfig {
