@@ -2,9 +2,9 @@
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
-**Goal:** 将 FTP 认证密码从明文存储改为 Argon2id 哈希存储，同时保留输入时的预览功能。
+**Goal:** 将 FTP 认证密码从明文存储改为 Argon2id 哈希存储。
 
-**Architecture:** 后端使用 Argon2id 算法对密码进行哈希存储，前端在输入时可预览但保存后无法查看原始密码。
+**Architecture:** 后端使用 Argon2id 算法对密码进行哈希存储，前端明文传输密码（本地 IPC），输入时可预览但保存后无法查看。
 
 **Tech Stack:** Rust (argon2 crate), TypeScript/React, Tauri IPC
 
@@ -15,7 +15,7 @@
 **Files:**
 - Modify: `src-tauri/Cargo.toml`
 
-**Step 1: 添加 argon2 和 rand 依赖**
+**Step 1: 添加依赖**
 
 在 `[dependencies]` 部分添加：
 
@@ -51,14 +51,11 @@ use argon2::{
     password_hash::{rand_core::OsRng, PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
     Argon2,
 };
-use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
-use rand::RngCore;
 
 /// Argon2id 参数配置
 const MEMORY_COST: u32 = 65536; // 64 MB
 const TIME_COST: u32 = 3;
 const PARALLELISM: u32 = 4;
-const SALT_LENGTH: usize = 16;
 const OUTPUT_LENGTH: usize = 32;
 
 /// 密码哈希结果
@@ -68,14 +65,10 @@ pub struct HashedPassword {
     pub salt: String,
 }
 
-/// 对密码进行哈希
+/// 对密码进行 Argon2id 哈希
 pub fn hash_password(password: &str) -> HashedPassword {
-    // 生成随机 salt
-    let mut salt_bytes = [0u8; SALT_LENGTH];
-    OsRng.fill_bytes(&mut salt_bytes);
-    let salt = BASE64.encode(salt_bytes);
+    let salt = SaltString::generate(&mut OsRng);
 
-    // 创建 Argon2id 实例
     let argon2 = Argon2::new(
         argon2::Algorithm::Argon2id,
         argon2::Version::V0x13,
@@ -83,15 +76,13 @@ pub fn hash_password(password: &str) -> HashedPassword {
             .expect("Invalid Argon2 parameters"),
     );
 
-    // 使用自定义 salt 进行哈希
-    let salt_string = SaltString::encode_b64(&salt_bytes).expect("Failed to encode salt");
     let password_hash = argon2
-        .hash_password(password.as_bytes(), &salt_string)
+        .hash_password(password.as_bytes(), &salt)
         .expect("Failed to hash password");
 
     HashedPassword {
         hash: password_hash.to_string(),
-        salt,
+        salt: salt.to_string(),
     }
 }
 
@@ -171,7 +162,7 @@ git commit -m "feat: add password hashing module with Argon2id"
 
 **Step 1: 修改 AuthConfig 结构体**
 
-将 `src-tauri/src/config.rs` 中的 `AuthConfig` 从：
+将 `AuthConfig` 从：
 
 ```rust
 pub struct AuthConfig {
@@ -184,6 +175,9 @@ pub struct AuthConfig {
 改为：
 
 ```rust
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+#[serde(rename_all = "camelCase", default)]
 pub struct AuthConfig {
     pub anonymous: bool,
     pub username: String,
@@ -207,30 +201,12 @@ impl Default for AuthConfig {
 }
 ```
 
-**Step 3: 添加 ts-rs 导出配置**
-
-确保 `AuthConfig` 有正确的 ts-rs 导出：
-
-```rust
-#[derive(Debug, Clone, Serialize, Deserialize, TS)]
-#[ts(export)]
-#[serde(rename_all = "camelCase", default)]
-pub struct AuthConfig {
-    pub anonymous: bool,
-    pub username: String,
-    #[ts(type = "string")]
-    pub password_hash: String,
-    #[ts(type = "string")]
-    pub password_salt: String,
-}
-```
-
-**Step 4: 验证编译**
+**Step 3: 验证编译**
 
 Run: `./build.sh windows`
 Expected: 编译成功（可能有其他文件的错误，后续修复）
 
-**Step 5: Commit**
+**Step 4: Commit**
 
 ```bash
 git add src-tauri/src/config.rs
@@ -336,24 +312,26 @@ Expected: 编译成功
 
 ```bash
 git add src-tauri/src/ftp/types.rs src-tauri/src/ftp/server.rs
-git commit -m "refactor: update FTP auth to use password hash verification"
+git commit -m "refactor: update FTP auth to use Argon2id verification"
 ```
 
 ---
 
-## Task 5: 添加密码哈希保存命令
+## Task 5: 添加密码保存命令
 
 **Files:**
 - Modify: `src-tauri/src/commands.rs`
+- Modify: `src-tauri/src/lib.rs`
 
 **Step 1: 添加保存密码的命令**
 
-在 `src-tauri/src/commands.rs` 中添加新命令：
+在 `src-tauri/src/commands.rs` 中添加：
 
 ```rust
+use crate::config::{AppConfig, AuthConfig};
 use crate::crypto;
 
-/// 保存认证配置（对密码进行哈希）
+/// 保存认证配置
 #[tauri::command]
 pub async fn save_auth_config(
     state: tauri::State<'_, std::sync::Arc<std::sync::Mutex<AppConfig>>>,
@@ -379,14 +357,14 @@ pub async fn save_auth_config(
     
     config.save().map_err(|e| e.to_string())?;
     
-    tracing::info!("Auth config saved with hashed password");
+    tracing::info!("Auth config saved with Argon2id hash");
     Ok(())
 }
 ```
 
 **Step 2: 注册命令**
 
-在 `src-tauri/src/lib.rs` 的 `invoke_handler` 中添加：
+在 `src-tauri/src/lib.rs` 的 `invoke_handler` 中添加 `save_auth_config`：
 
 ```rust
 .invoke_handler(tauri::generate_handler![
@@ -395,25 +373,16 @@ pub async fn save_auth_config(
 ])
 ```
 
-**Step 3: 添加必要的 use 语句**
-
-确保 `commands.rs` 顶部有：
-
-```rust
-use crate::config::{AppConfig, AuthConfig};
-use crate::crypto;
-```
-
-**Step 4: 验证编译**
+**Step 3: 验证编译**
 
 Run: `./build.sh windows`
 Expected: 编译成功
 
-**Step 5: Commit**
+**Step 4: Commit**
 
 ```bash
 git add src-tauri/src/commands.rs src-tauri/src/lib.rs
-git commit -m "feat: add save_auth_config command with password hashing"
+git commit -m "feat: add save_auth_config command with Argon2id hashing"
 ```
 
 ---
@@ -450,11 +419,15 @@ git commit -m "refactor: update AuthConfig type for password hashing"
 
 **Step 1: 添加密码占位符常量**
 
+在组件顶部添加：
+
 ```typescript
 const PASSWORD_PLACEHOLDER = '••••••••';
 ```
 
 **Step 2: 修改密码输入状态初始化**
+
+将 `passwordInput` 初始化逻辑修改为：
 
 ```typescript
 const [passwordInput, setPasswordInput] = useState(() => {
@@ -491,17 +464,21 @@ const handlePasswordBlur = async () => {
     return;
   }
   
-  // 调用新的保存命令
   try {
+    // 直接传输明文密码，后端进行 Argon2id 哈希
     await invoke('save_auth_config', {
       anonymous: config.auth.anonymous,
       username: usernameInput,
       password: passwordInput,
     });
+    
     // 保存成功后，切换到占位符显示
     setPasswordInput(PASSWORD_PLACEHOLDER);
     setHasExistingPassword(true);
     setShowPassword(false);
+    
+    // 刷新配置
+    await refreshConfig();
   } catch (error) {
     console.error('Failed to save auth config:', error);
   }
@@ -515,7 +492,7 @@ const handlePasswordBlur = async () => {
 {(!hasExistingPassword || passwordInput !== PASSWORD_PLACEHOLDER) && (
   <button
     type="button"
-    className="..."
+    className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-gray-400 hover:text-gray-600"
     onClick={() => setShowPassword(!showPassword)}
   >
     {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
@@ -532,7 +509,7 @@ Expected: 编译成功
 
 ```bash
 git add src/components/AdvancedConnectionConfig.tsx
-git commit -m "feat: update password input to support hash storage"
+git commit -m "feat: update password input with Argon2id storage"
 ```
 
 ---
@@ -604,7 +581,7 @@ Expected: 全部编译成功
 
 ```bash
 git add -A
-git commit -m "feat: complete password hashing implementation"
+git commit -m "feat: complete Argon2id password hashing implementation"
 ```
 
 ---
@@ -614,3 +591,4 @@ git commit -m "feat: complete password hashing implementation"
 1. **不要使用 `lsp_diagnostics`** - 始终通过 `./build.sh` 编译验证
 2. **TypeScript 类型同步** - Rust 的 `password_hash` → TypeScript 的 `passwordHash`
 3. **向后兼容** - 本实现不处理旧版明文密码配置
+4. **性能** - Argon2id 哈希约 100ms，用户可接受
