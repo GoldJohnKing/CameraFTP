@@ -15,7 +15,6 @@ import type { AdvancedConnectionConfig } from '../types';
 const DEFAULT_ADVANCED_CONFIG: AdvancedConnectionConfig = {
   enabled: false,
   auth: { anonymous: true, username: '', passwordHash: '', passwordSalt: '' },
-  pasv: { portStart: 50000, portEnd: 50100 }
 };
 
 export function ConfigCard() {

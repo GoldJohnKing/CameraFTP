@@ -13,9 +13,6 @@ pub enum AppError {
     #[error("无可用端口")]
     NoAvailablePort,
 
-    #[error("无可用PASV端口: {0}")]
-    NoAvailablePasvPort(String),
-
     #[error("无可用网络接口")]
     NoNetworkInterface,
 
@@ -45,7 +42,6 @@ impl AppError {
             Self::ServerAlreadyRunning => "SERVER_ALREADY_RUNNING",
             Self::ServerNotRunning => "SERVER_NOT_RUNNING",
             Self::NoAvailablePort => "NO_AVAILABLE_PORT",
-            Self::NoAvailablePasvPort(_) => "NO_AVAILABLE_PASV_PORT",
             Self::NoNetworkInterface => "NO_NETWORK_INTERFACE",
             Self::Io(_) => "IO_ERROR",
             Self::Serialization(_) => "SERIALIZATION_ERROR",
@@ -63,9 +59,6 @@ impl AppError {
             Self::ServerNotRunning => "FTP服务器未运行，无法执行此操作".to_string(),
             Self::NoAvailablePort => {
                 "无法找到可用的端口（1025-65535），请检查系统端口占用情况".to_string()
-            }
-            Self::NoAvailablePasvPort(msg) => {
-                format!("PASV端口范围无可用端口: {}，请扩大端口范围或更换端口", msg)
             }
             Self::NoNetworkInterface => "未检测到可用的网络接口，请检查网络连接".to_string(),
             Self::Io(msg) => format!("文件系统错误: {}", msg),

@@ -271,6 +271,7 @@ impl FtpServerActor {
         // Filesystem 不实现 Clone，Arc<Filesystem> 不实现 StorageBackend，
         // 因此只能在闭包内创建新实例。如果创建失败（极不可能，因路径已验证），
         // libunftp 会处理错误 - 我们无法从这里传播错误。
+        // 注意：PASV 端口使用 libunftp 默认范围 49152-65535
         let result = ServerBuilder::with_authenticator(
             Box::new(move || {
                 unftp_sbe_fs::Filesystem::new(root_path.clone())
@@ -284,7 +285,6 @@ impl FtpServerActor {
             authenticator,
         )
         .greeting("Camera FTP Companion Ready")
-        .passive_ports(config.passive_port_range.0..=config.passive_port_range.1)
         .idle_session_timeout(config.idle_timeout_seconds)
         .notify_data(data_listener)
         .notify_presence(presence_listener)

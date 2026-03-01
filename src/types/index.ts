@@ -22,15 +22,9 @@ export interface AuthConfig {
   passwordSalt: string;
 }
 
-export interface PasvConfig {
-  portStart: number;
-  portEnd: number;
-}
-
 export interface AdvancedConnectionConfig {
   enabled: boolean;
   auth: AuthConfig;
-  pasv: PasvConfig;
 }
 
 export interface AppConfig {

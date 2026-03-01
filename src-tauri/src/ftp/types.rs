@@ -59,7 +59,6 @@ impl From<&AuthConfig> for FtpAuthConfig {
 pub struct ServerConfig {
     pub port: u16,
     pub root_path: PathBuf,
-    pub passive_port_range: (u16, u16),
     pub idle_timeout_seconds: u64,
     pub auth: FtpAuthConfig,
 }

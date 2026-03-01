@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { Loader2, Eye, EyeOff, AlertCircle } from 'lucide-react';
 import { ToggleSwitch } from './ui';
@@ -25,16 +25,6 @@ type PortValidationError =
   | { type: 'out_of_range'; min: number; max: number }
   | { type: 'port_in_use'; port: number };
 
-type PasvValidationError =
-  | { type: 'start_empty' }
-  | { type: 'end_empty' }
-  | { type: 'both_empty' }
-  | { type: 'start_invalid' }
-  | { type: 'end_invalid' }
-  | { type: 'start_out_of_range' }
-  | { type: 'end_out_of_range' }
-  | { type: 'start_greater_than_end' };
-
 export function AdvancedConnectionConfigPanel({
   config,
   port,
@@ -50,20 +40,23 @@ export function AdvancedConnectionConfigPanel({
   
   // ========== Port checking hook ==========
   const { checkPort, isChecking: isCheckingPort } = usePortCheck();
-  const [pasvStartInput, setPasvStartInput] = useState(() => config.pasv.portStart.toString());
-  const [pasvEndInput, setPasvEndInput] = useState(() => config.pasv.portEnd.toString());
-  const [pasvError, setPasvError] = useState<PasvValidationError | null>(null);
   const [usernameInput, setUsernameInput] = useState(() => config.auth.username);
-  const [passwordInput, setPasswordInput] = useState(() => {
-    // 如果已有哈希密码，显示占位符
-    if (config.auth.passwordHash && !config.auth.anonymous) {
-      return PASSWORD_PLACEHOLDER;
-    }
-    return '';
-  });
-  const [hasExistingPassword, setHasExistingPassword] = useState(
-    !!config.auth.passwordHash && !config.auth.anonymous
+  
+  // ========== 密码状态（派生 + 编辑隔离）==========
+  // 派生状态：是否已有保存的密码（始终与 config 同步，不检查 anonymous）
+  const hasExistingPassword = useMemo(
+    () => !!config.auth.passwordHash,
+    [config.auth.passwordHash]
   );
+  
+  // 编辑状态：仅在用户正在编辑时使用
+  const [isEditingPassword, setIsEditingPassword] = useState(false);
+  const [editPasswordValue, setEditPasswordValue] = useState('');
+  
+  // 显示值：编辑中显示输入值，否则显示占位符或空
+  const passwordDisplayValue = isEditingPassword
+    ? editPasswordValue
+    : (hasExistingPassword ? PASSWORD_PLACEHOLDER : '');
 
   // Android 上禁止特权端口，Windows 上允许
   const minPort = platform === 'android' ? 1024 : 1;
@@ -80,27 +73,6 @@ export function AdvancedConnectionConfigPanel({
         return `端口号必须在 ${error.min}-${error.max} 之间`;
       case 'port_in_use':
         return `端口 ${error.port} 已被占用`;
-    }
-  };
-
-  const getPasvErrorMessage = (error: PasvValidationError): string => {
-    switch (error.type) {
-      case 'start_empty':
-        return '起始端口不能为空';
-      case 'end_empty':
-        return '结束端口不能为空';
-      case 'both_empty':
-        return '起始端口和结束端口不能为空';
-      case 'start_invalid':
-        return '起始端口不是有效的数字';
-      case 'end_invalid':
-        return '结束端口不是有效的数字';
-      case 'start_out_of_range':
-        return `起始端口必须在 ${minPort}-${maxPort} 之间`;
-      case 'end_out_of_range':
-        return `结束端口必须在 ${minPort}-${maxPort} 之间`;
-      case 'start_greater_than_end':
-        return '起始端口必须小于结束端口';
     }
   };
 
@@ -121,44 +93,6 @@ export function AdvancedConnectionConfigPanel({
     }
     
     return { valid: true, port: portNum };
-  };
-
-  const validatePasvRange = (start: string, end: string): { valid: boolean; startPort?: number; endPort?: number; error?: PasvValidationError } => {
-    const startEmpty = start.trim() === '';
-    const endEmpty = end.trim() === '';
-    
-    if (startEmpty && endEmpty) {
-      return { valid: false, error: { type: 'both_empty' } };
-    }
-    if (startEmpty) {
-      return { valid: false, error: { type: 'start_empty' } };
-    }
-    if (endEmpty) {
-      return { valid: false, error: { type: 'end_empty' } };
-    }
-    
-    const startNum = parseInt(start, 10);
-    const endNum = parseInt(end, 10);
-    
-    if (isNaN(startNum)) {
-      return { valid: false, error: { type: 'start_invalid' } };
-    }
-    if (isNaN(endNum)) {
-      return { valid: false, error: { type: 'end_invalid' } };
-    }
-    
-    if (startNum < minPort || startNum > maxPort) {
-      return { valid: false, error: { type: 'start_out_of_range' } };
-    }
-    if (endNum < minPort || endNum > maxPort) {
-      return { valid: false, error: { type: 'end_out_of_range' } };
-    }
-    
-    if (startNum >= endNum) {
-      return { valid: false, error: { type: 'start_greater_than_end' } };
-    }
-    
-    return { valid: true, startPort: startNum, endPort: endNum };
   };
 
   // ========== 开关处理：立即更新 draft ==========
@@ -184,28 +118,16 @@ export function AdvancedConnectionConfigPanel({
   };
 
   const handlePasswordFocus = () => {
-    // 当用户点击已有占位符的密码框时，清空内容让用户重新输入
-    if (passwordInput === PASSWORD_PLACEHOLDER && hasExistingPassword) {
-      setPasswordInput('');
+    // 如果不在编辑模式，进入编辑模式
+    if (!isEditingPassword) {
+      setIsEditingPassword(true);
+      // 清空编辑值，准备接收新输入
+      setEditPasswordValue('');
     }
   };
 
   const handlePasswordChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setPasswordInput(e.target.value);
-  };
-
-  const handlePasvStartChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const value = e.target.value;
-    setPasvStartInput(value);
-    const result = validatePasvRange(value, pasvEndInput);
-    setPasvError(result.valid ? null : result.error || null);
-  };
-
-  const handlePasvEndChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const value = e.target.value;
-    setPasvEndInput(value);
-    const result = validatePasvRange(pasvStartInput, value);
-    setPasvError(result.valid ? null : result.error || null);
+    setEditPasswordValue(e.target.value);
   };
 
   // ========== 失焦处理：更新 draft（触发防抖保存）==========
@@ -234,47 +156,31 @@ export function AdvancedConnectionConfigPanel({
   };
 
   const handlePasswordBlur = async () => {
-    // 如果是占位符，不处理
-    if (passwordInput === PASSWORD_PLACEHOLDER) {
-      return;
-    }
+    // 如果不在编辑模式，不处理
+    if (!isEditingPassword) return;
     
-    // 如果输入框为空，恢复显示占位符（保持原密码不变）
-    if (passwordInput === '') {
-      if (hasExistingPassword) {
-        setPasswordInput(PASSWORD_PLACEHOLDER);
-      }
+    // 退出编辑模式
+    setIsEditingPassword(false);
+    
+    // 如果输入为空，恢复原状（显示占位符）
+    if (editPasswordValue === '') {
       return;
     }
     
     try {
-      // 直接传输明文密码，后端进行 Argon2id 哈希
+      // 传输明文密码，后端进行 Argon2id 哈希
       await invoke('save_auth_config', {
         anonymous: config.auth.anonymous,
         username: usernameInput,
-        password: passwordInput,
+        password: editPasswordValue,
       });
       
-      // 保存成功后，切换到占位符显示
-      setPasswordInput(PASSWORD_PLACEHOLDER);
-      setHasExistingPassword(true);
+      // 重置编辑状态
+      setEditPasswordValue('');
       setShowPassword(false);
     } catch (error) {
       console.error('Failed to save auth config:', error);
     }
-  };
-
-  const handlePasvBlur = () => {
-    const result = validatePasvRange(pasvStartInput, pasvEndInput);
-    if (!result.valid || result.startPort === undefined || result.endPort === undefined) return;
-    if (result.startPort === config.pasv.portStart && result.endPort === config.pasv.portEnd) return;
-
-    onUpdate(() => ({
-      advancedConnection: {
-        ...config,
-        pasv: { ...config.pasv, portStart: result.startPort, portEnd: result.endPort },
-      },
-    }));
   };
 
   return (
@@ -357,20 +263,20 @@ export function AdvancedConnectionConfigPanel({
                 <div className="relative">
                   <input
                     type={showPassword ? 'text' : 'password'}
-                    value={passwordInput}
+                    value={passwordDisplayValue}
                     onChange={handlePasswordChange}
                     onFocus={handlePasswordFocus}
                     onBlur={handlePasswordBlur}
                     placeholder="输入密码"
                     disabled={isLoading || disabled}
                     className={`w-full px-3 py-2 border rounded-lg text-sm pr-10 ${
-                      passwordInput === '' && !config.auth.anonymous && !hasExistingPassword
+                      !hasExistingPassword && !isEditingPassword
                         ? 'border-red-300 bg-red-50'
                         : 'border-gray-200 bg-white'
                     } text-gray-700 disabled:opacity-50 disabled:cursor-not-allowed`}
                   />
-                  {/* 只有在输入新密码时才显示预览按钮 */}
-                  {(!hasExistingPassword || passwordInput !== PASSWORD_PLACEHOLDER) && (
+                  {/* 编辑模式或无已保存密码时显示预览按钮 */}
+                  {(isEditingPassword || !hasExistingPassword) && (
                     <button
                       type="button"
                       onClick={() => setShowPassword(!showPassword)}
@@ -385,7 +291,7 @@ export function AdvancedConnectionConfigPanel({
             </div>
 
             {/* 凭据未完整配置警告 */}
-            {(usernameInput.trim() === '' || (!hasExistingPassword && passwordInput === '')) && (
+            {(usernameInput.trim() === '' || (!hasExistingPassword && editPasswordValue === '')) && (
               <p className="text-xs text-red-600 flex items-center gap-1">
                 <AlertCircle className="w-3 h-3" />
                 用户名或密码未配置，将使用匿名访问模式
@@ -393,61 +299,6 @@ export function AdvancedConnectionConfigPanel({
             )}
           </div>
         )}
-      </div>
-
-      {/* PASV 配置 */}
-      <div className="space-y-3">
-        <h4 className="text-sm font-semibold text-gray-800">PASV 端口范围</h4>
-        <p className="text-xs text-gray-500">
-          被动模式的数据传输端口范围（默认 50000-50100）
-        </p>
-
-        <div className="space-y-3 pl-4 border-l-2 border-gray-100">
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-2">
-              <label className="block text-sm font-medium text-gray-700">
-                起始端口
-              </label>
-              <input
-                type="number"
-                value={pasvStartInput}
-                onChange={handlePasvStartChange}
-                onBlur={handlePasvBlur}
-                placeholder="50000"
-                disabled={isLoading || disabled}
-                className={`w-full px-3 py-2 border rounded-lg text-sm ${
-                  pasvError && (pasvError.type === 'start_empty' || pasvError.type === 'both_empty' || pasvError.type === 'start_invalid' || pasvError.type === 'start_out_of_range' || pasvError.type === 'start_greater_than_end')
-                    ? 'border-red-300 bg-red-50 text-red-700'
-                    : 'border-gray-200 bg-white text-gray-700'
-                } disabled:opacity-50 disabled:cursor-not-allowed`}
-              />
-            </div>
-            <div className="space-y-2">
-              <label className="block text-sm font-medium text-gray-700">
-                结束端口
-              </label>
-              <input
-                type="number"
-                value={pasvEndInput}
-                onChange={handlePasvEndChange}
-                onBlur={handlePasvBlur}
-                placeholder="50100"
-                disabled={isLoading || disabled}
-                className={`w-full px-3 py-2 border rounded-lg text-sm ${
-                  pasvError && (pasvError.type === 'end_empty' || pasvError.type === 'both_empty' || pasvError.type === 'end_invalid' || pasvError.type === 'end_out_of_range' || pasvError.type === 'start_greater_than_end')
-                    ? 'border-red-300 bg-red-50 text-red-700'
-                    : 'border-gray-200 bg-white text-gray-700'
-                } disabled:opacity-50 disabled:cursor-not-allowed`}
-              />
-            </div>
-          </div>
-          {pasvError && (
-            <p className="text-xs text-red-600 flex items-center gap-1">
-              <AlertCircle className="w-3 h-3" />
-              {getPasvErrorMessage(pasvError)}
-            </p>
-          )}
-        </div>
       </div>
     </div>
   );

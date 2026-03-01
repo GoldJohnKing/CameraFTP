@@ -34,26 +34,6 @@ impl Default for AuthConfig {
     }
 }
 
-/// PASV 模式配置
-#[derive(Debug, Clone, Serialize, Deserialize, TS)]
-#[ts(export)]
-#[serde(rename_all = "camelCase", default)]
-pub struct PasvConfig {
-    /// PASV 端口范围起始
-    pub port_start: u16,
-    /// PASV 端口范围结束
-    pub port_end: u16,
-}
-
-impl Default for PasvConfig {
-    fn default() -> Self {
-        Self {
-            port_start: 50000,
-            port_end: 50100,
-        }
-    }
-}
-
 /// 高级连接配置
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export)]
@@ -63,8 +43,6 @@ pub struct AdvancedConnectionConfig {
     pub enabled: bool,
     /// 认证配置
     pub auth: AuthConfig,
-    /// PASV 配置
-    pub pasv: PasvConfig,
 }
 
 impl Default for AdvancedConnectionConfig {
@@ -72,7 +50,6 @@ impl Default for AdvancedConnectionConfig {
         Self {
             enabled: false,
             auth: AuthConfig::default(),
-            pasv: PasvConfig::default(),
         }
     }
 }
