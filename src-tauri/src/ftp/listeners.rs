@@ -12,13 +12,13 @@ use tracing::{info, warn};
 pub struct FtpDataListener {
     stats: StatsActor,
     event_bus: EventBus,
-    save_path: std::path::PathBuf,
+    save_path: Arc<std::path::PathBuf>,
     app_handle: Option<AppHandle>,
 }
 
 impl FtpDataListener {
     pub fn new(stats: StatsActor, event_bus: EventBus, save_path: std::path::PathBuf, app_handle: Option<AppHandle>) -> Self {
-        Self { stats, event_bus, save_path, app_handle }
+        Self { stats, event_bus, save_path: Arc::new(save_path), app_handle }
     }
 }
 
