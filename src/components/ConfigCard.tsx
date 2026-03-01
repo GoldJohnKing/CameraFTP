@@ -162,27 +162,58 @@ export function ConfigCard() {
 
       {/* 连接设置 */}
       <Card className="overflow-hidden">
-        <CardHeader 
-          title="连接设置" 
-          description="配置 FTP 服务器连接参数"
+        <CardHeader
+          title="高级连接设置"
+          description="自定义 FTP 服务器连接参数"
           icon={<Wifi className="w-5 h-5 text-indigo-600" />}
+          action={
+            <button
+              type="button"
+              onClick={() => {
+                const currentConfig = draft?.advancedConnection ?? {
+                  enabled: false,
+                  auth: { anonymous: true, username: '', password: '' },
+                  pasv: { portStart: 50000, portEnd: 50100 }
+                };
+                handleAdvancedConfigUpdate(() => ({
+                  advancedConnection: {
+                    ...currentConfig,
+                    enabled: !currentConfig.enabled,
+                  },
+                }));
+              }}
+              disabled={isLoading || isRunning}
+              className={`
+                relative inline-flex h-6 w-11 items-center rounded-full
+                transition-colors duration-200 ease-in-out
+                ${draft?.advancedConnection?.enabled ? 'bg-blue-600 hover:bg-blue-700' : 'bg-gray-300 hover:bg-gray-400'}
+                ${isLoading || isRunning ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}
+              `}
+            >
+              <span
+                className={`
+                  inline-block h-4 w-4 transform rounded-full bg-white
+                  transition-transform duration-200 ease-in-out
+                  ${draft?.advancedConnection?.enabled ? 'translate-x-6' : 'translate-x-1'}
+                `}
+              />
+            </button>
+          }
         />
 
-        <div className="p-4 space-y-6">
-          {/* 高级连接配置 */}
-          <AdvancedConnectionConfigPanel
-            config={draft?.advancedConnection ?? {
-              enabled: false,
-              auth: { anonymous: true, username: '', password: '' },
-              pasv: { portStart: 50000, portEnd: 50100 }
-            }}
-            port={draft?.port ?? 2121}
-            platform={platform}
-            isLoading={isLoading}
-            disabled={isRunning}
-            onUpdate={handleAdvancedConfigUpdate}
-          />
-        </div>
+        {draft?.advancedConnection?.enabled && (
+          <div className="p-4 space-y-6">
+            {/* 高级连接配置 */}
+            <AdvancedConnectionConfigPanel
+              config={draft.advancedConnection}
+              port={draft?.port ?? 2121}
+              platform={platform}
+              isLoading={isLoading}
+              disabled={isRunning}
+              onUpdate={handleAdvancedConfigUpdate}
+            />
+          </div>
+        )}
       </Card>
 
       {/* 预览配置卡片（Windows 专属） */}

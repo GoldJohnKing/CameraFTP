@@ -92,105 +92,93 @@ export function PreviewConfigCard({ platform }: PreviewConfigCardProps) {
   return (
     <Card className="overflow-hidden">
       <CardHeader
-        title="自动预览图片"
-        description="相机上传图片后自动显示"
+        title="自动预览"
+        description="收到新图片后自动显示预览"
         icon={<ImagePlay className="w-5 h-5 text-purple-600" />}
-      />
-
-      <div className="p-4 space-y-6">
-        {/* 总开关 */}
-        <div className="flex items-center justify-between">
-          <div>
-            <h4 className="text-sm font-medium text-gray-700">启用自动预览</h4>
-            <p className="text-xs text-gray-500 mt-0.5">
-              接收到新图片时自动打开预览窗口
-            </p>
-          </div>
+        action={
           <ToggleSwitch
             checked={config?.enabled ?? false}
             onChange={(checked) => updateConfig({ enabled: checked })}
             disabled={isLoading}
           />
-        </div>
+        }
+      />
 
-        {config?.enabled && (
-          <>
-            <hr className="border-gray-100" />
+      {config?.enabled && (
+        <div className="p-4 space-y-6">
+          {/* 打开方式选择 */}
+          <div className="space-y-3">
+            <h4 className="text-sm font-semibold text-gray-800">打开方式</h4>
 
-            {/* 打开方式选择 */}
-            <div className="space-y-3">
-              <h4 className="text-sm font-medium text-gray-700">打开方式</h4>
-
-              <div className="space-y-2">
-                <RadioOption
-                  value="built-in-preview"
-                  label="内置预览窗口"
-                  description="独立窗口，支持全屏，自动显示最新图片"
-                  selected={config.method === 'built-in-preview'}
-                  onSelect={() => updateConfig({ method: 'built-in-preview' })}
-                  recommended
-                >
-                  {config.method === 'built-in-preview' && (
-                    <div className="mt-2 flex flex-col gap-2">
-                      <div className="h-px bg-gray-200" />
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <span className="text-sm text-gray-700">自动前台显示</span>
-                          <p className="text-xs text-gray-500">接收到新图片时自动置顶预览窗口</p>
-                        </div>
-                        <ToggleSwitch
-                          checked={config.autoBringToFront}
-                          onChange={(checked) => updateConfig({ autoBringToFront: checked })}
-                          disabled={isLoading}
-                        />
+            <div className="space-y-2">
+              <RadioOption
+                value="built-in-preview"
+                label="内置预览窗口"
+                description="自动显示最新图片，支持显示拍摄参数等"
+                selected={config.method === 'built-in-preview'}
+                onSelect={() => updateConfig({ method: 'built-in-preview' })}
+                recommended
+              >
+                {config.method === 'built-in-preview' && (
+                  <div className="mt-2 flex flex-col gap-2">
+                    <div className="h-px bg-gray-200" />
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <span className="text-sm text-gray-700">自动置顶</span>
+                        <p className="text-xs text-gray-500">接收到新图片时预览窗口自动置顶</p>
                       </div>
+                      <ToggleSwitch
+                        checked={config.autoBringToFront}
+                        onChange={(checked) => updateConfig({ autoBringToFront: checked })}
+                        disabled={isLoading}
+                      />
                     </div>
-                  )}
-                </RadioOption>
+                  </div>
+                )}
+              </RadioOption>
 
-                <RadioOption
-                  value="system-default"
-                  label="系统默认程序"
-                  description="使用 Windows 默认的图片查看器"
-                  selected={config.method === 'system-default'}
-                  onSelect={() => updateConfig({ method: 'system-default' })}
-                />
+              <RadioOption
+                value="system-default"
+                label="系统默认程序"
+                description="使用 Windows 默认的图片查看器"
+                selected={config.method === 'system-default'}
+                onSelect={() => updateConfig({ method: 'system-default' })}
+              />
 
-                <RadioOption
-                  value="windows-photos"
-                  label="Microsoft 照片应用"
-                  description="Windows 自带的照片应用"
-                  selected={config.method === 'windows-photos'}
-                  onSelect={() => updateConfig({ method: 'windows-photos' })}
-                />
+              <RadioOption
+                value="windows-photos"
+                label="Microsoft 照片应用"
+                description="Windows 自带的照片应用"
+                selected={config.method === 'windows-photos'}
+                onSelect={() => updateConfig({ method: 'windows-photos' })}
+              />
 
-                <RadioOption
-                  value="custom"
-                  label="自定义程序"
-                  selected={config.method === 'custom'}
-                  onSelect={() => updateConfig({ method: 'custom' })}
-                  action={
-                    <button
-                      onClick={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        handleSelectCustomProgram();
-                      }}
-                      className="shrink-0 px-3 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-                    >
-                      更改
-                    </button>
-                  }
-                >
-                  <p className={`text-xs truncate ${config.method === 'custom' ? 'text-gray-500' : 'text-gray-400'}`}>
-                    {customPath || '未设置'}
-                  </p>
-                </RadioOption>
-              </div>
+              <RadioOption
+                value="custom"
+                label="自定义程序"
+                selected={config.method === 'custom'}
+                onSelect={() => updateConfig({ method: 'custom' })}
+                action={
+                  <button
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      handleSelectCustomProgram();
+                    }}
+                    className="shrink-0 px-3 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                  >
+                    更改
+                  </button>
+                }
+              >
+                <p className={`text-xs truncate ${config.method === 'custom' ? 'text-gray-500' : 'text-gray-400'}`}>
+                  {customPath || '未设置'}
+                </p>
+              </RadioOption>
             </div>
-          </>
-        )}
-      </div>
+          </div>
+        </div>
+      )}
     </Card>
   );
 }

@@ -4,6 +4,8 @@ import { invoke } from '@tauri-apps/api/core';
 import { ToggleSwitch } from './ui';
 import type { AdvancedConnectionConfig } from '../types';
 
+// Note: ToggleSwitch import kept for "允许匿名访问" toggle
+
 interface AdvancedConnectionConfigPanelProps {
   config: AdvancedConnectionConfig;
   port: number;
@@ -145,15 +147,6 @@ export function AdvancedConnectionConfigPanel({
   };
 
   // ========== 开关处理：立即更新 draft ==========
-  const handleToggleEnabled = () => {
-    onUpdate(() => ({
-      advancedConnection: {
-        ...config,
-        enabled: !config.enabled,
-      },
-    }));
-  };
-
   const handleAnonymousToggle = () => {
     onUpdate(() => ({
       advancedConnection: {
@@ -250,185 +243,173 @@ export function AdvancedConnectionConfigPanel({
   };
 
   return (
-    <div className="space-y-4">
-      {/* 高级连接设置开关 */}
-      <ToggleSwitch
-        enabled={config.enabled}
-        onChange={handleToggleEnabled}
-        label="高级连接设置"
-        description="默认使用自动配置，非专业用户谨慎启用"
-        disabled={isLoading || disabled}
-      />
+    <div className="space-y-6">
+      {/* 端口配置 */}
+      <div className="space-y-3">
+        <h4 className="text-sm font-semibold text-gray-800">端口配置</h4>
 
-      {/* 展开的配置面板 */}
-      {config.enabled && (
-        <div className="mt-4 space-y-6 border-t border-gray-100 pt-4">
-          {/* 端口配置 */}
-          <div className="space-y-3">
-            <h4 className="text-sm font-semibold text-gray-800">端口配置</h4>
-
-            <div className="space-y-2">
-              <label className="block text-sm font-medium text-gray-700">
-                端口号
-              </label>
-              <div className="relative">
-                <input
-                  type="number"
-                  value={portInput}
-                  onChange={handlePortChange}
-                  onBlur={handlePortBlur}
-                  placeholder={`${minPort}-${maxPort}`}
-                  disabled={isLoading || isCheckingPort || disabled}
-                  className={`w-full px-3 py-2 border rounded-lg text-sm ${
-                    portError
-                      ? 'border-red-300 bg-red-50 text-red-700'
-                      : 'border-gray-200 bg-white text-gray-700'
-                  } disabled:opacity-50 disabled:cursor-not-allowed`}
-                />
-                {isCheckingPort && (
-                  <Loader2 className="w-4 h-4 animate-spin text-gray-400 absolute right-3 top-1/2 -translate-y-1/2" />
-                )}
-              </div>
-              {portError ? (
-                <p className="text-xs text-red-600 flex items-center gap-1">
-                  <AlertCircle className="w-3 h-3" />
-                  {getPortErrorMessage(portError)}
-                </p>
-              ) : (
-                <p className="text-xs text-gray-500">设置 FTP 服务器监听的端口号</p>
-              )}
-            </div>
-          </div>
-
-          {/* 认证配置 */}
-          <div className="space-y-3">
-            <h4 className="text-sm font-semibold text-gray-800">认证配置</h4>
-
-            <ToggleSwitch
-              enabled={config.auth.anonymous}
-              onChange={handleAnonymousToggle}
-              label="允许匿名访问"
-              description="任何用户都可以无需密码连接"
-              disabled={isLoading || disabled}
+        <div className="space-y-2">
+          <label className="block text-sm font-medium text-gray-700">
+            端口号
+          </label>
+          <div className="relative">
+            <input
+              type="number"
+              value={portInput}
+              onChange={handlePortChange}
+              onBlur={handlePortBlur}
+              placeholder={`${minPort}-${maxPort}`}
+              disabled={isLoading || isCheckingPort || disabled}
+              className={`w-full px-3 py-2 border rounded-lg text-sm ${
+                portError
+                  ? 'border-red-300 bg-red-50 text-red-700'
+                  : 'border-gray-200 bg-white text-gray-700'
+              } disabled:opacity-50 disabled:cursor-not-allowed`}
             />
+            {isCheckingPort && (
+              <Loader2 className="w-4 h-4 animate-spin text-gray-400 absolute right-3 top-1/2 -translate-y-1/2" />
+            )}
+          </div>
+          {portError ? (
+            <p className="text-xs text-red-600 flex items-center gap-1">
+              <AlertCircle className="w-3 h-3" />
+              {getPortErrorMessage(portError)}
+            </p>
+          ) : (
+            <p className="text-xs text-gray-500">设置 FTP 服务器监听的端口号</p>
+          )}
+        </div>
+      </div>
 
-            {!config.auth.anonymous && (
-              <div className="space-y-3 pl-4 border-l-2 border-gray-100">
-                <div className="space-y-2">
-                  <label className="block text-sm font-medium text-gray-700">
-                    用户名
-                  </label>
+      {/* 认证配置 */}
+      <div className="space-y-3">
+        <h4 className="text-sm font-semibold text-gray-800">认证配置</h4>
+
+        <ToggleSwitch
+          enabled={config.auth.anonymous}
+          onChange={handleAnonymousToggle}
+          label="允许匿名访问"
+          description="任何用户都可以无需密码连接"
+          disabled={isLoading || disabled}
+        />
+
+        {!config.auth.anonymous && (
+          <div className="space-y-3 pl-4 border-l-2 border-gray-100">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <label className="block text-sm font-medium text-gray-700">
+                  用户名
+                </label>
+                <input
+                  type="text"
+                  value={usernameInput}
+                  onChange={handleUsernameChange}
+                  onBlur={handleUsernameBlur}
+                  placeholder="输入用户名"
+                  disabled={isLoading || disabled}
+                  className={`w-full px-3 py-2 border rounded-lg text-sm ${
+                    usernameInput.trim() === '' && !config.auth.anonymous
+                      ? 'border-red-300 bg-red-50'
+                      : 'border-gray-200 bg-white'
+                  } text-gray-700 disabled:opacity-50 disabled:cursor-not-allowed`}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <label className="block text-sm font-medium text-gray-700">
+                  密码
+                </label>
+                <div className="relative">
                   <input
-                    type="text"
-                    value={usernameInput}
-                    onChange={handleUsernameChange}
-                    onBlur={handleUsernameBlur}
-                    placeholder="输入用户名"
+                    type={showPassword ? 'text' : 'password'}
+                    value={passwordInput}
+                    onChange={handlePasswordChange}
+                    onBlur={handlePasswordBlur}
+                    placeholder="输入密码"
                     disabled={isLoading || disabled}
-                    className={`w-full px-3 py-2 border rounded-lg text-sm ${
-                      usernameInput.trim() === '' && !config.auth.anonymous
+                    className={`w-full px-3 py-2 border rounded-lg text-sm pr-10 ${
+                      passwordInput === '' && !config.auth.anonymous
                         ? 'border-red-300 bg-red-50'
                         : 'border-gray-200 bg-white'
                     } text-gray-700 disabled:opacity-50 disabled:cursor-not-allowed`}
                   />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    disabled={isLoading || disabled}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 disabled:opacity-50"
+                  >
+                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
                 </div>
-
-                <div className="space-y-2">
-                  <label className="block text-sm font-medium text-gray-700">
-                    密码
-                  </label>
-                  <div className="relative">
-                    <input
-                      type={showPassword ? 'text' : 'password'}
-                      value={passwordInput}
-                      onChange={handlePasswordChange}
-                      onBlur={handlePasswordBlur}
-                      placeholder="输入密码"
-                      disabled={isLoading || disabled}
-                      className={`w-full px-3 py-2 border rounded-lg text-sm pr-10 ${
-                        passwordInput === '' && !config.auth.anonymous
-                          ? 'border-red-300 bg-red-50'
-                          : 'border-gray-200 bg-white'
-                      } text-gray-700 disabled:opacity-50 disabled:cursor-not-allowed`}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowPassword(!showPassword)}
-                      disabled={isLoading || disabled}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 disabled:opacity-50"
-                    >
-                      {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                    </button>
-                  </div>
-                </div>
-
-                {/* 凭据未完整配置警告 */}
-                {(usernameInput.trim() === '' || passwordInput === '') && (
-                  <p className="text-xs text-red-600 flex items-center gap-1">
-                    <AlertCircle className="w-3 h-3" />
-                    用户名或密码未配置，将使用匿名访问模式
-                  </p>
-                )}
               </div>
+            </div>
+
+            {/* 凭据未完整配置警告 */}
+            {(usernameInput.trim() === '' || passwordInput === '') && (
+              <p className="text-xs text-red-600 flex items-center gap-1">
+                <AlertCircle className="w-3 h-3" />
+                用户名或密码未配置，将使用匿名访问模式
+              </p>
             )}
           </div>
+        )}
+      </div>
 
-          {/* PASV 配置 */}
-          <div className="space-y-3">
-            <h4 className="text-sm font-semibold text-gray-800">PASV 端口范围</h4>
-            <p className="text-xs text-gray-500">
-              被动模式的数据传输端口范围（默认 50000-50100）
-            </p>
+      {/* PASV 配置 */}
+      <div className="space-y-3">
+        <h4 className="text-sm font-semibold text-gray-800">PASV 端口范围</h4>
+        <p className="text-xs text-gray-500">
+          被动模式的数据传输端口范围（默认 50000-50100）
+        </p>
 
-            <div className="space-y-3 pl-4 border-l-2 border-gray-100">
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-2">
-                  <label className="block text-sm font-medium text-gray-700">
-                    起始端口
-                  </label>
-                  <input
-                    type="number"
-                    value={pasvStartInput}
-                    onChange={handlePasvStartChange}
-                    onBlur={handlePasvBlur}
-                    placeholder="50000"
-                    disabled={isLoading || disabled}
-                    className={`w-full px-3 py-2 border rounded-lg text-sm ${
-                      pasvError && (pasvError.type === 'start_empty' || pasvError.type === 'both_empty' || pasvError.type === 'start_invalid' || pasvError.type === 'start_out_of_range' || pasvError.type === 'start_greater_than_end')
-                        ? 'border-red-300 bg-red-50 text-red-700'
-                        : 'border-gray-200 bg-white text-gray-700'
-                    } disabled:opacity-50 disabled:cursor-not-allowed`}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <label className="block text-sm font-medium text-gray-700">
-                    结束端口
-                  </label>
-                  <input
-                    type="number"
-                    value={pasvEndInput}
-                    onChange={handlePasvEndChange}
-                    onBlur={handlePasvBlur}
-                    placeholder="50100"
-                    disabled={isLoading || disabled}
-                    className={`w-full px-3 py-2 border rounded-lg text-sm ${
-                      pasvError && (pasvError.type === 'end_empty' || pasvError.type === 'both_empty' || pasvError.type === 'end_invalid' || pasvError.type === 'end_out_of_range' || pasvError.type === 'start_greater_than_end')
-                        ? 'border-red-300 bg-red-50 text-red-700'
-                        : 'border-gray-200 bg-white text-gray-700'
-                    } disabled:opacity-50 disabled:cursor-not-allowed`}
-                  />
-                </div>
-              </div>
-              {pasvError && (
-                <p className="text-xs text-red-600 flex items-center gap-1">
-                  <AlertCircle className="w-3 h-3" />
-                  {getPasvErrorMessage(pasvError)}
-                </p>
-              )}
+        <div className="space-y-3 pl-4 border-l-2 border-gray-100">
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-2">
+              <label className="block text-sm font-medium text-gray-700">
+                起始端口
+              </label>
+              <input
+                type="number"
+                value={pasvStartInput}
+                onChange={handlePasvStartChange}
+                onBlur={handlePasvBlur}
+                placeholder="50000"
+                disabled={isLoading || disabled}
+                className={`w-full px-3 py-2 border rounded-lg text-sm ${
+                  pasvError && (pasvError.type === 'start_empty' || pasvError.type === 'both_empty' || pasvError.type === 'start_invalid' || pasvError.type === 'start_out_of_range' || pasvError.type === 'start_greater_than_end')
+                    ? 'border-red-300 bg-red-50 text-red-700'
+                    : 'border-gray-200 bg-white text-gray-700'
+                } disabled:opacity-50 disabled:cursor-not-allowed`}
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="block text-sm font-medium text-gray-700">
+                结束端口
+              </label>
+              <input
+                type="number"
+                value={pasvEndInput}
+                onChange={handlePasvEndChange}
+                onBlur={handlePasvBlur}
+                placeholder="50100"
+                disabled={isLoading || disabled}
+                className={`w-full px-3 py-2 border rounded-lg text-sm ${
+                  pasvError && (pasvError.type === 'end_empty' || pasvError.type === 'both_empty' || pasvError.type === 'end_invalid' || pasvError.type === 'end_out_of_range' || pasvError.type === 'start_greater_than_end')
+                    ? 'border-red-300 bg-red-50 text-red-700'
+                    : 'border-gray-200 bg-white text-gray-700'
+                } disabled:opacity-50 disabled:cursor-not-allowed`}
+              />
             </div>
           </div>
+          {pasvError && (
+            <p className="text-xs text-red-600 flex items-center gap-1">
+              <AlertCircle className="w-3 h-3" />
+              {getPasvErrorMessage(pasvError)}
+            </p>
+          )}
         </div>
-      )}
+      </div>
     </div>
   );
 }

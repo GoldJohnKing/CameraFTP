@@ -38,7 +38,7 @@ export function CardHeader({ title, description, icon, action }: CardHeaderProps
           </div>
         </div>
         {action && (
-          <div className="flex items-center self-end pb-0.5">
+          <div className="flex items-center self-center">
             {action}
           </div>
         )}
