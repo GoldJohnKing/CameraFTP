@@ -91,15 +91,48 @@ pub async fn start_ftp_server(
         AppError::NoNetworkInterface
     })?;
 
+    // 确定PASV端口范围
+    let pasv_range = if config.advanced_connection.enabled {
+        (config.advanced_connection.pasv.port_start, config.advanced_connection.pasv.port_end)
+    } else {
+        (50000, 50100)
+    };
+
+    // 验证PASV端口范围是否有可用端口
+    let (available_count, total_count, _) = NetworkManager::check_pasv_port_range(pasv_range.0, pasv_range.1).await;
+    if available_count == 0 {
+        error!(
+            start = pasv_range.0,
+            end = pasv_range.1,
+            "No PASV ports available in configured range"
+        );
+        return Err(AppError::NoAvailablePasvPort(format!(
+            "{}-{} (共{}个端口均被占用)",
+            pasv_range.0, pasv_range.1, total_count
+        )));
+    } else if available_count < 3 {
+        warn!(
+            start = pasv_range.0,
+            end = pasv_range.1,
+            available = available_count,
+            total = total_count,
+            "Very few PASV ports available, consider expanding the range"
+        );
+    } else {
+        info!(
+            start = pasv_range.0,
+            end = pasv_range.1,
+            available = available_count,
+            total = total_count,
+            "PASV port range validated"
+        );
+    }
+
     // 创建服务器配置
     let server_config = ServerConfig {
         port,
         root_path: save_path.clone(),
-        passive_port_range: if config.advanced_connection.enabled {
-            (config.advanced_connection.pasv.port_start, config.advanced_connection.pasv.port_end)
-        } else {
-            (50000, 50100)
-        },
+        passive_port_range: pasv_range,
         idle_timeout_seconds: 600,
         auth: if config.advanced_connection.enabled {
             FtpAuthConfig::from(&config.advanced_connection.auth)

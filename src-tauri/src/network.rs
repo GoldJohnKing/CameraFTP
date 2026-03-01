@@ -170,4 +170,28 @@ impl NetworkManager {
         tracing::error!("No available port found in range {}-65535", start);
         None
     }
+
+    /// 检查PASV端口范围内的可用端口数量
+    /// 返回 (可用端口数量, 总端口数量, 第一个可用端口)
+    pub async fn check_pasv_port_range(start: u16, end: u16) -> (usize, usize, Option<u16>) {
+        let total = if end >= start { (end - start + 1) as usize } else { 0 };
+        let mut available = 0;
+        let mut first_available = None;
+
+        for port in start..=end {
+            if Self::is_port_available(port).await {
+                available += 1;
+                if first_available.is_none() {
+                    first_available = Some(port);
+                }
+            }
+        }
+
+        tracing::info!(
+            "PASV port range {}-{}: {}/{} available, first available: {:?}",
+            start, end, available, total, first_available
+        );
+
+        (available, total, first_available)
+    }
 }
