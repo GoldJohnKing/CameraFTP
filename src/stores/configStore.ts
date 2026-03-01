@@ -73,17 +73,10 @@ interface ConfigState {
 
 const DEBOUNCE_DELAY = 100; // 统一 100ms 防抖
 
-let debouncedSave: ReturnType<typeof debounce> | null = null;
-
-const getOrCreateDebouncedSave = (
-  saveFn: (config: AppConfig) => Promise<void>
-) => {
-  if (!debouncedSave) {
-    debouncedSave = debounce(async (config: AppConfig) => {
-      await saveFn(config);
-    }, DEBOUNCE_DELAY);
-  }
-  return debouncedSave;
+const createDebouncedSave = (saveFn: (config: AppConfig) => Promise<void>) => {
+  return debounce(async (config: AppConfig) => {
+    await saveFn(config);
+  }, DEBOUNCE_DELAY);
 };
 
 // ========== Store 实现 ==========
@@ -129,13 +122,13 @@ export const useConfigStore = create<ConfigState>((set, get) => {
       set({ draft: newDraft });
 
       // 触发防抖保存
-      const debounced = getOrCreateDebouncedSave(saveConfigInternal);
+      const debounced = createDebouncedSave(saveConfigInternal);
       debounced(newDraft);
     },
 
     // ========== 立即保存草稿 ==========
     commitDraft: async () => {
-      const debounced = getOrCreateDebouncedSave(saveConfigInternal);
+      const debounced = createDebouncedSave(saveConfigInternal);
       debounced.flush();
     },
 
@@ -144,7 +137,7 @@ export const useConfigStore = create<ConfigState>((set, get) => {
       const { config } = get();
       if (config) {
         set({ draft: config });
-        const debounced = getOrCreateDebouncedSave(saveConfigInternal);
+        const debounced = createDebouncedSave(saveConfigInternal);
         debounced.cancel();
       }
     },
