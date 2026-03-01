@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { invoke } from '@tauri-apps/api/core';
 import { toast } from 'sonner';
 import type { PermissionCheckResult, StorageInfo, PermissionStatus, ServerStartCheckResult } from '../types';
-import { isPermissionAndroidAvailable, checkAndroidPermissions } from '../types';
+import { permissionBridge } from '../types';
 import { formatError } from '../utils/error';
 
 interface PermissionStoreState {
@@ -42,10 +42,10 @@ interface PermissionStoreState {
 
 /// Internal permission check that returns default values for non-Android platforms
 async function permissionCheckInternal(): Promise<PermissionCheckResult | null> {
-  if (!isPermissionAndroidAvailable()) {
+  if (!permissionBridge.isAvailable()) {
     return { storage: true, notification: true, batteryOptimization: true };
   }
-  return checkAndroidPermissions();
+  return permissionBridge.checkAll();
 }
 
 // Helper to check if all permissions are granted
@@ -114,29 +114,23 @@ export const usePermissionStore = create<PermissionStoreState>()((set, get) => (
     
     // Request storage permission (does NOT start polling - caller must call startPolling)
     requestStoragePermission: () => {
-      if (isPermissionAndroidAvailable() && window.PermissionAndroid) {
-        window.PermissionAndroid.requestStoragePermission();
-      }
+      permissionBridge.requestStorage();
     },
     
     // Request notification permission (does NOT start polling - caller must call startPolling)
     requestNotificationPermission: () => {
-      if (isPermissionAndroidAvailable() && window.PermissionAndroid) {
-        window.PermissionAndroid.requestNotificationPermission();
-      }
+      permissionBridge.requestNotification();
     },
     
     // Request battery optimization (does NOT start polling - caller must call startPolling)
     requestBatteryOptimization: () => {
-      if (isPermissionAndroidAvailable() && window.PermissionAndroid) {
-        window.PermissionAndroid.requestBatteryOptimization();
-      }
+      permissionBridge.requestBatteryOptimization();
     },
     
     // Start polling for permission changes
     // Only PermissionDialog should call this
     startPolling: () => {
-      if (!isPermissionAndroidAvailable()) return;
+      if (!permissionBridge.isAvailable()) return;
       
       // Stop existing polling first
       if (pollingIntervalId !== null) {
@@ -277,7 +271,7 @@ export const usePermissionStore = create<PermissionStoreState>()((set, get) => (
   }));
 
 // Initial check on Android only
-if (typeof window !== 'undefined' && isPermissionAndroidAvailable()) {
+if (typeof window !== 'undefined' && permissionBridge.isAvailable()) {
   setTimeout(() => {
     const state = usePermissionStore.getState();
     // Check permissions

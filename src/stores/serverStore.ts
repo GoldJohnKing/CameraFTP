@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { invoke } from '@tauri-apps/api/core';
 import type { ServerInfo, ServerStatus } from '../types';
-import { serverStateBridge } from '../types/global';
+import { serverStateBridge, storageSettingsBridge } from '../types/global';
 import { formatError } from '../utils/error';
 import { createEventManager, type EventRegistration } from '../utils/events';
 import { retryAction } from '../utils/store';
@@ -140,13 +140,7 @@ const createEventRegistrations = (get: () => ServerState, set: (fn: (state: Serv
   {
     name: 'android-open-manage-storage-settings',
     handler: () => {
-      if (window.StorageSettingsAndroid?.openAllFilesAccessSettings) {
-        try {
-          window.StorageSettingsAndroid.openAllFilesAccessSettings();
-        } catch {
-          // Silently ignore settings open errors
-        }
-      }
+      storageSettingsBridge.openAllFilesAccessSettings();
     },
   },
 ];
