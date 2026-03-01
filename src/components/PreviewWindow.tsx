@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useCallback } from 'react';
+import { useEffect, useState, useRef, useCallback, useMemo, memo } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { convertFileSrc } from '@tauri-apps/api/core';
@@ -101,7 +101,7 @@ export function PreviewWindow() {
 }
 
 // 预览窗口内容组件
-function PreviewWindowContent({
+const PreviewWindowContent = memo(function PreviewWindowContent({
   imagePath,
   autoBringToFront,
 }: {
@@ -123,7 +123,7 @@ function PreviewWindowContent({
   const [exifInfo, setExifInfo] = useState<ExifInfo | null>(null);
 
   // 加载 EXIF 信息
-  const loadExifInfo = async (path: string) => {
+  const loadExifInfo = useCallback(async (path: string) => {
     try {
       const exif = await invoke<ExifInfo | null>('get_image_exif', { filePath: path });
       setExifInfo(exif);
@@ -131,7 +131,7 @@ function PreviewWindowContent({
       // Silently ignore - EXIF is optional metadata
       setExifInfo(null);
     }
-  };
+  }, []);
 
   // 缩放和拖拽状态
   const [scale, setScale] = useState(1);
@@ -451,6 +451,11 @@ function PreviewWindowContent({
   // 使用 convertFileSrc 将文件路径转换为可用的 URL
   const imageSrc = convertFileSrc(imagePath);
 
+  // 提取文件名（memoized）
+  const fileName = useMemo(() => {
+    return imagePath ? imagePath.split(/[/\\]/).pop() || '' : '';
+  }, [imagePath]);
+
   return (
     <div
       className="w-full h-screen relative bg-black overflow-hidden"
@@ -507,7 +512,7 @@ function PreviewWindowContent({
           {/* 文件名 - 跨两行 */}
           <div className="flex flex-col justify-center min-w-0">
             <span className="text-sm text-gray-200 truncate">
-              {imagePath.split(/[/\\]/).pop()}
+              {fileName}
             </span>
           </div>
           {/* 竖线分隔符 - 跨两行高度 */}
@@ -676,4 +681,4 @@ function PreviewWindowContent({
       </div>
     </div>
   );
-}
+});
