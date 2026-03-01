@@ -80,66 +80,51 @@ pub struct FtpServerHandle {
 }
 
 impl FtpServerHandle {
+    /// Helper method to send a command and receive the response
+    async fn send_command<T: Send + 'static>(
+        &self,
+        cmd_factory: impl FnOnce(oneshot::Sender<T>) -> ServerCommand,
+    ) -> Result<T, AppError> {
+        let (tx, rx) = oneshot::channel();
+        let cmd = cmd_factory(tx);
+        if self.tx.send(cmd).await.is_err() {
+            return Err(AppError::ServerNotRunning);
+        }
+        rx.await.map_err(|_| AppError::ServerNotRunning)
+    }
+
     /// 启动服务器
     #[instrument(skip(self))]
     pub async fn start(
         &self,
         config: ServerConfig,
     ) -> AppResult<SocketAddr> {
-        let (tx, rx) = oneshot::channel();
-        let cmd = ServerCommand::Start {
-            config,
-            respond_to: tx,
-        };
-
-        if self.tx.send(cmd).await.is_err() {
-            return Err(AppError::ServerNotRunning);
-        }
-
-        match rx.await {
-            Ok(result) => result,
-            Err(_) => Err(AppError::ServerNotRunning),
-        }
+        self.send_command(|tx| ServerCommand::Start { config, respond_to: tx })
+            .await
+            .map_err(|_| AppError::ServerNotRunning)?
     }
 
     /// 停止服务器
     #[instrument(skip(self))]
     pub async fn stop(&self) -> AppResult<()> {
-        let (tx, rx) = oneshot::channel();
-        let cmd = ServerCommand::Stop { respond_to: tx };
-
-        if self.tx.send(cmd).await.is_err() {
-            return Err(AppError::ServerNotRunning);
-        }
-
-        match rx.await {
-            Ok(result) => result,
-            Err(_) => Err(AppError::ServerNotRunning),
-        }
+        self.send_command(|tx| ServerCommand::Stop { respond_to: tx })
+            .await
+            .map_err(|_| AppError::ServerNotRunning)?
     }
 
     /// 获取状态快照
     pub async fn get_snapshot(&self) -> ServerStateSnapshot {
-        let (tx, rx) = oneshot::channel();
-        let cmd = ServerCommand::GetSnapshot { respond_to: tx };
-
-        if self.tx.send(cmd).await.is_err() {
-            return ServerStateSnapshot::default();
-        }
-
-        rx.await.unwrap_or_default()
+        self.send_command(|tx| ServerCommand::GetSnapshot { respond_to: tx })
+            .await
+            .unwrap_or_default()
     }
 
     /// 获取服务器连接信息（包含 IP 和端口）
     pub async fn get_server_info(&self) -> Option<ServerInfo> {
-        let (tx, rx) = oneshot::channel();
-        let cmd = ServerCommand::GetServerInfo { respond_to: tx };
-
-        if self.tx.send(cmd).await.is_err() {
-            return None;
-        }
-
-        rx.await.ok().flatten()
+        self.send_command(|tx| ServerCommand::GetServerInfo { respond_to: tx })
+            .await
+            .ok()
+            .flatten()
     }
 }
 
