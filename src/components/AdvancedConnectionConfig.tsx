@@ -1,9 +1,12 @@
 import { useState } from 'react';
+import { invoke } from '@tauri-apps/api/core';
 import { Loader2, Eye, EyeOff, AlertCircle } from 'lucide-react';
 import { ToggleSwitch } from './ui';
 import type { AdvancedConnectionConfig } from '../types';
 import { validatePort as validatePortBasic } from '../utils/validation';
 import { usePortCheck } from '../hooks/usePortCheck';
+
+const PASSWORD_PLACEHOLDER = '••••••••';
 
 // Note: ToggleSwitch import kept for "允许匿名访问" toggle
 
@@ -51,7 +54,16 @@ export function AdvancedConnectionConfigPanel({
   const [pasvEndInput, setPasvEndInput] = useState(() => config.pasv.portEnd.toString());
   const [pasvError, setPasvError] = useState<PasvValidationError | null>(null);
   const [usernameInput, setUsernameInput] = useState(() => config.auth.username);
-  const [passwordInput, setPasswordInput] = useState(() => config.auth.password);
+  const [passwordInput, setPasswordInput] = useState(() => {
+    // 如果已有哈希密码，显示占位符
+    if (config.auth.passwordHash && !config.auth.anonymous) {
+      return PASSWORD_PLACEHOLDER;
+    }
+    return '';
+  });
+  const [hasExistingPassword, setHasExistingPassword] = useState(
+    !!config.auth.passwordHash && !config.auth.anonymous
+  );
 
   // Android 上禁止特权端口，Windows 上允许
   const minPort = platform === 'android' ? 1024 : 1;
@@ -172,7 +184,12 @@ export function AdvancedConnectionConfigPanel({
   };
 
   const handlePasswordChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setPasswordInput(e.target.value);
+    const value = e.target.value;
+    // 用户开始输入，清除占位符状态
+    if (hasExistingPassword && value !== PASSWORD_PLACEHOLDER) {
+      setHasExistingPassword(false);
+    }
+    setPasswordInput(value);
   };
 
   const handlePasvStartChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -214,14 +231,27 @@ export function AdvancedConnectionConfigPanel({
     }));
   };
 
-  const handlePasswordBlur = () => {
-    if (passwordInput === config.auth.password) return;
-    onUpdate(() => ({
-      advancedConnection: {
-        ...config,
-        auth: { ...config.auth, password: passwordInput },
-      },
-    }));
+  const handlePasswordBlur = async () => {
+    // 如果是占位符或未修改，不保存
+    if (passwordInput === PASSWORD_PLACEHOLDER || passwordInput === '') {
+      return;
+    }
+    
+    try {
+      // 直接传输明文密码，后端进行 Argon2id 哈希
+      await invoke('save_auth_config', {
+        anonymous: config.auth.anonymous,
+        username: usernameInput,
+        password: passwordInput,
+      });
+      
+      // 保存成功后，切换到占位符显示
+      setPasswordInput(PASSWORD_PLACEHOLDER);
+      setHasExistingPassword(true);
+      setShowPassword(false);
+    } catch (error) {
+      console.error('Failed to save auth config:', error);
+    }
   };
 
   const handlePasvBlur = () => {
@@ -328,20 +358,23 @@ export function AdvancedConnectionConfigPanel({
                         : 'border-gray-200 bg-white'
                     } text-gray-700 disabled:opacity-50 disabled:cursor-not-allowed`}
                   />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword(!showPassword)}
-                    disabled={isLoading || disabled}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 disabled:opacity-50"
-                  >
-                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </button>
+                  {/* 只有在输入新密码时才显示预览按钮 */}
+                  {(!hasExistingPassword || passwordInput !== PASSWORD_PLACEHOLDER) && (
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      disabled={isLoading || disabled}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 disabled:opacity-50"
+                    >
+                      {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  )}
                 </div>
               </div>
             </div>
 
             {/* 凭据未完整配置警告 */}
-            {(usernameInput.trim() === '' || passwordInput === '') && (
+            {(usernameInput.trim() === '' || (!hasExistingPassword && passwordInput === '')) && (
               <p className="text-xs text-red-600 flex items-center gap-1">
                 <AlertCircle className="w-3 h-3" />
                 用户名或密码未配置，将使用匿名访问模式
