@@ -28,7 +28,7 @@ impl ServerStats {
 pub struct FtpAuthConfig {
     pub anonymous: bool,
     pub username: String,
-    pub password: String,
+    pub password_hash: String,
 }
 
 impl Default for FtpAuthConfig {
@@ -36,22 +36,20 @@ impl Default for FtpAuthConfig {
         Self {
             anonymous: true,
             username: String::new(),
-            password: String::new(),
+            password_hash: String::new(),
         }
     }
 }
 
 impl From<&AuthConfig> for FtpAuthConfig {
-    /// Convert user-facing AuthConfig to internal FtpAuthConfig.
-    /// Falls back to anonymous mode if username is empty or password is empty.
     fn from(auth: &AuthConfig) -> Self {
         let should_be_anonymous =
-            auth.anonymous || auth.username.trim().is_empty() || auth.password.is_empty();
+            auth.anonymous || auth.username.trim().is_empty() || auth.password_hash.is_empty();
 
         Self {
             anonymous: should_be_anonymous,
             username: auth.username.clone(),
-            password: auth.password.clone(),
+            password_hash: auth.password_hash.clone(),
         }
     }
 }

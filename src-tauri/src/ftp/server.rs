@@ -35,16 +35,21 @@ impl Authenticator for CustomAuthenticator {
         creds: &Credentials,
     ) -> Result<Principal, AuthenticationError> {
         if self.auth_config.anonymous {
-            // 允许匿名访问
             return Ok(Principal {
                 username: username.to_string(),
             });
         }
 
-        // 验证用户名和密码
-        let password = creds.password.as_deref().unwrap_or("");
+        // 验证用户名
+        if username != self.auth_config.username {
+            return Err(AuthenticationError::BadPassword);
+        }
 
-        if username == self.auth_config.username && password == self.auth_config.password {
+        // 使用 Argon2id 验证密码
+        // 注意：verify_password 接受 String 以便使用 Zeroizing 清零
+        let password = creds.password.clone().unwrap_or_default();
+        
+        if crate::crypto::verify_password(password, &self.auth_config.password_hash) {
             Ok(Principal {
                 username: username.to_string(),
             })
