@@ -3,6 +3,7 @@ import { Loader2, Eye, EyeOff, AlertCircle } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { ToggleSwitch } from './ui';
 import type { AdvancedConnectionConfig } from '../types';
+import { validatePort as validatePortBasic } from '../utils/validation';
 
 // Note: ToggleSwitch import kept for "允许匿名访问" toggle
 
@@ -95,9 +96,9 @@ export function AdvancedConnectionConfigPanel({
       return { valid: false, error: { type: 'empty' } };
     }
     
-    const portNum = parseInt(value, 10);
+    const portNum = validatePortBasic(value);
     
-    if (isNaN(portNum)) {
+    if (portNum === null) {
       return { valid: false, error: { type: 'invalid_number' } };
     }
     
