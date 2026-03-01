@@ -28,7 +28,7 @@ export const InfoCard = memo(function InfoCard() {
   const isAnonymous = !advanced?.enabled ||
                       advanced.auth?.anonymous ||
                       !advanced.auth?.username?.trim() ||
-                      !advanced.auth?.password;
+                      !advanced.auth?.passwordHash;
 
   return (
     <Card className="p-6">
