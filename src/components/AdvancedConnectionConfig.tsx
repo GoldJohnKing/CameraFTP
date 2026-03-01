@@ -1,9 +1,9 @@
 import { useState } from 'react';
 import { Loader2, Eye, EyeOff, AlertCircle } from 'lucide-react';
-import { invoke } from '@tauri-apps/api/core';
 import { ToggleSwitch } from './ui';
 import type { AdvancedConnectionConfig } from '../types';
 import { validatePort as validatePortBasic } from '../utils/validation';
+import { usePortCheck } from '../hooks/usePortCheck';
 
 // Note: ToggleSwitch import kept for "允许匿名访问" toggle
 
@@ -43,8 +43,10 @@ export function AdvancedConnectionConfigPanel({
   // ========== 本地输入状态（完全独立，不从 props 同步）==========
   const [portInput, setPortInput] = useState(() => port.toString());
   const [portError, setPortError] = useState<PortValidationError | null>(null);
-  const [isCheckingPort, setIsCheckingPort] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  
+  // ========== Port checking hook ==========
+  const { checkPort, isChecking: isCheckingPort } = usePortCheck();
   const [pasvStartInput, setPasvStartInput] = useState(() => config.pasv.portStart.toString());
   const [pasvEndInput, setPasvEndInput] = useState(() => config.pasv.portEnd.toString());
   const [pasvError, setPasvError] = useState<PasvValidationError | null>(null);
@@ -193,21 +195,13 @@ export function AdvancedConnectionConfigPanel({
     if (!result.valid || result.port === undefined) return;
     if (result.port === port) return;
 
-    setIsCheckingPort(true);
-    try {
-      const isAvailable = await invoke<boolean>('check_port_available', { port: result.port });
-      if (!isAvailable) {
-        setPortError({ type: 'port_in_use', port: result.port });
-        setIsCheckingPort(false);
-        return;
-      }
-      // 更新 draft
-      onUpdate(() => ({ port: result.port }));
-    } catch {
-      setPortError({ type: 'invalid_number' });
-    } finally {
-      setIsCheckingPort(false);
+    const checkResult = await checkPort(portInput);
+    if (!checkResult.available) {
+      setPortError({ type: 'port_in_use', port: result.port });
+      return;
     }
+    // 更新 draft
+    onUpdate(() => ({ port: result.port }));
   };
 
   const handleUsernameBlur = () => {
