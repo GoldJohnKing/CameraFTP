@@ -150,6 +150,10 @@ pub fn run() {
                     if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                         // 阻止默认关闭行为
                         api.prevent_close();
+                        // 将窗口置于前台（处理任务栏预览关闭的情况）
+                        if let Some(win) = app_handle.get_webview_window("main") {
+                            let _ = win.set_focus();
+                        }
                         // 发送事件给前端显示确认对话框
                         let _ = app_handle.emit("window-close-requested", ());
                     }

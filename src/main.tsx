@@ -4,6 +4,9 @@ import { Toaster } from 'sonner';
 import App from "./App";
 import "./index.css";
 
+// Disable right-click context menu
+document.addEventListener('contextmenu', (e) => e.preventDefault());
+
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <StrictMode>
     <App />
