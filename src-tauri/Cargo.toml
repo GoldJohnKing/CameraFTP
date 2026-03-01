@@ -41,5 +41,9 @@ chrono = "0.4"
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.52"
-windows = { version = "0.58", features = ["Win32_System_Com", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
-urlencoding = "2.1"
+windows = { version = "0.58", features = [
+    "Win32_System_Com",
+    "Win32_UI_Shell",
+    "Win32_UI_Shell_Common",
+    "Win32_UI_WindowsAndMessaging",
+] }
