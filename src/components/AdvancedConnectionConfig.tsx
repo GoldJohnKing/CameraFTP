@@ -183,13 +183,15 @@ export function AdvancedConnectionConfigPanel({
     setUsernameInput(e.target.value);
   };
 
-  const handlePasswordChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const value = e.target.value;
-    // 用户开始输入，清除占位符状态
-    if (hasExistingPassword && value !== PASSWORD_PLACEHOLDER) {
-      setHasExistingPassword(false);
+  const handlePasswordFocus = () => {
+    // 当用户点击已有占位符的密码框时，清空内容让用户重新输入
+    if (passwordInput === PASSWORD_PLACEHOLDER && hasExistingPassword) {
+      setPasswordInput('');
     }
-    setPasswordInput(value);
+  };
+
+  const handlePasswordChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setPasswordInput(e.target.value);
   };
 
   const handlePasvStartChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -232,8 +234,16 @@ export function AdvancedConnectionConfigPanel({
   };
 
   const handlePasswordBlur = async () => {
-    // 如果是占位符或未修改，不保存
-    if (passwordInput === PASSWORD_PLACEHOLDER || passwordInput === '') {
+    // 如果是占位符，不处理
+    if (passwordInput === PASSWORD_PLACEHOLDER) {
+      return;
+    }
+    
+    // 如果输入框为空，恢复显示占位符（保持原密码不变）
+    if (passwordInput === '') {
+      if (hasExistingPassword) {
+        setPasswordInput(PASSWORD_PLACEHOLDER);
+      }
       return;
     }
     
@@ -349,11 +359,12 @@ export function AdvancedConnectionConfigPanel({
                     type={showPassword ? 'text' : 'password'}
                     value={passwordInput}
                     onChange={handlePasswordChange}
+                    onFocus={handlePasswordFocus}
                     onBlur={handlePasswordBlur}
                     placeholder="输入密码"
                     disabled={isLoading || disabled}
                     className={`w-full px-3 py-2 border rounded-lg text-sm pr-10 ${
-                      passwordInput === '' && !config.auth.anonymous
+                      passwordInput === '' && !config.auth.anonymous && !hasExistingPassword
                         ? 'border-red-300 bg-red-50'
                         : 'border-gray-200 bg-white'
                     } text-gray-700 disabled:opacity-50 disabled:cursor-not-allowed`}
