@@ -20,10 +20,6 @@ impl FtpDataListener {
     pub fn new(stats: StatsActor, event_bus: EventBus, save_path: std::path::PathBuf, app_handle: Option<AppHandle>) -> Self {
         Self { stats, event_bus, save_path, app_handle }
     }
-
-    pub fn set_app_handle(&mut self, app_handle: AppHandle) {
-        self.app_handle = Some(app_handle);
-    }
 }
 
 impl DataListener for FtpDataListener {
