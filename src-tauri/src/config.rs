@@ -17,8 +17,10 @@ pub struct AuthConfig {
     pub anonymous: bool,
     /// 自定义用户名（匿名关闭时使用）
     pub username: String,
-    /// 自定义密码（匿名关闭时使用）
-    pub password: String,
+    /// 密码哈希（Argon2id）
+    pub password_hash: String,
+    /// 密码盐值
+    pub password_salt: String,
 }
 
 impl Default for AuthConfig {
@@ -26,7 +28,8 @@ impl Default for AuthConfig {
         Self {
             anonymous: true,
             username: String::new(),
-            password: String::new(),
+            password_hash: String::new(),
+            password_salt: String::new(),
         }
     }
 }
