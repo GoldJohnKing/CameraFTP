@@ -4,7 +4,8 @@ use tokio::sync::Mutex;
 use tracing::{error, info, instrument};
 
 use crate::auto_open::AutoOpenService;
-use crate::config::{AppConfig, PreviewWindowConfig};
+use crate::config::{AppConfig, AuthConfig, PreviewWindowConfig};
+use crate::crypto;
 use crate::error::AppError;
 use crate::file_index::{FileIndexService, FileInfo};
 use crate::ftp::types::{ServerInfo, ServerStateSnapshot};
@@ -166,6 +167,36 @@ pub async fn save_config(
         file_index.update_save_path(new_save_path).await?;
     }
     
+    Ok(())
+}
+
+/// 保存认证配置（使用 Argon2id 哈希密码）
+#[command]
+#[instrument]
+pub fn save_auth_config(
+    anonymous: bool,
+    username: String,
+    password: String,
+) -> Result<(), String> {
+    let mut config = AppConfig::load();
+    
+    let (password_hash, password_salt) = if anonymous || password.is_empty() {
+        (String::new(), String::new())
+    } else {
+        let hashed = crypto::hash_password(password);
+        (hashed.hash, hashed.salt)
+    };
+    
+    config.advanced_connection.auth = AuthConfig {
+        anonymous,
+        username,
+        password_hash,
+        password_salt,
+    };
+    
+    config.save().map_err(|e| e.to_string())?;
+    
+    info!("Auth config saved with Argon2id hash");
     Ok(())
 }
 

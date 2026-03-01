@@ -44,6 +44,7 @@ use commands::{
     open_preview_window,
     quit_application,
     request_all_files_permission,
+    save_auth_config,
     save_config,
     select_executable_file,
     select_save_directory,
@@ -218,6 +219,7 @@ pub fn run() {
             // 配置管理
             load_config,
             save_config,
+            save_auth_config,
             get_storage_path,
             select_save_directory,
             validate_save_path,
