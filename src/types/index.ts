@@ -34,6 +34,9 @@ export interface AppConfig {
   advancedConnection: AdvancedConnectionConfig;
 }
 
+// Re-export platform-related types from global.ts to avoid duplication
+export type { PermissionCheckResult } from './global';
+
 /// 存储路径信息（与后端 StorageInfo 对应）
 export interface StorageInfo {
   displayName: string;
