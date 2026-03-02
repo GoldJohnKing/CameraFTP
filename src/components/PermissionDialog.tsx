@@ -1,4 +1,4 @@
-import { useEffect, useCallback } from 'react';
+import { useEffect, useCallback, useRef } from 'react';
 import { usePermissionStore } from '../stores/permissionStore';
 import { PermissionList } from './PermissionList';
 
@@ -15,17 +15,22 @@ export function PermissionDialog({ isOpen, onClose, onAllGranted }: PermissionDi
   const stopPolling = usePermissionStore((state) => state.stopPolling);
   const allGranted = usePermissionStore((state) => state.allGranted);
 
+  // Track if we started polling to clean up correctly
+  const wasPollingRef = useRef(false);
+
   // Check permissions when dialog opens and start polling
   useEffect(() => {
     if (isOpen) {
       checkPermissions();
       startPolling();
+      wasPollingRef.current = true;
     }
     
-    // Stop polling when dialog closes
+    // Stop polling on cleanup only if we started it
     return () => {
-      if (!isOpen) {
+      if (wasPollingRef.current) {
         stopPolling();
+        wasPollingRef.current = false;
       }
     };
   }, [isOpen, checkPermissions, startPolling, stopPolling]);
