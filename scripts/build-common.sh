@@ -382,15 +382,24 @@ check_bun() {
     return 0
 }
 
-# 生成 TypeScript 类型绑定 (使用 Windows cargo.exe)
+# 生成 TypeScript 类型绑定 (使用选中的 cargo)
 generate_ts_types() {
     task "生成 TypeScript 类型绑定..."
     
-    # 确保 dist 目录存在（tauri 编译需要）
+    # 确保 dist 目录存在
     mkdir -p dist
     
+    # 获取 cargo 命令
+    local cargo_cmd
+    cargo_cmd=$(get_tool_cmd "cargo")
+    
+    if [ -z "$cargo_cmd" ]; then
+        error "Cargo 未找到，无法生成类型绑定"
+        return 1
+    fi
+    
     cd src-tauri
-    cargo.exe test --quiet 2>/dev/null || true
+    $cargo_cmd test --quiet 2>/dev/null || true
     cd ..
     
     success "TypeScript 类型绑定已生成到 src-tauri/bindings/"
