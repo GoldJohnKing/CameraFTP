@@ -16,6 +16,18 @@ use crate::platform::{get_platform as get_platform_service, PermissionStatus, Se
 /// FTP 服务器状态（使用 Arc<Mutex> 包装以支持异步操作）
 pub struct FtpServerState(pub Arc<Mutex<Option<FtpServerHandle>>>);
 
+impl FtpServerState {
+    /// Helper method to access the server with a synchronous closure.
+    /// Returns None if server is not running.
+    pub async fn with_server<F, T>(&self, f: F) -> Option<T>
+    where
+        F: FnOnce(&FtpServerHandle) -> T,
+    {
+        let guard = self.0.lock().await;
+        guard.as_ref().map(f)
+    }
+}
+
 #[command]
 #[instrument(skip(state, app))]
 pub async fn start_server(
