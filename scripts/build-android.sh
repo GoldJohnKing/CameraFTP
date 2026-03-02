@@ -98,8 +98,9 @@ check_or_create_keystore() {
     if [ ! -f "$keystore_path" ]; then
         warn "签名配置不存在，创建新的签名密钥..."
         
-        # 生成密钥库
-        keytool -genkey -v \
+        # 生成密钥库 (使用选中的 keytool)
+        local keytool_cmd="${SELECTED_TOOLS[keytool]:-keytool}"
+        $keytool_cmd -genkey -v \
             -keystore "$keystore_file" \
             -alias "cameraftp" \
             -keyalg RSA \
@@ -177,7 +178,8 @@ dev_mode() {
 # 列出已连接的设备
 list_devices() {
     info "已连接的 Android 设备:"
-    adb devices -l
+    local adb_cmd="${SELECTED_TOOLS[adb]:-adb}"
+    $adb_cmd devices -l
 }
 
 # 安装 APK 到设备
@@ -198,7 +200,8 @@ install_apk() {
     
     if [ -f "$apk_path" ]; then
         info "安装 APK: $apk_path"
-        adb install -r "$apk_path"
+        local adb_cmd="${SELECTED_TOOLS[adb]:-adb}"
+        $adb_cmd install -r "$apk_path"
         success "安装完成"
     else
         error "未找到 APK 文件: $apk_path"
@@ -228,7 +231,8 @@ show_apk_info() {
         $ANDROID_HOME/build-tools/*/aapt dump badging "$apk_path" 2>/dev/null | grep package || true
         echo ""
         info "签名信息:"
-        keytool -list -printcert -jarfile "$apk_path" 2>/dev/null || \
+        local keytool_cmd="${SELECTED_TOOLS[keytool]:-keytool}"
+        $keytool_cmd -list -printcert -jarfile "$apk_path" 2>/dev/null || \
             jarsigner -verify -verbose -certs "$apk_path" 2>/dev/null || \
             echo "无法读取签名信息"
     else
