@@ -13,6 +13,39 @@ use crate::ftp::FtpServerHandle;
 use crate::network::NetworkManager;
 use crate::platform::{get_platform as get_platform_service, PermissionStatus, ServerStartCheckResult, StorageInfo};
 
+/// Validates that a file path is within the allowed storage directory.
+/// This prevents directory traversal attacks by ensuring the resolved path
+/// is actually inside the save path.
+fn validate_file_path(file_path: &str) -> Result<std::path::PathBuf, AppError> {
+    let path = std::path::PathBuf::from(file_path);
+
+    // Reject empty paths and paths with null bytes
+    if file_path.is_empty() {
+        return Err(AppError::PermissionError("Empty file path".to_string()));
+    }
+    if file_path.contains('\0') {
+        return Err(AppError::PermissionError("Invalid file path".to_string()));
+    }
+
+    // Get the canonical path (resolves symlinks and normalizes . and ..)
+    let canonical_path = path.canonicalize().map_err(|e| {
+        AppError::Io(format!("Failed to resolve path: {}", e))
+    })?;
+
+    // Get the save path from config
+    let config = AppConfig::load();
+    let save_path = config.save_path.canonicalize().unwrap_or(config.save_path);
+
+    // Ensure the path is within the save directory
+    if !canonical_path.starts_with(&save_path) {
+        return Err(AppError::PermissionError(
+            "File path is outside the allowed storage directory".to_string()
+        ));
+    }
+
+    Ok(canonical_path)
+}
+
 /// FTP 服务器状态（使用 Arc<Mutex> 包装以支持异步操作）
 pub struct FtpServerState(pub Arc<Mutex<Option<FtpServerHandle>>>);
 
@@ -389,7 +422,8 @@ pub async fn open_preview_window(
     app: AppHandle,
     file_path: String,
 ) -> Result<(), AppError> {
-    let path = std::path::PathBuf::from(&file_path);
+    // Validate the file path to prevent directory traversal
+    let path = validate_file_path(&file_path)?;
     
     // 先在 FileIndexService 中查找并设置索引
     let file_index = app.state::<FileIndexService>();
@@ -504,15 +538,18 @@ pub struct ExifInfo {
 pub async fn get_image_exif(file_path: String) -> Result<Option<ExifInfo>, AppError> {
     use nom_exif::*;
 
+    // Validate the file path to prevent directory traversal
+    let validated_path = validate_file_path(&file_path)?;
+
     let start = std::time::Instant::now();
 
     let mut parser = MediaParser::new();
-    let ms = MediaSource::file_path(&file_path)
+    let ms = MediaSource::file_path(&validated_path)
         .map_err(|e| AppError::Io(e.to_string()))?;
 
     // 检查是否有 EXIF 数据
     if !ms.has_exif() {
-        tracing::debug!("No EXIF data found in {}", file_path);
+        tracing::debug!("No EXIF data found in {}", validated_path.display());
         return Ok(None);
     }
 
@@ -520,7 +557,7 @@ pub async fn get_image_exif(file_path: String) -> Result<Option<ExifInfo>, AppEr
     let iter: ExifIter = match parser.parse(ms) {
         Ok(iter) => iter,
         Err(e) => {
-            tracing::warn!("Failed to parse EXIF for {}: {:?}", file_path, e);
+            tracing::warn!("Failed to parse EXIF for {}: {:?}", validated_path.display(), e);
             return Ok(None);
         }
     };
@@ -571,7 +608,7 @@ pub async fn get_image_exif(file_path: String) -> Result<Option<ExifInfo>, AppEr
     let duration = start.elapsed();
     tracing::debug!(
         "EXIF parsed for {} in {:?}: ISO={:?}, Aperture={:?}, Shutter={:?}, Focal={:?}, DateTime={:?}",
-        file_path, duration, iso, aperture, shutter_speed, focal_length, datetime
+        validated_path.display(), duration, iso, aperture, shutter_speed, focal_length, datetime
     );
 
     // 如果没有有效数据，返回 None
