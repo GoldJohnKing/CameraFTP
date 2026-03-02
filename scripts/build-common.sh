@@ -66,9 +66,17 @@ copy_pattern_to_out() {
     local file_type="$3"
     
     mkdir -p "$OUTPUT_DIR"
-    local src_file=$(ls $src_pattern 2>/dev/null | head -1)
     
-    if [ -f "$src_file" ]; then
+    # 使用 glob 模式而非 ls 解析
+    local src_file=""
+    for f in $src_pattern; do
+        if [ -f "$f" ]; then
+            src_file="$f"
+            break
+        fi
+    done
+    
+    if [ -n "$src_file" ] && [ -f "$src_file" ]; then
         cp "$src_file" "$OUTPUT_DIR/$dest_name"
         success "$file_type 构建完成"
         info "输出位置: $OUTPUT_DIR/$dest_name"
