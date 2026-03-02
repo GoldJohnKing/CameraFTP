@@ -50,6 +50,7 @@ fn check_all_files_permission() -> bool {
 }
 
 /// 检查路径是否可写（通过创建临时测试文件）
+/// 注意：不检查路径是否存在，直接尝试创建测试文件
 fn is_path_writable(path: &std::path::Path) -> bool {
     let test_file = path.join(".write_test");
     match std::fs::File::create(&test_file) {
@@ -61,7 +62,7 @@ fn is_path_writable(path: &std::path::Path) -> bool {
     }
 }
 
-/// 尝试写入 DCIM 目录来检查权限
+/// 检查 DCIM 目录是否可写（用于判断所有文件访问权限）
 fn can_write_to_dcim() -> bool {
     let dcim_path = std::path::Path::new("/storage/emulated/0/DCIM");
     if !dcim_path.exists() {
