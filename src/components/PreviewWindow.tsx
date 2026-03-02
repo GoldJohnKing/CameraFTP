@@ -214,7 +214,7 @@ const PreviewWindowContent = memo(function PreviewWindowContent({
 
     const unlistenPromise = setupListener();
     return () => {
-      unlistenPromise.then(unlisten => unlisten());
+      void unlistenPromise.then(unlisten => unlisten()).catch(() => {});
     };
   }, []);
 
@@ -263,14 +263,14 @@ const PreviewWindowContent = memo(function PreviewWindowContent({
     const unlisten = appWindow.onResized(handleResize);
     
     return () => {
-      unlisten.then(fn => fn());
+      void unlisten.then(fn => fn()).catch(() => {});
     };
   }, [appWindow]);
 
   // 监听全屏状态变化
   useEffect(() => {
     // 初始检查
-    appWindow.isFullscreen().then(setIsFullscreen);
+    void appWindow.isFullscreen().then(setIsFullscreen).catch(() => {});
 
     // 监听窗口大小变化来检测全屏状态变化
     const unlisten = appWindow.onResized(async () => {
@@ -279,7 +279,7 @@ const PreviewWindowContent = memo(function PreviewWindowContent({
     });
 
     return () => {
-      unlisten.then(fn => fn());
+      void unlisten.then(fn => fn()).catch(() => {});
     };
   }, [appWindow]);
 
