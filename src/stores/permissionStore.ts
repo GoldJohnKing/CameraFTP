@@ -264,6 +264,7 @@ export const usePermissionStore = create<PermissionStoreState>()((set, get) => (
         return {
           canStart: false,
           reason: errorMsg,
+          storageInfo: null,
         };
       }
     },

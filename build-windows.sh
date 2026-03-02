@@ -78,6 +78,12 @@ build_windows() {
     USERPROFILE=$(wslpath "$(cmd.exe /c "echo %USERPROFILE%" 2>/dev/null | tr -d '\r')")
     CARGO_EXE="$USERPROFILE/.cargo/bin/cargo.exe"
     
+    # 生成 ts-rs 类型绑定
+    info "生成 TypeScript 类型绑定..."
+    cd src-tauri
+    "$CARGO_EXE" test --quiet 2>/dev/null || true
+    cd ..
+    
     # 安装前端依赖
     info "安装前端依赖..."
     bun install --no-cache

@@ -9,6 +9,9 @@ target/
 *.dmg
 *.app
 
+# ts-rs generated bindings (regenerated on each build)
+src-tauri/bindings/
+
 # IDE
 .vscode/
 .idea/

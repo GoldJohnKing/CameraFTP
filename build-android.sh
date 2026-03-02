@@ -156,6 +156,12 @@ build_android() {
     fi
     export PATH="$JAVA_HOME/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/cmdline-tools/latest/bin:$PATH"
     
+    # 生成 ts-rs 类型绑定（在 Linux 上使用本地 cargo）
+    info "生成 TypeScript 类型绑定..."
+    cd src-tauri
+    cargo test --quiet 2>/dev/null || true
+    cd ..
+    
     check_or_create_keystore
     
     case $build_type in
@@ -195,6 +201,12 @@ dev_mode() {
         export NDK_HOME="$ANDROID_HOME/ndk/$NDK_VERSION"
     fi
     export PATH="$JAVA_HOME/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/cmdline-tools/latest/bin:$PATH"
+    
+    # 生成 ts-rs 类型绑定
+    info "生成 TypeScript 类型绑定..."
+    cd src-tauri
+    cargo test --quiet 2>/dev/null || true
+    cd ..
     
     bun run tauri android dev --target aarch64
 }
