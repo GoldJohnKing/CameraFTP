@@ -40,7 +40,7 @@ export function PreviewConfigCard({ platform }: PreviewConfigCardProps) {
     });
 
     return () => {
-      unlistenPromise.then(fn => fn());
+      void unlistenPromise.then(fn => fn()).catch(() => {});
     };
   }, [isWindows]);
 
