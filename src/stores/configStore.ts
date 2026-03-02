@@ -69,15 +69,9 @@ interface ConfigState {
   updatePreviewConfig: (config: PreviewWindowConfig) => Promise<void>;
 }
 
-// ========== 防抖保存（模块级单例）==========
+// ========== 防抖配置 ==========
 
 const DEBOUNCE_DELAY = 100; // 统一 100ms 防抖
-
-const createDebouncedSave = (saveFn: (config: AppConfig) => Promise<void>) => {
-  return debounce(async (config: AppConfig) => {
-    await saveFn(config);
-  }, DEBOUNCE_DELAY);
-};
 
 // ========== Store 实现 ==========
 
@@ -92,6 +86,11 @@ export const useConfigStore = create<ConfigState>((set, get) => {
       throw e;
     }
   };
+
+  // 创建防抖保存函数（只创建一次）
+  const debouncedSave = debounce(async (config: AppConfig) => {
+    await saveConfigInternal(config);
+  }, DEBOUNCE_DELAY);
 
   return {
     config: null,
@@ -122,14 +121,12 @@ export const useConfigStore = create<ConfigState>((set, get) => {
       set({ draft: newDraft });
 
       // 触发防抖保存
-      const debounced = createDebouncedSave(saveConfigInternal);
-      debounced(newDraft);
+      debouncedSave(newDraft);
     },
 
     // ========== 立即保存草稿 ==========
     commitDraft: async () => {
-      const debounced = createDebouncedSave(saveConfigInternal);
-      debounced.flush();
+      debouncedSave.flush();
     },
 
     // ========== 重置草稿 ==========
@@ -137,8 +134,7 @@ export const useConfigStore = create<ConfigState>((set, get) => {
       const { config } = get();
       if (config) {
         set({ draft: config });
-        const debounced = createDebouncedSave(saveConfigInternal);
-        debounced.cancel();
+        debouncedSave.cancel();
       }
     },
 
