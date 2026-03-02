@@ -2,9 +2,8 @@ import { create } from 'zustand';
 import { invoke } from '@tauri-apps/api/core';
 import type { ServerInfo, ServerStatus } from '../types';
 import { serverStateBridge, storageSettingsBridge } from '../types/global';
-import { formatError } from '../utils/error';
 import { createEventManager, type EventRegistration } from '../utils/events';
-import { retryAction } from '../utils/store';
+import { retryAction, executeAsync } from '../utils/store';
 import { checkAndroidPermissions } from '../types';
 
 interface ServerState {
@@ -165,26 +164,21 @@ const syncInitialState = async (set: (fn: (state: ServerState) => ServerState) =
 
 // Start server logic (permission check skipped)
 const doStartServer = async (set: (fn: (state: ServerState) => ServerState) => void, get: () => ServerState): Promise<void> => {
-  set((state) => ({ ...state, isLoading: true, error: null }));
-  try {
-    const info = await invoke<ServerInfo>('start_server');
-
-    const initialStats = { ...get().stats, isRunning: true };
-    updateAndroidServiceState(true, initialStats, 0, true);
-
-    set((state) => ({
-      ...state,
-      isRunning: true,
-      serverInfo: info,
-      stats: initialStats
-    }));
-  } catch (err: unknown) {
-    const errorMessage = formatError(err);
-    set((state) => ({ ...state, error: errorMessage }));
-    throw err;
-  } finally {
-    set((state) => ({ ...state, isLoading: false }));
-  }
+  await executeAsync({
+    operation: () => invoke<ServerInfo>('start_server'),
+    onSuccess: (info, set) => {
+      const initialStats = { ...get().stats, isRunning: true };
+      updateAndroidServiceState(true, initialStats, 0, true);
+      set((state) => ({
+        ...state,
+        isRunning: true,
+        serverInfo: info,
+        stats: initialStats
+      }));
+    },
+    errorPrefix: 'Failed to start server',
+    rethrow: true,
+  }, set);
 };
 
 export const useServerStore = create<ServerState>((set, get) => ({
@@ -214,24 +208,20 @@ export const useServerStore = create<ServerState>((set, get) => ({
   },
 
   stopServer: async () => {
-    set((state) => ({ ...state, isLoading: true, error: null }));
-    try {
-      await invoke('stop_server');
-      set((state) => ({
-        ...state,
-        isRunning: false,
-        serverInfo: null,
-        stats: defaultStats
-      }));
-      // Update Android foreground service
-      updateAndroidServiceState(false, null, 0);
-    } catch (err: unknown) {
-      const errorMessage = formatError(err);
-      set((state) => ({ ...state, error: errorMessage }));
-      throw err;
-    } finally {
-      set((state) => ({ ...state, isLoading: false }));
-    }
+    await executeAsync({
+      operation: () => invoke('stop_server'),
+      onSuccess: (_, set) => {
+        set((state) => ({
+          ...state,
+          isRunning: false,
+          serverInfo: null,
+          stats: defaultStats
+        }));
+        updateAndroidServiceState(false, null, 0);
+      },
+      errorPrefix: 'Failed to stop server',
+      rethrow: true,
+    }, set);
   },
 
   closePermissionDialog: () => set({ showPermissionDialog: false, pendingServerStart: false }),

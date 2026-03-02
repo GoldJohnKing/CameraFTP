@@ -94,17 +94,18 @@ export async function executeAsync<T, S>(
   try {
     const result = await operation();
     onSuccess(result, set);
-    set((state) => ({ ...state, isLoading: false }));
     return result;
   } catch (err: unknown) {
     let errorMessage = formatError(err);
     if (errorPrefix) {
       errorMessage = `${errorPrefix}: ${errorMessage}`;
     }
-    set((state) => ({ ...state, error: errorMessage, isLoading: false }));
+    set((state) => ({ ...state, error: errorMessage }));
     if (rethrow) {
       throw err;
     }
     return undefined;
+  } finally {
+    set((state) => ({ ...state, isLoading: false }));
   }
 }
