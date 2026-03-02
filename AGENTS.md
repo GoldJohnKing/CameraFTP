@@ -1,29 +1,28 @@
 # Agent Instructions
 
-AI agents working on this codebase follow these rules.
+Follow these rules when working on this codebase.
 
 ---
 
-## ⚠️ Critical Rules
+## Critical Rules
 
-### 1. Build Commands (Required)
+### 1. Build Commands
 
-Use the build script instead of `cargo build` or `bun`:
+Verify code changes with build.sh. Use the table below to select the right command:
 
-| Command | Output |
-|---------|--------|
-| `./build.sh gen-types` | Generate TypeScript bindings |
-| `./build.sh frontend` | Build frontend only |
-| `./build.sh windows` | Windows executable |
-| `./build.sh android` | Android APK |
-| `./build.sh windows android` | Build both in parallel |
-| `./build.sh clean` | Clean all build cache |
+| Command | Output | Use Case |
+|---------|--------|----------|
+| `./build.sh gen-types` | TypeScript bindings | After modifying shared Rust structs |
+| `./build.sh frontend` | Frontend build | After TypeScript or CSS changes |
+| `./build.sh windows android` | Windows and Android builds | After Rust changes |
+| `./build.sh windows` | Windows executable | After Windows-specific changes |
+| `./build.sh android` | Android APK | After Android-specific changes |
+| `./build.sh clean` | Clean build cache | When builds behave unexpectedly |
 
-Verify all code changes with the appropriate build command.
+### 2. LSP Tools
 
-### 2. LSP Tools (Disabled)
+Do not use LSP tools in this environment. They hang or timeout.
 
-LSP tools hang or timeout in this environment. Avoid:
 - `lsp_diagnostics`
 - `lsp_goto_definition`
 - `lsp_find_references`
@@ -73,7 +72,7 @@ pub async fn start_server(
 - **Indent**: 4 spaces
 - **Logging**: `Log.d(TAG, "message")` with companion object constants
 - **JS Bridge**: `@JavascriptInterface` annotation on public methods
-- **Null safety**: `?.let` / `?: run` preferred over explicit null checks
+- **Null safety**: Prefer `?.let` / `?: run` to explicit null checks
 
 ```kotlin
 class MyBridge(private val activity: MainActivity) {
@@ -98,7 +97,7 @@ import { invoke } from '@tauri-apps/api/core';
 const result = await invoke<string>('command_name', { arg: value });
 ```
 
-**Backend:** Register in `src-tauri/src/lib.rs`:
+**Backend:** Register commands in `src-tauri/src/lib.rs`:
 ```rust
 .invoke_handler(tauri::generate_handler![
     command_name,
@@ -112,35 +111,38 @@ const result = await invoke<string>('command_name', { arg: value });
 
 ### Add Tauri Command
 
-1. Add function in `src-tauri/src/commands.rs`
-2. Register in `src-tauri/src/lib.rs`
-3. Call from frontend via `invoke()`
-4. **Verify**: `./build.sh windows && ./build.sh android`
+1. Add the function to `src-tauri/src/commands.rs`
+2. Register it in `src-tauri/src/lib.rs`
+3. Call it from the frontend via `invoke()`
+4. Verify: `./build.sh windows && ./build.sh android`
 
 ### Add React Component
 
-1. Create file in `src/components/`
-2. Import and use in `src/App.tsx`
-3. Style with TailwindCSS
-4. **Verify**: `./build.sh frontend`
+1. Create the file in `src/components/`
+2. Import and use it in `src/App.tsx`
+3. Style it with TailwindCSS
+4. Verify: `./build.sh frontend`
 
 ### Add JS Bridge (Android)
 
-1. Add class in `src-tauri/gen/android/.../MainActivity.kt` or new file
+1. Add the class to `src-tauri/gen/android/.../MainActivity.kt` or a new file
 2. Annotate public methods with `@JavascriptInterface`
-3. Register in `MainActivity.onWebViewCreate()`: `addJsBridge(webView, bridgeInstance, "BridgeName")`
-4. Call from frontend: `window.BridgeName?.methodName()`
-5. **Verify**: `./build.sh android`
+3. Register it in `MainActivity.onWebViewCreate()`:
+   ```kotlin
+   addJsBridge(webView, bridgeInstance, "BridgeName")
+   ```
+4. Call it from the frontend: `window.BridgeName?.methodName()`
+5. Verify: `./build.sh android`
 
 ---
 
-## ⚠️ Common Pitfalls
+## Common Pitfalls
 
 ### Type Generation with ts-rs
 
-All Rust structs shared with TypeScript use ts-rs for automatic type generation. **Always use generated types—never write manual interfaces.**
+The project uses ts-rs to generate TypeScript bindings from Rust structs. **Use generated types. Never write manual interfaces.**
 
-**1. Add ts-rs to new Rust struct**
+**1. Add ts-rs to a Rust struct:**
 ```rust
 use ts_rs::TS;
 
@@ -153,19 +155,19 @@ pub struct MyConfig {
 }
 ```
 
-**2. Generate TypeScript bindings**
+**2. Generate TypeScript bindings:**
 ```bash
 ./build.sh gen-types
 ```
 
-This uses Windows cargo.exe to run tests and generate bindings. Output: `src-tauri/bindings/MyConfig.ts`
+This runs Windows cargo.exe to generate bindings. Output: `src-tauri/bindings/MyConfig.ts`
 
-**3. Import in TypeScript**
+**3. Import the type in TypeScript:**
 ```typescript
 import type { MyConfig } from '../types';  // Re-exports from bindings/
 ```
 
-**4. Update types/index.ts** (add re-export if new type)
+**4. Update types/index.ts:**
 ```typescript
 export type { MyConfig } from '../../src-tauri/bindings/MyConfig';
 ```
@@ -184,7 +186,7 @@ pub struct AppConfig {
 }
 ```
 
-Without `#[serde(default)]`, loading configs missing new fields fails.
+Without `#[serde(default)]`, configs missing new fields fail to load.
 
 ---
 

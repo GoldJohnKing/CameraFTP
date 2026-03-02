@@ -75,44 +75,28 @@ fi
 # 构建函数
 # ============================================
 
+# 通用构建函数
+build_target() {
+    local target="$1"
+    local build_type="$2"
+    local check_only="$3"
+    local check_arg=""
+
+    if [ "$check_only" = true ]; then
+        task "[$target] 检查环境..."
+        check_arg="--check"
+    else
+        task "[$target] 开始构建 ($build_type)..."
+    fi
+
+    ./scripts/build-$target.sh "--$build_type" $check_arg
+}
+
 # 构建前端
 build_frontend() {
     task "[前端] 构建中..."
-    bun install
-    bun run build
+    ./scripts/build-frontend.sh
     success "[前端] 构建完成"
-}
-
-# 构建 Windows
-build_windows() {
-    local build_type="$1"
-    local check_only="$2"
-    local check_arg=""
-    
-    if [ "$check_only" = true ]; then
-        task "[Windows] 检查环境..."
-        check_arg="--check"
-    else
-        task "[Windows] 开始构建 ($build_type)..."
-    fi
-    
-    ./scripts/build-windows.sh "--$build_type" $check_arg
-}
-
-# 构建 Android
-build_android() {
-    local build_type="$1"
-    local check_only="$2"
-    local check_arg=""
-    
-    if [ "$check_only" = true ]; then
-        task "[Android] 检查环境..."
-        check_arg="--check"
-    else
-        task "[Android] 开始构建 ($build_type)..."
-    fi
-    
-    ./scripts/build-android.sh "--$build_type" $check_arg
 }
 
 # ============================================
@@ -162,9 +146,16 @@ for target in "${TARGETS[@]}"; do
     fi
 done
 
-# 构建前端（如果有且不是仅检查）
-if [ -n "$FRONTEND_TARGET" ] && [ "$CHECK_ONLY" = false ]; then
-    # 先生成类型绑定
+# 确定是否需要构建前端
+NEED_BUILD_FRONTEND=false
+if [ "$CHECK_ONLY" = false ]; then
+    if [ -n "$FRONTEND_TARGET" ] || [ ${#BUILD_TARGETS[@]} -gt 0 ]; then
+        NEED_BUILD_FRONTEND=true
+    fi
+fi
+
+# 构建前端（统一处理）
+if [ "$NEED_BUILD_FRONTEND" = true ]; then
     generate_ts_types
     build_frontend
 fi
@@ -175,80 +166,68 @@ if [ ${#BUILD_TARGETS[@]} -eq 0 ]; then
     exit 0
 fi
 
-# 如果不是仅检查，先生成类型绑定和前端
-if [ "$CHECK_ONLY" = false ]; then
-    generate_ts_types
-    
-    # 如果有多个构建目标，统一构建前端一次
-    if [ ${#BUILD_TARGETS[@]} -gt 1 ]; then
-        task "统一构建前端（多目标共享）..."
-        bun install
-        bun run build
-        export FRONTEND_ALREADY_BUILT=1
-        success "前端构建完成"
-    fi
+# 多目标时标记为已统一构建
+if [ ${#BUILD_TARGETS[@]} -gt 1 ]; then
+    export FRONTEND_ALREADY_BUILT=1
 fi
+
+# 目标颜色映射
+declare -A TARGET_COLORS=(
+    [windows]="36"  # 青色
+    [android]="35"  # 紫色
+)
+declare -A TARGET_DISPLAY_NAMES=(
+    [windows]="Windows"
+    [android]="Android"
+)
 
 # 并行或串行编译
 if [ "$SERIAL_MODE" = true ] || [ "$CHECK_ONLY" = true ]; then
     # 串行编译或检查
     for target in "${BUILD_TARGETS[@]}"; do
-        case $target in
-            windows) build_windows "$BUILD_TYPE" "$CHECK_ONLY" ;;
-            android) build_android "$BUILD_TYPE" "$CHECK_ONLY" ;;
-        esac
+        build_target "$target" "$BUILD_TYPE" "$CHECK_ONLY"
     done
 else
     # 并行编译
     PIDS=()
     PID_MAP=()
-    
+
     # 判断是否需要前缀：多目标时需要，单目标时不需要
     use_prefix=false
     if [ ${#BUILD_TARGETS[@]} -gt 1 ]; then
         use_prefix=true
         info "多目标并行编译，启用输出前缀区分"
     fi
-    
+
     for target in "${BUILD_TARGETS[@]}"; do
         if [ "$use_prefix" = true ]; then
             # 多目标：带颜色前缀 [TARGET]
-            color=""
-            target_display=""
-            case "$target" in
-                windows) color="36"; target_display="Windows" ;;  # 青色
-                android) color="35"; target_display="Android" ;;  # 紫色
-            esac
-            
+            color="${TARGET_COLORS[$target]}"
+            target_display="${TARGET_DISPLAY_NAMES[$target]}"
+
             (
-                case $target in
-                    windows) build_windows "$BUILD_TYPE" false ;;
-                    android) build_android "$BUILD_TYPE" false ;;
-                esac
+                build_target "$target" "$BUILD_TYPE" false
             ) 2>&1 | sed "s/^/\x1b[${color}m[${target_display}]\x1b[0m /" &
         else
             # 单目标：无前缀
             (
-                case $target in
-                    windows) build_windows "$BUILD_TYPE" false ;;
-                    android) build_android "$BUILD_TYPE" false ;;
-                esac
+                build_target "$target" "$BUILD_TYPE" false
             ) &
         fi
-        
+
         PID=$!
         PIDS+=($PID)
         PID_MAP+=("$PID:$target")
         info "启动后台任务 [PID=$PID]: $target"
     done
-    
+
     # 等待所有任务完成
     FAILED_TARGETS=()
     for i in "${!PIDS[@]}"; do
         PID=${PIDS[$i]}
         wait $PID || FAILED_TARGETS+=("${PID_MAP[$i]}")
     done
-    
+
     # 检查失败的任务
     if [ ${#FAILED_TARGETS[@]} -gt 0 ]; then
         error "以下目标构建失败:"

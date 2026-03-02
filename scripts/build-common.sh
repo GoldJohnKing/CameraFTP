@@ -111,7 +111,6 @@ clean_build_cache() {
         "src-tauri/target"
         "src-tauri/bindings"
         "dist"
-        ".build-cache"
         "$OUTPUT_DIR"
         "src-tauri/gen/android/app/build"
         "src-tauri/gen/android/.gradle"

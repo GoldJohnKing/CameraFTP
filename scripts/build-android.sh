@@ -75,13 +75,16 @@ check_android_env() {
 setup_android_env() {
     export JAVA_HOME=${JAVA_HOME:-/usr/lib/jvm/java-21-openjdk-amd64}
     export ANDROID_HOME=${ANDROID_HOME:-$HOME/Android/Sdk}
-    
+
     if [ -z "$NDK_HOME" ] && [ -d "$ANDROID_HOME/ndk" ]; then
         local ndk_version=$(ls "$ANDROID_HOME/ndk" | head -1)
         export NDK_HOME="$ANDROID_HOME/ndk/$ndk_version"
     fi
-    
+
     export PATH="$JAVA_HOME/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/cmdline-tools/latest/bin:$PATH"
+
+    # Gradle 优化：并行构建 + 按需配置
+    export GRADLE_OPTS="-Dorg.gradle.parallel=true -Dorg.gradle.configureondemand=true"
 }
 
 # ============================================
