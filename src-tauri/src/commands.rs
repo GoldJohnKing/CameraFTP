@@ -438,13 +438,13 @@ pub async fn open_preview_window(
 
 /// 选择可执行文件（用于自定义打开程序）
 #[tauri::command]
-pub async fn select_executable_file(_app: AppHandle) -> Result<Option<String>, AppError> {
+pub async fn select_executable_file(app: AppHandle) -> Result<Option<String>, AppError> {
     #[cfg(not(target_os = "android"))]
     {
         use tauri_plugin_dialog::DialogExt;
 
         let file_path: Option<tauri_plugin_dialog::FilePath> = tokio::task::spawn_blocking(move || {
-            _app.dialog()
+            app.dialog()
                 .file()
                 .set_title("选择程序")
                 .add_filter("可执行文件", &["exe"])
