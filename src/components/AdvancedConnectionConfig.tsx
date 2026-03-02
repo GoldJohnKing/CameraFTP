@@ -2,7 +2,7 @@ import { useState, useMemo } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { Loader2, Eye, EyeOff, AlertCircle } from 'lucide-react';
 import { ToggleSwitch } from './ui';
-import type { AdvancedConnectionConfig } from '../types';
+import type { AdvancedConnectionConfig, AppConfig } from '../types';
 import { validatePort as validatePortBasic } from '../utils/validation';
 import { usePortCheck } from '../hooks/usePortCheck';
 
@@ -16,7 +16,7 @@ interface AdvancedConnectionConfigPanelProps {
   platform: string;
   isLoading: boolean;
   disabled?: boolean;
-  onUpdate: (updater: (draft: any) => Partial<any>) => void;
+  onUpdate: (updater: (draft: AppConfig) => Partial<AppConfig>) => void;
 }
 
 type PortValidationError = 
