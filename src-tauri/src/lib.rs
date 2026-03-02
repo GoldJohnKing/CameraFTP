@@ -13,8 +13,6 @@ use tokio::sync::Mutex;
 #[cfg(debug_assertions)]
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use tauri::Manager;
-#[cfg(not(target_os = "android"))]
-use tauri::Emitter;
 
 use auto_open::AutoOpenService;
 use file_index::FileIndexService;
@@ -149,20 +147,23 @@ pub fn run() {
 
             // 获取主窗口并监听关闭请求（仅桌面平台）
             #[cfg(not(target_os = "android"))]
-            if let Some(window) = app.get_webview_window("main") {
-                let app_handle = app.handle().clone();
-                window.on_window_event(move |event| {
-                    if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                        // 阻止默认关闭行为
-                        api.prevent_close();
-                        // 将窗口置于前台（处理任务栏预览关闭的情况）
-                        if let Some(win) = app_handle.get_webview_window("main") {
-                            let _ = win.set_focus();
+            {
+                use tauri::Emitter;
+                if let Some(window) = app.get_webview_window("main") {
+                    let app_handle = app.handle().clone();
+                    window.on_window_event(move |event| {
+                        if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                            // 阻止默认关闭行为
+                            api.prevent_close();
+                            // 将窗口置于前台（处理任务栏预览关闭的情况）
+                            if let Some(win) = app_handle.get_webview_window("main") {
+                                let _ = win.set_focus();
+                            }
+                            // 发送事件给前端显示确认对话框
+                            let _ = app_handle.emit("window-close-requested", ());
                         }
-                        // 发送事件给前端显示确认对话框
-                        let _ = app_handle.emit("window-close-requested", ());
-                    }
-                });
+                    });
+                }
             }
 
             // 如果是开机启动模式，自动启动服务器
