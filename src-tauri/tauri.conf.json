@@ -5,7 +5,7 @@
   "version": "0.1.0",
   "build": {
     "beforeDevCommand": "bun dev",
-    "beforeBuildCommand": "bun run build",
+    "beforeBuildCommand": "./scripts/build-frontend.sh",
     "frontendDist": "../dist",
     "devUrl": null
   },

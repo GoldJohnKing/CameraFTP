@@ -59,10 +59,13 @@
 camera-ftp-companion/
 ├── 📄 配置文件
 │   ├── package.json              # Node.js依赖
-│   ├── build.sh                  # ⭐ 统一构建入口
+│   └── build.sh                  # ⭐ 统一构建入口
+│
+├── 📁 scripts/                   # 构建脚本
+│   ├── build-common.sh           # 公共函数库
 │   ├── build-windows.sh          # Windows构建
 │   ├── build-android.sh          # Android构建
-│   └── ...
+│   └── build-frontend.sh         # 前端构建
 │
 ├── 📁 src/                       # React前端源码
 │   ├── main.tsx                  # React入口
@@ -147,16 +150,24 @@ cargo tauri dev
 
 ```bash
 # 统一构建入口（必须使用）
-./build.sh <command>
+./build.sh <target> [options]
 
-# 常用命令：
+# 构建目标：
 ./build.sh windows         # Windows 可执行文件
-./build.sh windows-bundle  # Windows 安装包 (EXE + MSI)
 ./build.sh android         # Android APK (release)
-./build.sh android-debug   # Android APK (debug)
-./build.sh android-aab     # Android AAB (Google Play)
 ./build.sh frontend        # 仅构建前端
-./build.sh dev             # 启动开发模式
+
+# 构建选项：
+./build.sh windows --debug     # Windows Debug 版本
+./build.sh android --debug     # Android Debug APK
+./build.sh windows --check     # 检查 Windows 编译环境
+./build.sh android --check     # 检查 Android 编译环境
+./build.sh windows android     # 并行构建多个目标
+./build.sh windows --serial    # 串行编译（默认并行）
+
+# 其他命令：
+./build.sh gen-types       # 生成 TypeScript 类型绑定
+./build.sh clean           # 清理所有构建缓存
 ```
 
 ---

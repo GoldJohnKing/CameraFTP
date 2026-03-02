@@ -12,8 +12,12 @@ Use the build script instead of `cargo build` or `bun`:
 
 | Command | Output |
 |---------|--------|
+| `./build.sh gen-types` | Generate TypeScript bindings |
+| `./build.sh frontend` | Build frontend only |
 | `./build.sh windows` | Windows executable |
 | `./build.sh android` | Android APK |
+| `./build.sh windows android` | Build both in parallel |
+| `./build.sh clean` | Clean all build cache |
 
 Verify all code changes with the appropriate build command.
 
@@ -151,10 +155,10 @@ pub struct MyConfig {
 
 **2. Generate TypeScript bindings**
 ```bash
-cd src-tauri && cargo test
+./build.sh gen-types
 ```
 
-Output: `src-tauri/bindings/MyConfig.ts`
+This uses Windows cargo.exe to run tests and generate bindings. Output: `src-tauri/bindings/MyConfig.ts`
 
 **3. Import in TypeScript**
 ```typescript
