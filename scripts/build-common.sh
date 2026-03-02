@@ -61,6 +61,10 @@ declare -A TOOL_LINUX_CMDS=(
 # 用法: get_tool_cmd <tool_name>
 # 返回: 命令名称 (如 cargo.exe 或 cargo)
 get_tool_cmd() {
+    if [ -z "$1" ]; then
+        error "Missing required argument: tool_name"
+        return 1
+    fi
     local tool_name="$1"
     local windows_cmd="${TOOL_WINDOWS_CMDS[$tool_name]}"
     local linux_cmd="${TOOL_LINUX_CMDS[$tool_name]}"
@@ -85,6 +89,10 @@ get_tool_cmd() {
 # 用法: get_tool_platform <tool_name>
 # 返回: "windows", "linux", 或空 (未找到)
 get_tool_platform() {
+    if [ -z "$1" ]; then
+        error "Missing required argument: tool_name"
+        return 1
+    fi
     local tool_name="$1"
     local windows_cmd="${TOOL_WINDOWS_CMDS[$tool_name]}"
     local linux_cmd="${TOOL_LINUX_CMDS[$tool_name]}"
@@ -106,8 +114,12 @@ get_tool_platform() {
 # 用法: check_tool <tool_name> <display_name>
 # 示例: check_tool cargo "Cargo"
 check_tool() {
+    if [ -z "$1" ]; then
+        error "Missing required argument: tool_name"
+        return 1
+    fi
     local tool_name="$1"
-    local display_name="$2"
+    local display_name="${2:-$tool_name}"
     local cmd
     local platform
     
@@ -142,9 +154,11 @@ check_tool() {
 # 用法: detect_windows_android_sdk
 # 返回: SDK 路径或空
 detect_windows_android_sdk() {
+    # 支持 WSL 中 Windows 用户名与 Linux 不同的情况
+    local win_user="${WIN_USER:-$USER}"
     local sdk_paths=(
-        "/mnt/c/Users/$USER/AppData/Local/Android/Sdk"
-        "/mnt/c/Users/$USER/AppData/Local/android-sdk"
+        "/mnt/c/Users/$win_user/AppData/Local/Android/Sdk"
+        "/mnt/c/Users/$win_user/AppData/Local/android-sdk"
         "/mnt/c/Android/Sdk"
         "/mnt/c/android-sdk"
     )
@@ -196,6 +210,10 @@ detect_linux_android_sdk() {
 # 用法: detect_ndk_from_sdk <sdk_path>
 # 返回: NDK 路径或空
 detect_ndk_from_sdk() {
+    if [ -z "$1" ]; then
+        error "Missing required argument: sdk_path"
+        return 1
+    fi
     local sdk_path="$1"
     local ndk_dir="$sdk_path/ndk"
     
@@ -203,10 +221,16 @@ detect_ndk_from_sdk() {
         return 1
     fi
     
-    # 找到最新版本的 NDK
-    local latest_ndk=$(ls -1 "$ndk_dir" 2>/dev/null | sort -V | tail -1)
-    if [ -n "$latest_ndk" ]; then
-        echo "$ndk_dir/$latest_ndk"
+    # 找到最新版本的 NDK (使用 glob 避免解析 ls)
+    local ndk_version
+    for ndk_version in "$ndk_dir"/*; do
+        if [ -d "$ndk_version" ]; then
+            # 继续遍历，保留最后一个有效的
+            :
+        fi
+    done
+    if [ -d "$ndk_version" ]; then
+        echo "$ndk_version"
         return 0
     fi
     
@@ -228,18 +252,21 @@ detect_windows_java_home() {
     
     for dir in "${java_dirs[@]}"; do
         if [ -d "$dir" ]; then
-            # 查找 JDK 目录 (优先 JDK 17 或 21)
-            local jdk_home=$(ls -1 "$dir" 2>/dev/null | grep -iE "jdk-?(17|21)" | head -1)
-            if [ -n "$jdk_home" ]; then
-                echo "$dir/$jdk_home"
-                return 0
-            fi
+            # 查找 JDK 目录 (优先 JDK 17 或 21，使用 glob 避免解析 ls)
+            local jdk_item
+            for jdk_item in "$dir"/jdk-*17* "$dir"/jdk-*21* "$dir"/jdk-17* "$dir"/jdk-21*; do
+                if [ -d "$jdk_item" ]; then
+                    echo "$jdk_item"
+                    return 0
+                fi
+            done
             # 回退到任意 JDK
-            jdk_home=$(ls -1 "$dir" 2>/dev/null | grep -iE "jdk" | head -1)
-            if [ -n "$jdk_home" ]; then
-                echo "$dir/$jdk_home"
-                return 0
-            fi
+            for jdk_item in "$dir"/jdk* "$dir"/JDK*; do
+                if [ -d "$jdk_item" ]; then
+                    echo "$jdk_item"
+                    return 0
+                fi
+            done
         fi
     done
     
@@ -256,14 +283,30 @@ detect_linux_java_home() {
         return 0
     fi
     
-    # 检查常见路径
+    # 检查常见路径 (使用 glob 模式避免硬编码架构)
+    local java_base="/usr/lib/jvm"
+    local path
+    
+    # 优先查找 Java 21 和 17
+    for path in "$java_base"/java-21-openjdk-*; do
+        if [ -d "$path" ]; then
+            echo "$path"
+            return 0
+        fi
+    done
+    
+    for path in "$java_base"/java-17-openjdk-*; do
+        if [ -d "$path" ]; then
+            echo "$path"
+            return 0
+        fi
+    done
+    
+    # 检查固定路径 (无架构后缀)
     local java_paths=(
-        "/usr/lib/jvm/java-21-openjdk-amd64"
-        "/usr/lib/jvm/java-17-openjdk-amd64"
-        "/usr/lib/jvm/java-21-openjdk"
-        "/usr/lib/jvm/java-17-openjdk"
-        "/usr/lib/jvm/default-java"
-        "/usr/lib/jvm/java-11-openjdk-amd64"
+        "$java_base/java-21-openjdk"
+        "$java_base/java-17-openjdk"
+        "$java_base/default-java"
     )
     
     for path in "${java_paths[@]}"; do
@@ -273,12 +316,13 @@ detect_linux_java_home() {
         fi
     done
     
-    # 尝试自动发现
-    local discovered=$(ls -1 /usr/lib/jvm 2>/dev/null | grep -iE "java-.*-openjdk" | sort -V | tail -1)
-    if [ -n "$discovered" ]; then
-        echo "/usr/lib/jvm/$discovered"
-        return 0
-    fi
+    # 尝试自动发现 (使用 glob 避免解析 ls)
+    for path in "$java_base"/java-*-openjdk; do
+        if [ -d "$path" ]; then
+            echo "$path"
+            return 0
+        fi
+    done
     
     return 1
 }
@@ -315,7 +359,7 @@ copy_pattern_to_out() {
     local file_type="$3"
     
     mkdir -p "$OUTPUT_DIR"
-    local src_file=$(ls $src_pattern 2>/dev/null | head -1)
+    local src_file=$(ls "$src_pattern" 2>/dev/null | head -1)
     
     if [ -f "$src_file" ]; then
         cp "$src_file" "$OUTPUT_DIR/$dest_name"
