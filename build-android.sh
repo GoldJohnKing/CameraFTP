@@ -272,6 +272,59 @@ show_apk_info() {
     fi
 }
 
+# 清理构建缓存
+clean_build_cache() {
+    info "清理构建缓存..."
+    
+    # 清理 Rust 构建缓存
+    if [ -d "src-tauri/target" ]; then
+        info "清理 Rust target 目录..."
+        rm -rf src-tauri/target
+    fi
+    
+    # 清理 ts-rs 绑定
+    if [ -d "src-tauri/bindings" ]; then
+        info "清理 ts-rs 绑定..."
+        rm -rf src-tauri/bindings
+    fi
+    
+    # 清理前端构建缓存
+    if [ -d "dist" ]; then
+        info "清理前端 dist 目录..."
+        rm -rf dist
+    fi
+    
+    # 清理构建缓存目录
+    if [ -d ".build-cache" ]; then
+        info "清理 .build-cache 目录..."
+        rm -rf .build-cache
+    fi
+    
+    # 清理 release 目录
+    if [ -d "release" ]; then
+        info "清理 release 目录..."
+        rm -rf release
+    fi
+    
+    # 清理 Android 构建缓存
+    if [ -d "src-tauri/gen/android/app/build" ]; then
+        info "清理 Android build 目录..."
+        rm -rf src-tauri/gen/android/app/build
+    fi
+    
+    # 运行 cargo clean
+    info "运行 cargo clean..."
+    cargo clean 2>/dev/null || true
+    
+    # 清理 Gradle 缓存
+    if [ -d "src-tauri/gen/android/.gradle" ]; then
+        info "清理 Gradle 缓存..."
+        rm -rf src-tauri/gen/android/.gradle
+    fi
+    
+    success "清理完成"
+}
+
 # 主函数
 main() {
     echo "=========================================="
@@ -287,6 +340,20 @@ main() {
     case "${1:-}" in
         "check"|"env")
             check_environment
+            ;;
+        "clean")
+            check_environment
+            clean_build_cache
+            ;;
+        "rebuild")
+            check_environment
+            clean_build_cache
+            build_android release
+            ;;
+        "rebuild-debug")
+            check_environment
+            clean_build_cache
+            build_android debug
             ;;
         "debug")
             check_environment
@@ -325,6 +392,9 @@ main() {
             echo "  (无参数)      构建 Release APK (签名，默认)"
             echo "  debug         构建 Debug APK (arm64-v8a)"
             echo "  release       构建 Release APK (签名)"
+            echo "  rebuild       完全重新构建 Release (清理缓存)"
+            echo "  rebuild-debug 完全重新构建 Debug (清理缓存)"
+            echo "  clean         清理所有构建缓存"
             echo "  aab           构建 Android App Bundle"
             echo "  dev           开发模式（热重载）"
             echo "  keystore      创建签名密钥"
@@ -337,6 +407,8 @@ main() {
             echo "  $0 check       # 检查环境"
             echo "  $0 debug       # 构建 Debug 版本"
             echo "  $0 release     # 构建签名 Release 版本"
+            echo "  $0 rebuild     # 清理后重新构建"
+            echo "  $0 clean       # 仅清理缓存"
             echo "  $0 aab         # 构建 AAB (Google Play)"
             echo ""
             echo "输出位置:"

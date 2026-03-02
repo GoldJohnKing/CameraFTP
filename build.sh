@@ -14,12 +14,16 @@ usage() {
     echo "命令:"
     echo "  windows           构建 Windows 可执行文件 (release)"
     echo "  windows-debug     构建 Windows 可执行文件 (debug)"
+    echo "  rebuild           完全重新构建 Windows (清理缓存)"
+    echo "  clean             清理所有构建缓存"
     echo "  android           构建 Android APK (release)"
     echo "  frontend          仅构建前端"
     echo ""
     echo "示例:"
     echo "  ./build.sh windows"
     echo "  ./build.sh windows-debug"
+    echo "  ./build.sh rebuild"
+    echo "  ./build.sh clean"
     echo "  ./build.sh android"
     echo "  ./build.sh frontend"
     exit 1
@@ -42,13 +46,25 @@ case $COMMAND in
         echo -e "${GREEN}构建 Windows 可执行文件 (debug)...${NC}"
         ./build-windows.sh debug
         ;;
+    rebuild)
+        echo -e "${GREEN}完全重新构建 Windows (release)...${NC}"
+        ./build-windows.sh rebuild
+        ;;
+    rebuild-debug)
+        echo -e "${GREEN}完全重新构建 Windows (debug)...${NC}"
+        ./build-windows.sh rebuild-debug
+        ;;
+    clean)
+        echo -e "${YELLOW}清理构建缓存...${NC}"
+        ./build-windows.sh clean
+        ;;
     android)
         echo -e "${GREEN}构建 Android APK (release)...${NC}"
         ./build-android.sh release
         ;;
     frontend)
         echo -e "${GREEN}构建前端...${NC}"
-        bun install --no-cache
+        bun install
         bun run build
         ;;
     *)

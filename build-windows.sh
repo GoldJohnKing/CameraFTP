@@ -29,7 +29,6 @@ success() {
 }
 
 # 拷贝编译产物到 release 目录
-# 用法: copy_to_release <源文件路径> <目标文件名> <构建类型>
 copy_to_release() {
     local src_path="$1"
     local dest_name="$2"
@@ -68,63 +67,76 @@ check_environment() {
     success "环境检查完成"
 }
 
-# 检查是否需要重新生成 ts-rs 绑定
-need_regenerate_bindings() {
-    local bindings_dir="src-tauri/bindings"
-    local last_gen_file=".build-cache/ts-rs-last-gen"
-    
-    # 如果绑定目录不存在，需要生成
-    if [ ! -d "$bindings_dir" ]; then
-        return 0
-    fi
-    
-    # 如果缓存文件不存在，需要生成
-    if [ ! -f "$last_gen_file" ]; then
-        return 0
-    fi
-    
-    # 检查 Rust 源文件是否比缓存新
-    local last_gen=$(cat "$last_gen_file" 2>/dev/null || echo "0")
-    local newest_src=$(find src-tauri/src -name "*.rs" -type f -printf '%T@\n' 2>/dev/null | sort -rn | head -1)
-    
-    if [ -z "$newest_src" ]; then
-        return 0
-    fi
-    
-    # 比较时间戳
-    if [ "$(echo "$newest_src > $last_gen" | bc -l 2>/dev/null || echo "1")" = "1" ]; then
-        return 0
-    fi
-    
-    return 1
+# 获取 Windows cargo 路径
+get_cargo_path() {
+    USERPROFILE=$(wslpath "$(cmd.exe /c "echo %USERPROFILE%" 2>/dev/null | tr -d '\r')")
+    echo "$USERPROFILE/.cargo/bin/cargo.exe"
 }
 
-# 更新 ts-rs 生成时间戳
-update_bindings_timestamp() {
-    mkdir -p .build-cache
-    date +%s > .build-cache/ts-rs-last-gen
+# 清理构建缓存
+clean_build_cache() {
+    info "清理构建缓存..."
+    
+    local CARGO_EXE=$(get_cargo_path)
+    
+    # 清理 Rust 构建缓存
+    if [ -d "src-tauri/target" ]; then
+        info "清理 Rust target 目录..."
+        rm -rf src-tauri/target
+    fi
+    
+    # 清理 ts-rs 绑定
+    if [ -d "src-tauri/bindings" ]; then
+        info "清理 ts-rs 绑定..."
+        rm -rf src-tauri/bindings
+    fi
+    
+    # 清理前端构建缓存
+    if [ -d "dist" ]; then
+        info "清理前端 dist 目录..."
+        rm -rf dist
+    fi
+    
+    # 清理构建缓存目录
+    if [ -d ".build-cache" ]; then
+        info "清理 .build-cache 目录..."
+        rm -rf .build-cache
+    fi
+    
+    # 清理 release 目录
+    if [ -d "release" ]; then
+        info "清理 release 目录..."
+        rm -rf release
+    fi
+    
+    # 运行 cargo clean
+    info "运行 cargo clean..."
+    cd src-tauri
+    "$CARGO_EXE" clean 2>/dev/null || true
+    cd ..
+    
+    success "清理完成"
 }
 
 # 构建 Windows 应用
 build_windows() {
     local BUILD_TYPE="${1:-release}"
+    local FORCE_CLEAN="${2:-false}"
     
     info "开始构建 Windows 应用 ($BUILD_TYPE)..."
     
-    # 获取 cargo 路径
-    USERPROFILE=$(wslpath "$(cmd.exe /c "echo %USERPROFILE%" 2>/dev/null | tr -d '\r')")
-    CARGO_EXE="$USERPROFILE/.cargo/bin/cargo.exe"
+    local CARGO_EXE=$(get_cargo_path)
     
-    # 生成 ts-rs 类型绑定（仅在需要时）
-    if need_regenerate_bindings; then
-        info "生成 TypeScript 类型绑定..."
-        cd src-tauri
-        "$CARGO_EXE" test --quiet 2>/dev/null || true
-        cd ..
-        update_bindings_timestamp
-    else
-        info "TypeScript 绑定已是最新，跳过生成"
+    # 如果指定清理，先清理
+    if [ "$FORCE_CLEAN" = "true" ]; then
+        clean_build_cache
     fi
+    
+    # 生成 ts-rs 类型绑定（始终生成，确保同步）
+    info "生成 TypeScript 类型绑定..."
+    cd src-tauri
+    "$CARGO_EXE" test --quiet 2>/dev/null || true
+    cd ..
     
     # 终止运行中的进程
     info "终止运行中的进程..."
@@ -144,17 +156,13 @@ build_windows() {
         
         info "[前端] 构建中..."
         bun run build
-        
-        echo "FRONTEND_DONE=1" > .build-cache/frontend-done
     ) &
     FRONTEND_PID=$!
     
-    # 启动 Rust 构建（当前进程）
+    # 启动 Rust 构建
     (
         cd src-tauri
         info "[Rust] 构建中..."
-        
-        local OUTPUT_NAME="camera-ftp-companion.exe"
         
         if [ "$BUILD_TYPE" = "debug" ]; then
             "$CARGO_EXE" build --target x86_64-pc-windows-msvc
@@ -182,19 +190,17 @@ build_windows() {
     cd src-tauri
     local OUTPUT_NAME="camera-ftp-companion.exe"
     local DEST_NAME="$OUTPUT_NAME"
+    local SRC_PATH
     
     if [ "$BUILD_TYPE" = "debug" ]; then
-        local SRC_PATH="target/x86_64-pc-windows-msvc/debug/$OUTPUT_NAME"
+        SRC_PATH="target/x86_64-pc-windows-msvc/debug/$OUTPUT_NAME"
         DEST_NAME="camera-ftp-companion-debug.exe"
     else
-        local SRC_PATH="target/x86_64-pc-windows-msvc/release/$OUTPUT_NAME"
+        SRC_PATH="target/x86_64-pc-windows-msvc/release/$OUTPUT_NAME"
     fi
     
     cd ..
     copy_to_release "src-tauri/$SRC_PATH" "$DEST_NAME" "$BUILD_TYPE"
-    
-    # 清理临时文件
-    rm -f .build-cache/frontend-done
 }
 
 # 主函数
@@ -214,6 +220,18 @@ main() {
         "check"|"env")
             check_environment
             ;;
+        "clean")
+            check_environment
+            clean_build_cache
+            ;;
+        "rebuild")
+            check_environment
+            build_windows "release" "true"
+            ;;
+        "rebuild-debug")
+            check_environment
+            build_windows "debug" "true"
+            ;;
         "debug")
             check_environment
             build_windows "debug"
@@ -226,16 +244,20 @@ main() {
             echo "用法: $0 [命令]"
             echo ""
             echo "命令:"
-            echo "  check, env    检查编译环境"
-            echo "  (无参数)      构建 Release 可执行文件 (默认)"
-            echo "  release       构建 Release 可执行文件"
-            echo "  debug         构建 Debug 可执行文件"
-            echo "  help          显示此帮助信息"
+            echo "  check, env     检查编译环境"
+            echo "  (无参数)       构建 Release 可执行文件 (默认)"
+            echo "  release        构建 Release 可执行文件"
+            echo "  debug          构建 Debug 可执行文件"
+            echo "  rebuild        完全重新构建 Release (清理缓存后构建)"
+            echo "  rebuild-debug  完全重新构建 Debug"
+            echo "  clean          清理所有构建缓存"
+            echo "  help           显示此帮助信息"
             echo ""
             echo "示例:"
-            echo "  $0 check      # 检查环境"
-            echo "  $0 release    # 构建 Release 版本"
-            echo "  $0 debug      # 构建 Debug 版本"
+            echo "  $0 check       # 检查环境"
+            echo "  $0 release     # 构建 Release 版本"
+            echo "  $0 rebuild     # 清理后重新构建"
+            echo "  $0 clean       # 仅清理缓存"
             echo ""
             echo "输出位置:"
             echo "  Release: release/camera-ftp-companion.exe"
