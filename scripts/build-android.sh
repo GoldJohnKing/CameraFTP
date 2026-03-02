@@ -14,6 +14,70 @@ cd "$SCRIPT_DIR/.."
 # 环境检查与设置
 # ============================================
 
+# 存储选中的工具和路径
+declare -A SELECTED_TOOLS
+declare -A SELECTED_PATHS
+
+# 检测工具并存储命令
+# 用法: detect_tool <tool_name>
+detect_tool() {
+    local tool_name="$1"
+    local cmd
+    if cmd=$(get_tool_cmd "$tool_name"); then
+        SELECTED_TOOLS[$tool_name]="$cmd"
+        return 0
+    fi
+    return 1
+}
+
+# 检查混合工具链（Windows/Linux 混用）
+check_mixed_toolchain() {
+    local platforms=()
+    local cargo_platform java_platform sdk_platform
+    
+    # 收集各工具的平台
+    cargo_platform=$(get_tool_platform "cargo")
+    if [ -n "$cargo_platform" ]; then
+        platforms+=("cargo:$cargo_platform")
+    fi
+    
+    java_platform=$(get_tool_platform "java")
+    if [ -n "$java_platform" ]; then
+        platforms+=("java:$java_platform")
+    fi
+    
+    # 根据 SDK 路径判断平台
+    if [ -n "${SELECTED_PATHS[android_sdk]}" ]; then
+        if [[ "${SELECTED_PATHS[android_sdk]}" == /mnt/c/* ]]; then
+            sdk_platform="windows"
+        else
+            sdk_platform="linux"
+        fi
+        platforms+=("sdk:$sdk_platform")
+    fi
+    
+    # 检查是否混合使用
+    local has_windows=false
+    local has_linux=false
+    
+    for item in "${platforms[@]}"; do
+        if [[ "$item" == *":windows" ]]; then
+            has_windows=true
+        elif [[ "$item" == *":linux" ]]; then
+            has_linux=true
+        fi
+    done
+    
+    if [ "$has_windows" = true ] && [ "$has_linux" = true ]; then
+        warn "检测到混合工具链 (Windows + Linux):"
+        for item in "${platforms[@]}"; do
+            warn "  - $item"
+        done
+        warn "这可能导致兼容性问题，建议统一使用同一平台的工具"
+        echo ""
+    fi
+}
+
 check_android_env() {
     info "检查 Android 编译环境..."
     local failed=false
@@ -23,45 +87,88 @@ check_android_env() {
         failed=true
     fi
     
-    # 检查 cargo
-    if ! command -v cargo &> /dev/null; then
+    # 检查 cargo (使用工具选择层)
+    if detect_tool "cargo"; then
+        check_tool "cargo" "Cargo" || failed=true
+    else
         error "cargo 未找到"
         echo "请确保 Rust 已安装: https://rustup.rs"
         failed=true
-    else
-        info "Cargo: $(cargo --version)"
     fi
     
-    # 检查 Java
-    if ! command -v java &> /dev/null; then
+    # 检查 java (使用工具选择层)
+    if detect_tool "java"; then
+        check_tool "java" "Java" || failed=true
+    else
         error "Java 未安装"
-        echo "安装: sudo apt install openjdk-21-jdk"
+        echo "安装: sudo apt install openjdk-21-jdk (Linux)"
+        echo "或下载: https://adoptium.net/ (Windows)"
         failed=true
-    else
-        info "Java: $(java -version 2>&1 | head -n1)"
     fi
     
-    # 检查 Android SDK
-    if [ -z "$ANDROID_HOME" ] && [ -z "$ANDROID_SDK_ROOT" ]; then
-        error "ANDROID_HOME 环境变量未设置"
-        echo "设置: export ANDROID_HOME=\$HOME/Android/Sdk"
-        failed=true
+    # 检查 javac (可选，仅警告)
+    if detect_tool "javac"; then
+        check_tool "javac" "Javac" || warn "javac 未找到，可能影响某些构建步骤"
     else
-        info "Android SDK: ${ANDROID_HOME:-$ANDROID_SDK_ROOT}"
+        warn "javac 未找到，可能影响某些构建步骤"
     fi
     
-    # 设置 NDK_HOME（用于提示）
-    if [ -z "$NDK_HOME" ]; then
-        local sdk_path="${ANDROID_HOME:-$ANDROID_SDK_ROOT}"
-        if [ -d "$sdk_path/ndk" ]; then
-            local ndk_version=$(ls "$sdk_path/ndk" | head -1)
-            info "NDK: $sdk_path/ndk/$ndk_version (自动检测)"
+    # 检查 keytool (可选，仅警告)
+    if detect_tool "keytool"; then
+        check_tool "keytool" "Keytool" || warn "keytool 未找到，签名功能可能受影响"
+    else
+        warn "keytool 未找到，签名功能可能受影响"
+    fi
+    
+    # 检测 Android SDK (优先 Windows，回退 Linux)
+    local sdk_path
+    if sdk_path=$(detect_windows_android_sdk); then
+        SELECTED_PATHS[android_sdk]="$sdk_path"
+        info "Android SDK: $sdk_path [windows]"
+    elif sdk_path=$(detect_linux_android_sdk); then
+        SELECTED_PATHS[android_sdk]="$sdk_path"
+        info "Android SDK: $sdk_path [linux]"
+    else
+        error "Android SDK 未找到"
+        echo "设置: export ANDROID_HOME=\$HOME/Android/Sdk (Linux)"
+        echo "或安装 Android Studio (Windows)"
+        failed=true
+    fi
+    
+    # 检测 NDK
+    if [ -n "${SELECTED_PATHS[android_sdk]}" ]; then
+        local ndk_path
+        if ndk_path=$(detect_ndk_from_sdk "${SELECTED_PATHS[android_sdk]}"); then
+            SELECTED_PATHS[android_ndk]="$ndk_path"
+            info "NDK: $ndk_path"
         else
             warn "NDK 未找到，首次编译时会自动下载"
         fi
-    else
-        info "NDK: $NDK_HOME"
     fi
+    
+    # 检测 Java Home (根据 java 工具平台选择)
+    local java_home
+    local java_platform
+    java_platform=$(get_tool_platform "java")
+    
+    if [ "$java_platform" = "windows" ]; then
+        if java_home=$(detect_windows_java_home); then
+            SELECTED_PATHS[java_home]="$java_home"
+            info "JAVA_HOME: $java_home [windows]"
+        else
+            warn "Windows JAVA_HOME 未检测到，将使用环境变量"
+        fi
+    elif [ "$java_platform" = "linux" ]; then
+        if java_home=$(detect_linux_java_home); then
+            SELECTED_PATHS[java_home]="$java_home"
+            info "JAVA_HOME: $java_home [linux]"
+        else
+            warn "Linux JAVA_HOME 未检测到，将使用环境变量"
+        fi
+    fi
+    
+    # 检查混合工具链
+    check_mixed_toolchain
     
     if [ "$failed" = true ]; then
         return 1
@@ -73,16 +180,38 @@ check_android_env() {
 
 # 设置 Android 编译环境变量
 setup_android_env() {
-    export JAVA_HOME=${JAVA_HOME:-/usr/lib/jvm/java-21-openjdk-amd64}
-    export ANDROID_HOME=${ANDROID_HOME:-$HOME/Android/Sdk}
-
-    if [ -z "$NDK_HOME" ] && [ -d "$ANDROID_HOME/ndk" ]; then
-        local ndk_version=$(ls "$ANDROID_HOME/ndk" | head -1)
-        export NDK_HOME="$ANDROID_HOME/ndk/$ndk_version"
+    # 设置 JAVA_HOME (优先使用检测到的路径)
+    if [ -n "${SELECTED_PATHS[java_home]}" ]; then
+        export JAVA_HOME="${SELECTED_PATHS[java_home]}"
+    else
+        export JAVA_HOME="${JAVA_HOME:-/usr/lib/jvm/java-21-openjdk-amd64}"
     fi
-
+    
+    # 设置 Android SDK
+    if [ -n "${SELECTED_PATHS[android_sdk]}" ]; then
+        export ANDROID_HOME="${SELECTED_PATHS[android_sdk]}"
+        export ANDROID_SDK_ROOT="${SELECTED_PATHS[android_sdk]}"
+    else
+        export ANDROID_HOME="${ANDROID_HOME:-$HOME/Android/Sdk}"
+        export ANDROID_SDK_ROOT="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
+    fi
+    
+    # 设置 NDK_HOME
+    if [ -n "${SELECTED_PATHS[android_ndk]}" ]; then
+        export NDK_HOME="${SELECTED_PATHS[android_ndk]}"
+    elif [ -z "$NDK_HOME" ] && [ -d "$ANDROID_HOME/ndk" ]; then
+        local ndk_version
+        for ndk_version in "$ANDROID_HOME/ndk"/*; do
+            if [ -d "$ndk_version" ]; then
+                export NDK_HOME="$ndk_version"
+                break
+            fi
+        done
+    fi
+    
+    # 更新 PATH
     export PATH="$JAVA_HOME/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/cmdline-tools/latest/bin:$PATH"
-
+    
     # Gradle 优化：并行构建 + 按需配置
     export GRADLE_OPTS="-Dorg.gradle.parallel=true -Dorg.gradle.configureondemand=true"
 }
@@ -135,6 +264,9 @@ build_android() {
     local BUILD_TYPE="${1:-release}"
     
     info "开始构建 Android 应用 ($BUILD_TYPE) - 仅 arm64-v8a 架构"
+    
+    # 获取选中的 cargo 命令
+    local cargo_cmd="${SELECTED_TOOLS[cargo]:-cargo}"
     
     # 检查是否已由 build.sh 统一构建前端
     if [ "${FRONTEND_ALREADY_BUILT}" = "1" ]; then
