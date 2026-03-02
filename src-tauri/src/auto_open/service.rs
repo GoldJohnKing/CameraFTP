@@ -32,7 +32,7 @@ impl AutoOpenService {
     pub fn new(app_handle: AppHandle) -> Self {
         #[cfg(target_os = "windows")]
         {
-            let config = AppConfig::load().preview_config;
+            let config = AppConfig::load().preview_config.unwrap_or_default();
             Self {
                 app_handle,
                 config: Arc::new(Mutex::new(config)),
@@ -183,7 +183,7 @@ impl AutoOpenService {
         
         // 持久化到配置文件
         let mut app_config = AppConfig::load();
-        app_config.preview_config = new_config.clone();
+        app_config.preview_config = Some(new_config.clone());
         if let Err(e) = app_config.save() {
             error!("Failed to save preview config: {}", e);
         }

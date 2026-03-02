@@ -20,6 +20,6 @@ autoSelectPort: boolean,
  */
 advancedConnection: AdvancedConnectionConfig, 
 /**
- * Windows 平台预览窗口配置
+ * 预览窗口配置（仅 Windows 有效，其他平台为 None）
  */
-previewConfig: PreviewWindowConfig, };
+previewConfig: PreviewWindowConfig | null, };

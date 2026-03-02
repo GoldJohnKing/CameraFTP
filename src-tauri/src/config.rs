@@ -129,9 +129,9 @@ pub struct AppConfig {
     /// 高级连接配置
     #[serde(default)]
     pub advanced_connection: AdvancedConnectionConfig,
-    /// Windows 平台预览窗口配置
-    #[cfg(target_os = "windows")]
-    pub preview_config: PreviewWindowConfig,
+    /// 预览窗口配置（仅 Windows 有效，其他平台为 None）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preview_config: Option<PreviewWindowConfig>,
 }
 
 impl Default for AppConfig {
@@ -143,13 +143,19 @@ impl Default for AppConfig {
             2121
         };
 
+        // preview_config 仅在 Windows 上启用
+        let preview_config = if cfg!(target_os = "windows") {
+            Some(PreviewWindowConfig::default())
+        } else {
+            None
+        };
+
         Self {
             save_path: Self::default_pictures_dir(),
             port: default_port,
             auto_select_port: true,
             advanced_connection: AdvancedConnectionConfig::default(),
-            #[cfg(target_os = "windows")]
-            preview_config: PreviewWindowConfig::default(),
+            preview_config,
         }
     }
 }
