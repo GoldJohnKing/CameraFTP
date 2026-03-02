@@ -10,7 +10,7 @@ import { PathSelector } from './PathSelector';
 import { AdvancedConnectionConfigPanel } from './AdvancedConnectionConfig';
 import { AutoStartToggle } from './AutoStartToggle';
 import { PreviewConfigCard } from './PreviewConfigCard';
-import type { AdvancedConnectionConfig } from '../types';
+import type { AdvancedConnectionConfig, AppConfig } from '../types';
 
 const DEFAULT_ADVANCED_CONFIG: AdvancedConnectionConfig = {
   enabled: false,
@@ -119,7 +119,7 @@ export function ConfigCard() {
   };
 
   // 处理高级连接配置更新
-  const handleAdvancedConfigUpdate = useCallback((updater: (draft: any) => Partial<any>) => {
+  const handleAdvancedConfigUpdate = useCallback((updater: (draft: AppConfig) => Partial<AppConfig>) => {
     updateDraft(draft => {
       const updates = updater(draft);
       return { ...draft, ...updates };
