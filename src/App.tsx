@@ -12,10 +12,12 @@ import { PermissionDialog } from './components/PermissionDialog';
 import { PreviewWindow } from './components/PreviewWindow';
 import { useServerStore } from './stores/serverStore';
 import { useConfigStore } from './stores/configStore';
+import { usePermissionStore } from './stores/permissionStore';
 
 function App() {
   const { initializeListeners, showPermissionDialog, closePermissionDialog, continueAfterPermissionsGranted } = useServerStore();
   const { activeTab, loadConfig, loadPlatform, platform } = useConfigStore();
+  const initializePermissions = usePermissionStore((state) => state.initialize);
   const [showQuitDialog, setShowQuitDialog] = useState(false);
   const [isPreviewWindow, setIsPreviewWindow] = useState(false);
 
@@ -29,6 +31,11 @@ function App() {
   useEffect(() => {
     loadPlatform();
   }, [loadPlatform]);
+
+  // Initialize permission store (Android only, safe to call on all platforms)
+  useEffect(() => {
+    initializePermissions();
+  }, [initializePermissions]);
 
   // 根据平台设置 html 元素的 class
   useEffect(() => {

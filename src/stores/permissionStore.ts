@@ -12,6 +12,7 @@ interface PermissionStoreState {
   error: string | null;
   isPolling: boolean;
   allGranted: boolean; // 实际状态字段，不是计算属性
+  isInitialized: boolean; // Track if store has been initialized
   
   // Storage states (merged from useStoragePermission)
   storageInfo: StorageInfo | null;
@@ -19,6 +20,7 @@ interface PermissionStoreState {
   
   // Actions
   setPermissions: (permissions: PermissionCheckResult) => void;
+  initialize: () => void; // Initialize store - call once on app start
   
   // Check permissions from Android
   checkPermissions: () => Promise<PermissionCheckResult>;
@@ -72,6 +74,7 @@ export const usePermissionStore = create<PermissionStoreState>()((set, get) => (
     error: null,
     isPolling: false,
     allGranted: false,
+    isInitialized: false,
     
     // Storage states
     storageInfo: null,
@@ -84,6 +87,24 @@ export const usePermissionStore = create<PermissionStoreState>()((set, get) => (
         permissions: newPerms,
         allGranted,
       });
+    },
+    
+    // Initialize store - call once on app start (Android only)
+    initialize: () => {
+      if (get().isInitialized) return;
+      if (!permissionBridge.isAvailable()) return;
+      
+      set({ isInitialized: true });
+      
+      // Check permissions
+      permissionCheckInternal().then(perms => {
+        if (perms) {
+          get().setPermissions(perms);
+        }
+      });
+      // Load storage info and check permission status
+      get().loadStorageInfo();
+      get().checkPermissionStatus();
     },
     
     // Check permissions from Android
@@ -269,19 +290,3 @@ export const usePermissionStore = create<PermissionStoreState>()((set, get) => (
       }
     },
   }));
-
-// Initial check on Android only
-if (typeof window !== 'undefined' && permissionBridge.isAvailable()) {
-  setTimeout(() => {
-    const state = usePermissionStore.getState();
-    // Check permissions
-    permissionCheckInternal().then(perms => {
-      if (perms) {
-        state.setPermissions(perms);
-      }
-    });
-    // Load storage info and check permission status
-    state.loadStorageInfo();
-    state.checkPermissionStatus();
-  }, 100);
-}
