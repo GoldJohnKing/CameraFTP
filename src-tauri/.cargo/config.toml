@@ -3,3 +3,8 @@ linker = "x86_64-w64-mingw32-gcc"
 
 [target.x86_64-pc-windows-msvc]
 linker = "link.exe"
+
+# ts-rs configuration: generate u64/i64 as number instead of bigint
+# This matches JSON serialization behavior (JSON doesn't support bigint)
+[env]
+TS_RS_LARGE_INT = "number"

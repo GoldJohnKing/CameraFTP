@@ -70,7 +70,11 @@ pub struct ServerConfig {
 pub struct ServerStateSnapshot {
     pub is_running: bool,
     pub connected_clients: usize,
+    /// Use number instead of bigint for JSON serialization compatibility
+    #[ts(type = "number")]
     pub files_received: u64,
+    /// Use number instead of bigint for JSON serialization compatibility
+    #[ts(type = "number")]
     pub bytes_received: u64,
     pub last_file: Option<String>,
 }
