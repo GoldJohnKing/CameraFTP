@@ -21,7 +21,10 @@ declare -A SELECTED_PATHS
 # 检测工具并存储命令
 # 用法: detect_tool <tool_name>
 detect_tool() {
-    local tool_name="$1"
+    local tool_name="${1:-}"
+    if [ -z "$tool_name" ]; then
+        return 1
+    fi
     local cmd
     if cmd=$(get_tool_cmd "$tool_name"); then
         SELECTED_TOOLS[$tool_name]="$cmd"
@@ -48,7 +51,7 @@ check_mixed_toolchain() {
     
     # 根据 SDK 路径判断平台
     if [ -n "${SELECTED_PATHS[android_sdk]}" ]; then
-        if [[ "${SELECTED_PATHS[android_sdk]}" == /mnt/c/* ]]; then
+        if [[ "${SELECTED_PATHS[android_sdk]}" == /mnt/*/ ]]; then
             sdk_platform="windows"
         else
             sdk_platform="linux"
@@ -200,6 +203,10 @@ setup_android_env() {
     if [ -n "${SELECTED_PATHS[android_ndk]}" ]; then
         export NDK_HOME="${SELECTED_PATHS[android_ndk]}"
     elif [ -z "$NDK_HOME" ] && [ -d "$ANDROID_HOME/ndk" ]; then
+        # Check if NDK directory is empty
+        if [ ! "$(ls -A "$ANDROID_HOME/ndk" 2>/dev/null)" ]; then
+            warn "NDK 目录存在但为空"
+        fi
         local ndk_version
         for ndk_version in "$ANDROID_HOME/ndk"/*; do
             if [ -d "$ndk_version" ]; then
@@ -209,8 +216,14 @@ setup_android_env() {
         done
     fi
     
-    # 更新 PATH
-    export PATH="$JAVA_HOME/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/cmdline-tools/latest/bin:$PATH"
+    # 更新 PATH (仅添加存在的目录)
+    local new_paths=()
+    [ -d "$JAVA_HOME/bin" ] && new_paths+=("$JAVA_HOME/bin")
+    [ -d "$ANDROID_HOME/platform-tools" ] && new_paths+=("$ANDROID_HOME/platform-tools")
+    [ -d "$ANDROID_HOME/cmdline-tools/latest/bin" ] && new_paths+=("$ANDROID_HOME/cmdline-tools/latest/bin")
+    if [ ${#new_paths[@]} -gt 0 ]; then
+        export PATH="$(IFS=:; echo "${new_paths[*]}"):$PATH"
+    fi
     
     # Gradle 优化：并行构建 + 按需配置
     export GRADLE_OPTS="-Dorg.gradle.parallel=true -Dorg.gradle.configureondemand=true"
@@ -265,9 +278,6 @@ build_android() {
     
     info "开始构建 Android 应用 ($BUILD_TYPE) - 仅 arm64-v8a 架构"
     
-    # 获取选中的 cargo 命令
-    local cargo_cmd="${SELECTED_TOOLS[cargo]:-cargo}"
-    
     # 检查是否已由 build.sh 统一构建前端
     if [ "${FRONTEND_ALREADY_BUILT}" = "1" ]; then
         info "前端已由 build.sh 统一构建，Android 将复用（Tauri 可能仍会检查）..."
@@ -280,14 +290,20 @@ build_android() {
     
     case $BUILD_TYPE in
         "debug")
-            bun run tauri android build --debug --target aarch64
+            bun run tauri android build --debug --target aarch64 || {
+                error "Android debug 构建失败"
+                exit 1
+            }
             copy_pattern_to_out \
                 "src-tauri/gen/android/app/build/outputs/apk/universal/debug/*.apk" \
                 "camera-ftp-companion-debug.apk" \
                 "Debug APK"
             ;;
         "release")
-            bun run tauri android build --target aarch64
+            bun run tauri android build --target aarch64 || {
+                error "Android release 构建失败"
+                exit 1
+            }
             copy_pattern_to_out \
                 "src-tauri/gen/android/app/build/outputs/apk/universal/release/*.apk" \
                 "camera-ftp-companion.apk" \
