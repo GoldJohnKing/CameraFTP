@@ -1,7 +1,5 @@
 use tauri::{command, AppHandle, Manager, State};
-use std::path::PathBuf;
 use std::sync::Arc;
-use std::sync::OnceLock;
 use tokio::sync::Mutex;
 use tracing::{error, info, instrument};
 
@@ -14,81 +12,6 @@ use crate::ftp::types::{ServerInfo, ServerStateSnapshot};
 use crate::ftp::FtpServerHandle;
 use crate::network::NetworkManager;
 use crate::platform::{get_platform as get_platform_service, PermissionStatus, ServerStartCheckResult, StorageInfo};
-
-/// Cached save path for path validation.
-/// Initialized once at startup to avoid repeated config reads.
-static SAVE_PATH: OnceLock<PathBuf> = OnceLock::new();
-
-/// Initialize path validation with the current save path from config.
-/// Must be called once during application startup.
-pub fn init_path_validation() {
-    let config = AppConfig::load();
-    let save_path = config.save_path.canonicalize().unwrap_or(config.save_path);
-    if SAVE_PATH.set(save_path).is_err() {
-        tracing::warn!("Path validation already initialized, ignoring duplicate init");
-    } else {
-        tracing::info!("Path validation initialized with save path");
-    }
-}
-
-/// Normalize a path by resolving `.` and `..` components without accessing the filesystem.
-fn normalize_path(path: &std::path::Path) -> PathBuf {
-    let mut result = PathBuf::new();
-    for component in path.components() {
-        match component {
-            std::path::Component::ParentDir => {
-                result.pop();
-            }
-            std::path::Component::CurDir => {}
-            _ => result.push(component),
-        }
-    }
-    result
-}
-
-/// Validates that a file path is within the allowed storage directory.
-/// 
-/// Uses prefix-based validation (no filesystem access) for performance and to allow
-/// validation of paths to files that may not exist yet. Prevents directory traversal
-/// attacks by normalizing the path and checking it's within the save directory.
-/// 
-/// # Errors
-/// - Returns `PermissionError` if the path is empty, contains null bytes, or escapes
-///   the save directory via directory traversal (`../`).
-fn validate_file_path(file_path: &str) -> Result<PathBuf, AppError> {
-    // Reject empty paths and paths with null bytes
-    if file_path.is_empty() {
-        return Err(AppError::PermissionError("文件路径不能为空".to_string()));
-    }
-    if file_path.contains('\0') {
-        return Err(AppError::PermissionError("路径包含非法字符".to_string()));
-    }
-
-    // Get the cached save path
-    let save_path = SAVE_PATH
-        .get()
-        .ok_or_else(|| AppError::Other("路径验证未初始化".to_string()))?;
-
-    // Parse input path
-    let path = PathBuf::from(file_path);
-    let absolute_path = if path.is_absolute() {
-        path
-    } else {
-        save_path.join(path)
-    };
-
-    // Normalize path (resolve . and .. without filesystem access)
-    let normalized = normalize_path(&absolute_path);
-
-    // Ensure path is within save directory
-    if !normalized.starts_with(save_path) {
-        return Err(AppError::PermissionError(
-            "文件路径必须在存储目录内".to_string(),
-        ));
-    }
-
-    Ok(normalized)
-}
 
 /// FTP 服务器状态（使用 Arc<Mutex> 包装以支持异步操作）
 pub struct FtpServerState(pub Arc<Mutex<Option<FtpServerHandle>>>);
@@ -466,8 +389,7 @@ pub async fn open_preview_window(
     app: AppHandle,
     file_path: String,
 ) -> Result<(), AppError> {
-    // Validate the file path to prevent directory traversal
-    let path = validate_file_path(&file_path)?;
+    let path = std::path::PathBuf::from(&file_path);
     
     // 先在 FileIndexService 中查找并设置索引
     let file_index = app.state::<FileIndexService>();
@@ -582,18 +504,15 @@ pub struct ExifInfo {
 pub async fn get_image_exif(file_path: String) -> Result<Option<ExifInfo>, AppError> {
     use nom_exif::*;
 
-    // Validate the file path to prevent directory traversal
-    let validated_path = validate_file_path(&file_path)?;
-
     let start = std::time::Instant::now();
 
     let mut parser = MediaParser::new();
-    let ms = MediaSource::file_path(&validated_path)
+    let ms = MediaSource::file_path(&file_path)
         .map_err(|e| AppError::Io(e.to_string()))?;
 
     // 检查是否有 EXIF 数据
     if !ms.has_exif() {
-        tracing::debug!("No EXIF data found in {}", validated_path.display());
+        tracing::debug!("No EXIF data found in {}", file_path);
         return Ok(None);
     }
 
@@ -601,7 +520,7 @@ pub async fn get_image_exif(file_path: String) -> Result<Option<ExifInfo>, AppEr
     let iter: ExifIter = match parser.parse(ms) {
         Ok(iter) => iter,
         Err(e) => {
-            tracing::warn!("Failed to parse EXIF for {}: {:?}", validated_path.display(), e);
+            tracing::warn!("Failed to parse EXIF for {}: {:?}", file_path, e);
             return Ok(None);
         }
     };
@@ -652,7 +571,7 @@ pub async fn get_image_exif(file_path: String) -> Result<Option<ExifInfo>, AppEr
     let duration = start.elapsed();
     tracing::debug!(
         "EXIF parsed for {} in {:?}: ISO={:?}, Aperture={:?}, Shutter={:?}, Focal={:?}, DateTime={:?}",
-        validated_path.display(), duration, iso, aperture, shutter_speed, focal_length, datetime
+        file_path, duration, iso, aperture, shutter_speed, focal_length, datetime
     );
 
     // 如果没有有效数据，返回 None

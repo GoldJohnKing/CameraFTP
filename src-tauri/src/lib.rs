@@ -140,9 +140,6 @@ pub fn run() {
                 config::init_android_paths(app.handle());
             }
 
-            // 初始化路径验证（用于文件路径安全检查）
-            commands::init_path_validation();
-
             // 开机自启模式：隐藏窗口
             if is_autostart {
                 platform.hide_window_on_autostart(app.handle());
