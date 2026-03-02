@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, memo } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { Settings, Wifi, Shield } from 'lucide-react';
 import { useConfigStore, useDraftConfig } from '../stores/configStore';
@@ -17,7 +17,7 @@ const DEFAULT_ADVANCED_CONFIG: AdvancedConnectionConfig = {
   auth: { anonymous: true, username: '', passwordHash: '', passwordSalt: '' },
 };
 
-export function ConfigCard() {
+export const ConfigCard = memo(function ConfigCard() {
   const {
     isLoading,
     error,
@@ -240,4 +240,4 @@ export function ConfigCard() {
       )}
     </>
   );
-}
+});

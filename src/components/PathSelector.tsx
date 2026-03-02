@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, memo } from 'react';
 import { Folder, RefreshCw } from 'lucide-react';
 import type { StorageInfo } from '../types';
 
@@ -13,7 +13,7 @@ interface PathSelectorProps {
   onSelectDirectory: () => Promise<void>;
 }
 
-export function PathSelector({
+export const PathSelector = memo(function PathSelector({
   platform,
   storageInfo,
   needsPermission,
@@ -91,4 +91,4 @@ export function PathSelector({
       )}
     </div>
   );
-}
+});

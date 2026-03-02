@@ -1,5 +1,5 @@
 import { Power } from 'lucide-react';
-import { useState, useCallback } from 'react';
+import { useState, useCallback, memo } from 'react';
 import { toast } from 'sonner';
 import { useServerStore } from '../stores/serverStore';
 import { usePermissionStore } from '../stores/permissionStore';
@@ -7,7 +7,7 @@ import { LoadingButton, ErrorMessage } from './ui';
 import { formatError } from '../utils/error';
 
 
-export function ServerCard() {
+export const ServerCard = memo(function ServerCard() {
   const [isStarting, setIsStarting] = useState(false);
   const { 
     isRunning, 
@@ -86,4 +86,4 @@ export function ServerCard() {
       <ErrorMessage message={error} />
     </div>
   );
-}
+});
