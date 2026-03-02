@@ -142,14 +142,7 @@ class MainActivity : TauriActivity() {
         grantResults: IntArray
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        
-        // Just log the result, don't start foreground service
-        // The service will be started by updateServiceState() when server actually starts
-        when (requestCode) {
-            PermissionBridge.REQUEST_POST_NOTIFICATIONS -> {
-                // No auto-start - user must click "Start Server" button
-            }
-        }
+        // Service is started by updateServiceState() when server actually starts
     }
     
     /**
