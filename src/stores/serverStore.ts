@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { invoke } from '@tauri-apps/api/core';
-import type { ServerInfo, ServerStatus } from '../types';
+import type { ServerInfo, ServerStateSnapshot } from '../types';
 import { serverStateBridge, storageSettingsBridge } from '../types/global';
 import { createEventManager, type EventRegistration } from '../utils/events';
 import { retryAction, executeAsync } from '../utils/store';
@@ -10,7 +10,7 @@ interface ServerState {
   // 状态
   isRunning: boolean;
   serverInfo: ServerInfo | null;
-  stats: ServerStatus;
+  stats: ServerStateSnapshot;
   isLoading: boolean;
   error: string | null;
   showPermissionDialog: boolean;
@@ -26,7 +26,7 @@ interface ServerState {
   initializeListeners: () => Promise<() => void>;
 }
 
-const defaultStats: ServerStatus = {
+const defaultStats: ServerStateSnapshot = {
   isRunning: false,
   connectedClients: 0,
   filesReceived: 0,
@@ -35,7 +35,7 @@ const defaultStats: ServerStatus = {
 };
 
 // Update Android foreground service with current server state
-const updateAndroidServiceState = (isRunning: boolean, stats: ServerStatus | null, connectedClients: number, immediate = false) => {
+const updateAndroidServiceState = (isRunning: boolean, stats: ServerStateSnapshot | null, connectedClients: number, immediate = false) => {
   retryAction(
     () => {
       if (!serverStateBridge.isAvailable()) return false;
@@ -86,7 +86,7 @@ const createEventRegistrations = (get: () => ServerState, set: (fn: (state: Serv
   {
     name: 'stats-update',
     handler: (event) => {
-      const stats = event.payload as ServerStatus;
+      const stats = event.payload as ServerStateSnapshot;
       set((state) => ({ ...state, stats }));
       updateAndroidServiceState(true, stats, stats.connectedClients || 0);
     },
@@ -149,7 +149,7 @@ const syncInitialState = async (set: (fn: (state: ServerState) => ServerState) =
   try {
     const info = await invoke<ServerInfo | null>('get_server_info');
     if (info?.isRunning) {
-      const status = await invoke<ServerStatus | null>('get_server_status');
+      const status = await invoke<ServerStateSnapshot | null>('get_server_status');
       set((state) => ({
         ...state,
         isRunning: true,
