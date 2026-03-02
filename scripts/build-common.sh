@@ -34,6 +34,255 @@ task() {
     echo -e "${CYAN}[TASK]${NC} $1"
 }
 
+# ============================================
+# 工具选择函数 (支持 Windows/Linux 混合构建)
+# ============================================
+
+# 工具注册表 - Windows 和 Linux 命令映射
+declare -A TOOL_WINDOWS_CMDS=(
+    [cargo]="cargo.exe"
+    [java]="java.exe"
+    [javac]="javac.exe"
+    [keytool]="keytool.exe"
+    [adb]="adb.exe"
+    [gradle]="gradle.bat"
+)
+
+declare -A TOOL_LINUX_CMDS=(
+    [cargo]="cargo"
+    [java]="java"
+    [javac]="javac"
+    [keytool]="keytool"
+    [adb]="adb"
+    [gradle]="gradle"
+)
+
+# 获取工具命令 (优先 Windows .exe，回退到 Linux)
+# 用法: get_tool_cmd <tool_name>
+# 返回: 命令名称 (如 cargo.exe 或 cargo)
+get_tool_cmd() {
+    local tool_name="$1"
+    local windows_cmd="${TOOL_WINDOWS_CMDS[$tool_name]}"
+    local linux_cmd="${TOOL_LINUX_CMDS[$tool_name]}"
+    
+    # 优先尝试 Windows 版本
+    if [ -n "$windows_cmd" ] && command -v "$windows_cmd" &> /dev/null; then
+        echo "$windows_cmd"
+        return 0
+    fi
+    
+    # 回退到 Linux 版本
+    if [ -n "$linux_cmd" ] && command -v "$linux_cmd" &> /dev/null; then
+        echo "$linux_cmd"
+        return 0
+    fi
+    
+    # 工具未找到
+    return 1
+}
+
+# 获取工具所在平台
+# 用法: get_tool_platform <tool_name>
+# 返回: "windows", "linux", 或空 (未找到)
+get_tool_platform() {
+    local tool_name="$1"
+    local windows_cmd="${TOOL_WINDOWS_CMDS[$tool_name]}"
+    local linux_cmd="${TOOL_LINUX_CMDS[$tool_name]}"
+    
+    if [ -n "$windows_cmd" ] && command -v "$windows_cmd" &> /dev/null; then
+        echo "windows"
+        return 0
+    fi
+    
+    if [ -n "$linux_cmd" ] && command -v "$linux_cmd" &> /dev/null; then
+        echo "linux"
+        return 0
+    fi
+    
+    return 1
+}
+
+# 检查工具是否存在并打印信息
+# 用法: check_tool <tool_name> <display_name>
+# 示例: check_tool cargo "Cargo"
+check_tool() {
+    local tool_name="$1"
+    local display_name="$2"
+    local cmd
+    local platform
+    
+    cmd=$(get_tool_cmd "$tool_name") || {
+        error "$display_name 未安装"
+        return 1
+    }
+    
+    platform=$(get_tool_platform "$tool_name")
+    
+    # 获取版本信息
+    local version_info=""
+    case "$tool_name" in
+        cargo|java|javac|keytool|adb)
+            version_info=$("$cmd" --version 2>/dev/null | head -1)
+            ;;
+        gradle)
+            version_info=$("$cmd" --version 2>/dev/null | grep -E "^Gradle" | head -1)
+            ;;
+    esac
+    
+    if [ -n "$version_info" ]; then
+        info "$display_name: $version_info [$platform]"
+    else
+        info "$display_name: 已安装 [$platform]"
+    fi
+    
+    return 0
+}
+
+# 检测 Windows Android SDK 路径
+# 用法: detect_windows_android_sdk
+# 返回: SDK 路径或空
+detect_windows_android_sdk() {
+    local sdk_paths=(
+        "/mnt/c/Users/$USER/AppData/Local/Android/Sdk"
+        "/mnt/c/Users/$USER/AppData/Local/android-sdk"
+        "/mnt/c/Android/Sdk"
+        "/mnt/c/android-sdk"
+    )
+    
+    for path in "${sdk_paths[@]}"; do
+        if [ -d "$path" ]; then
+            echo "$path"
+            return 0
+        fi
+    done
+    
+    return 1
+}
+
+# 检测 Linux Android SDK 路径
+# 用法: detect_linux_android_sdk
+# 返回: SDK 路径或空
+detect_linux_android_sdk() {
+    # 优先检查环境变量
+    if [ -n "$ANDROID_HOME" ] && [ -d "$ANDROID_HOME" ]; then
+        echo "$ANDROID_HOME"
+        return 0
+    fi
+    
+    if [ -n "$ANDROID_SDK_ROOT" ] && [ -d "$ANDROID_SDK_ROOT" ]; then
+        echo "$ANDROID_SDK_ROOT"
+        return 0
+    fi
+    
+    # 检查常见路径
+    local sdk_paths=(
+        "$HOME/Android/Sdk"
+        "$HOME/android-sdk"
+        "/opt/android-sdk"
+        "/usr/local/android-sdk"
+    )
+    
+    for path in "${sdk_paths[@]}"; do
+        if [ -d "$path" ]; then
+            echo "$path"
+            return 0
+        fi
+    done
+    
+    return 1
+}
+
+# 从 SDK 路径检测 NDK 路径
+# 用法: detect_ndk_from_sdk <sdk_path>
+# 返回: NDK 路径或空
+detect_ndk_from_sdk() {
+    local sdk_path="$1"
+    local ndk_dir="$sdk_path/ndk"
+    
+    if [ ! -d "$ndk_dir" ]; then
+        return 1
+    fi
+    
+    # 找到最新版本的 NDK
+    local latest_ndk=$(ls -1 "$ndk_dir" 2>/dev/null | sort -V | tail -1)
+    if [ -n "$latest_ndk" ]; then
+        echo "$ndk_dir/$latest_ndk"
+        return 0
+    fi
+    
+    return 1
+}
+
+# 检测 Windows JAVA_HOME 路径
+# 用法: detect_windows_java_home
+# 返回: JAVA_HOME 路径或空
+detect_windows_java_home() {
+    # 优先检查常见安装位置
+    local java_dirs=(
+        "/mnt/c/Program Files/Java"
+        "/mnt/c/Program Files/Eclipse Adoptium"
+        "/mnt/c/Program Files/Microsoft"
+        "/mnt/c/Program Files/AdoptOpenJDK"
+        "/mnt/c/Program Files/Zulu"
+    )
+    
+    for dir in "${java_dirs[@]}"; do
+        if [ -d "$dir" ]; then
+            # 查找 JDK 目录 (优先 JDK 17 或 21)
+            local jdk_home=$(ls -1 "$dir" 2>/dev/null | grep -iE "jdk-?(17|21)" | head -1)
+            if [ -n "$jdk_home" ]; then
+                echo "$dir/$jdk_home"
+                return 0
+            fi
+            # 回退到任意 JDK
+            jdk_home=$(ls -1 "$dir" 2>/dev/null | grep -iE "jdk" | head -1)
+            if [ -n "$jdk_home" ]; then
+                echo "$dir/$jdk_home"
+                return 0
+            fi
+        fi
+    done
+    
+    return 1
+}
+
+# 检测 Linux JAVA_HOME 路径
+# 用法: detect_linux_java_home
+# 返回: JAVA_HOME 路径或空
+detect_linux_java_home() {
+    # 优先检查环境变量
+    if [ -n "$JAVA_HOME" ] && [ -d "$JAVA_HOME" ]; then
+        echo "$JAVA_HOME"
+        return 0
+    fi
+    
+    # 检查常见路径
+    local java_paths=(
+        "/usr/lib/jvm/java-21-openjdk-amd64"
+        "/usr/lib/jvm/java-17-openjdk-amd64"
+        "/usr/lib/jvm/java-21-openjdk"
+        "/usr/lib/jvm/java-17-openjdk"
+        "/usr/lib/jvm/default-java"
+        "/usr/lib/jvm/java-11-openjdk-amd64"
+    )
+    
+    for path in "${java_paths[@]}"; do
+        if [ -d "$path" ]; then
+            echo "$path"
+            return 0
+        fi
+    done
+    
+    # 尝试自动发现
+    local discovered=$(ls -1 /usr/lib/jvm 2>/dev/null | grep -iE "java-.*-openjdk" | sort -V | tail -1)
+    if [ -n "$discovered" ]; then
+        echo "/usr/lib/jvm/$discovered"
+        return 0
+    fi
+    
+    return 1
+}
+
 # 获取项目根目录
 get_project_root() {
     cd "$(dirname "${BASH_SOURCE[0]}")" && pwd
