@@ -14,6 +14,13 @@ use crate::config::{AppConfig, ImageOpenMethod};
 use crate::config::PreviewWindowConfig;
 use crate::error::AppError;
 
+/// Macro to wrap errors with context message
+macro_rules! wrap_err {
+    ($result:expr, $msg:expr) => {
+        $result.map_err(|e| AppError::Other(format!("{}: {}", $msg, e)))?
+    };
+}
+
 pub struct AutoOpenService {
     #[allow(dead_code)]
     app_handle: AppHandle,
@@ -112,15 +119,15 @@ impl AutoOpenService {
         // 检查预览窗口是否已存在
         if let Some(window) = self.app_handle.get_webview_window("preview") {
             // 窗口已存在，发送事件更新图片
-            window.emit::<serde_json::Value>("preview-image", serde_json::to_value(&event).unwrap())
-                .map_err(|e| AppError::Other(format!("Failed to emit preview event: {}", e)))?;
+            wrap_err!(
+                window.emit::<serde_json::Value>("preview-image", serde_json::to_value(&event).unwrap()),
+                "Failed to emit preview event"
+            );
             
             // 如果需要置顶
             if bring_to_front {
-                window.set_focus()
-                    .map_err(|e| AppError::Other(format!("Failed to focus window: {}", e)))?;
-                window.set_always_on_top(true)
-                    .map_err(|e| AppError::Other(format!("Failed to set always on top: {}", e)))?;
+                wrap_err!(window.set_focus(), "Failed to focus window");
+                wrap_err!(window.set_always_on_top(true), "Failed to set always on top");
                 // 短暂置顶后恢复
                 let window_clone = window.clone();
                 tokio::spawn(async move {
@@ -130,18 +137,20 @@ impl AutoOpenService {
             }
         } else {
             // 创建新窗口
-            let window = tauri::WebviewWindowBuilder::new(
-                &self.app_handle,
-                "preview",
-                tauri::WebviewUrl::App("/preview".into())
-            )
-            .title("图片预览")
-            .inner_size(1024.0, 768.0)
-            .center()
-            .resizable(true)
-            .visible(true)
-            .build()
-            .map_err(|e| AppError::Other(format!("Failed to create preview window: {}", e)))?;
+            let window = wrap_err!(
+                tauri::WebviewWindowBuilder::new(
+                    &self.app_handle,
+                    "preview",
+                    tauri::WebviewUrl::App("/preview".into())
+                )
+                .title("图片预览")
+                .inner_size(1024.0, 768.0)
+                .center()
+                .resizable(true)
+                .visible(true)
+                .build(),
+                "Failed to create preview window"
+            );
             
             // 延迟发送事件，确保窗口已加载
             let event_clone = event.clone();
@@ -153,10 +162,8 @@ impl AutoOpenService {
 
             // 如果需要置顶
             if bring_to_front {
-                window.set_focus()
-                    .map_err(|e| AppError::Other(format!("Failed to focus window: {}", e)))?;
-                window.set_always_on_top(true)
-                    .map_err(|e| AppError::Other(format!("Failed to set always on top: {}", e)))?;
+                wrap_err!(window.set_focus(), "Failed to focus window");
+                wrap_err!(window.set_always_on_top(true), "Failed to set always on top");
                 let window_clone = window.clone();
                 tokio::spawn(async move {
                     tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
