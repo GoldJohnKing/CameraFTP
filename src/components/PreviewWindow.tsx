@@ -114,6 +114,7 @@ const PreviewWindowContent = memo(function PreviewWindowContent({
   const [localAutoBringToFront, setLocalAutoBringToFront] = useState(autoBringToFront);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const toolbarTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const configLoadedRef = useRef(false);
 
   // 导航状态
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -202,6 +203,23 @@ const PreviewWindowContent = memo(function PreviewWindowContent({
   useEffect(() => {
     setLocalAutoBringToFront(autoBringToFront);
   }, [autoBringToFront]);
+
+  // 启动时加载配置
+  useEffect(() => {
+    if (configLoadedRef.current) return;
+
+    const loadInitialConfig = async () => {
+      try {
+        const config = await invoke<{ autoBringToFront: boolean }>('get_preview_config');
+        setLocalAutoBringToFront(config.autoBringToFront);
+        configLoadedRef.current = true;
+      } catch {
+        // Silently ignore - will use default value
+      }
+    };
+
+    loadInitialConfig();
+  }, []);
 
   // 监听全局配置变化事件
   useEffect(() => {
