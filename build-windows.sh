@@ -68,6 +68,43 @@ check_environment() {
     success "环境检查完成"
 }
 
+# 检查是否需要重新生成 ts-rs 绑定
+need_regenerate_bindings() {
+    local bindings_dir="src-tauri/bindings"
+    local last_gen_file=".build-cache/ts-rs-last-gen"
+    
+    # 如果绑定目录不存在，需要生成
+    if [ ! -d "$bindings_dir" ]; then
+        return 0
+    fi
+    
+    # 如果缓存文件不存在，需要生成
+    if [ ! -f "$last_gen_file" ]; then
+        return 0
+    fi
+    
+    # 检查 Rust 源文件是否比缓存新
+    local last_gen=$(cat "$last_gen_file" 2>/dev/null || echo "0")
+    local newest_src=$(find src-tauri/src -name "*.rs" -type f -printf '%T@\n' 2>/dev/null | sort -rn | head -1)
+    
+    if [ -z "$newest_src" ]; then
+        return 0
+    fi
+    
+    # 比较时间戳
+    if [ "$(echo "$newest_src > $last_gen" | bc -l 2>/dev/null || echo "1")" = "1" ]; then
+        return 0
+    fi
+    
+    return 1
+}
+
+# 更新 ts-rs 生成时间戳
+update_bindings_timestamp() {
+    mkdir -p .build-cache
+    date +%s > .build-cache/ts-rs-last-gen
+}
+
 # 构建 Windows 应用
 build_windows() {
     local BUILD_TYPE="${1:-release}"
@@ -78,19 +115,16 @@ build_windows() {
     USERPROFILE=$(wslpath "$(cmd.exe /c "echo %USERPROFILE%" 2>/dev/null | tr -d '\r')")
     CARGO_EXE="$USERPROFILE/.cargo/bin/cargo.exe"
     
-    # 生成 ts-rs 类型绑定
-    info "生成 TypeScript 类型绑定..."
-    cd src-tauri
-    "$CARGO_EXE" test --quiet 2>/dev/null || true
-    cd ..
-    
-    # 安装前端依赖
-    info "安装前端依赖..."
-    bun install --no-cache
-    
-    # 构建前端
-    info "构建前端..."
-    bun run build
+    # 生成 ts-rs 类型绑定（仅在需要时）
+    if need_regenerate_bindings; then
+        info "生成 TypeScript 类型绑定..."
+        cd src-tauri
+        "$CARGO_EXE" test --quiet 2>/dev/null || true
+        cd ..
+        update_bindings_timestamp
+    else
+        info "TypeScript 绑定已是最新，跳过生成"
+    fi
     
     # 终止运行中的进程
     info "终止运行中的进程..."
@@ -100,24 +134,67 @@ build_windows() {
         info "没有运行中的实例"
     fi
     
-    # 构建 Windows 可执行文件
-    info "构建 Windows 可执行文件 ($BUILD_TYPE)..."
-    cd src-tauri
+    # 并行构建前端和 Rust 后端
+    info "并行构建前端和后端..."
     
+    # 启动前端构建（后台）
+    (
+        info "[前端] 安装依赖..."
+        bun install
+        
+        info "[前端] 构建中..."
+        bun run build
+        
+        echo "FRONTEND_DONE=1" > .build-cache/frontend-done
+    ) &
+    FRONTEND_PID=$!
+    
+    # 启动 Rust 构建（当前进程）
+    (
+        cd src-tauri
+        info "[Rust] 构建中..."
+        
+        local OUTPUT_NAME="camera-ftp-companion.exe"
+        
+        if [ "$BUILD_TYPE" = "debug" ]; then
+            "$CARGO_EXE" build --target x86_64-pc-windows-msvc
+        else
+            "$CARGO_EXE" build --release --target x86_64-pc-windows-msvc
+        fi
+    )
+    RUST_RESULT=$?
+    
+    # 等待前端构建完成
+    wait $FRONTEND_PID
+    FRONTEND_RESULT=$?
+    
+    if [ $RUST_RESULT -ne 0 ]; then
+        error "Rust 构建失败"
+        exit 1
+    fi
+    
+    if [ $FRONTEND_RESULT -ne 0 ]; then
+        error "前端构建失败"
+        exit 1
+    fi
+    
+    # 复制输出
+    cd src-tauri
     local OUTPUT_NAME="camera-ftp-companion.exe"
     local DEST_NAME="$OUTPUT_NAME"
     
     if [ "$BUILD_TYPE" = "debug" ]; then
-        "$CARGO_EXE" build --target x86_64-pc-windows-msvc
         local SRC_PATH="target/x86_64-pc-windows-msvc/debug/$OUTPUT_NAME"
         DEST_NAME="camera-ftp-companion-debug.exe"
     else
-        "$CARGO_EXE" build --release --target x86_64-pc-windows-msvc
         local SRC_PATH="target/x86_64-pc-windows-msvc/release/$OUTPUT_NAME"
     fi
     
     cd ..
     copy_to_release "src-tauri/$SRC_PATH" "$DEST_NAME" "$BUILD_TYPE"
+    
+    # 清理临时文件
+    rm -f .build-cache/frontend-done
 }
 
 # 主函数

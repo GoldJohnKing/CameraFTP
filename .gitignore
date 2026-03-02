@@ -9,6 +9,9 @@ target/
 *.dmg
 *.app
 
+# Build cache
+.build-cache/
+
 # ts-rs generated bindings (regenerated on each build)
 src-tauri/bindings/
 
