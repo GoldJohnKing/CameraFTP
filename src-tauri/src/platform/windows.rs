@@ -1,10 +1,13 @@
+use std::env;
+use std::sync::Arc;
+use tokio::sync::Mutex;
 use tauri::{AppHandle, Emitter, Manager, Wry};
 use tauri::menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconEvent};
+use winreg::enums::*;
+use winreg::RegKey;
 use super::traits::PlatformService;
 use super::types::{StorageInfo, PermissionStatus};
-use std::sync::Arc;
-use tokio::sync::Mutex;
 
 /// 托盘菜单状态 - 存储菜单项引用用于动态更新
 pub struct TrayMenuState {
@@ -155,10 +158,6 @@ pub fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!("System tray initialized successfully");
     Ok(())
 }
-
-use winreg::enums::*;
-use winreg::RegKey;
-use std::env;
 
 const AUTOSTART_REGISTRY_KEY: &str = "Software\\Microsoft\\Windows\\CurrentVersion\\Run";
 const APP_REGISTRY_NAME: &str = "CameraFtpCompanion";
