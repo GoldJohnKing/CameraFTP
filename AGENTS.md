@@ -1,39 +1,29 @@
 # Agent Instructions
 
-Instructions for AI agents working on this codebase.
+AI agents working on this codebase follow these rules.
 
 ---
 
 ## ⚠️ Critical Rules
 
-### 1. Build Commands (MUST)
+### 1. Build Commands (Required)
 
-Always use the build scripts. Never use `cargo build` or `bun` directly.
+Use the build script instead of `cargo build` or `bun`:
 
-```bash
-./build.sh <command>
-```
+| Command | Output |
+|---------|--------|
+| `./build.sh windows` | Windows executable |
+| `./build.sh android` | Android APK |
 
-| Command | Description |
-|---------|-------------|
-| `./build.sh windows` | Build Windows executable |
-| `./build.sh android` | Build Android APK (release) |
-| `./build.sh frontend` | Build frontend only |
+Verify all code changes with the appropriate build command.
 
-### 2. Code Verification (MUST)
+### 2. LSP Tools (Disabled)
 
-**Never use `lsp_diagnostics`**. Always verify by compiling.
-
-```bash
-# After Rust changes
-./build.sh windows && ./build.sh android
-
-# After frontend changes
-./build.sh frontend
-
-# After Kotlin changes
-./build.sh android
-```
+LSP tools hang or timeout in this environment. Avoid:
+- `lsp_diagnostics`
+- `lsp_goto_definition`
+- `lsp_find_references`
+- `lsp_rename`
 
 ---
 
@@ -59,9 +49,9 @@ function Component() {
 ### Rust
 
 - **Edition**: 2021
-- **Error handling**: Use `Result<T, AppError>` and `?` operator
-- **Logging**: Use `tracing::info!`, `tracing::error!`
-- **Platform code**: Use `#[cfg(target_os = "...")]`
+- **Error handling**: `Result<T, AppError>` with `?` operator
+- **Logging**: `tracing::info!`, `tracing::error!`
+- **Platform code**: `#[cfg(target_os = "...")]`
 
 ```rust
 #[command]
@@ -77,9 +67,9 @@ pub async fn start_server(
 ### Kotlin (Android)
 
 - **Indent**: 4 spaces
-- **Logging**: Use `Log.d(TAG, "message")` with `companion object` constants
-- **JS Bridge**: Annotate with `@JavascriptInterface`
-- **Null safety**: Prefer `?.let` / `?: run` over null checks
+- **Logging**: `Log.d(TAG, "message")` with companion object constants
+- **JS Bridge**: `@JavascriptInterface` annotation on public methods
+- **Null safety**: `?.let` / `?: run` preferred over explicit null checks
 
 ```kotlin
 class MyBridge(private val activity: MainActivity) {
@@ -116,23 +106,23 @@ const result = await invoke<string>('command_name', { arg: value });
 
 ## Common Tasks
 
-### Add New Tauri Command
+### Add Tauri Command
 
 1. Add function in `src-tauri/src/commands.rs`
 2. Register in `src-tauri/src/lib.rs`
 3. Call from frontend via `invoke()`
 4. **Verify**: `./build.sh windows && ./build.sh android`
 
-### Add New React Component
+### Add React Component
 
 1. Create file in `src/components/`
 2. Import and use in `src/App.tsx`
-3. Use TailwindCSS for styling
+3. Style with TailwindCSS
 4. **Verify**: `./build.sh frontend`
 
-### Add New JS Bridge (Android)
+### Add JS Bridge (Android)
 
-1. Add class in `src-tauri/gen/android/.../MainActivity.kt` or create new file
+1. Add class in `src-tauri/gen/android/.../MainActivity.kt` or new file
 2. Annotate public methods with `@JavascriptInterface`
 3. Register in `MainActivity.onWebViewCreate()`: `addJsBridge(webView, bridgeInstance, "BridgeName")`
 4. Call from frontend: `window.BridgeName?.methodName()`
@@ -140,121 +130,57 @@ const result = await invoke<string>('command_name', { arg: value });
 
 ---
 
-## Android Debugging (WSL)
-
-Use Windows `adb.exe` when device is connected to Windows host:
-
-```bash
-# Check devices
-adb.exe devices
-
-# View crash logs
-adb.exe logcat -d -s AndroidRuntime:E
-
-# Install APK
-adb.exe install -r src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release.apk
-
-# Start app
-adb.exe shell am start -n com.gjk.cameraftpcompanion/.MainActivity
-```
-
----
-
 ## ⚠️ Common Pitfalls
 
-### Frontend-Backend Type Synchronization
+### Type Generation with ts-rs
 
-When adding new Rust structs with `#[serde(rename_all = "camelCase")]`, the TypeScript types MUST use camelCase too.
+All Rust structs shared with TypeScript use ts-rs for automatic type generation. **Always use generated types—never write manual interfaces.**
 
-**Problem:**
-```rust
-// Rust - serde converts to camelCase in JSON
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct PasvConfig {
-    pub port_start: u16,  // JSON: "portStart"
-    pub port_end: u16,    // JSON: "portEnd"
-}
-```
-
-```typescript
-// ❌ WRONG - uses snake_case, gets undefined at runtime
-interface PasvConfig {
-  port_start: number;  // undefined!
-  port_end: number;    // undefined!
-}
-
-// ✅ CORRECT - matches camelCase JSON
-interface PasvConfig {
-  portStart: number;
-  portEnd: number;
-}
-```
-
-**Symptoms:** White screen, runtime errors when accessing nested properties (`config.pasv.port_start.toString()` throws).
-
-### Type Generation with ts-rs (Recommended)
-
-`ts-rs` auto-generates TypeScript types from Rust structs, preventing sync errors.
-
-**1. Add ts-rs to Rust struct**
+**1. Add ts-rs to new Rust struct**
 ```rust
 use ts_rs::TS;
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export)]
 #[serde(rename_all = "camelCase")]
-pub struct PasvConfig {
+pub struct MyConfig {
     pub enabled: bool,
     pub port_start: u16,  // → portStart in TypeScript
-    pub port_end: u16,    // → portEnd in TypeScript
 }
 ```
 
-**2. Generate TypeScript types**
+**2. Generate TypeScript bindings**
 ```bash
-cd src-tauri && cargo test --features ts-rs/export
+cd src-tauri && cargo test
 ```
 
-Output at `src-tauri/export/PasvConfig.ts`:
-```typescript
-export interface PasvConfig { 
-  enabled: boolean; 
-  portStart: number; 
-  portEnd: number; 
-}
-```
+Output: `src-tauri/bindings/MyConfig.ts`
 
 **3. Import in TypeScript**
 ```typescript
-import type { PasvConfig } from './generated/PasvConfig';
+import type { MyConfig } from '../types';  // Re-exports from bindings/
 ```
 
-### Manual Type Sync
+**4. Update types/index.ts** (add re-export if new type)
+```typescript
+export type { MyConfig } from '../../src-tauri/bindings/MyConfig';
+```
 
-Without ts-rs, use this mapping:
+### Config Backward Compatibility
 
-| Rust Field | JSON Key | TypeScript |
-|-----------|----------|------------|
-| `port_start` | `portStart` | `portStart` |
-| `auto_select_port` | `autoSelectPort` | `autoSelectPort` |
-| `pasv.port_start` | `pasv.portStart` | `pasv.portStart` |
-
-### Backward Compatibility for Config Fields
-
-When adding new fields to `AppConfig`, use `#[serde(default)]` to support old config files:
+Add `#[serde(default)]` to new `AppConfig` fields:
 
 ```rust
 #[derive(Serialize, Deserialize)]
 pub struct AppConfig {
     pub save_path: PathBuf,
     pub port: u16,
-    #[serde(default)]  // ← Required for backward compatibility
+    #[serde(default)]  // Supports old config files
     pub new_field: NewConfig,
 }
 ```
 
-Without `#[serde(default)]`, loading old config files (missing new fields) will fail.
+Without `#[serde(default)]`, loading configs missing new fields fails.
 
 ---
 
