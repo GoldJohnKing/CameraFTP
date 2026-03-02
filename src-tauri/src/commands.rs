@@ -1,5 +1,7 @@
 use tauri::{command, AppHandle, Manager, State};
+use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::OnceLock;
 use tokio::sync::Mutex;
 use tracing::{error, info, instrument};
 
@@ -13,37 +15,79 @@ use crate::ftp::FtpServerHandle;
 use crate::network::NetworkManager;
 use crate::platform::{get_platform as get_platform_service, PermissionStatus, ServerStartCheckResult, StorageInfo};
 
-/// Validates that a file path is within the allowed storage directory.
-/// This prevents directory traversal attacks by ensuring the resolved path
-/// is actually inside the save path.
-fn validate_file_path(file_path: &str) -> Result<std::path::PathBuf, AppError> {
-    let path = std::path::PathBuf::from(file_path);
+/// Cached save path for path validation.
+/// Initialized once at startup to avoid repeated config reads.
+static SAVE_PATH: OnceLock<PathBuf> = OnceLock::new();
 
-    // Reject empty paths and paths with null bytes
-    if file_path.is_empty() {
-        return Err(AppError::PermissionError("Empty file path".to_string()));
-    }
-    if file_path.contains('\0') {
-        return Err(AppError::PermissionError("Invalid file path".to_string()));
-    }
-
-    // Get the canonical path (resolves symlinks and normalizes . and ..)
-    let canonical_path = path.canonicalize().map_err(|e| {
-        AppError::Io(format!("Failed to resolve path: {}", e))
-    })?;
-
-    // Get the save path from config
+/// Initialize path validation with the current save path from config.
+/// Must be called once during application startup.
+pub fn init_path_validation() {
     let config = AppConfig::load();
     let save_path = config.save_path.canonicalize().unwrap_or(config.save_path);
+    if SAVE_PATH.set(save_path).is_err() {
+        tracing::warn!("Path validation already initialized, ignoring duplicate init");
+    } else {
+        tracing::info!("Path validation initialized with save path");
+    }
+}
 
-    // Ensure the path is within the save directory
-    if !canonical_path.starts_with(&save_path) {
+/// Normalize a path by resolving `.` and `..` components without accessing the filesystem.
+fn normalize_path(path: &std::path::Path) -> PathBuf {
+    let mut result = PathBuf::new();
+    for component in path.components() {
+        match component {
+            std::path::Component::ParentDir => {
+                result.pop();
+            }
+            std::path::Component::CurDir => {}
+            _ => result.push(component),
+        }
+    }
+    result
+}
+
+/// Validates that a file path is within the allowed storage directory.
+/// 
+/// Uses prefix-based validation (no filesystem access) for performance and to allow
+/// validation of paths to files that may not exist yet. Prevents directory traversal
+/// attacks by normalizing the path and checking it's within the save directory.
+/// 
+/// # Errors
+/// - Returns `PermissionError` if the path is empty, contains null bytes, or escapes
+///   the save directory via directory traversal (`../`).
+fn validate_file_path(file_path: &str) -> Result<PathBuf, AppError> {
+    // Reject empty paths and paths with null bytes
+    if file_path.is_empty() {
+        return Err(AppError::PermissionError("文件路径不能为空".to_string()));
+    }
+    if file_path.contains('\0') {
+        return Err(AppError::PermissionError("路径包含非法字符".to_string()));
+    }
+
+    // Get the cached save path
+    let save_path = SAVE_PATH
+        .get()
+        .ok_or_else(|| AppError::Other("路径验证未初始化".to_string()))?;
+
+    // Parse input path
+    let path = PathBuf::from(file_path);
+    let absolute_path = if path.is_absolute() {
+        path
+    } else {
+        save_path.join(path)
+    };
+
+    // Normalize path (resolve . and .. without filesystem access)
+    let normalized = normalize_path(&absolute_path);
+
+    // Ensure path is within save directory
+    if !normalized.starts_with(save_path) {
         return Err(AppError::PermissionError(
-            "File path is outside the allowed storage directory".to_string()
+            "文件路径必须在存储目录内".to_string(),
         ));
     }
 
-    Ok(canonical_path)
+    Ok(normalized)
 }
 
 /// FTP 服务器状态（使用 Arc<Mutex> 包装以支持异步操作）
