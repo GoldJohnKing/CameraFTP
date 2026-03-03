@@ -135,9 +135,9 @@ check_tool() {
     esac
     
     if [ -n "$version_info" ]; then
-        info "$display_name: $version_info [$platform]"
+        info "$display_name: $version_info"
     else
-        info "$display_name: 已安装 [$platform]"
+        info "$display_name: 已安装"
     fi
     
     return 0
