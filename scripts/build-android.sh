@@ -13,166 +13,251 @@ cd "$SCRIPT_DIR/.."
 declare -A SELECTED_TOOLS
 declare -A SELECTED_PATHS
 
-# 检测工具
-detect_tool() {
-    local tool_name="${1:-}"
-    if [ -z "$tool_name" ]; then
-        return 1
+# ============================================
+# 平台工具链检测
+# ============================================
+
+# 检测指定平台的完整工具链
+# 返回: 0=完整, 1=不完整
+detect_platform_toolchain() {
+    local platform="$1"
+    local -n java_ref="$2"
+    local -n javac_ref="$3"
+    local -n sdk_ref="$4"
+    local -n ndk_ref="$5"
+    local -n java_home_ref="$6"
+
+    if [ "$platform" = "windows" ]; then
+        # 检测 Windows Java
+        if command -v java.exe &> /dev/null; then
+            java_ref="java.exe"
+        fi
+        if command -v javac.exe &> /dev/null; then
+            javac_ref="javac.exe"
+        fi
+        
+        # 检测 Windows SDK
+        sdk_ref=$(detect_windows_android_sdk || true)
+        
+        # 检测 Windows JAVA_HOME
+        java_home_ref=$(detect_windows_java_home || true)
+    else
+        # 检测 Linux Java
+        if command -v java &> /dev/null; then
+            java_ref="java"
+        fi
+        if command -v javac &> /dev/null; then
+            javac_ref="javac"
+        fi
+        
+        # 检测 Linux SDK
+        sdk_ref=$(detect_linux_android_sdk || true)
+        
+        # 检测 Linux JAVA_HOME
+        java_home_ref=$(detect_linux_java_home || true)
     fi
-    local cmd
-    if cmd=$(get_tool_cmd "$tool_name"); then
-        SELECTED_TOOLS[$tool_name]="$cmd"
+    
+    # 从 SDK 检测 NDK
+    if [ -n "$sdk_ref" ]; then
+        ndk_ref=$(detect_ndk_from_sdk "$sdk_ref" || true)
+    fi
+    
+    # 检查是否完整（Java + Javac + SDK）
+    if [ -n "$java_ref" ] && [ -n "$javac_ref" ] && [ -n "$sdk_ref" ]; then
         return 0
     fi
     return 1
 }
 
-# 检查混合工具链
-check_mixed_toolchain() {
-    local platforms=()
-    local cargo_platform java_platform sdk_platform
-    
-    # 收集各工具的平台
-    cargo_platform=$(get_tool_platform "cargo")
-    if [ -n "$cargo_platform" ]; then
-        platforms+=("cargo:$cargo_platform")
-    fi
-    
-    java_platform=$(get_tool_platform "java")
-    if [ -n "$java_platform" ]; then
-        platforms+=("java:$java_platform")
-    fi
-    
-    # 根据 SDK 路径判断平台
-    if [ -n "${SELECTED_PATHS[android_sdk]}" ]; then
-        if [[ "${SELECTED_PATHS[android_sdk]}" == /mnt/*/ ]]; then
-            sdk_platform="windows"
-        else
-            sdk_platform="linux"
-        fi
-        platforms+=("sdk:$sdk_platform")
-    fi
-    
-    # 检查是否混合使用
-    local has_windows=false
-    local has_linux=false
-    
-    for item in "${platforms[@]}"; do
-        if [[ "$item" == *":windows" ]]; then
-            has_windows=true
-        elif [[ "$item" == *":linux" ]]; then
-            has_linux=true
-        fi
-    done
-    
-    if [ "$has_windows" = true ] && [ "$has_linux" = true ]; then
-        warn "检测到混合工具链 (Windows + Linux):"
-        for item in "${platforms[@]}"; do
-            warn "  - $item"
-        done
-        warn "这可能导致兼容性问题，建议统一使用同一平台的工具"
-        echo ""
-    fi
-}
+# 声明全局变量存储两个平台的检测结果
+declare -A WIN_TOOLS
+declare -A WIN_PATHS
+declare -A LINUX_TOOLS
+declare -A LINUX_PATHS
+WIN_COMPLETE=false
+LINUX_COMPLETE=false
 
-check_android_env() {
-    info "正在检查 Android 编译环境（Java、SDK、NDK）..."
-    local failed=false
+# 选择最佳平台工具链
+select_platform_toolchain() {
+    # 清空之前的检测结果
+    WIN_TOOLS=()
+    WIN_PATHS=()
+    LINUX_TOOLS=()
+    LINUX_PATHS=()
+    WIN_COMPLETE=false
+    LINUX_COMPLETE=false
     
-    # 通用工具 (bun, cargo) 已由 build.sh 检查
+    local win_java="" win_javac="" win_sdk="" win_ndk="" win_java_home=""
+    local linux_java="" linux_javac="" linux_sdk="" linux_ndk="" linux_java_home=""
     
-    # 检查 java
-    if detect_tool "java"; then
-        check_tool "java" "Java" || failed=true
-    else
-        error "缺少 Java，请安装 JDK"
-        failed=true
+    # 检测 Windows 工具链
+    if detect_platform_toolchain "windows" win_java win_javac win_sdk win_ndk win_java_home; then
+        WIN_COMPLETE=true
     fi
     
-    # 检查 javac
-    if detect_tool "javac"; then
-        check_tool "javac" "Javac" || failed=true
-    else
-        error "缺少 javac，请安装 JDK"
-        failed=true
-    fi
-    
-    # 检查 keytool
-    if detect_tool "keytool"; then
-        check_tool "keytool" "Keytool" || warn "keytool 未找到，签名功能不可用"
-    else
-        warn "keytool 未找到，签名功能不可用"
-    fi
-    
-    # 检测 Android SDK (优先 Windows，回退 Linux)
-    local sdk_path
-    if sdk_path=$(detect_windows_android_sdk); then
-        SELECTED_PATHS[android_sdk]="$sdk_path"
-        info "Android SDK: $sdk_path [windows]"
-    elif sdk_path=$(detect_linux_android_sdk); then
-        SELECTED_PATHS[android_sdk]="$sdk_path"
-        info "Android SDK: $sdk_path [linux]"
-    else
-        error "Android SDK 未找到"
-        failed=true
-    fi
-    
-    # 检测 NDK
-    if [ -n "${SELECTED_PATHS[android_sdk]}" ]; then
-        local ndk_path
-        if ndk_path=$(detect_ndk_from_sdk "${SELECTED_PATHS[android_sdk]}"); then
-            SELECTED_PATHS[android_ndk]="$ndk_path"
-            info "NDK: $ndk_path"
-        else
-            warn "NDK 未找到，首次编译时将自动下载"
+    # 保存 Windows 检测结果到全局变量
+    WIN_TOOLS[java]="$win_java"
+    WIN_TOOLS[javac]="$win_javac"
+    WIN_PATHS[android_sdk]="$win_sdk"
+    WIN_PATHS[android_ndk]="$win_ndk"
+    WIN_PATHS[java_home]="$win_java_home"
+
+    # 调试：检测失败时输出详细信息
+    if [ "${DEBUG:-false}" = true ] && [ "$WIN_COMPLETE" = false ]; then
+        warn "Windows SDK 检测详情："
+        warn "  WIN_USER: ${WIN_USER:-未设置}"
+        warn "  USER: $USER"
+        warn "  ANDROID_HOME: ${ANDROID_HOME:-未设置}"
+        warn "  尝试路径: /mnt/c/Users/${WIN_USER:-$USER}/AppData/Local/Android/Sdk"
+        if [ -n "${ANDROID_HOME:-}" ]; then
+            warn "  ANDROID_HOME 存在: $([ -d "$ANDROID_HOME" ] && echo '是' || echo '否')"
+            warn "  是否为 Windows 路径: $([[ "$ANDROID_HOME" == /mnt/* ]] && echo '是' || echo '否')"
         fi
     fi
-    
-    # 检测 Java Home (根据 SDK 平台选择，而非 java 命令平台)
-    # 原因: gradlew 需要与 SDK 在同一平台运行
-    local java_home
-    local sdk_path="${SELECTED_PATHS[android_sdk]}"
-    
-    if [[ "$sdk_path" == /mnt/* ]]; then
-        # SDK 在 Windows → 使用 Windows JAVA_HOME
-        if java_home=$(detect_windows_java_home); then
-            SELECTED_PATHS[java_home]="$java_home"
-            info "JAVA_HOME: $java_home [windows] (跟随 SDK 平台)"
-        else
-            warn "Windows JAVA_HOME 未检测到，将使用环境变量 JAVA_HOME"
-        fi
-    else
-        # SDK 在 Linux → 使用 Linux JAVA_HOME
-        if java_home=$(detect_linux_java_home); then
-            SELECTED_PATHS[java_home]="$java_home"
-            info "JAVA_HOME: $java_home [linux] (跟随 SDK 平台)"
-        else
-            warn "Linux JAVA_HOME 未检测到，将使用环境变量 JAVA_HOME"
-        fi
+
+    # 检测 Linux 工具链
+    if detect_platform_toolchain "linux" linux_java linux_javac linux_sdk linux_ndk linux_java_home; then
+        LINUX_COMPLETE=true
     fi
     
-    # 检查混合工具链
-    check_mixed_toolchain
+    # 保存 Linux 检测结果到全局变量
+    LINUX_TOOLS[java]="$linux_java"
+    LINUX_TOOLS[javac]="$linux_javac"
+    LINUX_PATHS[android_sdk]="$linux_sdk"
+    LINUX_PATHS[android_ndk]="$linux_ndk"
+    LINUX_PATHS[java_home]="$linux_java_home"
     
-    if [ "$failed" = true ]; then
+    # 决定使用哪个平台
+    local selected_platform=""
+    
+    if [ "$WIN_COMPLETE" = true ] && [ "$LINUX_COMPLETE" = true ]; then
+        # 两个平台都完整，检查用户是否指定了偏好
+        if [ -n "${ANDROID_HOME:-}" ]; then
+            # 用户设置了 ANDROID_HOME，跟随它
+            if [[ "$ANDROID_HOME" == /mnt/* ]]; then
+                selected_platform="windows"
+                info "检测到 ANDROID_HOME 指向 Windows 路径，选择 Windows 平台"
+            else
+                selected_platform="linux"
+                info "检测到 ANDROID_HOME 指向 Linux 路径，选择 Linux 平台"
+            fi
+        elif [ -n "${JAVA_HOME:-}" ]; then
+            # 用户设置了 JAVA_HOME，跟随它
+            if [[ "$JAVA_HOME" == /mnt/* ]]; then
+                selected_platform="windows"
+                info "检测到 JAVA_HOME 指向 Windows 路径，选择 Windows 平台"
+            else
+                selected_platform="linux"
+                info "检测到 JAVA_HOME 指向 Linux 路径，选择 Linux 平台"
+            fi
+        else
+            # 默认选择 Windows（兼容性更好）
+            selected_platform="windows"
+            info "Windows 和 Linux 平台都有完整工具链，默认选择 Windows"
+            info "如需指定平台，请设置 ANDROID_HOME 或 JAVA_HOME 环境变量"
+        fi
+    elif [ "$LINUX_COMPLETE" = true ]; then
+        selected_platform="linux"
+    elif [ "$WIN_COMPLETE" = true ]; then
+        selected_platform="windows"
+    else
+        # 没有完整工具链，报告错误
+        error "未找到完整的 Android 编译工具链"
+        echo ""
         return 1
     fi
     
+    # 设置选定的工具链
+    if [ "$selected_platform" = "windows" ]; then
+        SELECTED_TOOLS[java]="$win_java"
+        SELECTED_TOOLS[javac]="$win_javac"
+        SELECTED_PATHS[android_sdk]="$win_sdk"
+        SELECTED_PATHS[android_ndk]="$win_ndk"
+        SELECTED_PATHS[java_home]="$win_java_home"
+        SELECTED_PATHS[platform]="windows"
+    else
+        SELECTED_TOOLS[java]="$linux_java"
+        SELECTED_TOOLS[javac]="$linux_javac"
+        SELECTED_PATHS[android_sdk]="$linux_sdk"
+        SELECTED_PATHS[android_ndk]="$linux_ndk"
+        SELECTED_PATHS[java_home]="$linux_java_home"
+        SELECTED_PATHS[platform]="linux"
+    fi
+    
+    return 0
+}
+
+# 显示两个平台的工具链检测情况
+show_all_platform_status() {
+    info "[Windows 平台]"
+    info "  Java:   ${WIN_TOOLS[java]:-未找到}"
+    info "  Javac:  ${WIN_TOOLS[javac]:-未找到}"
+    info "  SDK:    ${WIN_PATHS[android_sdk]:-未找到}"
+    info "  NDK:    ${WIN_PATHS[android_ndk]:-未找到}"
+    info "  JAVA_HOME: ${WIN_PATHS[java_home]:-未找到}"
+    info "[Linux 平台]"
+    info "  Java:   ${LINUX_TOOLS[java]:-未找到}"
+    info "  Javac:  ${LINUX_TOOLS[javac]:-未找到}"
+    info "  SDK:    ${LINUX_PATHS[android_sdk]:-未找到}"
+    info "  NDK:    ${LINUX_PATHS[android_ndk]:-未找到}"
+    info "  JAVA_HOME: ${LINUX_PATHS[java_home]:-未找到}"
+}
+
+# 检查 keytool
+check_keytool() {
+    local platform="${SELECTED_PATHS[platform]}"
+    if [ "$platform" = "windows" ]; then
+        if command -v keytool.exe &> /dev/null; then
+            SELECTED_TOOLS[keytool]="keytool.exe"
+            info "Keytool: keytool.exe"
+            return 0
+        fi
+    else
+        if command -v keytool &> /dev/null; then
+            SELECTED_TOOLS[keytool]="keytool"
+            info "Keytool: keytool"
+            return 0
+        fi
+    fi
+    warn "keytool 未找到，签名功能不可用"
+    return 1
+}
+
+check_android_env() {
+    info "正在检查 Android 编译环境..."
+
+    # 选择平台工具链
+    if ! select_platform_toolchain; then
+        return 1
+    fi
+
+    # 如果是 --check 模式，显示两个平台的详细情况
+    if [ "${CHECK_ONLY:-false}" = true ]; then
+        show_all_platform_status
+    fi
+
+    # 显示选定的工具链平台
+    info "选定平台: ${SELECTED_PATHS[platform]}"
+
+    # 检查 keytool
+    check_keytool
+
     success "Android 编译环境检查通过"
     return 0
 }
 
 # 环境变量设置
 setup_android_env() {
-    # 设置 JAVA_HOME (优先使用检测到的路径)
-    if [ -n "${SELECTED_PATHS[java_home]}" ]; then
+    # 设置 JAVA_HOME
+    if [ -n "${SELECTED_PATHS[java_home]:-}" ]; then
         export JAVA_HOME="${SELECTED_PATHS[java_home]}"
     else
+        # 回退到默认
         export JAVA_HOME="${JAVA_HOME:-/usr/lib/jvm/java-21-openjdk-amd64}"
     fi
     
     # 设置 Android SDK
-    if [ -n "${SELECTED_PATHS[android_sdk]}" ]; then
+    if [ -n "${SELECTED_PATHS[android_sdk]:-}" ]; then
         export ANDROID_HOME="${SELECTED_PATHS[android_sdk]}"
         export ANDROID_SDK_ROOT="${SELECTED_PATHS[android_sdk]}"
     else
@@ -181,12 +266,9 @@ setup_android_env() {
     fi
     
     # 设置 NDK_HOME
-    if [ -n "${SELECTED_PATHS[android_ndk]}" ]; then
+    if [ -n "${SELECTED_PATHS[android_ndk]:-}" ]; then
         export NDK_HOME="${SELECTED_PATHS[android_ndk]}"
-    elif [ -z "$NDK_HOME" ] && [ -d "$ANDROID_HOME/ndk" ]; then
-        if [ ! "$(ls -A "$ANDROID_HOME/ndk" 2>/dev/null)" ]; then
-            warn "NDK 目录存在但为空"
-        fi
+    elif [ -z "${NDK_HOME:-}" ] && [ -d "$ANDROID_HOME/ndk" ]; then
         local ndk_version
         for ndk_version in "$ANDROID_HOME/ndk"/*; do
             if [ -d "$ndk_version" ]; then
@@ -196,7 +278,7 @@ setup_android_env() {
         done
     fi
     
-    # 更新 PATH (仅添加存在的目录)
+    # 更新 PATH
     local new_paths=()
     [ -d "$JAVA_HOME/bin" ] && new_paths+=("$JAVA_HOME/bin")
     [ -d "$ANDROID_HOME/platform-tools" ] && new_paths+=("$ANDROID_HOME/platform-tools")
@@ -205,7 +287,7 @@ setup_android_env() {
         export PATH="$(IFS=:; echo "${new_paths[*]}"):$PATH"
     fi
     
-    # Gradle 优化：并行构建 + 按需配置
+    # Gradle 优化
     export GRADLE_OPTS="-Dorg.gradle.parallel=true -Dorg.gradle.configureondemand=true"
 }
 
@@ -217,7 +299,6 @@ check_or_create_keystore() {
     if [ ! -f "$keystore_path" ]; then
         warn "签名配置不存在，创建新的签名密钥..."
         
-        # 生成密钥库 (使用选中的 keytool)
         local keytool_cmd="${SELECTED_TOOLS[keytool]:-keytool}"
         $keytool_cmd -genkey -v \
             -keystore "$keystore_file" \
@@ -229,10 +310,8 @@ check_or_create_keystore() {
             -storepass "cameraftp123" \
             -keypass "cameraftp123"
         
-        # 移动密钥到 Android 项目目录
         mv "$keystore_file" "src-tauri/gen/android/$keystore_file"
         
-        # 创建 keystore.properties
         cat > "$keystore_path" << EOF
 storeFile=$keystore_file
 storePassword=cameraftp123
@@ -253,9 +332,7 @@ build_android() {
 
     info "开始构建 Android 应用 ($BUILD_TYPE) - 仅 arm64-v8a 架构"
 
-    # 设置环境变量
     setup_android_env
-
     check_or_create_keystore
 
     case $BUILD_TYPE in
@@ -298,6 +375,12 @@ show_standalone_help() {
   ./build-android.sh --debug      # 构建 Debug 版本
   ./build-android.sh --check      # 检查编译环境
 
+平台选择:
+  当 Windows 和 Linux 都有完整工具链时，默认选择 Linux。
+  如需指定平台，请设置环境变量：
+    export ANDROID_HOME=/path/to/sdk    # 跟随 SDK 平台
+    export JAVA_HOME=/path/to/jdk       # 跟随 Java 平台
+
 输出位置:
   Release: out/camera-ftp-companion.apk
   Debug:   out/camera-ftp-companion-debug.apk
@@ -311,7 +394,6 @@ EOF
 
 # 主函数
 main() {
-    # 使用通用参数解析
     local result=0
     parse_build_args "$@" || result=$?
 

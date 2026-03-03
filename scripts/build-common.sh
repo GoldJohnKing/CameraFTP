@@ -44,6 +44,7 @@ declare -A TOOL_WINDOWS_CMDS=(
     [java]="java.exe"
     [javac]="javac.exe"
     [keytool]="keytool.exe"
+    [bun]="bun.exe"
 )
 
 declare -A TOOL_LINUX_CMDS=(
@@ -51,9 +52,10 @@ declare -A TOOL_LINUX_CMDS=(
     [java]="java"
     [javac]="javac"
     [keytool]="keytool"
+    [bun]="bun"
 )
 
-# 功能: 获取工具命令 (优先 Windows .exe)
+# 获取工具命令 (优先 Windows 版本)
 get_tool_cmd() {
     if [ -z "$1" ]; then
         error "参数缺失：tool_name"
@@ -80,7 +82,7 @@ get_tool_cmd() {
     return 1
 }
 
-# 功能: 获取工具所在平台
+# 获取工具所在平台
 get_tool_platform() {
     if [ -z "$1" ]; then
         error "参数缺失：tool_name"
@@ -104,7 +106,7 @@ get_tool_platform() {
     return 1
 }
 
-# 功能: 检查工具是否存在
+# 检查工具是否存在
 check_tool() {
     if [ -z "$1" ]; then
         error "参数缺失：tool_name"
@@ -143,36 +145,55 @@ check_tool() {
     esac
     
     if [ -n "$version_info" ]; then
-        info "$display_name: $version_info"
+        info "$display_name [$platform]: $version_info"
     else
-        info "$display_name: 已安装"
+        info "$display_name [$platform]: 已安装"
     fi
     
     return 0
 }
 
-# 功能: 检测 Windows Android SDK 路径
+# 检测 Windows Android SDK 路径
 detect_windows_android_sdk() {
-    # 支持 WSL 中 Windows 用户名与 Linux 不同的情况
+    # 首先检查环境变量（用户显式配置优先）
+    if [ -n "${ANDROID_HOME:-}" ] && [ -d "$ANDROID_HOME" ]; then
+        # 如果 ANDROID_HOME 指向 Windows 路径（/mnt/ 开头）
+        if [[ "$ANDROID_HOME" == /mnt/* ]]; then
+            echo "$ANDROID_HOME"
+            return 0
+        fi
+    fi
+
+    if [ -n "${ANDROID_SDK_ROOT:-}" ] && [ -d "$ANDROID_SDK_ROOT" ]; then
+        if [[ "$ANDROID_SDK_ROOT" == /mnt/* ]]; then
+            echo "$ANDROID_SDK_ROOT"
+            return 0
+        fi
+    fi
+
+    # Windows 用户名与 Linux 不同
     local win_user="${WIN_USER:-$USER}"
+
+    # 常见安装路径列表
     local sdk_paths=(
+        # 用户目录 - 默认安装路径
         "/mnt/c/Users/$win_user/AppData/Local/Android/Sdk"
-        "/mnt/c/Users/$win_user/AppData/Local/android-sdk"
+        # 常见安装路径
+        "/mnt/c/Users/$win_user/Android/Sdk"
         "/mnt/c/Android/Sdk"
-        "/mnt/c/android-sdk"
     )
-    
+
     for path in "${sdk_paths[@]}"; do
         if [ -d "$path" ]; then
             echo "$path"
             return 0
         fi
     done
-    
+
     return 1
 }
 
-# 功能: 检测 Linux Android SDK 路径
+# 检测 Linux Android SDK 路径
 detect_linux_android_sdk() {
     # 优先检查环境变量
     if [ -n "$ANDROID_HOME" ] && [ -d "$ANDROID_HOME" ]; then
@@ -203,11 +224,11 @@ detect_linux_android_sdk() {
     return 1
 }
 
-# 功能: 从 SDK 路径检测 NDK
+# 从 Android SDK 路径下检测 NDK
 detect_ndk_from_sdk() {
     if [ -z "$1" ]; then
         error "参数缺失：sdk_path"
-        echo "提示：请提供 SDK 路径，如 detect_ndk_from_sdk /path/to/sdk"
+        echo "提示：请提供 Android SDK 路径，如 detect_ndk_from_sdk /path/to/sdk"
         return 1
     fi
     local sdk_path="$1"
@@ -232,7 +253,7 @@ detect_ndk_from_sdk() {
     return 1
 }
 
-# 功能: 检测 Windows JAVA_HOME
+# 检测 Windows JAVA_HOME
 detect_windows_java_home() {
     # 优先检查常见安装位置
     local java_dirs=(
@@ -266,7 +287,7 @@ detect_windows_java_home() {
     return 1
 }
 
-# 功能: 检测 Linux JAVA_HOME
+# 检测 Linux JAVA_HOME
 detect_linux_java_home() {
     # 优先检查环境变量
     if [ -n "$JAVA_HOME" ] && [ -d "$JAVA_HOME" ]; then
@@ -317,11 +338,7 @@ detect_linux_java_home() {
     return 1
 }
 
-# ============================================
-# 通用参数解析
-# ============================================
-
-# 功能: 解析构建参数
+# 解析构建参数
 parse_build_args() {
     BUILD_TYPE="release"
     CHECK_ONLY=false
@@ -351,7 +368,6 @@ parse_build_args() {
     return 0
 }
 
-# 功能: 拷贝文件到 out 目录
 copy_to_out() {
     local src="$1"
     local dest_name="$2"
@@ -379,18 +395,21 @@ copy_to_out() {
     fi
 }
 
-# 功能: 检查 Bun 是否已安装
 check_bun() {
-    if ! command -v bun &> /dev/null; then
+    local bun_cmd
+    local platform
+    
+    if ! bun_cmd=$(get_tool_cmd "bun"); then
         error "Bun 未安装"
         echo "提示：请访问 https://bun.sh 安装 Bun 运行时"
         return 1
     fi
-    info "Bun: $(bun --version)"
+    
+    platform=$(get_tool_platform "bun")
+    info "Bun [$platform]: $($bun_cmd --version)"
     return 0
 }
 
-# 功能: 生成 TypeScript 类型绑定
 generate_ts_types() {
     task "生成 TypeScript 类型绑定..."
     
@@ -414,7 +433,6 @@ generate_ts_types() {
     success "TypeScript 类型绑定已生成到 src-tauri/bindings/"
 }
 
-# 功能: 清理所有构建缓存
 clean_build_cache() {
     info "清理构建缓存..."
 
@@ -444,7 +462,6 @@ clean_build_cache() {
     success "清理完成"
 }
 
-# 功能: 显示构建脚本使用帮助
 show_build_help() {
     local script_name="${1:-build.sh}"
     cat << EOF
