@@ -153,46 +153,6 @@ check_tool() {
     return 0
 }
 
-# 检测 Windows Android SDK 路径
-detect_windows_android_sdk() {
-    # 首先检查环境变量（用户显式配置优先）
-    if [ -n "${ANDROID_HOME:-}" ] && [ -d "$ANDROID_HOME" ]; then
-        # 如果 ANDROID_HOME 指向 Windows 路径（/mnt/ 开头）
-        if [[ "$ANDROID_HOME" == /mnt/* ]]; then
-            echo "$ANDROID_HOME"
-            return 0
-        fi
-    fi
-
-    if [ -n "${ANDROID_SDK_ROOT:-}" ] && [ -d "$ANDROID_SDK_ROOT" ]; then
-        if [[ "$ANDROID_SDK_ROOT" == /mnt/* ]]; then
-            echo "$ANDROID_SDK_ROOT"
-            return 0
-        fi
-    fi
-
-    # Windows 用户名与 Linux 不同
-    local win_user="${WIN_USER:-$USER}"
-
-    # 常见安装路径列表
-    local sdk_paths=(
-        # 用户目录 - 默认安装路径
-        "/mnt/c/Users/$win_user/AppData/Local/Android/Sdk"
-        # 常见安装路径
-        "/mnt/c/Users/$win_user/Android/Sdk"
-        "/mnt/c/Android/Sdk"
-    )
-
-    for path in "${sdk_paths[@]}"; do
-        if [ -d "$path" ]; then
-            echo "$path"
-            return 0
-        fi
-    done
-
-    return 1
-}
-
 # 检测 Linux Android SDK 路径
 detect_linux_android_sdk() {
     # 优先检查环境变量
@@ -250,40 +210,6 @@ detect_ndk_from_sdk() {
         return 0
     fi
 
-    return 1
-}
-
-# 检测 Windows JAVA_HOME
-detect_windows_java_home() {
-    # 优先检查常见安装位置
-    local java_dirs=(
-        "/mnt/c/Program Files/Java"
-        "/mnt/c/Program Files/Eclipse Adoptium"
-        "/mnt/c/Program Files/Microsoft"
-        "/mnt/c/Program Files/AdoptOpenJDK"
-        "/mnt/c/Program Files/Zulu"
-    )
-    
-    for dir in "${java_dirs[@]}"; do
-        if [ -d "$dir" ]; then
-            # 查找 JDK 目录 (优先 JDK 17 或 21，使用 glob 避免解析 ls)
-            local jdk_item
-            for jdk_item in "$dir"/jdk-*17* "$dir"/jdk-*21* "$dir"/jdk-17* "$dir"/jdk-21*; do
-                if [ -d "$jdk_item" ]; then
-                    echo "$jdk_item"
-                    return 0
-                fi
-            done
-            # 回退到任意 JDK
-            for jdk_item in "$dir"/jdk* "$dir"/JDK*; do
-                if [ -d "$jdk_item" ]; then
-                    echo "$jdk_item"
-                    return 0
-                fi
-            done
-        fi
-    done
-    
     return 1
 }
 

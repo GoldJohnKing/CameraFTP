@@ -81,6 +81,7 @@ build_target() {
     fi
 
     ./scripts/build-$target.sh "--$build_type" $check_arg
+    return $?
 }
 
 # 主流程
@@ -169,9 +170,13 @@ declare -A TARGET_CONFIG=(
     [android]="35:Android"   # 紫色
 )
 
+FAILED_TARGETS=()
+
 if [ "$SERIAL_MODE" = true ] || [ "$CHECK_ONLY" = true ]; then
     for target in "${BUILD_TARGETS[@]}"; do
-        build_target "$target" "$BUILD_TYPE" "$CHECK_ONLY"
+        if ! build_target "$target" "$BUILD_TYPE" "$CHECK_ONLY"; then
+            FAILED_TARGETS+=("$target")
+        fi
     done
 else
     PIDS=()
@@ -189,13 +194,13 @@ else
             color="${config%%:*}"
             target_display="${config#*:}"
 
+            # 在子 shell 中使用 pipefail 保持退出码
             (
-                build_target "$target" "$BUILD_TYPE" false
-            ) 2>&1 | sed "s/^/\x1b[${color}m[${target_display}]\x1b[0m /" &
-        else
-            (
-                build_target "$target" "$BUILD_TYPE" false
+                set -o pipefail
+                build_target "$target" "$BUILD_TYPE" false 2>&1 | sed "s/^/\x1b[${color}m[${target_display}]\x1b[0m /"
             ) &
+        else
+            build_target "$target" "$BUILD_TYPE" false &
         fi
 
         PID=$!
@@ -204,19 +209,30 @@ else
         info "启动后台任务 [PID=$PID]: $target"
     done
 
-    FAILED_TARGETS=()
+    declare -a PARALLEL_FAILED_TARGETS=()
     for i in "${!PIDS[@]}"; do
         PID=${PIDS[$i]}
-        wait $PID || FAILED_TARGETS+=("${PID_MAP[$i]}")
+        # PID_MAP 格式为 "PID:target"，需要提取 target 部分
+        pid_target="${PID_MAP[$i]}"
+        target_name="${pid_target#*:}"
+        if ! wait $PID; then
+            PARALLEL_FAILED_TARGETS+=("$target_name")
+        fi
     done
 
-    if [ ${#FAILED_TARGETS[@]} -gt 0 ]; then
-        error "以下目标构建失败:"
-        for failed in "${FAILED_TARGETS[@]}"; do
-            echo "  - $failed"
-        done
-        exit 1
+    if [ ${#PARALLEL_FAILED_TARGETS[@]} -gt 0 ]; then
+        FAILED_TARGETS+=("${PARALLEL_FAILED_TARGETS[@]}")
     fi
+fi
+
+# 汇总并显示构建结果
+if [ ${#FAILED_TARGETS[@]} -gt 0 ]; then
+    echo ""
+    error "以下目标构建失败:"
+    for failed in "${FAILED_TARGETS[@]}"; do
+        echo "  - $failed"
+    done
+    exit 1
 fi
 
 END_TIME=$(date +%s)
