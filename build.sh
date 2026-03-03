@@ -139,6 +139,30 @@ for target in "${TARGETS[@]}"; do
     fi
 done
 
+# 检查通用工具（所有平台共用）
+check_common_tools() {
+    info "检查通用编译环境..."
+    local failed=false
+    
+    if ! check_bun; then
+        failed=true
+    fi
+    
+    if ! check_tool "cargo" "Cargo"; then
+        echo "请确保 Rust 已安装: https://rustup.rs"
+        failed=true
+    fi
+    
+    if [ "$failed" = true ]; then
+        exit 1
+    fi
+    
+    success "通用环境检查通过"
+}
+
+# 执行通用检查
+check_common_tools
+
 # 确定是否需要构建前端
 NEED_BUILD_FRONTEND=false
 if [ "$CHECK_ONLY" = false ]; then

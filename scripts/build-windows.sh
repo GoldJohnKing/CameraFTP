@@ -16,23 +16,8 @@ cd "$SCRIPT_DIR/.."
 
 check_windows_env() {
     info "检查 Windows 编译环境..."
-    local failed=false
-
-    # 检查 bun
-    if ! check_bun; then
-        failed=true
-    fi
-
-    # 检查 cargo (使用工具选择层)
-    if ! check_tool "cargo" "Cargo"; then
-        echo "请确保 Rust 已安装并添加到 PATH: https://rustup.rs"
-        failed=true
-    fi
-
-    if [ "$failed" = true ]; then
-        return 1
-    fi
-
+    
+    # 通用工具 (bun, cargo) 已由 build.sh 检查
     success "Windows 环境检查通过"
     return 0
 }

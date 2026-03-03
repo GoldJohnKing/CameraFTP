@@ -85,19 +85,7 @@ check_android_env() {
     info "检查 Android 编译环境..."
     local failed=false
     
-    # 检查 bun
-    if ! check_bun; then
-        failed=true
-    fi
-    
-    # 检查 cargo (使用工具选择层)
-    if detect_tool "cargo"; then
-        check_tool "cargo" "Cargo" || failed=true
-    else
-        error "cargo 未找到"
-        echo "请确保 Rust 已安装: https://rustup.rs"
-        failed=true
-    fi
+    # 通用工具 (bun, cargo) 已由 build.sh 检查
     
     # 检查 java (使用工具选择层)
     if detect_tool "java"; then
