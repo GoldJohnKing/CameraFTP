@@ -1,6 +1,8 @@
 #!/bin/bash
-# build-windows.sh - Windows 构建脚本
-# 由 build.sh 调用，不生成类型绑定
+# build-windows.sh - Windows 可执行文件构建脚本
+# 编译 Windows 平台的 Tauri 应用，生成 .exe 文件
+# 注意: 本脚本不生成 TypeScript 类型绑定，推荐使用 ./build.sh windows
+
 set -e
 
 # 引入公共函数库
@@ -14,11 +16,12 @@ cd "$SCRIPT_DIR/.."
 # 环境检查
 # ============================================
 
+# 检查 Windows 编译环境
+# 说明: 通用工具 (bun, cargo) 的检查由 build.sh 或 build-common.sh 处理
 check_windows_env() {
-    info "检查 Windows 编译环境..."
-    
-    # 通用工具 (bun, cargo) 已由 build.sh 检查
-    success "Windows 环境检查通过"
+    info "正在检查 Windows 编译环境..."
+    # 通用工具 (bun, cargo) 已由 build.sh 检查，此处仅做平台特定检查
+    success "Windows 编译环境检查通过"
     return 0
 }
 
@@ -26,30 +29,31 @@ check_windows_env() {
 # 构建
 # ============================================
 
-# 终止运行中的进程
+# 终止运行中的应用进程
+# 说明: 构建前终止旧进程，避免文件被占用导致编译失败
 terminate_running_process() {
-    info "终止运行中的进程..."
+    info "正在检查运行中的进程..."
     if taskkill.exe /F /IM camera-ftp-companion.exe >/dev/null 2>&1; then
-        info "已终止 camera-ftp-companion.exe"
+        info "已终止旧进程: camera-ftp-companion.exe"
     else
-        info "没有运行中的实例"
+        info "未检测到运行中的实例"
     fi
 }
 
 build_windows() {
     local BUILD_TYPE="${1:-release}"
 
-    info "开始构建 Windows 应用 ($BUILD_TYPE)..."
+    info "开始构建 Windows 应用程序 ($BUILD_TYPE 模式)..."
 
     terminate_running_process
 
-    # 获取 cargo 命令
+    # 获取 cargo 命令 (支持 WSL 中使用 Windows 版 cargo.exe)
     local cargo_cmd
     cargo_cmd=$(get_tool_cmd "cargo")
     local target="x86_64-pc-windows-msvc"
 
     cd src-tauri
-    info "[Rust] 构建中..."
+    info "[Rust] 正在编译..."
 
     if [ "$BUILD_TYPE" = "debug" ]; then
         $cargo_cmd build --target "$target"

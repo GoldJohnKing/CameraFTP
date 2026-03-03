@@ -1,6 +1,9 @@
 #!/bin/bash
 # build-android.sh - Android 构建脚本
-# 由 build.sh 调用，不生成类型绑定
+#
+# 功能：编译 Android APK（支持 debug/release 模式）
+# 说明：由 build.sh 调用，不生成类型绑定
+# 用法：./build-android.sh [--release|--debug|--check|--help]
 set -e
 
 # 引入公共函数库
@@ -18,8 +21,13 @@ cd "$SCRIPT_DIR/.."
 declare -A SELECTED_TOOLS
 declare -A SELECTED_PATHS
 
+# ============================================
+# 工具检测函数
+# ============================================
+
 # 检测工具并存储命令
-# 用法: detect_tool <tool_name>
+# 参数：$1 - 工具名称 (cargo/java/javac/keytool 等)
+# 返回：0 成功，1 失败
 detect_tool() {
     local tool_name="${1:-}"
     if [ -z "$tool_name" ]; then
@@ -33,7 +41,12 @@ detect_tool() {
     return 1
 }
 
+# ============================================
+# 工具链检查函数
+# ============================================
+
 # 检查混合工具链（Windows/Linux 混用）
+# 说明：检测 cargo/java/sdk 是否来自不同平台，发出兼容性警告
 check_mixed_toolchain() {
     local platforms=()
     local cargo_platform java_platform sdk_platform
@@ -82,7 +95,7 @@ check_mixed_toolchain() {
 }
 
 check_android_env() {
-    info "检查 Android 编译环境..."
+    info "正在检查 Android 编译环境（Java、SDK、NDK）..."
     local failed=false
     
     # 通用工具 (bun, cargo) 已由 build.sh 检查
@@ -91,9 +104,9 @@ check_android_env() {
     if detect_tool "java"; then
         check_tool "java" "Java" || failed=true
     else
-        error "Java 未安装"
-        echo "安装: sudo apt install openjdk-21-jdk (Linux)"
-        echo "或下载: https://adoptium.net/ (Windows)"
+        error "Java 运行时未安装"
+        echo "  → Linux:   sudo apt install openjdk-21-jdk"
+        echo "  → Windows: 下载 https://adoptium.net/"
         failed=true
     fi
     
@@ -101,17 +114,17 @@ check_android_env() {
     if detect_tool "javac"; then
         check_tool "javac" "Javac" || failed=true
     else
-        error "javac 未找到，请安装完整 JDK（不是仅 JRE）"
-        echo "安装: sudo apt install openjdk-21-jdk (Linux)"
-        echo "或下载: https://adoptium.net/ (Windows)"
+        error "javac 编译器未找到（需要完整 JDK，而非 JRE）"
+        echo "  → Linux:   sudo apt install openjdk-21-jdk"
+        echo "  → Windows: 下载 JDK 版本 https://adoptium.net/"
         failed=true
     fi
     
     # 检查 keytool (可选，仅警告)
     if detect_tool "keytool"; then
-        check_tool "keytool" "Keytool" || warn "keytool 未找到，签名功能可能受影响"
+        check_tool "keytool" "Keytool" || warn "keytool 未找到，APK 签名功能将不可用"
     else
-        warn "keytool 未找到，签名功能可能受影响"
+        warn "keytool 未找到，APK 签名功能将不可用"
     fi
     
     # 检测 Android SDK (优先 Windows，回退 Linux)
@@ -124,8 +137,8 @@ check_android_env() {
         info "Android SDK: $sdk_path [linux]"
     else
         error "Android SDK 未找到"
-        echo "设置: export ANDROID_HOME=\$HOME/Android/Sdk (Linux)"
-        echo "或安装 Android Studio (Windows)"
+        echo "  → Linux:   export ANDROID_HOME=\$HOME/Android/Sdk"
+        echo "  → Windows: 安装 Android Studio 并配置 SDK"
         failed=true
     fi
     
@@ -136,7 +149,7 @@ check_android_env() {
             SELECTED_PATHS[android_ndk]="$ndk_path"
             info "NDK: $ndk_path"
         else
-            warn "NDK 未找到，首次编译时会自动下载"
+            warn "NDK 未找到，首次编译时将自动下载"
         fi
     fi
     
@@ -151,7 +164,7 @@ check_android_env() {
             SELECTED_PATHS[java_home]="$java_home"
             info "JAVA_HOME: $java_home [windows] (跟随 SDK 平台)"
         else
-            warn "Windows JAVA_HOME 未检测到，将使用环境变量"
+            warn "Windows JAVA_HOME 未检测到，将使用环境变量 JAVA_HOME"
         fi
     else
         # SDK 在 Linux → 使用 Linux JAVA_HOME
@@ -159,7 +172,7 @@ check_android_env() {
             SELECTED_PATHS[java_home]="$java_home"
             info "JAVA_HOME: $java_home [linux] (跟随 SDK 平台)"
         else
-            warn "Linux JAVA_HOME 未检测到，将使用环境变量"
+            warn "Linux JAVA_HOME 未检测到，将使用环境变量 JAVA_HOME"
         fi
     fi
     
@@ -170,11 +183,16 @@ check_android_env() {
         return 1
     fi
     
-    success "Android 环境检查通过"
+    success "Android 编译环境检查通过"
     return 0
 }
 
+# ============================================
+# 环境变量设置
+# ============================================
+
 # 设置 Android 编译环境变量
+# 说明：配置 JAVA_HOME、ANDROID_HOME、NDK_HOME 及 PATH
 setup_android_env() {
     # 设置 JAVA_HOME (优先使用检测到的路径)
     if [ -n "${SELECTED_PATHS[java_home]}" ]; then
@@ -222,9 +240,11 @@ setup_android_env() {
 }
 
 # ============================================
-# 签名密钥
+# 签名密钥管理
 # ============================================
 
+# 检查或创建签名密钥
+# 说明：若 keystore.properties 不存在，则生成新的签名密钥
 check_or_create_keystore() {
     local keystore_path="src-tauri/gen/android/keystore.properties"
     local keystore_file="camera-ftp-companion.keystore"
@@ -263,9 +283,12 @@ EOF
 }
 
 # ============================================
-# 构建
+# 构建函数
 # ============================================
 
+# 构建 Android APK
+# 参数：$1 - 构建类型 (debug/release)
+# 输出：out/camera-ftp-companion[-debug].apk
 build_android() {
     local BUILD_TYPE="${1:-release}"
 
@@ -301,9 +324,10 @@ build_android() {
 }
 
 # ============================================
-# 帮助
+# 帮助信息
 # ============================================
 
+# 显示独立运行时的帮助信息
 show_standalone_help() {
     cat << EOF
 用法: ./build-android.sh [选项]
@@ -334,6 +358,7 @@ EOF
 # 主函数
 # ============================================
 
+# 入口函数：解析参数并执行对应操作
 main() {
     # 使用通用参数解析
     local result=0

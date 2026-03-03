@@ -1,6 +1,6 @@
 #!/bin/bash
-# build.sh - 统一构建入口
-# 支持多目标并行编译
+# build.sh - 图传伴侣统一构建脚本
+# 功能: 支持多目标并行编译，包括 Windows、Android、前端等
 set -e
 
 # 引入公共函数库
@@ -57,7 +57,8 @@ while [[ $# -gt 0 ]]; do
             exit 0
             ;;
         *)
-            error "未知参数: $1"
+            error "无法识别的参数: $1"
+            echo "提示: 使用 --help 查看可用选项"
             echo ""
             show_build_help "build.sh"
             exit 1
@@ -83,10 +84,10 @@ build_target() {
     local check_arg=""
 
     if [ "$check_only" = true ]; then
-        task "[$target] 检查环境..."
+        task "[$target] 正在检查编译环境..."
         check_arg="--check"
     else
-        task "[$target] 开始构建 ($build_type)..."
+        task "[$target] 开始构建（$build_type 模式）..."
     fi
 
     ./scripts/build-$target.sh "--$build_type" $check_arg
@@ -111,15 +112,15 @@ if [ ${#TARGETS[@]} -eq 0 ]; then
 fi
 
 # 显示编译计划
-info "编译目标: ${TARGETS[*]}"
-info "编译模式: $BUILD_TYPE"
+info "编译目标：${TARGETS[*]}"
+info "编译模式：$BUILD_TYPE"
 if [ "$CHECK_ONLY" = true ]; then
-    info "操作: 环境检查"
+    info "执行操作：环境检查"
 else
     if [ "$SERIAL_MODE" = true ]; then
-        info "执行方式: 串行"
+        info "执行方式：串行编译"
     else
-        info "执行方式: 并行"
+        info "执行方式：并行编译"
     fi
 fi
 echo ""
@@ -149,7 +150,7 @@ check_common_tools() {
     fi
     
     if ! check_tool "cargo" "Cargo"; then
-        echo "请确保 Rust 已安装: https://rustup.rs"
+        echo "提示: 请先安装 Rust，访问 https://rustup.rs 获取安装指南"
         failed=true
     fi
     
