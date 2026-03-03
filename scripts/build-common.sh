@@ -44,8 +44,6 @@ declare -A TOOL_WINDOWS_CMDS=(
     [java]="java.exe"
     [javac]="javac.exe"
     [keytool]="keytool.exe"
-    [adb]="adb.exe"
-    [gradle]="gradle.bat"
 )
 
 declare -A TOOL_LINUX_CMDS=(
@@ -53,8 +51,6 @@ declare -A TOOL_LINUX_CMDS=(
     [java]="java"
     [javac]="javac"
     [keytool]="keytool"
-    [adb]="adb"
-    [gradle]="gradle"
 )
 
 # 获取工具命令 (优先 Windows .exe，回退到 Linux)
@@ -133,11 +129,8 @@ check_tool() {
     # 获取版本信息
     local version_info=""
     case "$tool_name" in
-        cargo|java|javac|keytool|adb)
+        cargo|java|javac|keytool)
             version_info=$("$cmd" --version 2>/dev/null | head -1)
-            ;;
-        gradle)
-            version_info=$("$cmd" --version 2>/dev/null | grep -E "^Gradle" | head -1)
             ;;
     esac
     
@@ -363,49 +356,31 @@ parse_build_args() {
     return 0
 }
 
-# 拷贝编译产物到 out 目录
-# 用法: copy_to_out <源文件> <目标文件名> <构建类型描述>
+# 拷贝文件到 out 目录
+# 用法: copy_to_out <源文件/模式> <目标文件名> <描述>
+# 支持确定路径和 glob 模式，取第一个匹配
 copy_to_out() {
-    local src_path="$1"
+    local src="$1"
     local dest_name="$2"
-    local build_type="$3"
+    local desc="$3"
     
     mkdir -p "$OUTPUT_DIR"
     
-    if [ -f "$src_path" ]; then
-        cp "$src_path" "$OUTPUT_DIR/$dest_name"
-        success "$build_type 构建完成"
-        info "输出位置: $OUTPUT_DIR/$dest_name"
-    else
-        error "未找到构建产物: $src_path"
-        return 1
-    fi
-}
-
-# 拷贝匹配模式的文件到 out 目录
-# 用法: copy_pattern_to_out <源文件模式> <目标文件名> <文件类型描述>
-copy_pattern_to_out() {
-    local src_pattern="$1"
-    local dest_name="$2"
-    local file_type="$3"
-    
-    mkdir -p "$OUTPUT_DIR"
-    
-    # 使用 glob 模式而非 ls 解析
+    # 支持确定路径和 glob 模式
     local src_file=""
-    for f in $src_pattern; do
+    for f in $src; do
         if [ -f "$f" ]; then
             src_file="$f"
             break
         fi
     done
     
-    if [ -n "$src_file" ] && [ -f "$src_file" ]; then
+    if [ -n "$src_file" ]; then
         cp "$src_file" "$OUTPUT_DIR/$dest_name"
-        success "$file_type 构建完成"
+        success "$desc 构建完成"
         info "输出位置: $OUTPUT_DIR/$dest_name"
     else
-        warn "未找到 $file_type 文件: $src_pattern"
+        error "未找到构建产物: $src"
         return 1
     fi
 }

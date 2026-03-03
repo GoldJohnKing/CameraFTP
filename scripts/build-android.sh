@@ -291,7 +291,7 @@ build_android() {
                 error "Android debug 构建失败"
                 exit 1
             }
-            copy_pattern_to_out \
+            copy_to_out \
                 "src-tauri/gen/android/app/build/outputs/apk/universal/debug/*.apk" \
                 "camera-ftp-companion-debug.apk" \
                 "Debug APK"
@@ -301,7 +301,7 @@ build_android() {
                 error "Android release 构建失败"
                 exit 1
             }
-            copy_pattern_to_out \
+            copy_to_out \
                 "src-tauri/gen/android/app/build/outputs/apk/universal/release/*.apk" \
                 "camera-ftp-companion.apk" \
                 "Release APK"
