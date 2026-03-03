@@ -149,22 +149,24 @@ check_android_env() {
         fi
     fi
     
-    # 检测 Java Home (根据 java 工具平台选择)
+    # 检测 Java Home (根据 SDK 平台选择，而非 java 命令平台)
+    # 原因: gradlew 需要与 SDK 在同一平台运行
     local java_home
-    local java_platform
-    java_platform=$(get_tool_platform "java")
+    local sdk_path="${SELECTED_PATHS[android_sdk]}"
     
-    if [ "$java_platform" = "windows" ]; then
+    if [[ "$sdk_path" == /mnt/* ]]; then
+        # SDK 在 Windows → 使用 Windows JAVA_HOME
         if java_home=$(detect_windows_java_home); then
             SELECTED_PATHS[java_home]="$java_home"
-            info "JAVA_HOME: $java_home [windows]"
+            info "JAVA_HOME: $java_home [windows] (跟随 SDK 平台)"
         else
             warn "Windows JAVA_HOME 未检测到，将使用环境变量"
         fi
-    elif [ "$java_platform" = "linux" ]; then
+    else
+        # SDK 在 Linux → 使用 Linux JAVA_HOME
         if java_home=$(detect_linux_java_home); then
             SELECTED_PATHS[java_home]="$java_home"
-            info "JAVA_HOME: $java_home [linux]"
+            info "JAVA_HOME: $java_home [linux] (跟随 SDK 平台)"
         else
             warn "Linux JAVA_HOME 未检测到，将使用环境变量"
         fi
