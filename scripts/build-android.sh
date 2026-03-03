@@ -202,9 +202,6 @@ setup_android_env() {
             info "已更新 PATH: ${new_paths[*]}"
         fi
         
-        # Gradle 优化
-        export GRADLE_OPTS="-Dorg.gradle.parallel=true -Dorg.gradle.configureondemand=true"
-        
         info "使用用户配置的环境变量:"
         info "  JAVA_HOME=$JAVA_HOME"
         info "  ANDROID_HOME=$ANDROID_HOME"
@@ -282,9 +279,6 @@ setup_android_env() {
         export PATH="$path_prefix:$PATH"
         info "已更新 PATH: ${new_paths[*]}"
     fi
-    
-    # Gradle 优化
-    export GRADLE_OPTS="-Dorg.gradle.parallel=true -Dorg.gradle.configureondemand=true"
     
     info "环境变量已设置:"
     info "  JAVA_HOME=$JAVA_HOME"
