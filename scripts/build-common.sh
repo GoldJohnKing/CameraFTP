@@ -53,11 +53,7 @@ declare -A TOOL_LINUX_CMDS=(
     [keytool]="keytool"
 )
 
-# 功能：获取工具命令 (优先 Windows .exe，回退到 Linux)
-# 参数：
-#   $1 - 工具名称 (如 cargo, java, javac, keytool)
-# 返回：命令名称 (如 cargo.exe 或 cargo)，失败返回 1
-# 示例：cmd=$(get_tool_cmd "cargo")
+# 功能: 获取工具命令 (优先 Windows .exe)
 get_tool_cmd() {
     if [ -z "$1" ]; then
         error "参数缺失：tool_name"
@@ -84,11 +80,7 @@ get_tool_cmd() {
     return 1
 }
 
-# 功能：获取工具所在平台
-# 参数：
-#   $1 - 工具名称 (如 cargo, java, javac, keytool)
-# 返回：平台标识 ("windows" 或 "linux")，未找到返回 1
-# 示例：platform=$(get_tool_platform "cargo")
+# 功能: 获取工具所在平台
 get_tool_platform() {
     if [ -z "$1" ]; then
         error "参数缺失：tool_name"
@@ -112,12 +104,7 @@ get_tool_platform() {
     return 1
 }
 
-# 功能：检查工具是否存在并打印版本信息
-# 参数：
-#   $1 - 工具名称 (如 cargo, java, javac, keytool)
-#   $2 - 显示名称 (可选，默认为工具名称)
-# 返回：0 表示已安装，1 表示未安装
-# 示例：check_tool cargo "Cargo"
+# 功能: 检查工具是否存在
 check_tool() {
     if [ -z "$1" ]; then
         error "参数缺失：tool_name"
@@ -164,10 +151,7 @@ check_tool() {
     return 0
 }
 
-# 功能：检测 Windows Android SDK 路径
-# 参数：无
-# 返回：SDK 路径，未找到返回 1
-# 示例：sdk=$(detect_windows_android_sdk)
+# 功能: 检测 Windows Android SDK 路径
 detect_windows_android_sdk() {
     # 支持 WSL 中 Windows 用户名与 Linux 不同的情况
     local win_user="${WIN_USER:-$USER}"
@@ -188,10 +172,7 @@ detect_windows_android_sdk() {
     return 1
 }
 
-# 功能：检测 Linux Android SDK 路径
-# 参数：无
-# 返回：SDK 路径，未找到返回 1
-# 示例：sdk=$(detect_linux_android_sdk)
+# 功能: 检测 Linux Android SDK 路径
 detect_linux_android_sdk() {
     # 优先检查环境变量
     if [ -n "$ANDROID_HOME" ] && [ -d "$ANDROID_HOME" ]; then
@@ -222,11 +203,7 @@ detect_linux_android_sdk() {
     return 1
 }
 
-# 功能：从 SDK 路径检测 NDK 路径 (自动选择最新版本)
-# 参数：
-#   $1 - SDK 路径
-# 返回：NDK 路径，未找到返回 1
-# 示例：ndk=$(detect_ndk_from_sdk "$ANDROID_HOME")
+# 功能: 从 SDK 路径检测 NDK
 detect_ndk_from_sdk() {
     if [ -z "$1" ]; then
         error "参数缺失：sdk_path"
@@ -255,10 +232,7 @@ detect_ndk_from_sdk() {
     return 1
 }
 
-# 功能：检测 Windows JAVA_HOME 路径 (优先 JDK 17/21)
-# 参数：无
-# 返回：JAVA_HOME 路径，未找到返回 1
-# 示例：java_home=$(detect_windows_java_home)
+# 功能: 检测 Windows JAVA_HOME
 detect_windows_java_home() {
     # 优先检查常见安装位置
     local java_dirs=(
@@ -292,10 +266,7 @@ detect_windows_java_home() {
     return 1
 }
 
-# 功能：检测 Linux JAVA_HOME 路径 (优先 JDK 17/21)
-# 参数：无
-# 返回：JAVA_HOME 路径，未找到返回 1
-# 示例：java_home=$(detect_linux_java_home)
+# 功能: 检测 Linux JAVA_HOME
 detect_linux_java_home() {
     # 优先检查环境变量
     if [ -n "$JAVA_HOME" ] && [ -d "$JAVA_HOME" ]; then
@@ -322,7 +293,6 @@ detect_linux_java_home() {
         fi
     done
     
-    # 检查固定路径 (无架构后缀)
     local java_paths=(
         "$java_base/java-21-openjdk"
         "$java_base/java-17-openjdk"
@@ -351,12 +321,7 @@ detect_linux_java_home() {
 # 通用参数解析
 # ============================================
 
-# 功能：解析构建参数 (供子脚本使用)
-# 参数：
-#   $@ - 命令行参数
-# 返回：0=成功, 1=需要显示帮助, 2=未知参数
-# 设置变量：BUILD_TYPE, CHECK_ONLY
-# 示例：parse_build_args "$@"
+# 功能: 解析构建参数
 parse_build_args() {
     BUILD_TYPE="release"
     CHECK_ONLY=false
@@ -386,13 +351,7 @@ parse_build_args() {
     return 0
 }
 
-# 功能：拷贝文件到 out 目录 (支持确定路径和 glob 模式)
-# 参数：
-#   $1 - 源文件路径或 glob 模式
-#   $2 - 目标文件名
-#   $3 - 构建产物描述
-# 返回：0=成功, 1=未找到文件
-# 示例：copy_to_out "target/release/*.exe" "app.exe" "Windows 可执行文件"
+# 功能: 拷贝文件到 out 目录
 copy_to_out() {
     local src="$1"
     local dest_name="$2"
@@ -420,10 +379,7 @@ copy_to_out() {
     fi
 }
 
-# 功能：检查 Bun 是否已安装
-# 参数：无
-# 返回：0=已安装, 1=未安装
-# 示例：check_bun
+# 功能: 检查 Bun 是否已安装
 check_bun() {
     if ! command -v bun &> /dev/null; then
         error "Bun 未安装"
@@ -434,10 +390,7 @@ check_bun() {
     return 0
 }
 
-# 功能：生成 TypeScript 类型绑定 (使用选中的 cargo)
-# 参数：无
-# 返回：0=成功, 1=Cargo 未找到
-# 示例：generate_ts_types
+# 功能: 生成 TypeScript 类型绑定
 generate_ts_types() {
     task "生成 TypeScript 类型绑定..."
     
@@ -461,10 +414,7 @@ generate_ts_types() {
     success "TypeScript 类型绑定已生成到 src-tauri/bindings/"
 }
 
-# 功能：清理所有构建缓存
-# 参数：无
-# 返回：0=成功
-# 示例：clean_build_cache
+# 功能: 清理所有构建缓存
 clean_build_cache() {
     info "清理构建缓存..."
 
@@ -494,11 +444,7 @@ clean_build_cache() {
     success "清理完成"
 }
 
-# 功能：显示构建脚本使用帮助
-# 参数：
-#   $1 - 脚本名称 (可选，默认为 build.sh)
-# 返回：无
-# 示例：show_build_help "build.sh"
+# 功能: 显示构建脚本使用帮助
 show_build_help() {
     local script_name="${1:-build.sh}"
     cat << EOF

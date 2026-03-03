@@ -1,7 +1,5 @@
 #!/bin/bash
-# build-windows.sh - Windows 可执行文件构建脚本
-# 编译 Windows 平台的 Tauri 应用，生成 .exe 文件
-# 注意: 本脚本不生成 TypeScript 类型绑定，推荐使用 ./build.sh windows
+# Windows 构建脚本
 
 set -e
 
@@ -9,15 +7,10 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/build-common.sh"
 
-# 切换到项目根目录（scripts/的父目录）
+# 切换到项目根目录
 cd "$SCRIPT_DIR/.."
 
-# ============================================
 # 环境检查
-# ============================================
-
-# 检查 Windows 编译环境
-# 说明: 通用工具 (bun, cargo) 的检查由 build.sh 或 build-common.sh 处理
 check_windows_env() {
     info "正在检查 Windows 编译环境..."
     # 通用工具 (bun, cargo) 已由 build.sh 检查，此处仅做平台特定检查
@@ -25,12 +18,7 @@ check_windows_env() {
     return 0
 }
 
-# ============================================
 # 构建
-# ============================================
-
-# 终止运行中的应用进程
-# 说明: 构建前终止旧进程，避免文件被占用导致编译失败
 terminate_running_process() {
     info "正在检查运行中的进程..."
     if taskkill.exe /F /IM camera-ftp-companion.exe >/dev/null 2>&1; then
@@ -78,10 +66,7 @@ build_windows() {
     copy_to_out "$SRC_PATH" "$DEST_NAME" "Windows $BUILD_TYPE"
 }
 
-# ============================================
 # 帮助
-# ============================================
-
 show_standalone_help() {
     cat << EOF
 用法: ./build-windows.sh [选项]
@@ -105,10 +90,7 @@ show_standalone_help() {
 EOF
 }
 
-# ============================================
 # 主函数
-# ============================================
-
 main() {
     # 使用通用参数解析
     local result=0
