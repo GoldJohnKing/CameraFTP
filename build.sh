@@ -92,13 +92,6 @@ build_target() {
     ./scripts/build-$target.sh "--$build_type" $check_arg
 }
 
-# 构建前端
-build_frontend() {
-    task "[前端] 构建中..."
-    ./scripts/build-frontend.sh
-    success "[前端] 构建完成"
-}
-
 # ============================================
 # 主流程
 # ============================================
@@ -157,7 +150,7 @@ fi
 # 构建前端（统一处理）
 if [ "$NEED_BUILD_FRONTEND" = true ]; then
     generate_ts_types
-    build_frontend
+    ./scripts/build-frontend.sh
 fi
 
 # 如果没有其他构建目标，退出
@@ -166,19 +159,13 @@ if [ ${#BUILD_TARGETS[@]} -eq 0 ]; then
     exit 0
 fi
 
-# 多目标时标记为已统一构建
-if [ ${#BUILD_TARGETS[@]} -gt 1 ]; then
-    export FRONTEND_ALREADY_BUILT=1
-fi
+# 标记前端已构建（供子脚本和 Tauri beforeBuildCommand 检查）
+export FRONTEND_ALREADY_BUILT=1
 
-# 目标颜色映射
-declare -A TARGET_COLORS=(
-    [windows]="36"  # 青色
-    [android]="35"  # 紫色
-)
-declare -A TARGET_DISPLAY_NAMES=(
-    [windows]="Windows"
-    [android]="Android"
+# 目标配置 (颜色:显示名)
+declare -A TARGET_CONFIG=(
+    [windows]="36:Windows"   # 青色
+    [android]="35:Android"   # 紫色
 )
 
 # 并行或串行编译
@@ -202,8 +189,9 @@ else
     for target in "${BUILD_TARGETS[@]}"; do
         if [ "$use_prefix" = true ]; then
             # 多目标：带颜色前缀 [TARGET]
-            color="${TARGET_COLORS[$target]}"
-            target_display="${TARGET_DISPLAY_NAMES[$target]}"
+            config="${TARGET_CONFIG[$target]}"
+            color="${config%%:*}"
+            target_display="${config#*:}"
 
             (
                 build_target "$target" "$BUILD_TYPE" false

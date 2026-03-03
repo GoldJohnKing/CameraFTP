@@ -216,24 +216,23 @@ detect_ndk_from_sdk() {
     fi
     local sdk_path="$1"
     local ndk_dir="$sdk_path/ndk"
-    
+
     if [ ! -d "$ndk_dir" ]; then
         return 1
     fi
-    
-    # 找到最新版本的 NDK (使用 glob 避免解析 ls)
-    local ndk_version
-    for ndk_version in "$ndk_dir"/*; do
-        if [ -d "$ndk_version" ]; then
-            # 继续遍历，保留最后一个有效的
-            :
-        fi
+
+    # 收集所有 NDK 版本，取最后一个（通常是最新的）
+    local ndk_versions=()
+    local v
+    for v in "$ndk_dir"/*; do
+        [ -d "$v" ] && ndk_versions+=("$v")
     done
-    if [ -d "$ndk_version" ]; then
-        echo "$ndk_version"
+
+    if [ ${#ndk_versions[@]} -gt 0 ]; then
+        echo "${ndk_versions[-1]}"
         return 0
     fi
-    
+
     return 1
 }
 
@@ -327,9 +326,41 @@ detect_linux_java_home() {
     return 1
 }
 
-# 获取项目根目录
-get_project_root() {
-    cd "$(dirname "${BASH_SOURCE[0]}")" && pwd
+# ============================================
+# 通用参数解析
+# ============================================
+
+# 解析构建参数 (供子脚本使用)
+# 用法: parse_build_args "$@"
+# 返回: 0=成功, 1=需要显示帮助, 2=未知参数
+# 设置变量: BUILD_TYPE, CHECK_ONLY
+parse_build_args() {
+    BUILD_TYPE="release"
+    CHECK_ONLY=false
+
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            --release)
+                BUILD_TYPE="release"
+                shift
+                ;;
+            --debug)
+                BUILD_TYPE="debug"
+                shift
+                ;;
+            --check)
+                CHECK_ONLY=true
+                shift
+                ;;
+            --help|-h)
+                return 1
+                ;;
+            *)
+                return 2
+                ;;
+        esac
+    done
+    return 0
 }
 
 # 拷贝编译产物到 out 目录
@@ -416,7 +447,7 @@ generate_ts_types() {
 # 清理构建缓存
 clean_build_cache() {
     info "清理构建缓存..."
-    
+
     local clean_list=(
         "src-tauri/target"
         "src-tauri/bindings"
@@ -425,25 +456,21 @@ clean_build_cache() {
         "src-tauri/gen/android/app/build"
         "src-tauri/gen/android/.gradle"
     )
-    
+
     for dir in "${clean_list[@]}"; do
         if [ -d "$dir" ]; then
             info "删除 $dir"
             rm -rf "$dir"
         fi
     done
-    
-    # 运行 cargo clean
-    if command -v cargo.exe &> /dev/null; then
-        info "运行 cargo clean (Windows)..."
-        cd src-tauri && cargo.exe clean 2>/dev/null || true && cd ..
+
+    # 运行 cargo clean (使用工具选择层)
+    local cargo_cmd
+    if cargo_cmd=$(get_tool_cmd "cargo"); then
+        info "运行 cargo clean..."
+        cd src-tauri && $cargo_cmd clean 2>/dev/null || true && cd ..
     fi
-    
-    if command -v cargo &> /dev/null; then
-        info "运行 cargo clean (Linux)..."
-        cd src-tauri && cargo clean 2>/dev/null || true && cd ..
-    fi
-    
+
     success "清理完成"
 }
 

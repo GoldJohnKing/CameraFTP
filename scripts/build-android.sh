@@ -278,19 +278,14 @@ EOF
 
 build_android() {
     local BUILD_TYPE="${1:-release}"
-    
+
     info "开始构建 Android 应用 ($BUILD_TYPE) - 仅 arm64-v8a 架构"
-    
-    # 检查是否已由 build.sh 统一构建前端
-    if [ "${FRONTEND_ALREADY_BUILT}" = "1" ]; then
-        info "前端已由 build.sh 统一构建，Android 将复用（Tauri 可能仍会检查）..."
-    fi
-    
+
     # 设置环境变量
     setup_android_env
-    
+
     check_or_create_keystore
-    
+
     case $BUILD_TYPE in
         "debug")
             bun run tauri android build --debug --target aarch64 || {
@@ -319,6 +314,31 @@ build_android() {
 # 开发模式
 # ============================================
 
+# 查找 APK 文件
+# 用法: find_apk [prefer_debug]
+# 返回: APK 路径或空
+find_apk() {
+    local prefer_debug="${1:-false}"
+    local apk_path=""
+
+    if [ "$prefer_debug" = true ]; then
+        # 优先查找 debug 版本
+        [ -f "$OUTPUT_DIR/camera-ftp-companion-debug.apk" ] && apk_path="$OUTPUT_DIR/camera-ftp-companion-debug.apk"
+        [ -f "$OUTPUT_DIR/camera-ftp-companion.apk" ] && apk_path="$OUTPUT_DIR/camera-ftp-companion.apk"
+    else
+        # 优先查找 release 版本
+        [ -f "$OUTPUT_DIR/camera-ftp-companion.apk" ] && apk_path="$OUTPUT_DIR/camera-ftp-companion.apk"
+        [ -f "$OUTPUT_DIR/camera-ftp-companion-debug.apk" ] && apk_path="$OUTPUT_DIR/camera-ftp-companion-debug.apk"
+    fi
+
+    # 回退到构建目录
+    if [ -z "$apk_path" ]; then
+        apk_path=$(find src-tauri/gen/android/app/build/outputs -name "*.apk" -type f 2>/dev/null | head -1)
+    fi
+
+    echo "$apk_path"
+}
+
 dev_mode() {
     info "启动 Android 开发模式 (arm64-v8a)..."
     setup_android_env
@@ -335,20 +355,12 @@ list_devices() {
 # 安装 APK 到设备
 install_apk() {
     local apk_path=$1
-    
+
     if [ -z "$apk_path" ]; then
-        # 优先从 out 目录查找
-        if [ -f "$OUTPUT_DIR/camera-ftp-companion.apk" ]; then
-            apk_path="$OUTPUT_DIR/camera-ftp-companion.apk"
-        elif [ -f "$OUTPUT_DIR/camera-ftp-companion-debug.apk" ]; then
-            apk_path="$OUTPUT_DIR/camera-ftp-companion-debug.apk"
-        else
-            # 回退到构建目录
-            apk_path=$(find src-tauri/gen/android/app/build/outputs -name "*.apk" -type f | head -1)
-        fi
+        apk_path=$(find_apk false)
     fi
-    
-    if [ -f "$apk_path" ]; then
+
+    if [ -n "$apk_path" ] && [ -f "$apk_path" ]; then
         info "安装 APK: $apk_path"
         local adb_cmd="${SELECTED_TOOLS[adb]:-adb}"
         $adb_cmd install -r "$apk_path"
@@ -362,19 +374,12 @@ install_apk() {
 # 查看 APK 签名信息
 show_apk_info() {
     local apk_path=$1
-    
+
     if [ -z "$apk_path" ]; then
-        # 优先从 out 目录查找
-        if [ -f "$OUTPUT_DIR/camera-ftp-companion.apk" ]; then
-            apk_path="$OUTPUT_DIR/camera-ftp-companion.apk"
-        elif [ -f "$OUTPUT_DIR/camera-ftp-companion-debug.apk" ]; then
-            apk_path="$OUTPUT_DIR/camera-ftp-companion-debug.apk"
-        else
-            apk_path=$(find src-tauri/gen/android/app/build/outputs -name "*.apk" -type f | head -1)
-        fi
+        apk_path=$(find_apk false)
     fi
-    
-    if [ -f "$apk_path" ]; then
+
+    if [ -n "$apk_path" ] && [ -f "$apk_path" ]; then
         info "APK 信息: $apk_path"
         echo ""
         info "包名:"

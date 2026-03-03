@@ -17,25 +17,22 @@ cd "$SCRIPT_DIR/.."
 check_windows_env() {
     info "检查 Windows 编译环境..."
     local failed=false
-    
+
     # 检查 bun
     if ! check_bun; then
         failed=true
     fi
-    
-    # 检查 cargo.exe
-    if ! command -v cargo.exe &> /dev/null; then
-        error "cargo.exe 未找到"
+
+    # 检查 cargo (使用工具选择层)
+    if ! check_tool "cargo" "Cargo"; then
         echo "请确保 Rust 已安装并添加到 PATH: https://rustup.rs"
         failed=true
-    else
-        info "Cargo: $(cargo.exe --version)"
     fi
-    
+
     if [ "$failed" = true ]; then
         return 1
     fi
-    
+
     success "Windows 环境检查通过"
     return 0
 }
@@ -44,46 +41,13 @@ check_windows_env() {
 # 构建
 # ============================================
 
-# 执行 Cargo 构建（内部函数）
-run_cargo_build() {
-    local build_type="$1"
-    local target="x86_64-pc-windows-msvc"
-
-    cd src-tauri
-    info "[Rust] 构建中..."
-
-    if [ "$build_type" = "debug" ]; then
-        cargo.exe build --target "$target"
-    else
-        cargo.exe build --release --target "$target"
-    fi
-
-    local result=$?
-    cd ..
-    return $result
-}
-
-# 构建前端（内部函数）
-run_frontend_build() {
-    info "[前端] 安装依赖..."
-    bun install
-
-    info "[前端] 构建中..."
-    bun run build
-}
-
 # 终止运行中的进程
 terminate_running_process() {
     info "终止运行中的进程..."
-    taskkill.exe /F /IM camera-ftp-companion.exe >/dev/null 2>&1
-    local exit_code=$?
-    if [ $exit_code -eq 0 ]; then
+    if taskkill.exe /F /IM camera-ftp-companion.exe >/dev/null 2>&1; then
         info "已终止 camera-ftp-companion.exe"
-    elif [ $exit_code -eq 128 ]; then
-        info "没有运行中的实例"
     else
-        error "无法终止进程 (exit code: $exit_code)"
-        exit 1
+        info "没有运行中的实例"
     fi
 }
 
@@ -94,40 +58,21 @@ build_windows() {
 
     terminate_running_process
 
-    # 检查是否已由 build.sh 统一构建前端
-    if [ "${FRONTEND_ALREADY_BUILT}" = "1" ]; then
-        info "前端已由 build.sh 统一构建，跳过..."
+    # 获取 cargo 命令
+    local cargo_cmd
+    cargo_cmd=$(get_tool_cmd "cargo")
+    local target="x86_64-pc-windows-msvc"
 
-        run_cargo_build "$BUILD_TYPE" || {
-            error "Rust 构建失败"
-            exit 1
-        }
+    cd src-tauri
+    info "[Rust] 构建中..."
+
+    if [ "$BUILD_TYPE" = "debug" ]; then
+        $cargo_cmd build --target "$target"
     else
-        # 并行构建前端和 Rust 后端
-        info "并行构建前端和后端..."
-
-        # 启动前端构建（后台）
-        (run_frontend_build) &
-        FRONTEND_PID=$!
-
-        # 启动 Rust 构建
-        run_cargo_build "$BUILD_TYPE"
-        RUST_RESULT=$?
-
-        # 等待前端构建完成
-        wait $FRONTEND_PID
-        FRONTEND_RESULT=$?
-
-        if [ $RUST_RESULT -ne 0 ]; then
-            error "Rust 构建失败"
-            exit 1
-        fi
-
-        if [ $FRONTEND_RESULT -ne 0 ]; then
-            error "前端构建失败"
-            exit 1
-        fi
+        $cargo_cmd build --release --target "$target"
     fi
+
+    cd ..
 
     # 复制输出
     local OUTPUT_NAME="camera-ftp-companion.exe"
@@ -176,36 +121,19 @@ EOF
 # ============================================
 
 main() {
-    local BUILD_TYPE="release"
-    local CHECK_ONLY=false
-    
-    # 解析参数
-    while [[ $# -gt 0 ]]; do
-        case $1 in
-            --release)
-                BUILD_TYPE="release"
-                shift
-                ;;
-            --debug)
-                BUILD_TYPE="debug"
-                shift
-                ;;
-            --check)
-                CHECK_ONLY=true
-                shift
-                ;;
-            --help|-h)
-                show_standalone_help
-                exit 0
-                ;;
-            *)
-                error "未知参数: $1"
-                show_standalone_help
-                exit 1
-                ;;
-        esac
-    done
-    
+    # 使用通用参数解析
+    local result=0
+    parse_build_args "$@" || result=$?
+
+    if [ $result -eq 1 ]; then
+        show_standalone_help
+        exit 0
+    elif [ $result -eq 2 ]; then
+        error "未知参数"
+        show_standalone_help
+        exit 1
+    fi
+
     if [ "$CHECK_ONLY" = true ]; then
         check_windows_env
     else
