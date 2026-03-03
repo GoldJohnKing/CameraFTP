@@ -1,6 +1,5 @@
 #!/bin/bash
 # build-common.sh - 公共构建函数库
-# 所有构建脚本通过 source 引入此文件
 
 # 颜色定义
 RED='\033[0;31m'
@@ -8,12 +7,19 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 CYAN='\033[0;36m'
-NC='\033[0m' # No Color
+NC='\033[0m'
 
 # 输出目录
 OUTPUT_DIR="out"
 
-# 日志函数
+# 构建目标配置
+readonly TARGET_WINDOWS_COLOR="36"
+readonly TARGET_ANDROID_COLOR="35"
+readonly TARGET_WINDOWS_NAME="Windows"
+readonly TARGET_ANDROID_NAME="Android"
+readonly TARGET_WINDOWS_TRIPLE="x86_64-pc-windows-msvc"
+readonly TARGET_ANDROID_TRIPLE="aarch64-linux-android"
+
 info() {
     echo -e "${BLUE}[INFO]${NC} $1"
 }
@@ -34,75 +40,81 @@ task() {
     echo -e "${CYAN}[TASK]${NC} $1"
 }
 
-# ============================================
-# 工具选择模块 (支持 Windows/Linux 混合构建)
-# ============================================
+# 仅在 --check-toolchain 模式下输出的信息
+debug_info() {
+    if [ "${CHECK_ONLY:-false}" = true ]; then
+        info "$1"
+    fi
+}
 
-# 工具注册表 - Windows 和 Linux 命令映射
-declare -A TOOL_WINDOWS_CMDS=(
-    [cargo]="cargo.exe"
-    [java]="java.exe"
-    [javac]="javac.exe"
-    [keytool]="keytool.exe"
-    [bun]="bun.exe"
-)
+# 解析构建参数
+parse_build_args() {
+    BUILD_TYPE="release"
+    CHECK_ONLY=false
 
-declare -A TOOL_LINUX_CMDS=(
-    [cargo]="cargo"
-    [java]="java"
-    [javac]="javac"
-    [keytool]="keytool"
-    [bun]="bun"
-)
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            --release)
+                BUILD_TYPE="release"
+                shift
+                ;;
+            --debug)
+                BUILD_TYPE="debug"
+                shift
+                ;;
+            --check-toolchain)
+                CHECK_ONLY=true
+                shift
+                ;;
+            --help|-h)
+                return 1
+                ;;
+            *)
+                return 2
+                ;;
+        esac
+    done
+    return 0
+}
 
-# 获取工具命令 (优先 Windows 版本)
+# 获取工具命令
 get_tool_cmd() {
-    if [ -z "$1" ]; then
+    local tool_name="${1:-}"
+    if [ -z "$tool_name" ]; then
         error "参数缺失：tool_name"
-        echo "提示：请提供工具名称，如 get_tool_cmd cargo"
         return 1
     fi
-    local tool_name="$1"
-    local windows_cmd="${TOOL_WINDOWS_CMDS[$tool_name]}"
-    local linux_cmd="${TOOL_LINUX_CMDS[$tool_name]}"
-    
-    # 优先尝试 Windows 版本
-    if [ -n "$windows_cmd" ] && command -v "$windows_cmd" &> /dev/null; then
-        echo "$windows_cmd"
+
+    if command -v "${tool_name}.exe" &> /dev/null; then
+        echo "${tool_name}.exe"
         return 0
     fi
-    
-    # 回退到 Linux 版本
-    if [ -n "$linux_cmd" ] && command -v "$linux_cmd" &> /dev/null; then
-        echo "$linux_cmd"
+
+    if command -v "$tool_name" &> /dev/null; then
+        echo "$tool_name"
         return 0
     fi
-    
-    # 工具未找到
+
     return 1
 }
 
 # 获取工具所在平台
 get_tool_platform() {
-    if [ -z "$1" ]; then
-        error "参数缺失：tool_name"
-        echo "提示：请提供工具名称，如 get_tool_platform cargo"
+    local tool_name="${1:-}"
+    if [ -z "$tool_name" ]; then
         return 1
     fi
-    local tool_name="$1"
-    local windows_cmd="${TOOL_WINDOWS_CMDS[$tool_name]}"
-    local linux_cmd="${TOOL_LINUX_CMDS[$tool_name]}"
-    
-    if [ -n "$windows_cmd" ] && command -v "$windows_cmd" &> /dev/null; then
+
+    if command -v "${tool_name}.exe" &> /dev/null; then
         echo "windows"
         return 0
     fi
-    
-    if [ -n "$linux_cmd" ] && command -v "$linux_cmd" &> /dev/null; then
+
+    if command -v "$tool_name" &> /dev/null; then
         echo "linux"
         return 0
     fi
-    
+
     return 1
 }
 
@@ -134,28 +146,27 @@ check_tool() {
         return 1
     }
     
-    platform=$(get_tool_platform "$tool_name")
-    
-    # 获取版本信息
-    local version_info=""
-    case "$tool_name" in
-        cargo|java|javac|keytool)
-            version_info=$("$cmd" --version 2>/dev/null | head -1)
-            ;;
-    esac
-    
-    if [ -n "$version_info" ]; then
-        info "$display_name [$platform]: $version_info"
-    else
-        info "$display_name [$platform]: 已安装"
+    if [ "${CHECK_ONLY:-false}" = true ]; then
+        platform=$(get_tool_platform "$tool_name")
+        local version_info=""
+        case "$tool_name" in
+            cargo|java|javac|keytool)
+                version_info=$("$cmd" --version 2>/dev/null | head -1)
+                ;;
+        esac
+        
+        if [ -n "$version_info" ]; then
+            info "$display_name [$platform]: $version_info"
+        else
+            info "$display_name [$platform]: 已安装"
+        fi
     fi
     
     return 0
 }
 
-# 检测 Linux Android SDK 路径
+# 检测 Android SDK 路径
 detect_linux_android_sdk() {
-    # 优先检查环境变量
     if [ -n "$ANDROID_HOME" ] && [ -d "$ANDROID_HOME" ]; then
         echo "$ANDROID_HOME"
         return 0
@@ -213,19 +224,17 @@ detect_ndk_from_sdk() {
     return 1
 }
 
-# 检测 Linux JAVA_HOME
+# 检测 JAVA_HOME
 detect_linux_java_home() {
-    # 优先检查环境变量
     if [ -n "$JAVA_HOME" ] && [ -d "$JAVA_HOME" ]; then
         echo "$JAVA_HOME"
         return 0
     fi
     
-    # 检查常见路径 (使用 glob 模式避免硬编码架构)
+    # 检查常见路径
     local java_base="/usr/lib/jvm"
     local path
     
-    # 优先查找 Java 21 和 17
     for path in "$java_base"/java-21-openjdk-*; do
         if [ -d "$path" ]; then
             echo "$path"
@@ -253,7 +262,7 @@ detect_linux_java_home() {
         fi
     done
     
-    # 尝试自动发现 (使用 glob 避免解析 ls)
+    # 尝试自动发现
     for path in "$java_base"/java-*-openjdk; do
         if [ -d "$path" ]; then
             echo "$path"
@@ -262,36 +271,6 @@ detect_linux_java_home() {
     done
     
     return 1
-}
-
-# 解析构建参数
-parse_build_args() {
-    BUILD_TYPE="release"
-    CHECK_ONLY=false
-
-    while [[ $# -gt 0 ]]; do
-        case $1 in
-            --release)
-                BUILD_TYPE="release"
-                shift
-                ;;
-            --debug)
-                BUILD_TYPE="debug"
-                shift
-                ;;
-            --check)
-                CHECK_ONLY=true
-                shift
-                ;;
-            --help|-h)
-                return 1
-                ;;
-            *)
-                return 2
-                ;;
-        esac
-    done
-    return 0
 }
 
 copy_to_out() {
@@ -323,7 +302,6 @@ copy_to_out() {
 
 check_bun() {
     local bun_cmd
-    local platform
     
     if ! bun_cmd=$(get_tool_cmd "bun"); then
         error "Bun 未安装"
@@ -331,31 +309,33 @@ check_bun() {
         return 1
     fi
     
-    platform=$(get_tool_platform "bun")
-    info "Bun [$platform]: $($bun_cmd --version)"
+    if [ "${CHECK_ONLY:-false}" = true ]; then
+        local platform
+        platform=$(get_tool_platform "bun")
+        info "Bun [$platform]: $($bun_cmd --version)"
+    fi
+    
     return 0
 }
 
 generate_ts_types() {
     task "生成 TypeScript 类型绑定..."
-    
-    # 确保 dist 目录存在
+
     mkdir -p dist
-    
-    # 获取 cargo 命令
+
     local cargo_cmd
     cargo_cmd=$(get_tool_cmd "cargo")
-    
+
     if [ -z "$cargo_cmd" ]; then
         error "Cargo 未找到，无法生成类型绑定"
         echo "提示：请安装 Rust 工具链，访问 https://rustup.rs"
         return 1
     fi
-    
+
     cd src-tauri
     $cargo_cmd test --quiet 2>/dev/null || true
     cd ..
-    
+
     success "TypeScript 类型绑定已生成到 src-tauri/bindings/"
 }
 
@@ -378,7 +358,6 @@ clean_build_cache() {
         fi
     done
 
-    # 运行 cargo clean (使用工具选择层)
     local cargo_cmd
     if cargo_cmd=$(get_tool_cmd "cargo"); then
         info "运行 cargo clean..."
@@ -405,17 +384,17 @@ show_build_help() {
 选项:
   --release         构建 Release 版本 (默认)
   --debug           构建 Debug 版本
-  --check           仅检查环境，不编译
+  --check-toolchain 仅检查环境，不编译
   --serial, -s      串行编译 (默认并行)
   --help, -h        显示此帮助信息
 
 示例:
   ./$script_name windows                      # 编译 Windows (release)
   ./$script_name windows --debug              # 编译 Windows (debug)
-  ./$script_name windows --check              # 检查 Windows 编译环境
+  ./$script_name windows --check-toolchain    # 检查 Windows 编译环境
   ./$script_name windows android              # 并行编译 (release)
   ./$script_name windows android --debug      # 并行编译 (debug)
-  ./$script_name windows android --check      # 并行检查环境
+  ./$script_name windows android --check-toolchain  # 并行检查环境
   ./$script_name windows android --serial     # 串行编译
   ./$script_name gen-types                    # 仅生成类型绑定
 

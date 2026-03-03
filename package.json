@@ -12,7 +12,6 @@
     "android:dev": "tauri android dev",
     "android:build": "tauri android build",
     "android:build:debug": "tauri android build --debug",
-    "android:build:release": "tauri android build",
     "android:studio": "tauri android studio"
   },
   "dependencies": {

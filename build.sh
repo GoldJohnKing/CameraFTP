@@ -27,7 +27,7 @@ while [[ $# -gt 0 ]]; do
             BUILD_TYPE="debug"
             shift
             ;;
-        --check)
+        --check-toolchain)
             CHECK_ONLY=true
             shift
             ;;
@@ -75,7 +75,7 @@ build_target() {
 
     if [ "$check_only" = true ]; then
         task "[$target] 正在检查编译环境..."
-        check_arg="--check"
+        check_arg="--check-toolchain"
     else
         task "[$target] 开始构建（$build_type 模式）..."
     fi
@@ -125,7 +125,9 @@ for target in "${TARGETS[@]}"; do
 done
 
 check_common_tools() {
-    info "检查通用编译环境..."
+    if [ "${CHECK_ONLY:-false}" = true ]; then
+        info "检查通用编译环境..."
+    fi
     local failed=false
     
     if ! check_bun; then
@@ -165,11 +167,6 @@ fi
 
 export FRONTEND_ALREADY_BUILT=1
 
-declare -A TARGET_CONFIG=(
-    [windows]="36:Windows"   # 青色
-    [android]="35:Android"   # 紫色
-)
-
 FAILED_TARGETS=()
 
 if [ "$SERIAL_MODE" = true ] || [ "$CHECK_ONLY" = true ]; then
@@ -180,49 +177,41 @@ if [ "$SERIAL_MODE" = true ] || [ "$CHECK_ONLY" = true ]; then
     done
 else
     PIDS=()
-    PID_MAP=()
 
     use_prefix=false
     if [ ${#BUILD_TARGETS[@]} -gt 1 ]; then
         use_prefix=true
-        info "多目标并行编译，启用输出前缀区分"
+        info "多目标并行编译，根据前缀区分编译目标"
     fi
 
     for target in "${BUILD_TARGETS[@]}"; do
         if [ "$use_prefix" = true ]; then
-            config="${TARGET_CONFIG[$target]}"
-            color="${config%%:*}"
-            target_display="${config#*:}"
-
-            # 在子 shell 中使用 pipefail 保持退出码
-            (
-                set -o pipefail
-                build_target "$target" "$BUILD_TYPE" false 2>&1 | sed "s/^/\x1b[${color}m[${target_display}]\x1b[0m /"
-            ) &
+            case "$target" in
+                windows)
+                    (
+                        set -o pipefail
+                        build_target "$target" "$BUILD_TYPE" false 2>&1 | sed "s/^/\x1b[${TARGET_WINDOWS_COLOR}m[${TARGET_WINDOWS_NAME}]\x1b[0m /"
+                    ) &
+                    ;;
+                android)
+                    (
+                        set -o pipefail
+                        build_target "$target" "$BUILD_TYPE" false 2>&1 | sed "s/^/\x1b[${TARGET_ANDROID_COLOR}m[${TARGET_ANDROID_NAME}]\x1b[0m /"
+                    ) &
+                    ;;
+            esac
         else
             build_target "$target" "$BUILD_TYPE" false &
         fi
 
-        PID=$!
-        PIDS+=($PID)
-        PID_MAP+=("$PID:$target")
-        info "启动后台任务 [PID=$PID]: $target"
+        PIDS+=($!)
     done
 
-    declare -a PARALLEL_FAILED_TARGETS=()
     for i in "${!PIDS[@]}"; do
-        PID=${PIDS[$i]}
-        # PID_MAP 格式为 "PID:target"，需要提取 target 部分
-        pid_target="${PID_MAP[$i]}"
-        target_name="${pid_target#*:}"
-        if ! wait $PID; then
-            PARALLEL_FAILED_TARGETS+=("$target_name")
+        if ! wait "${PIDS[$i]}"; then
+            FAILED_TARGETS+=("${BUILD_TARGETS[$i]}")
         fi
     done
-
-    if [ ${#PARALLEL_FAILED_TARGETS[@]} -gt 0 ]; then
-        FAILED_TARGETS+=("${PARALLEL_FAILED_TARGETS[@]}")
-    fi
 fi
 
 # 汇总并显示构建结果

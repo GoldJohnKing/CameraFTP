@@ -3,12 +3,14 @@
 
 set -e
 
-# 跳过已构建的前端
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+source "$SCRIPT_DIR/build-common.sh"
+
 if [ "${FRONTEND_ALREADY_BUILT:-}" = "1" ]; then
-    echo "前端已构建，跳过"
     exit 0
 fi
 
-echo "构建前端..."
+task "构建前端..."
+
 bun install
 bun run build
