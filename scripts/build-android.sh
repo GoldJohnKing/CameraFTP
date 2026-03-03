@@ -97,11 +97,14 @@ check_android_env() {
         failed=true
     fi
     
-    # 检查 javac (可选，仅警告)
+    # 检查 javac (必需，用于编译自动生成的 Java 代码)
     if detect_tool "javac"; then
-        check_tool "javac" "Javac" || warn "javac 未找到，可能影响某些构建步骤"
+        check_tool "javac" "Javac" || failed=true
     else
-        warn "javac 未找到，可能影响某些构建步骤"
+        error "javac 未找到，请安装完整 JDK（不是仅 JRE）"
+        echo "安装: sudo apt install openjdk-21-jdk (Linux)"
+        echo "或下载: https://adoptium.net/ (Windows)"
+        failed=true
     fi
     
     # 检查 keytool (可选，仅警告)

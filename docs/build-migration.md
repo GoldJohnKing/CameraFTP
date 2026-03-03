@@ -14,13 +14,13 @@
 
 ### 支持的工具
 
-| 工具 | Windows 命令 | Linux 命令 |
-|------|-------------|-----------|
-| Cargo | `cargo.exe` | `cargo` |
-| Java | `java.exe` | `java` |
-| Javac | `javac.exe` | `javac` |
-| Keytool | `keytool.exe` | `keytool` |
-| ADB | `adb.exe` | `adb` |
+| 工具    | Windows 命令  | Linux 命令   | 必需性  |
+| ------- | ------------- | ------------ | ------- |
+| Cargo   | `cargo.exe`   | `cargo`      | ✅ 必需 |
+| Java    | `java.exe`    | `java`       | ✅ 必需 |
+| Javac   | `javac.exe`   | `javac`      | ✅ 必需 |
+| Keytool | `keytool.exe` | `keytool`    | ⚠️ 可选 |
+| ADB     | `adb.exe`     | `adb`        | ⚠️ 可选 |
 
 ### 路径检测优先级
 
