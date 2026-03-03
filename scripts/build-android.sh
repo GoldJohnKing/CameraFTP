@@ -205,7 +205,6 @@ setup_android_env() {
     if [ -n "${SELECTED_PATHS[android_ndk]}" ]; then
         export NDK_HOME="${SELECTED_PATHS[android_ndk]}"
     elif [ -z "$NDK_HOME" ] && [ -d "$ANDROID_HOME/ndk" ]; then
-        # Check if NDK directory is empty
         if [ ! "$(ls -A "$ANDROID_HOME/ndk" 2>/dev/null)" ]; then
             warn "NDK 目录存在但为空"
         fi
@@ -311,98 +310,12 @@ build_android() {
 }
 
 # ============================================
-# 开发模式
-# ============================================
-
-# 查找 APK 文件
-# 用法: find_apk [prefer_debug]
-# 返回: APK 路径或空
-find_apk() {
-    local prefer_debug="${1:-false}"
-    local apk_path=""
-
-    if [ "$prefer_debug" = true ]; then
-        # 优先查找 debug 版本
-        [ -f "$OUTPUT_DIR/camera-ftp-companion-debug.apk" ] && apk_path="$OUTPUT_DIR/camera-ftp-companion-debug.apk"
-        [ -f "$OUTPUT_DIR/camera-ftp-companion.apk" ] && apk_path="$OUTPUT_DIR/camera-ftp-companion.apk"
-    else
-        # 优先查找 release 版本
-        [ -f "$OUTPUT_DIR/camera-ftp-companion.apk" ] && apk_path="$OUTPUT_DIR/camera-ftp-companion.apk"
-        [ -f "$OUTPUT_DIR/camera-ftp-companion-debug.apk" ] && apk_path="$OUTPUT_DIR/camera-ftp-companion-debug.apk"
-    fi
-
-    # 回退到构建目录
-    if [ -z "$apk_path" ]; then
-        apk_path=$(find src-tauri/gen/android/app/build/outputs -name "*.apk" -type f 2>/dev/null | head -1)
-    fi
-
-    echo "$apk_path"
-}
-
-dev_mode() {
-    info "启动 Android 开发模式 (arm64-v8a)..."
-    setup_android_env
-    bun run tauri android dev --target aarch64
-}
-
-# 列出已连接的设备
-list_devices() {
-    info "已连接的 Android 设备:"
-    local adb_cmd="${SELECTED_TOOLS[adb]:-adb}"
-    $adb_cmd devices -l
-}
-
-# 安装 APK 到设备
-install_apk() {
-    local apk_path=$1
-
-    if [ -z "$apk_path" ]; then
-        apk_path=$(find_apk false)
-    fi
-
-    if [ -n "$apk_path" ] && [ -f "$apk_path" ]; then
-        info "安装 APK: $apk_path"
-        local adb_cmd="${SELECTED_TOOLS[adb]:-adb}"
-        $adb_cmd install -r "$apk_path"
-        success "安装完成"
-    else
-        error "未找到 APK 文件: $apk_path"
-        exit 1
-    fi
-}
-
-# 查看 APK 签名信息
-show_apk_info() {
-    local apk_path=$1
-
-    if [ -z "$apk_path" ]; then
-        apk_path=$(find_apk false)
-    fi
-
-    if [ -n "$apk_path" ] && [ -f "$apk_path" ]; then
-        info "APK 信息: $apk_path"
-        echo ""
-        info "包名:"
-        $ANDROID_HOME/build-tools/*/aapt dump badging "$apk_path" 2>/dev/null | grep package || true
-        echo ""
-        info "签名信息:"
-        local keytool_cmd="${SELECTED_TOOLS[keytool]:-keytool}"
-        $keytool_cmd -list -printcert -jarfile "$apk_path" 2>/dev/null || \
-            jarsigner -verify -verbose -certs "$apk_path" 2>/dev/null || \
-            echo "无法读取签名信息"
-    else
-        error "未找到 APK 文件"
-        exit 1
-    fi
-}
-
-# ============================================
 # 帮助
 # ============================================
 
 show_standalone_help() {
     cat << EOF
-用法: ./build-android.sh [选项] [命令]
+用法: ./build-android.sh [选项]
 
 选项:
   --release         构建 Release 版本 (默认)
@@ -410,18 +323,10 @@ show_standalone_help() {
   --check           仅检查环境，不编译
   --help, -h        显示此帮助信息
 
-命令:
-  dev               开发模式（热重载）
-  devices           列出已连接的设备
-  install [apk]     安装 APK 到设备
-  info [apk]        查看 APK 信息
-  keystore          创建签名密钥
-
 示例:
-  ./build-android.sh                 # 构建 Release 版本
-  ./build-android.sh --debug         # 构建 Debug 版本
-  ./build-android.sh --check         # 检查编译环境
-  ./build-android.sh dev             # 开发模式
+  ./build-android.sh              # 构建 Release 版本
+  ./build-android.sh --debug      # 构建 Debug 版本
+  ./build-android.sh --check      # 检查编译环境
 
 输出位置:
   Release: out/camera-ftp-companion.apk
@@ -439,69 +344,24 @@ EOF
 # ============================================
 
 main() {
-    local BUILD_TYPE="release"
-    local CHECK_ONLY=false
-    local COMMAND=""
-    
-    # 解析参数
-    while [[ $# -gt 0 ]]; do
-        case $1 in
-            --release)
-                BUILD_TYPE="release"
-                shift
-                ;;
-            --debug)
-                BUILD_TYPE="debug"
-                shift
-                ;;
-            --check)
-                CHECK_ONLY=true
-                shift
-                ;;
-            --help|-h)
-                show_standalone_help
-                exit 0
-                ;;
-            dev|devices|install|info|keystore)
-                COMMAND="$1"
-                shift
-                ;;
-            *)
-                error "未知参数: $1"
-                show_standalone_help
-                exit 1
-                ;;
-        esac
-    done
-    
-    # 处理 --check
+    # 使用通用参数解析
+    local result=0
+    parse_build_args "$@" || result=$?
+
+    if [ $result -eq 1 ]; then
+        show_standalone_help
+        exit 0
+    elif [ $result -eq 2 ]; then
+        error "未知参数"
+        show_standalone_help
+        exit 1
+    fi
+
     if [ "$CHECK_ONLY" = true ]; then
         check_android_env
-        exit $?
+    else
+        check_android_env && build_android "$BUILD_TYPE"
     fi
-    
-    # 处理命令
-    case "$COMMAND" in
-        dev)
-            check_android_env && dev_mode
-            ;;
-        devices)
-            list_devices
-            ;;
-        install)
-            install_apk
-            ;;
-        info)
-            show_apk_info
-            ;;
-        keystore)
-            check_android_env && check_or_create_keystore
-            ;;
-        *)
-            # 默认构建
-            check_android_env && build_android "$BUILD_TYPE"
-            ;;
-    esac
 }
 
 main "$@"
