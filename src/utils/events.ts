@@ -1,27 +1,12 @@
-/**
- * Tauri 事件管理器
- * 提供统一的事件注册和清理功能
- */
-
 import { listen, Event, UnlistenFn } from '@tauri-apps/api/event';
 
-/**
- * 事件处理器类型
- */
-type EventHandler<T = unknown> = (event: Event<T>) => void;
+type EventHandler<T = any> = (event: Event<T>) => void;
 
-/**
- * 事件注册配置
- */
-export interface EventRegistration<T = unknown> {
+export interface EventRegistration<T = any> {
   name: string;
   handler: EventHandler<T>;
 }
 
-/**
- * 批量注册事件监听器
- * 返回统一的清理函数
- */
 async function registerEvents(
   registrations: EventRegistration<unknown>[]
 ): Promise<UnlistenFn> {
@@ -47,18 +32,11 @@ async function registerEvents(
   };
 }
 
-/**
- * 创建事件管理器实例
- * 管理一组相关的事件监听器
- */
 export function createEventManager() {
   const unlisteners: UnlistenFn[] = [];
   let isCleanedUp = false;
 
   return {
-    /**
-     * 注册单个事件
-     */
     async on<T>(name: string, handler: EventHandler<T>): Promise<void> {
       if (isCleanedUp) {
         return;
@@ -71,10 +49,7 @@ export function createEventManager() {
       }
     },
 
-    /**
-     * 批量注册事件
-     */
-    async registerAll(registrations: EventRegistration<unknown>[]): Promise<void> {
+    async registerAll(registrations: EventRegistration<any>[]): Promise<void> {
       if (isCleanedUp) {
         return;
       }
@@ -82,9 +57,6 @@ export function createEventManager() {
       unlisteners.push(cleanup);
     },
 
-    /**
-     * 清理所有事件监听器
-     */
     cleanup(): void {
       if (isCleanedUp) return;
       isCleanedUp = true;

@@ -1,10 +1,24 @@
 import { create } from 'zustand';
 import { invoke } from '@tauri-apps/api/core';
+import type { Event } from '@tauri-apps/api/event';
 import type { ServerInfo, ServerStateSnapshot } from '../types';
 import { serverStateBridge, storageSettingsBridge } from '../types/global';
 import { createEventManager, type EventRegistration } from '../utils/events';
 import { retryAction, executeAsync } from '../utils/store';
 import { checkAndroidPermissions } from '../types';
+
+// TypeScript declarations for window extensions
+declare global {
+  interface Window {
+    FileUploadAndroid?: {
+      onFileUploaded: (path: string, size: number) => void;
+    };
+  }
+}
+
+// Event payload types
+type ServerStartedPayload = { ip: string; port: number };
+type FileUploadedPayload = { path: string; size: number };
 
 interface ServerState {
   // 状态
@@ -34,7 +48,6 @@ const defaultStats: ServerStateSnapshot = {
   lastFile: null,
 };
 
-// Update Android foreground service with current server state
 const updateAndroidServiceState = (isRunning: boolean, stats: ServerStateSnapshot | null, connectedClients: number, immediate = false) => {
   retryAction(
     () => {
@@ -49,12 +62,14 @@ const updateAndroidServiceState = (isRunning: boolean, stats: ServerStateSnapsho
   );
 };
 
-// Define all event registrations
-const createEventRegistrations = (get: () => ServerState, set: (fn: (state: ServerState) => ServerState) => void): EventRegistration<unknown>[] => [
+const createEventRegistrations = (
+  get: () => ServerState,
+  set: (fn: (state: ServerState) => ServerState) => void
+): EventRegistration<any>[] => [
   {
     name: 'server-started',
-    handler: (event) => {
-      const { ip, port } = event.payload as { ip: string; port: number };
+    handler: (event: Event<ServerStartedPayload>) => {
+      const { ip, port } = event.payload;
       set((state) => ({
         ...state,
         isRunning: true,
@@ -85,19 +100,19 @@ const createEventRegistrations = (get: () => ServerState, set: (fn: (state: Serv
   },
   {
     name: 'stats-update',
-    handler: (event) => {
-      const stats = event.payload as ServerStateSnapshot;
+    handler: (event: Event<ServerStateSnapshot>) => {
+      const stats = event.payload;
       set((state) => ({ ...state, stats }));
       updateAndroidServiceState(true, stats, stats.connectedClients || 0);
     },
   },
   {
     name: 'file-uploaded',
-    handler: (event) => {
-      const payload = event.payload as { path: string; size: number };
+    handler: (event: Event<FileUploadedPayload>) => {
+      const { path, size } = event.payload;
       if (window.FileUploadAndroid?.onFileUploaded) {
         try {
-          window.FileUploadAndroid.onFileUploaded(payload.path, payload.size);
+          window.FileUploadAndroid.onFileUploaded(path, size);
         } catch {
           // Silently ignore media scan errors
         }
@@ -127,11 +142,10 @@ const createEventRegistrations = (get: () => ServerState, set: (fn: (state: Serv
   {
     name: 'window-close-requested',
     handler: async () => {
-      // 先显示并置顶主窗口，确保对话框可见
       try {
         await invoke('show_main_window');
       } catch {
-        // 忽略窗口显示错误
+        // Ignore window display errors
       }
       window.dispatchEvent(new CustomEvent('app-quit-requested'));
     },
@@ -144,7 +158,6 @@ const createEventRegistrations = (get: () => ServerState, set: (fn: (state: Serv
   },
 ];
 
-// Sync initial server state
 const syncInitialState = async (set: (fn: (state: ServerState) => ServerState) => void): Promise<void> => {
   try {
     const info = await invoke<ServerInfo | null>('get_server_info');
@@ -162,7 +175,6 @@ const syncInitialState = async (set: (fn: (state: ServerState) => ServerState) =
   }
 };
 
-// Start server logic (permission check skipped)
 const doStartServer = async (set: (fn: (state: ServerState) => ServerState) => void, get: () => ServerState): Promise<void> => {
   await executeAsync({
     operation: () => invoke<ServerInfo>('start_server'),

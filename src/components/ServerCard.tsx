@@ -29,29 +29,20 @@ export const ServerCard = memo(function ServerCard() {
     setIsStarting(true);
     
     try {
-      // 1. Check prerequisites
       const check = await checkPrerequisites();
       
       if (!check.canStart) {
         if (needsPermission) {
-          // 需要权限 - 直接跳转到设置页面
           await requestAllFilesPermission();
-          setIsStarting(false);
-          return;
+        } else {
+          const result = await ensureStorageReady();
+          if (result.success) {
+            await startServer();
+          }
         }
-        
-        // 尝试创建目录
-        const result = await ensureStorageReady();
-        if (!result.success) {
-          setIsStarting(false);
-          return;
-        }
+      } else {
+        await startServer();
       }
-      
-      // 启动服务器
-      await startServer();
-      // 不再显示Toast - 系统通知栏已提供状态提示
-      
     } catch (err) {
       toast.error('启动服务器失败：' + formatError(err));
     } finally {

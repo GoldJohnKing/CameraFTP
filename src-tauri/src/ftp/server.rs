@@ -15,6 +15,8 @@ use tokio::sync::{mpsc, oneshot, RwLock};
 use tracing::{error, info, instrument};
 use unftp_core::auth::{Authenticator, Credentials, AuthenticationError, Principal};
 
+const SERVER_STARTUP_DELAY_MS: u64 = 100;
+
 /// 自定义 FTP 认证器
 #[derive(Debug)]
 struct CustomAuthenticator {
@@ -107,17 +109,13 @@ impl FtpServerHandle {
         &self,
         config: ServerConfig,
     ) -> AppResult<SocketAddr> {
-        self.send_command(|tx| ServerCommand::Start { config, respond_to: tx })
-            .await
-            .map_err(|_| AppError::ServerNotRunning)?
+        self.send_command(|tx| ServerCommand::Start { config, respond_to: tx }).await?
     }
 
     /// 停止服务器
     #[instrument(skip(self))]
     pub async fn stop(&self) -> AppResult<()> {
-        self.send_command(|tx| ServerCommand::Stop { respond_to: tx })
-            .await
-            .map_err(|_| AppError::ServerNotRunning)?
+        self.send_command(|tx| ServerCommand::Stop { respond_to: tx }).await?
     }
 
     /// 获取状态快照
@@ -271,12 +269,6 @@ impl FtpServerActor {
 
         // 构建并启动服务器
         // SAFETY: 闭包内创建 Filesystem 实例。路径已在上方（line 257）验证有效。
-        // Filesystem 不实现 Clone，Arc<Filesystem> 不实现 StorageBackend，
-        // 因此只能在闭包内创建新实例。
-        // 
-        // 注意：如果创建失败（理论上不可能，因为路径已验证），会记录严重错误日志。
-        // 这是设计上的限制：ServerBuilder 要求闭包返回 Filesystem 而非 Result，
-        // 因此无法优雅地传播错误。路径预验证确保这种情况极不可能发生。
         // 注意：PASV 端口使用 libunftp 默认范围 49152-65535
         let result = ServerBuilder::with_authenticator(
             Box::new(move || {
@@ -337,7 +329,7 @@ impl FtpServerActor {
             }
         });
 
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        tokio::time::sleep(tokio::time::Duration::from_millis(SERVER_STARTUP_DELAY_MS)).await;
 
         {
             let mut s = self.status.write().await;
@@ -374,7 +366,7 @@ impl FtpServerActor {
             *status = ServerStatus::Stopping;
         }
 
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        tokio::time::sleep(tokio::time::Duration::from_millis(SERVER_STARTUP_DELAY_MS)).await;
 
         {
             let mut status = self.status.write().await;

@@ -1,51 +1,18 @@
-/**
- * Zustand store utilities for common async action patterns
- */
-
 import { formatError } from './error';
 
-/**
- * Options for async action execution
- */
 interface AsyncActionOptions<T, S> {
-  /** The async operation to perform */
   operation: () => Promise<T>;
-  /** Called with the result on success */
   onSuccess: (result: T, set: (fn: (state: S) => S) => void) => void;
-  /** Optional error message prefix */
   errorPrefix?: string;
-  /** Whether to re-throw errors (default: false) */
   rethrow?: boolean;
 }
 
-/**
- * Options for retry utility
- */
 interface RetryOptions {
-  /** Maximum number of retry attempts */
   maxRetries: number;
-  /** Delay between retries in milliseconds */
   delayMs: number;
-  /** Maximum total duration in milliseconds (default: 5000ms) */
   maxDurationMs?: number;
 }
 
-/**
- * Execute an action with retry logic.
- * Retries the action if it throws or returns a falsy result.
- *
- * @example
- * ```ts
- * retryAction(
- *   () => {
- *     if (!window.SomeBridge) return false;
- *     window.SomeBridge.doSomething();
- *     return true;
- *   },
- *   { maxRetries: 5, delayMs: 200 }
- * );
- * ```
- */
 export function retryAction(
   action: () => boolean | void,
   options: RetryOptions
@@ -54,7 +21,6 @@ export function retryAction(
   const startTime = Date.now();
   
   const tryAction = (retriesLeft: number) => {
-    // Check if we've exceeded max duration
     if (Date.now() - startTime > maxDurationMs) {
       console.warn(`[retryAction] Max duration (${maxDurationMs}ms) exceeded, giving up`);
       return;
@@ -62,12 +28,10 @@ export function retryAction(
     
     try {
       const result = action();
-      // If action returns explicit false, retry
       if (result === false && retriesLeft > 0) {
         setTimeout(() => tryAction(retriesLeft - 1), delayMs);
       }
     } catch {
-      // On error, retry if attempts remain
       if (retriesLeft > 0) {
         setTimeout(() => tryAction(retriesLeft - 1), delayMs);
       }
@@ -77,21 +41,6 @@ export function retryAction(
   tryAction(maxRetries);
 }
 
-/**
- * Helper function to execute async actions with consistent loading/error state management.
- * Reduces boilerplate in Zustand stores.
- *
- * @example
- * ```ts
- * loadConfig: async () => {
- *   await executeAsync({
- *     operation: () => invoke<AppConfig>('load_config'),
- *     onSuccess: (config, set) => set((state) => ({ ...state, config })),
- *     errorPrefix: 'Failed to load config',
- *   }, set);
- * },
- * ```
- */
 export async function executeAsync<T, S>(
   options: AsyncActionOptions<T, S>,
   set: (fn: (state: S) => S) => void,

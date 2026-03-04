@@ -3,11 +3,6 @@ import { invoke } from '@tauri-apps/api/core';
 import type { AppConfig } from '../types';
 import { executeAsync } from '../utils/store';
 
-// ========== 防抖工具 ==========
-
-/**
- * 防抖函数，支持取消和立即执行
- */
 function debounce<T extends (...args: any[]) => any>(
   fn: T,
   delay: number
@@ -43,20 +38,15 @@ function debounce<T extends (...args: any[]) => any>(
   return debounced as T & { cancel: () => void; flush: () => void };
 }
 
-// ========== Store 接口定义 ==========
-
 interface ConfigState {
-  // 已持久化的配置（真实来源）
   config: AppConfig | null;
-  // 共享草稿（所有界面编辑目标）
   draft: AppConfig | null;
-  // 状态
   isLoading: boolean;
   error: string | null;
   activeTab: 'home' | 'config';
   platform: string;
+  draftRevision: number;
 
-  // Actions
   loadConfig: () => Promise<void>;
   updateDraft: (updater: (draft: AppConfig) => AppConfig) => void;
   commitDraft: () => Promise<void>;
@@ -66,20 +56,15 @@ interface ConfigState {
   loadPlatform: () => Promise<void>;
 }
 
-// ========== 防抖配置 ==========
-
-const DEBOUNCE_DELAY = 100; // 统一 100ms 防抖
-
-// ========== Store 实现 ==========
+const DEBOUNCE_DELAY = 100;
 
 export const useConfigStore = create<ConfigState>((set, get) => {
-  // 防抖保存函数 - 使用 get() 获取最新 state，避免闭包问题
-  const debouncedSave = debounce(async (config: AppConfig) => {
+  const debouncedSave = debounce(async (config: AppConfig, savedRevision: number) => {
     try {
       await invoke('save_config', { config });
-      // 使用 get() 检查当前 draft 是否已被修改（避免竞态）
-      const currentDraft = get().draft;
-      if (currentDraft === config) {
+      // Only update persisted config if draft hasn't changed since save started
+      const { draftRevision } = get();
+      if (draftRevision === savedRevision) {
         set({ config, error: null });
       }
     } catch (e) {
@@ -95,8 +80,8 @@ export const useConfigStore = create<ConfigState>((set, get) => {
     error: null,
     activeTab: 'home',
     platform: 'unknown',
+    draftRevision: 0,
 
-    // ========== 加载配置 ==========
     loadConfig: async () => {
       await executeAsync(
         {
@@ -107,24 +92,21 @@ export const useConfigStore = create<ConfigState>((set, get) => {
       );
     },
 
-    // ========== 更新草稿（核心方法）==========
     updateDraft: (updater: (draft: AppConfig) => AppConfig) => {
-      const { draft } = get();
+      const { draft, draftRevision } = get();
       if (!draft) return;
 
       const newDraft = updater(draft);
-      set({ draft: newDraft });
+      const newRevision = draftRevision + 1;
+      set({ draft: newDraft, draftRevision: newRevision });
 
-      // 触发防抖保存
-      debouncedSave(newDraft);
+      debouncedSave(newDraft, newRevision);
     },
 
-    // ========== 立即保存草稿 ==========
     commitDraft: async () => {
       debouncedSave.flush();
     },
 
-    // ========== 重置草稿 ==========
     resetDraft: () => {
       const { config } = get();
       if (config) {
@@ -133,41 +115,36 @@ export const useConfigStore = create<ConfigState>((set, get) => {
       }
     },
 
-    // ========== 开机自启动 ==========
-    // 注意：此操作不修改全局 isLoading，避免触发其他组件重渲染
+    // Note: This doesn't modify global isLoading to avoid triggering re-renders
     setAutostart: async (enabled: boolean) => {
       try {
         await invoke('set_autostart_command', { enable: enabled });
       } catch (e) {
-        // Autostart is optional, but we still want to propagate the error
         throw e;
       }
     },
 
-    // ========== Tab 切换 ==========
     setActiveTab: (tab: 'home' | 'config') => {
       set({ activeTab: tab });
     },
 
-    // ========== 平台检测 ==========
-    loadPlatform: async () => {
-      const { platform } = get();
-      if (platform !== 'unknown') return;
+    loadPlatform: (() => {
+      let didLoad = false;
+      return async () => {
+        if (didLoad) return;
+        didLoad = true;
 
-      try {
-        const platformValue = await invoke<string>('get_platform');
-        set({ platform: platformValue });
-      } catch {
-        set({ platform: 'unknown' });
-      }
-    },
+        try {
+          const platformValue = await invoke<string>('get_platform');
+          set({ platform: platformValue });
+        } catch {
+          set({ platform: 'unknown' });
+        }
+      };
+    })(),
   };
 });
 
-// ========== 选择器 Hooks（细粒度订阅）==========
-
-/** 只订阅 draft（用于编辑界面）*/
 export const useDraftConfig = () => useConfigStore(state => state.draft);
 
-/** 只订阅 config（用于显示已保存状态）*/
 export const useSavedConfig = () => useConfigStore(state => state.config);
