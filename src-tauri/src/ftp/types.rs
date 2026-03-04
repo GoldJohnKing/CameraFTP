@@ -23,20 +23,37 @@ impl ServerStats {
     }
 }
 
-/// FTP 认证配置
+/// FTP 认证配置 - 使用枚举确保类型安全
+/// 两种互斥状态：匿名访问 或 认证访问
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct FtpAuthConfig {
-    pub anonymous: bool,
-    pub username: String,
-    pub password_hash: String,
+#[serde(tag = "mode", content = "credentials")]
+pub enum FtpAuthConfig {
+    /// 允许匿名访问
+    Anonymous,
+    /// 需要用户名和密码认证
+    Authenticated {
+        username: String,
+        password_hash: String,
+    },
 }
 
 impl Default for FtpAuthConfig {
     fn default() -> Self {
-        Self {
-            anonymous: true,
-            username: String::new(),
-            password_hash: String::new(),
+        Self::Anonymous
+    }
+}
+
+impl FtpAuthConfig {
+    /// 检查是否是匿名访问
+    pub fn is_anonymous(&self) -> bool {
+        matches!(self, Self::Anonymous)
+    }
+
+    /// 获取用户名（如果是认证模式）
+    pub fn username(&self) -> Option<&str> {
+        match self {
+            Self::Anonymous => None,
+            Self::Authenticated { username, .. } => Some(username),
         }
     }
 }
@@ -46,10 +63,13 @@ impl From<&AuthConfig> for FtpAuthConfig {
         let should_be_anonymous =
             auth.anonymous || auth.username.trim().is_empty() || auth.password_hash.is_empty();
 
-        Self {
-            anonymous: should_be_anonymous,
-            username: auth.username.clone(),
-            password_hash: auth.password_hash.clone(),
+        if should_be_anonymous {
+            Self::Anonymous
+        } else {
+            Self::Authenticated {
+                username: auth.username.clone(),
+                password_hash: auth.password_hash.clone(),
+            }
         }
     }
 }

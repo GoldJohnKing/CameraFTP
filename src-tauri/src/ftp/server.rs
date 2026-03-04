@@ -34,27 +34,30 @@ impl Authenticator for CustomAuthenticator {
         username: &str,
         creds: &Credentials,
     ) -> Result<Principal, AuthenticationError> {
-        if self.auth_config.anonymous {
-            return Ok(Principal {
-                username: username.to_string(),
-            });
-        }
+        match &self.auth_config {
+            FtpAuthConfig::Anonymous => {
+                // 匿名模式：允许任何用户名
+                Ok(Principal {
+                    username: username.to_string(),
+                })
+            }
+            FtpAuthConfig::Authenticated { username: expected_username, password_hash } => {
+                // 验证用户名
+                if username != expected_username {
+                    return Err(AuthenticationError::BadPassword);
+                }
 
-        // 验证用户名
-        if username != self.auth_config.username {
-            return Err(AuthenticationError::BadPassword);
-        }
-
-        // 使用 Argon2id 验证密码
-        // 注意：verify_password 接受 String 以便使用 Zeroizing 清零
-        let password = creds.password.clone().unwrap_or_default();
-        
-        if crate::crypto::verify_password(password, &self.auth_config.password_hash) {
-            Ok(Principal {
-                username: username.to_string(),
-            })
-        } else {
-            Err(AuthenticationError::BadPassword)
+                // 使用 Argon2id 验证密码
+                let password = creds.password.clone().unwrap_or_default();
+                
+                if crate::crypto::verify_password(password, password_hash) {
+                    Ok(Principal {
+                        username: username.to_string(),
+                    })
+                } else {
+                    Err(AuthenticationError::BadPassword)
+                }
+            }
         }
     }
 }
@@ -422,13 +425,14 @@ impl FtpServerActor {
 
         // 获取认证信息
         let (username, password_info) = if let Some(ref config) = self.config {
-            if config.auth.anonymous {
-                (None, None)
-            } else {
-                (
-                    Some(config.auth.username.clone()),
-                    Some("(配置密码)".to_string()),
-                )
+            match &config.auth {
+                FtpAuthConfig::Anonymous => (None, None),
+                FtpAuthConfig::Authenticated { username, .. } => {
+                    (
+                        Some(username.clone()),
+                        Some("(配置密码)".to_string()),
+                    )
+                }
             }
         } else {
             (None, None)
