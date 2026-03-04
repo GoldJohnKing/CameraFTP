@@ -1,15 +1,15 @@
 use super::traits::PlatformService;
 use super::types::{PermissionStatus, StorageInfo};
+use crate::constants::{
+    ANDROID_DCIM_PATH, ANDROID_DEFAULT_STORAGE_PATH, ANDROID_STORAGE_DISPLAY_NAME,
+};
 use crate::utils::fs::is_path_writable;
 use tauri::{AppHandle, Emitter};
 use tracing::{debug, error, info};
 
-/// 默认存储路径：DCIM/CameraFTP
-/// 这是固定路径，用户不能更改
-pub const DEFAULT_STORAGE_PATH: &str = "/storage/emulated/0/DCIM/CameraFTP";
-
-/// 显示名称
-pub const STORAGE_DISPLAY_NAME: &str = "DCIM/CameraFTP";
+// 为了保持向后兼容，重新导出常量
+pub use crate::constants::ANDROID_DEFAULT_STORAGE_PATH as DEFAULT_STORAGE_PATH;
+pub use crate::constants::ANDROID_STORAGE_DISPLAY_NAME as STORAGE_DISPLAY_NAME;
 
 /// 获取存储路径信息
 pub fn get_storage_info() -> StorageInfo {
@@ -52,7 +52,7 @@ fn check_all_files_permission() -> bool {
 
 /// 检查 DCIM 目录是否可写（用于判断所有文件访问权限）
 fn can_write_to_dcim() -> bool {
-    let dcim_path = std::path::Path::new("/storage/emulated/0/DCIM");
+    let dcim_path = std::path::Path::new(ANDROID_DCIM_PATH);
     if !dcim_path.exists() {
         debug!("DCIM path does not exist");
         return false;

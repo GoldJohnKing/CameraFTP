@@ -109,8 +109,8 @@ const createEventRegistrations = (get: () => ServerState, set: (fn: (state: Serv
     handler: async () => {
       try {
         await get().startServer();
-      } catch {
-        // Silently ignore tray start server errors
+      } catch (err) {
+        console.warn('[serverStore] Tray start server failed:', err);
       }
     },
   },
@@ -119,8 +119,8 @@ const createEventRegistrations = (get: () => ServerState, set: (fn: (state: Serv
     handler: async () => {
       try {
         await get().stopServer();
-      } catch {
-        // Silently ignore tray stop server errors
+      } catch (err) {
+        console.warn('[serverStore] Tray stop server failed:', err);
       }
     },
   },
@@ -157,8 +157,8 @@ const syncInitialState = async (set: (fn: (state: ServerState) => ServerState) =
         stats: status || { ...defaultStats, isRunning: true },
       }));
     }
-  } catch {
-    // Silently ignore initial state sync errors
+  } catch (err) {
+    console.warn('[serverStore] Initial state sync failed:', err);
   }
 };
 

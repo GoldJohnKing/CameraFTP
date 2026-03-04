@@ -57,8 +57,8 @@ function App() {
         } else {
           cleanup();
         }
-      } catch {
-        // Silently ignore listener initialization errors
+      } catch (err) {
+        console.warn('[App] Listener initialization failed:', err);
       }
     };
 
@@ -96,8 +96,8 @@ function App() {
       // 通过Rust命令隐藏窗口
       try {
         await invoke('hide_main_window');
-      } catch {
-        // Silently ignore window hide errors
+      } catch (err) {
+        console.warn('[App] Failed to hide window:', err);
       }
     }
   };

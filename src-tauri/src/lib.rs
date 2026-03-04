@@ -1,6 +1,7 @@
 pub mod auto_open;
 pub mod commands;
 pub mod config;
+pub mod constants;
 pub mod crypto;
 pub mod error;
 pub mod file_index;
