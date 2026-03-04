@@ -3,7 +3,7 @@
 use crate::config::AppConfig;
 use crate::error::AppError;
 use crate::ftp::{
-    create_ftp_server, EventBus, EventProcessor, FtpServerHandle, FtpAuthConfig, ServerConfig, StatsEventHandler,
+    create_ftp_server, EventBus, EventProcessor, FtpServerHandle, FtpAuthConfig, ServerConfig, StatsEventHandler, TrayUpdateHandler,
 };
 use crate::network::NetworkManager;
 use std::sync::Arc;
@@ -149,9 +149,11 @@ pub async fn start_ftp_server(
 }
 
 pub fn spawn_event_processor(app_handle: AppHandle, event_bus: EventBus) {
+    let app_handle_for_tray = app_handle.clone();
     tokio::spawn(async move {
         let processor = EventProcessor::new(&event_bus)
-            .register(StatsEventHandler::new(app_handle));
+            .register(StatsEventHandler::new(app_handle))
+            .register(TrayUpdateHandler::new(app_handle_for_tray));
         processor.run().await;
     });
 }

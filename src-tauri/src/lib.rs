@@ -183,32 +183,8 @@ pub fn run() {
                 }
             });
 
-            // 托盘图标状态更新（轻量级轮询，仅更新托盘）
-            // 前端统计推送由 EventBus + StatsEventHandler 事件驱动处理
-            let app_handle = app.handle().clone();
-            let state: tauri::State<'_, FtpServerState> = app.state();
-            let state_clone = state.0.clone();
-            let platform_ref = platform;
-
-            tauri::async_runtime::spawn(async move {
-                let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(1));
-                let mut last_client_count: usize = 0;
-
-                loop {
-                    interval.tick().await;
-
-                    let server_guard = state_clone.lock().await;
-                    if let Some(server) = server_guard.as_ref() {
-                        let snapshot = server.get_snapshot().await;
-
-                        // 仅在连接数变化时更新托盘图标
-                        if snapshot.is_running && snapshot.connected_clients != last_client_count {
-                            platform_ref.update_server_state(&app_handle, snapshot.connected_clients as u32);
-                            last_client_count = snapshot.connected_clients;
-                        }
-                    }
-                }
-            });
+            // 托盘图标状态更新现在由 TrayUpdateHandler 事件驱动
+            // 通过 EventBus 监听 StatsUpdated 事件，替代原有的轮询机制
 
             Ok(())
         })

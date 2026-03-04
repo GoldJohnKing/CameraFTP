@@ -230,3 +230,48 @@ fn parse_bind_addr(bind_addr: &str) -> (String, u16) {
         ("0.0.0.0".to_string(), 2121)
     }
 }
+
+/// 托盘状态更新处理器 - 监听统计更新并更新托盘图标
+/// 替代原有的轮询机制，使用事件驱动更新
+pub struct TrayUpdateHandler {
+    app_handle: tauri::AppHandle,
+    last_client_count: std::sync::atomic::AtomicU32,
+}
+
+impl TrayUpdateHandler {
+    pub fn new(app_handle: tauri::AppHandle) -> Self {
+        Self {
+            app_handle,
+            last_client_count: std::sync::atomic::AtomicU32::new(0),
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl EventHandler for TrayUpdateHandler {
+    async fn handle(&mut self, event: &DomainEvent) {
+        match event {
+            DomainEvent::StatsUpdated(stats) => {
+                let client_count = stats.active_connections as u32;
+                let last_count = self.last_client_count.load(std::sync::atomic::Ordering::Relaxed);
+
+                // 仅在客户端数量变化时更新托盘
+                if client_count != last_count {
+                    crate::platform::get_platform()
+                        .update_server_state(&self.app_handle, client_count);
+                    self.last_client_count.store(client_count, std::sync::atomic::Ordering::Relaxed);
+                }
+            }
+            DomainEvent::ServerStopped => {
+                // 服务器停止时重置计数并更新托盘
+                crate::platform::get_platform().update_server_state(&self.app_handle, 0);
+                self.last_client_count.store(0, std::sync::atomic::Ordering::Relaxed);
+            }
+            _ => {}
+        }
+    }
+
+    fn interested_types(&self) -> Option<Vec<&'static str>> {
+        Some(vec!["StatsUpdated", "ServerStopped"])
+    }
+}

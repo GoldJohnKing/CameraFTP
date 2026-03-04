@@ -14,7 +14,7 @@ pub mod stats;
 pub mod types;
 
 // 重新导出主要类型
-pub use events::{EventBus, EventProcessor, StatsEventHandler};
+pub use events::{EventBus, EventProcessor, StatsEventHandler, TrayUpdateHandler};
 pub use server::{create_ftp_server, FtpServerActor, FtpServerHandle};
 pub use server_factory::{
     spawn_event_processor, start_ftp_server, ServerStartupContext, ServerStartupOptions,
