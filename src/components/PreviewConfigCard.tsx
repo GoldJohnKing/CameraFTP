@@ -4,16 +4,12 @@ import { invoke } from '@tauri-apps/api/core';
 // The centralized event manager (events.ts) is better suited for multi-event scenarios.
 import { listen } from '@tauri-apps/api/event';
 import type { PreviewWindowConfig } from '../types';
+import type { ConfigChangedEvent } from '../types/events';
 import { ImagePlay } from 'lucide-react';
 import { Card, CardHeader, ToggleSwitch } from './ui';
 
 interface PreviewConfigCardProps {
   platform: string;
-}
-
-// 全局配置变化事件类型
-interface ConfigChangedEvent {
-  config: PreviewWindowConfig;
 }
 
 export function PreviewConfigCard({ platform }: PreviewConfigCardProps) {

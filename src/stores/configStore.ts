@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { invoke } from '@tauri-apps/api/core';
-import type { AppConfig, PreviewWindowConfig } from '../types';
+import type { AppConfig } from '../types';
 import { executeAsync } from '../utils/store';
 
 // ========== 防抖工具 ==========
@@ -55,7 +55,6 @@ interface ConfigState {
   error: string | null;
   activeTab: 'home' | 'config';
   platform: string;
-  previewConfig: PreviewWindowConfig | null;
 
   // Actions
   loadConfig: () => Promise<void>;
@@ -65,8 +64,6 @@ interface ConfigState {
   setAutostart: (enabled: boolean) => Promise<void>;
   setActiveTab: (tab: 'home' | 'config') => void;
   loadPlatform: () => Promise<void>;
-  loadPreviewConfig: () => Promise<void>;
-  updatePreviewConfig: (config: PreviewWindowConfig) => Promise<void>;
 }
 
 // ========== 防抖配置 ==========
@@ -99,7 +96,6 @@ export const useConfigStore = create<ConfigState>((set, get) => {
     error: null,
     activeTab: 'home',
     platform: 'unknown',
-    previewConfig: null,
 
     // ========== 加载配置 ==========
     loadConfig: async () => {
@@ -164,26 +160,6 @@ export const useConfigStore = create<ConfigState>((set, get) => {
         set({ platform: platformValue });
       } catch {
         set({ platform: 'unknown' });
-      }
-    },
-
-    // ========== 预览配置 ==========
-    loadPreviewConfig: async () => {
-      try {
-        const config = await invoke<PreviewWindowConfig>('get_preview_config');
-        set({ previewConfig: config });
-      } catch {
-        // Silently ignore - preview config will use defaults
-      }
-    },
-
-    updatePreviewConfig: async (config: PreviewWindowConfig) => {
-      try {
-        await invoke('set_preview_config', { config });
-        set({ previewConfig: config });
-      } catch (error) {
-        // Config change is not critical, but we still want to propagate the error
-        throw error;
       }
     },
   };

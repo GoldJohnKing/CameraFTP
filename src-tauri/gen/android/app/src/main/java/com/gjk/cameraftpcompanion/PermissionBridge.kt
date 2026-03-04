@@ -33,16 +33,18 @@ class PermissionBridge(activity: MainActivity) : BaseJsBridge(activity) {
      */
     @JavascriptInterface
     fun checkAllPermissions(): String {
+        Log.d(TAG, "checkAllPermissions: checking all permissions")
         val storageGranted = checkStoragePermission()
         val notificationGranted = checkNotificationPermission()
         val batteryOptimizationGranted = checkBatteryOptimization()
-        
+
         // Use JSONObject for proper formatting
         val json = JSONObject()
         json.put("storage", storageGranted)
         json.put("notification", notificationGranted)
         json.put("batteryOptimization", batteryOptimizationGranted)
-        
+
+        Log.d(TAG, "checkAllPermissions: storage=$storageGranted, notification=$notificationGranted, batteryOptimization=$batteryOptimizationGranted")
         return json.toString()
     }
 
@@ -94,6 +96,7 @@ class PermissionBridge(activity: MainActivity) : BaseJsBridge(activity) {
      */
     @JavascriptInterface
     fun requestStoragePermission() {
+        Log.d(TAG, "requestStoragePermission: opening storage settings")
         // Delegate to StorageHelper to avoid code duplication
         StorageHelper.openManageStorageSettings(activity)
     }
@@ -103,6 +106,7 @@ class PermissionBridge(activity: MainActivity) : BaseJsBridge(activity) {
      */
     @JavascriptInterface
     fun requestNotificationPermission() {
+        Log.d(TAG, "requestNotificationPermission: requesting notification permission")
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             ActivityCompat.requestPermissions(
                 activity,
@@ -117,6 +121,7 @@ class PermissionBridge(activity: MainActivity) : BaseJsBridge(activity) {
      */
     @JavascriptInterface
     fun requestBatteryOptimization() {
+        Log.d(TAG, "requestBatteryOptimization: requesting battery optimization whitelist")
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             val powerManager = activity.getSystemService(Context.POWER_SERVICE) as PowerManager
             if (!powerManager.isIgnoringBatteryOptimizations(activity.packageName)) {
@@ -128,6 +133,8 @@ class PermissionBridge(activity: MainActivity) : BaseJsBridge(activity) {
                 } catch (e: Exception) {
                     Log.e(TAG, "Failed to open battery optimization settings", e)
                 }
+            } else {
+                Log.d(TAG, "requestBatteryOptimization: already whitelisted")
             }
         }
     }

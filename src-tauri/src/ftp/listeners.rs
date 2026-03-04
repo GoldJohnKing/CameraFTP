@@ -45,11 +45,7 @@ impl DataListener for FtpDataListener {
                     info!(file = %path, size = bytes, "File uploaded");
 
                     // 检查是否是支持的图片文件
-                    let is_image = path.to_lowercase().ends_with(".jpg")
-                        || path.to_lowercase().ends_with(".jpeg")
-                        || path.to_lowercase().ends_with(".heif")
-                        || path.to_lowercase().ends_with(".hif")
-                        || path.to_lowercase().ends_with(".heic");
+                    let is_image = FileIndexService::is_supported_image(std::path::Path::new(&path));
 
                     // Windows 平台自动打开图片
                     #[cfg(target_os = "windows")]

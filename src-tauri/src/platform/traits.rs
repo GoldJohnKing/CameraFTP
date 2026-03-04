@@ -1,6 +1,6 @@
 use super::types::{PermissionStatus, ServerStartCheckResult, StorageInfo};
 use std::sync::Arc;
-use tauri::AppHandle;
+use tauri::{AppHandle, Manager};
 use tokio::sync::Mutex;
 
 /// 平台服务接口
@@ -115,6 +115,24 @@ pub trait PlatformService: Send + Sync {
     /// 隐藏主窗口（Windows 最小化到托盘，Android 进入后台）
     fn hide_main_window(&self, _app: &AppHandle) -> Result<(), String> {
         // 默认实现：无操作
+        Ok(())
+    }
+
+    /// 显示并聚焦主窗口
+    fn show_main_window(&self, app: &AppHandle) -> Result<(), String> {
+        #[cfg(not(target_os = "android"))]
+        {
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.set_skip_taskbar(false);
+                let _ = window.unminimize();
+                let _ = window.show();
+                let _ = window.set_focus();
+            }
+        }
+        #[cfg(target_os = "android")]
+        {
+            let _ = app;
+        }
         Ok(())
     }
 

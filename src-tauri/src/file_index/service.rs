@@ -1,6 +1,7 @@
 use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
+use std::sync::Arc;
 use std::time::SystemTime;
 use tokio::sync::RwLock;
 use tracing::{info, warn};
@@ -185,9 +186,9 @@ impl FileIndexService {
     }
 
     /// 获取文件列表
-    pub async fn get_files(&self) -> Vec<FileInfo> {
+    pub async fn get_files(&self) -> Arc<Vec<FileInfo>> {
         let index = self.index.read().await;
-        index.files.clone()
+        Arc::new(index.files.clone())
     }
 
     /// 获取当前索引
@@ -227,6 +228,7 @@ impl FileIndexService {
     }
 
     /// 获取文件数量
+    #[allow(dead_code)]
     pub async fn get_file_count(&self) -> usize {
         let index = self.index.read().await;
         index.files.len()

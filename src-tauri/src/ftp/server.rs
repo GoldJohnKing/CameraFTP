@@ -267,20 +267,30 @@ impl FtpServerActor {
         let authenticator = Arc::new(CustomAuthenticator::new(config.auth.clone()));
 
         // 构建并启动服务器
-        // SAFETY: 闭包内创建 Filesystem 实例。路径已在上方（line 225）验证有效。
+        // SAFETY: 闭包内创建 Filesystem 实例。路径已在上方（line 257）验证有效。
         // Filesystem 不实现 Clone，Arc<Filesystem> 不实现 StorageBackend，
-        // 因此只能在闭包内创建新实例。如果创建失败（极不可能，因路径已验证），
-        // libunftp 会处理错误 - 我们无法从这里传播错误。
+        // 因此只能在闭包内创建新实例。
+        // 
+        // 注意：如果创建失败（理论上不可能，因为路径已验证），会记录严重错误日志。
+        // 这是设计上的限制：ServerBuilder 要求闭包返回 Filesystem 而非 Result，
+        // 因此无法优雅地传播错误。路径预验证确保这种情况极不可能发生。
         // 注意：PASV 端口使用 libunftp 默认范围 49152-65535
         let result = ServerBuilder::with_authenticator(
             Box::new(move || {
                 unftp_sbe_fs::Filesystem::new(root_path.clone())
-                    .unwrap_or_else(|e| {
-                        error!(error = %e, "CRITICAL: Filesystem creation failed after validation");
-                        // Return an empty filesystem that will fail operations gracefully
-                        // This path should never be reached, but prevents panic
-                        unftp_sbe_fs::Filesystem::new(std::path::PathBuf::new()).unwrap()
+                    .map_err(|e| {
+                        // 路径已验证，这里不应该失败
+                        // 但如果确实失败，记录严重错误并返回一个会失败的 filesystem
+                        error!(
+                            error = %e,
+                            root_path = %root_path.display(),
+                            "CRITICAL: Filesystem creation failed in ServerBuilder closure despite validation"
+                        );
+                        e
                     })
+                    // 使用 expect 因为这是一个不应发生的内部错误
+                    // 如果到达这里，说明预验证逻辑有 bug
+                    .expect("Filesystem creation failed after successful validation")
             }),
             authenticator,
         )

@@ -10,11 +10,10 @@ const TIME_COST: u32 = 3;
 const PARALLELISM: u32 = 4;
 const OUTPUT_LENGTH: usize = 32;
 
-/// 密码哈希结果
+/// 密码哈希结果（PHC 格式包含所有参数和盐值）
 #[derive(Debug, Clone)]
 pub struct HashedPassword {
     pub hash: String,
-    pub salt: String,
 }
 
 /// 对密码进行 Argon2id 哈希
@@ -38,7 +37,6 @@ pub fn hash_password(password: String) -> HashedPassword {
 
     HashedPassword {
         hash: password_hash.to_string(),
-        salt: salt.to_string(),
     }
     // password (Zeroizing) 离开作用域，内存自动清零
 }
@@ -73,7 +71,8 @@ mod tests {
         let hashed = hash_password(password.clone());
 
         assert!(!hashed.hash.is_empty());
-        assert!(!hashed.salt.is_empty());
+        // PHC 格式哈希包含 $ 分隔符
+        assert!(hashed.hash.contains('$'));
         assert!(verify_password(password.clone(), &hashed.hash));
         assert!(!verify_password("wrong_password".to_string(), &hashed.hash));
     }
@@ -84,8 +83,7 @@ mod tests {
         let hash1 = hash_password(password.clone());
         let hash2 = hash_password(password);
 
-        // 相同密码应产生不同的哈希值
+        // 相同密码应产生不同的哈希值（因为盐值不同）
         assert_ne!(hash1.hash, hash2.hash);
-        assert_ne!(hash1.salt, hash2.salt);
     }
 }

@@ -1,5 +1,6 @@
 use super::traits::PlatformService;
 use super::types::{PermissionStatus, StorageInfo};
+use crate::utils::fs::is_path_writable;
 use tauri::{AppHandle, Emitter};
 use tracing::{debug, error, info};
 
@@ -47,19 +48,6 @@ pub fn check_permission_status() -> PermissionStatus {
 /// 通过尝试写入 DCIM 目录来判断
 fn check_all_files_permission() -> bool {
     can_write_to_dcim()
-}
-
-/// 检查路径是否可写（通过创建临时测试文件）
-/// 注意：不检查路径是否存在，直接尝试创建测试文件
-fn is_path_writable(path: &std::path::Path) -> bool {
-    let test_file = path.join(".write_test");
-    match std::fs::File::create(&test_file) {
-        Ok(_) => {
-            let _ = std::fs::remove_file(&test_file);
-            true
-        }
-        Err(_) => false,
-    }
 }
 
 /// 检查 DCIM 目录是否可写（用于判断所有文件访问权限）
@@ -160,7 +148,9 @@ impl PlatformService for AndroidPlatform {
     }
 
     fn check_server_start_prerequisites(&self) -> super::types::ServerStartCheckResult {
-        // 前端通过 PermissionDialog 处理权限检查，这里直接返回可启动
+        // Android 平台：前端通过 PermissionDialog 处理权限检查
+        // 这里始终返回可启动，因为权限检查在前端完成
+        // 前端会确保用户已授权所有文件访问权限后才允许启动服务器
         let storage_info = self.get_storage_info();
         super::types::ServerStartCheckResult {
             can_start: true,

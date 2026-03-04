@@ -3,7 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { toast } from 'sonner';
 import type { PermissionCheckResult, StorageInfo, PermissionStatus, ServerStartCheckResult } from '../types';
 import { permissionBridge } from '../types';
-import { formatError } from '../utils/error';
+import { formatError, silent } from '../utils/error';
 
 interface PermissionStoreState {
   // Permission states
@@ -34,6 +34,9 @@ interface PermissionStoreState {
   startPolling: () => void;
   stopPolling: () => void;
   
+  // Polling interval ID (stored in state instead of module scope)
+  pollingIntervalId: number | null;
+  
   // Storage operations (merged from useStoragePermission)
   loadStorageInfo: () => Promise<StorageInfo | null>;
   checkPermissionStatus: () => Promise<PermissionStatus | null>;
@@ -55,8 +58,6 @@ function checkAllGranted(perms: PermissionCheckResult): boolean {
   return perms.storage && perms.notification && perms.batteryOptimization;
 }
 
-// Polling state
-let pollingIntervalId: number | null = null;
 const POLLING_INTERVAL_MS = 200; // Poll every 200ms when active
 
 /**
@@ -79,6 +80,9 @@ export const usePermissionStore = create<PermissionStoreState>()((set, get) => (
     // Storage states
     storageInfo: null,
     needsPermission: false,
+    
+    // Polling state (moved from module scope)
+    pollingIntervalId: null,
     
     // Actions - 必须传入完整对象，内部计算 allGranted
     setPermissions: (newPerms) => {
@@ -153,15 +157,17 @@ export const usePermissionStore = create<PermissionStoreState>()((set, get) => (
     startPolling: () => {
       if (!permissionBridge.isAvailable()) return;
       
+      const state = get();
+      
       // Stop existing polling first
-      if (pollingIntervalId !== null) {
-        window.clearInterval(pollingIntervalId);
+      if (state.pollingIntervalId !== null) {
+        window.clearInterval(state.pollingIntervalId);
       }
       
       set({ isPolling: true });
       
       // Store previous state to detect changes
-      let previousState = { ...get().permissions };
+      let previousState = { ...state.permissions };
       let stopPollingRequested = false;
       
       // Check immediately
@@ -179,7 +185,7 @@ export const usePermissionStore = create<PermissionStoreState>()((set, get) => (
       });
       
       // Start interval
-      pollingIntervalId = window.setInterval(async () => {
+      const intervalId = window.setInterval(async () => {
         // Skip if stop was requested
         if (stopPollingRequested) return;
         
@@ -206,15 +212,17 @@ export const usePermissionStore = create<PermissionStoreState>()((set, get) => (
           }
         }
       }, POLLING_INTERVAL_MS);
+      
+      set({ pollingIntervalId: intervalId });
     },
     
     // Stop polling
     stopPolling: () => {
+      const { pollingIntervalId } = get();
       if (pollingIntervalId !== null) {
         window.clearInterval(pollingIntervalId);
-        pollingIntervalId = null;
       }
-      set({ isPolling: false });
+      set({ isPolling: false, pollingIntervalId: null });
     },
     
     // === Storage operations (merged from useStoragePermission) ===
@@ -240,13 +248,11 @@ export const usePermissionStore = create<PermissionStoreState>()((set, get) => (
     
     // Check permission status
     checkPermissionStatus: async () => {
-      try {
+      return silent(async () => {
         const status = await invoke<PermissionStatus>('check_permission_status');
         set({ needsPermission: status.needsUserAction });
         return status;
-      } catch {
-        return null;
-      }
+      });
     },
     
     // Check server start prerequisites

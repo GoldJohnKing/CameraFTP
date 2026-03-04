@@ -7,15 +7,16 @@ import android.os.Bundle
 import android.util.Log
 import android.webkit.WebView
 import androidx.activity.enableEdgeToEdge
-import com.gjk.cameraftpcompanion.bridges.*
+import com.gjk.cameraftpcompanion.bridges.FileUploadBridge
+import com.gjk.cameraftpcompanion.bridges.ServerStateBridge
 
 class MainActivity : TauriActivity() {
     
     companion object {
         private const val TAG = "MainActivity"
+        private const val TAURI_EVENT_LISTENER_DELAY_MS = 100L
     }
     
-    private var storageSettingsBridge: StorageSettingsBridge? = null
     private var webViewRef: WebView? = null
     private var fileUploadBridge: FileUploadBridge? = null
     private var serverStateBridge: ServerStateBridge? = null
@@ -35,8 +36,7 @@ class MainActivity : TauriActivity() {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         
-        // 初始化Bridge
-        storageSettingsBridge = StorageSettingsBridge(this)
+        Log.d(TAG, "onCreate: initializing bridges")
         fileUploadBridge = FileUploadBridge(this)
         serverStateBridge = ServerStateBridge(this)
         permissionBridge = PermissionBridge(this)
@@ -52,8 +52,7 @@ class MainActivity : TauriActivity() {
         // 保存WebView引用
         webViewRef = webView
         
-        // 添加JavaScript Bridge - 此时WebView已创建完成
-        addJsBridge(webView, storageSettingsBridge, "StorageSettingsAndroid")
+        Log.d(TAG, "onWebViewCreate: adding JavaScript bridges")
         addJsBridge(webView, fileUploadBridge, "FileUploadAndroid")
         addJsBridge(webView, serverStateBridge, "ServerStateAndroid")
         addJsBridge(webView, permissionBridge, "PermissionAndroid")
@@ -107,25 +106,31 @@ class MainActivity : TauriActivity() {
                     })();
                 """
                 webView.evaluateJavascript(jsCode, null)
-            }, 100)
+            }, TAURI_EVENT_LISTENER_DELAY_MS)
         } ?: run {
             Log.e(TAG, "WebView is null, cannot register event listeners")
         }
     }
 
     override fun onDestroy() {
+        Log.d(TAG, "onDestroy: cleaning up bridge references")
         super.onDestroy()
+        // Clear all bridge references to prevent memory leaks
         webViewRef = null
+        fileUploadBridge = null
+        serverStateBridge = null
+        permissionBridge = null
     }
     
     /**
      * Start the FTP foreground service
      */
     private fun startFtpForegroundService() {
+        Log.d(TAG, "startFtpForegroundService: starting FTP service")
         val serviceIntent = Intent(this, FtpForegroundService::class.java).apply {
             action = FtpForegroundService.ACTION_START
         }
-        
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             startForegroundService(serviceIntent)
         } else {
@@ -150,8 +155,9 @@ class MainActivity : TauriActivity() {
      * This also handles starting/stopping the foreground service based on server state
      */
     fun updateServiceState(isRunning: Boolean, statsJson: String?, connectedClients: Int) {
+        Log.d(TAG, "updateServiceState: isRunning=$isRunning, connectedClients=$connectedClients")
         var service = FtpForegroundService.getInstance()
-        
+
         if (isRunning) {
             // Server is running - ensure foreground service is started
             if (service == null) {
@@ -173,6 +179,7 @@ class MainActivity : TauriActivity() {
      * Stop the foreground service
      */
     private fun stopFtpForegroundService() {
+        Log.d(TAG, "stopFtpForegroundService: stopping FTP service")
         val intent = Intent(this, FtpForegroundService::class.java).apply {
             action = FtpForegroundService.ACTION_STOP
         }

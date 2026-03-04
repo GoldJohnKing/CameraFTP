@@ -4,6 +4,7 @@ import { listen } from '@tauri-apps/api/event';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import type { FileInfo, ExifInfo } from '../types';
+import type { ConfigChangedEvent } from '../types/events';
 
 interface PreviewEvent {
   file_path: string;
@@ -14,15 +15,6 @@ interface PreviewWindowState {
   isOpen: boolean;
   currentImage: string | null;
   autoBringToFront: boolean;
-}
-
-// 全局配置变化事件类型
-interface ConfigChangedEvent {
-  config: {
-    enabled: boolean;
-    method: string;
-    autoBringToFront: boolean;
-  };
 }
 
 export function PreviewWindow() {

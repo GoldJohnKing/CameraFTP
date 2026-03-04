@@ -354,12 +354,9 @@ impl PlatformService for WindowsPlatform {
                     tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
                     // 重新发送 server-started 事件（因为原事件在 EventProcessor 就绪前已发出）
-                    // 直接通过 Tauri 发送，确保前端能收到
-                    let _ = app_handle.emit("server-started", serde_json::json!({
-                        "ip": ctx.ip,
-                        "port": ctx.port
-                    }));
-                    tracing::info!("Re-emitted server-started event for autostart");
+                    // 通过 EventBus 发送，确保与正常启动流程一致
+                    ctx.event_bus.emit_server_started(format!("{}:{}", ctx.ip, ctx.port));
+                    tracing::info!("Re-emitted server-started event for autostart via EventBus");
 
                     // 统一通过 PlatformService 处理启动后逻辑
                     // 这会自动更新托盘图标为 idle 状态
@@ -381,6 +378,17 @@ impl PlatformService for WindowsPlatform {
         } else {
             Err("主窗口不存在".to_string())
         }
+    }
+
+    fn show_main_window(&self, app: &AppHandle) -> Result<(), String> {
+        tracing::info!("Showing and focusing main window");
+        if let Some(window) = app.get_webview_window("main") {
+            let _ = window.set_skip_taskbar(false);
+            let _ = window.unminimize();
+            let _ = window.show();
+            let _ = window.set_focus();
+        }
+        Ok(())
     }
 
     fn select_save_directory(&self, _app: &AppHandle) -> Result<Option<String>, String> {

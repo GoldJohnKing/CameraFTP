@@ -17,10 +17,8 @@ pub struct AuthConfig {
     pub anonymous: bool,
     /// 自定义用户名（匿名关闭时使用）
     pub username: String,
-    /// 密码哈希（Argon2id）
+    /// 密码哈希（Argon2id，PHC格式已包含盐值）
     pub password_hash: String,
-    /// 密码盐值
-    pub password_salt: String,
 }
 
 impl Default for AuthConfig {
@@ -29,7 +27,6 @@ impl Default for AuthConfig {
             anonymous: true,
             username: String::new(),
             password_hash: String::new(),
-            password_salt: String::new(),
         }
     }
 }

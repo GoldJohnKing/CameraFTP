@@ -1,23 +1,48 @@
 /**
- * 通用错误处理工具
+ * Error handling utilities
+ * Provides helpers for silent error handling and fallback values
  */
 
 /**
- * 将未知错误格式化为字符串
+ * Format an error into a human-readable string
  */
 export function formatError(err: unknown): string {
-  if (err instanceof Error) {
-    return err.message;
-  }
-  if (typeof err === 'string') {
-    return err;
-  }
-  if (err === null || err === undefined) {
-    return 'Unknown error';
-  }
-  try {
-    return JSON.stringify(err);
-  } catch {
-    return String(err);
-  }
+    if (err instanceof Error) {
+        return err.message;
+    }
+    if (typeof err === 'string') {
+        return err;
+    }
+    if (err === null || err === undefined) {
+        return 'Unknown error';
+    }
+    try {
+        return JSON.stringify(err);
+    } catch {
+        return String(err);
+    }
+}
+
+/**
+ * Execute an async function and return null on error (silent fail)
+ * Use when you don't care about errors and just want the result or nothing
+ */
+export async function silent<T>(fn: () => Promise<T>): Promise<T | null> {
+    try {
+        return await fn();
+    } catch {
+        return null;
+    }
+}
+
+/**
+ * Execute an async function and return a fallback value on error
+ * Use when you need a guaranteed value even if the operation fails
+ */
+export async function ignoreErrors<T>(fn: () => Promise<T>, fallback: T): Promise<T> {
+    try {
+        return await fn();
+    } catch {
+        return fallback;
+    }
 }

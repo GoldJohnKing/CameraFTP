@@ -14,7 +14,7 @@ import type { AdvancedConnectionConfig, AppConfig } from '../types';
 
 const DEFAULT_ADVANCED_CONFIG: AdvancedConnectionConfig = {
   enabled: false,
-  auth: { anonymous: true, username: '', passwordHash: '', passwordSalt: '' },
+  auth: { anonymous: true, username: '', passwordHash: '' },
 };
 
 export const ConfigCard = memo(function ConfigCard() {
@@ -65,7 +65,9 @@ export const ConfigCard = memo(function ConfigCard() {
     if (isAndroid) {
       checkPermissions();
     }
-    // 注意：依赖项为空数组，仅在挂载时执行
+    // 依赖项说明：空数组表示仅在挂载时执行一次
+    // checkPermissions 在 store 中是稳定的引用，但包含 Android 平台检测逻辑
+    // 为避免不必要的重复检查，仅在 isAndroid 变化时（挂载时）执行
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

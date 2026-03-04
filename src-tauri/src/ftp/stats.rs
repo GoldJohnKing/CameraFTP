@@ -50,32 +50,44 @@ impl StatsActor {
 
     /// 记录文件下载
     pub async fn record_download(&self, path: String, bytes: u64) {
-        let _ = self.tx.send(StatsCommand::RecordDownload { path, bytes }).await;
+        if let Err(e) = self.tx.send(StatsCommand::RecordDownload { path, bytes }).await {
+            tracing::warn!("Failed to send record_download command: {}", e);
+        }
     }
 
     /// 记录文件删除
     pub async fn record_delete(&self, path: String) {
-        let _ = self.tx.send(StatsCommand::RecordDelete { path }).await;
+        if let Err(e) = self.tx.send(StatsCommand::RecordDelete { path }).await {
+            tracing::warn!("Failed to send record_delete command: {}", e);
+        }
     }
 
     /// 记录目录创建
     pub async fn record_mkdir(&self, path: String) {
-        let _ = self.tx.send(StatsCommand::RecordMkdir { path }).await;
+        if let Err(e) = self.tx.send(StatsCommand::RecordMkdir { path }).await {
+            tracing::warn!("Failed to send record_mkdir command: {}", e);
+        }
     }
 
     /// 记录目录删除
     pub async fn record_rmdir(&self, path: String) {
-        let _ = self.tx.send(StatsCommand::RecordRmdir { path }).await;
+        if let Err(e) = self.tx.send(StatsCommand::RecordRmdir { path }).await {
+            tracing::warn!("Failed to send record_rmdir command: {}", e);
+        }
     }
 
     /// 记录文件重命名
     pub async fn record_rename(&self, from: String, to: String) {
-        let _ = self.tx.send(StatsCommand::RecordRename { from, to }).await;
+        if let Err(e) = self.tx.send(StatsCommand::RecordRename { from, to }).await {
+            tracing::warn!("Failed to send record_rename command: {}", e);
+        }
     }
 
     /// 更新连接数
     pub async fn update_connection_count(&self, count: u64) {
-        let _ = self.tx.send(StatsCommand::UpdateConnectionCount { count }).await;
+        if let Err(e) = self.tx.send(StatsCommand::UpdateConnectionCount { count }).await {
+            tracing::warn!("Failed to send update_connection_count command: {}", e);
+        }
     }
 }
 

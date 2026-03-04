@@ -7,6 +7,7 @@ pub mod file_index;
 pub mod ftp;
 pub mod network;
 pub mod platform;
+pub mod utils;
 
 use std::sync::Arc;
 use tokio::sync::Mutex;

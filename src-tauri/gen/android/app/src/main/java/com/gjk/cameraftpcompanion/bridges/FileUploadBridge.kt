@@ -22,19 +22,21 @@ class FileUploadBridge(private val mainActivity: MainActivity) : BaseJsBridge(ma
      */
     @JavascriptInterface
     fun onFileUploaded(path: String?) {
+        Log.d(TAG, "onFileUploaded: path=$path")
         if (path.isNullOrEmpty()) {
             Log.w(TAG, "Received empty file path, skipping media scan")
             return
         }
 
-        // 构建完整文件路径
+        // Build full file path
         val fullPath = if (path.startsWith("/")) {
             path
         } else {
             "$DEFAULT_STORAGE_PATH/$path"
         }
+        Log.d(TAG, "onFileUploaded: fullPath=$fullPath")
 
-        // 触发媒体扫描，让照片出现在相册中
+        // Trigger media scan to make photos appear in gallery
         runOnUiThread {
             MediaScannerHelper.scanFile(mainActivity, fullPath)
         }
