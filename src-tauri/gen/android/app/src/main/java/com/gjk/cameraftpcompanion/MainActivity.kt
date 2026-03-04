@@ -14,7 +14,8 @@ class MainActivity : TauriActivity() {
     
     companion object {
         private const val TAG = "MainActivity"
-        private const val TAURI_EVENT_LISTENER_DELAY_MS = 100L
+        private const val TAURI_LISTENER_MAX_RETRIES = 50
+        private const val TAURI_LISTENER_RETRY_DELAY_MS = 50L
     }
     
     private var webViewRef: WebView? = null
@@ -64,51 +65,75 @@ class MainActivity : TauriActivity() {
     /**
      * 注册Tauri事件监听
      * 通过JavaScript桥接监听Tauri后端事件
+     * 使用轮询重试机制确保Tauri环境就绪
      */
     @SuppressLint("SetJavaScriptEnabled")
     private fun registerFileUploadEventListener() {
         webViewRef?.let { webView ->
-            // 延迟注入确保Tauri环境已就绪（减少延迟从500ms到100ms）
-            webView.postDelayed({
-                val jsCode = """
-                    (function() {
-                        if (window.__tauriEventListenerRegistered) return;
-                        window.__tauriEventListenerRegistered = true;
-                        
-                        if (window.__TAURI__ && window.__TAURI__.event) {
-                            // 监听Tauri的file-uploaded事件
-                            window.__TAURI__.event.listen('file-uploaded', function(event) {
-                                console.log('[Android] file-uploaded event received:', event.payload);
-                                // 调用原生方法
-                                if (window.FileUploadAndroid) {
-                                    window.FileUploadAndroid.onFileUploaded(
-                                        event.payload.path || ''
-                                    );
-                                }
-                            });
-                            console.log('[Android] file-uploaded event listener registered');
-                            
-                            // 监听服务器状态更新事件
-                            window.__TAURI__.event.listen('android-service-state-update', function(event) {
-                                console.log('[Android] android-service-state-update event received:', event.payload);
-                                if (window.ServerStateAndroid) {
-                                    window.ServerStateAndroid.onServerStateChanged(
-                                        event.payload.is_running || false,
-                                        event.payload.stats ? JSON.stringify(event.payload.stats) : null,
-                                        event.payload.connected_clients || 0
-                                    );
-                                }
-                            });
-                            console.log('[Android] android-service-state-update event listener registered');
-                        } else {
-                            console.warn('[Android] Tauri event API not available');
-                        }
-                    })();
-                """
-                webView.evaluateJavascript(jsCode, null)
-            }, TAURI_EVENT_LISTENER_DELAY_MS)
+            attemptRegisterEventListener(webView, 0)
         } ?: run {
             Log.e(TAG, "WebView is null, cannot register event listeners")
+        }
+    }
+    
+    /**
+     * 尝试注册事件监听器，支持重试
+     * @param webView WebView实例
+     * @param retryCount 当前重试次数
+     */
+    private fun attemptRegisterEventListener(webView: android.webkit.WebView, retryCount: Int) {
+        if (retryCount >= TAURI_LISTENER_MAX_RETRIES) {
+            Log.w(TAG, "Max retries reached, Tauri event listener registration failed")
+            return
+        }
+        
+        val jsCode = """
+            (function() {
+                if (window.__tauriEventListenerRegistered) return 'already_registered';
+                
+                if (window.__TAURI__ && window.__TAURI__.event) {
+                    window.__tauriEventListenerRegistered = true;
+                    
+                    // 监听Tauri的file-uploaded事件
+                    window.__TAURI__.event.listen('file-uploaded', function(event) {
+                        console.log('[Android] file-uploaded event received:', event.payload);
+                        if (window.FileUploadAndroid) {
+                            window.FileUploadAndroid.onFileUploaded(
+                                event.payload.path || ''
+                            );
+                        }
+                    });
+                    
+                    // 监听服务器状态更新事件
+                    window.__TAURI__.event.listen('android-service-state-update', function(event) {
+                        console.log('[Android] android-service-state-update event received:', event.payload);
+                        if (window.ServerStateAndroid) {
+                            window.ServerStateAndroid.onServerStateChanged(
+                                event.payload.is_running || false,
+                                event.payload.stats ? JSON.stringify(event.payload.stats) : null,
+                                event.payload.connected_clients || 0
+                            );
+                        }
+                    });
+                    
+                    return 'success';
+                } else {
+                    return 'not_ready';
+                }
+            })();
+        """
+        
+        webView.evaluateJavascript(jsCode) { result ->
+            when (result?.trim()?.removeSurrounding("\"")) {
+                "success" -> Log.d(TAG, "Tauri event listeners registered successfully")
+                "already_registered" -> Log.d(TAG, "Event listeners already registered")
+                else -> {
+                    // Tauri not ready, retry after delay
+                    webView.postDelayed({
+                        attemptRegisterEventListener(webView, retryCount + 1)
+                    }, TAURI_LISTENER_RETRY_DELAY_MS)
+                }
+            }
         }
     }
 
