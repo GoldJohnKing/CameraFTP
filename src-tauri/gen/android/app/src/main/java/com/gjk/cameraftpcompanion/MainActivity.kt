@@ -163,10 +163,14 @@ class MainActivity : TauriActivity() {
             if (service == null) {
                 startFtpForegroundService()
                 service = FtpForegroundService.getInstance()
+                if (service == null) {
+                    Log.w(TAG, "Failed to start foreground service - service is still null after start attempt")
+                    return
+                }
             }
-            
+
             // Now update the state
-            service?.updateServerState(statsJson, connectedClients)
+            service.updateServerState(statsJson, connectedClients)
         } else {
             // Server is stopped - stop foreground service
             if (service != null) {

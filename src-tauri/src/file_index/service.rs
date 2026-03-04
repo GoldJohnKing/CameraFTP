@@ -190,19 +190,19 @@ impl FileIndexService {
 
     /// 导航到指定索引
     pub async fn navigate_to(&self, new_index: usize) -> Result<FileInfo, AppError> {
-        let index = self.index.read().await;
-        
-        if new_index >= index.files.len() {
-            return Err(AppError::Other("Index out of bounds".to_string()));
-        }
-        
-        let file_info = index.files[new_index].clone();
-        drop(index); // 释放读锁
-        
-        // 更新当前索引
+        // 先验证索引范围并获取文件信息
+        let file_info = {
+            let index = self.index.read().await;
+            if new_index >= index.files.len() {
+                return Err(AppError::Other("Index out of bounds".to_string()));
+            }
+            index.files[new_index].clone()
+        }; // 读锁在这里自动释放
+
+        // 然后更新当前索引
         let mut index = self.index.write().await;
         index.current_index = Some(new_index);
-        
+
         Ok(file_info)
     }
 

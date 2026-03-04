@@ -26,6 +26,8 @@ interface RetryOptions {
   maxRetries: number;
   /** Delay between retries in milliseconds */
   delayMs: number;
+  /** Maximum total duration in milliseconds (default: 5000ms) */
+  maxDurationMs?: number;
 }
 
 /**
@@ -48,9 +50,16 @@ export function retryAction(
   action: () => boolean | void,
   options: RetryOptions
 ): void {
-  const { maxRetries, delayMs } = options;
+  const { maxRetries, delayMs, maxDurationMs = 5000 } = options;
+  const startTime = Date.now();
   
   const tryAction = (retriesLeft: number) => {
+    // Check if we've exceeded max duration
+    if (Date.now() - startTime > maxDurationMs) {
+      console.warn(`[retryAction] Max duration (${maxDurationMs}ms) exceeded, giving up`);
+      return;
+    }
+    
     try {
       const result = action();
       // If action returns explicit false, retry
