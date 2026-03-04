@@ -73,20 +73,19 @@ const DEBOUNCE_DELAY = 100; // 统一 100ms 防抖
 // ========== Store 实现 ==========
 
 export const useConfigStore = create<ConfigState>((set, get) => {
-  // 内部保存方法
-  const saveConfigInternal = async (config: AppConfig) => {
+  // 防抖保存函数 - 使用 get() 获取最新 state，避免闭包问题
+  const debouncedSave = debounce(async (config: AppConfig) => {
     try {
       await invoke('save_config', { config });
-      set({ config, error: null });
+      // 使用 get() 检查当前 draft 是否已被修改（避免竞态）
+      const currentDraft = get().draft;
+      if (currentDraft === config) {
+        set({ config, error: null });
+      }
     } catch (e) {
       set({ error: String(e) });
       throw e;
     }
-  };
-
-  // 创建防抖保存函数（只创建一次）
-  const debouncedSave = debounce(async (config: AppConfig) => {
-    await saveConfigInternal(config);
   }, DEBOUNCE_DELAY);
 
   return {

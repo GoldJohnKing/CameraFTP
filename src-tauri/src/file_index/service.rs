@@ -123,7 +123,6 @@ impl FileIndexService {
         let path = path.to_path_buf();
         tokio::task::spawn_blocking(move || {
             use nom_exif::*;
-            use chrono::{Datelike, Timelike};
 
             let mut parser = MediaParser::new();
             let ms = MediaSource::file_path(&path).ok()?;
@@ -141,16 +140,8 @@ impl FileIndexService {
                 .and_then(|v| v.as_time_components())
                 .map(|(ndt, _offset)| ndt)?;
 
-            // 转换为 SystemTime
-            use std::time::{SystemTime, Duration};
-            let days_since_epoch = (datetime.year() - 1970) as u64 * 365
-                + (datetime.month() as u64 - 1) * 30
-                + datetime.day() as u64;
-            let seconds = days_since_epoch * 24 * 3600
-                + datetime.hour() as u64 * 3600
-                + datetime.minute() as u64 * 60
-                + datetime.second() as u64;
-            Some(SystemTime::UNIX_EPOCH + Duration::from_secs(seconds))
+            // 转换为 SystemTime - 使用 chrono 的正确转换方法
+            datetime.and_utc().try_into().ok()
         }).await.ok()?
     }
 
