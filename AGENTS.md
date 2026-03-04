@@ -8,16 +8,9 @@ Follow these rules when working on this codebase.
 
 ### 1. Build Commands
 
-Verify code changes with build.sh. Use the table below to select the right command:
+NEVER use `bun` or `cargo build` directly. Use `./build.sh windows android` instead.
 
-| Command | Output | Use Case |
-|---------|--------|----------|
-| `./build.sh gen-types` | TypeScript bindings | After modifying shared Rust structs |
-| `./build.sh frontend` | Frontend build | After TypeScript or CSS changes |
-| `./build.sh windows android` | Windows and Android builds | After Rust changes |
-| `./build.sh windows` | Windows executable | After Windows-specific changes |
-| `./build.sh android` | Android APK | After Android-specific changes |
-| `./build.sh clean` | Clean build cache | When builds behave unexpectedly |
+This command builds Android and Windows in parallel, making it much faster than building them one by one.
 
 ### 2. LSP Tools
 
@@ -27,6 +20,10 @@ Do not use LSP tools in this environment. They hang or timeout.
 - `lsp_goto_definition`
 - `lsp_find_references`
 - `lsp_rename`
+
+### 3. Verify Code Changes
+
+ALWAYS build both platform to verify code changes: run `./build.sh windows android`.
 
 ---
 
