@@ -251,27 +251,31 @@ impl TrayUpdateHandler {
 impl EventHandler for TrayUpdateHandler {
     async fn handle(&mut self, event: &DomainEvent) {
         match event {
+            DomainEvent::ServerStarted { .. } => {
+                // 服务器启动时更新托盘为运行状态
+                crate::platform::get_platform().on_server_started(&self.app_handle);
+            }
+            DomainEvent::ServerStopped => {
+                // 服务器停止时更新托盘为停止状态
+                crate::platform::get_platform().on_server_stopped(&self.app_handle);
+                self.last_client_count.store(0, std::sync::atomic::Ordering::Relaxed);
+            }
             DomainEvent::StatsUpdated(stats) => {
                 let client_count = stats.active_connections as u32;
                 let last_count = self.last_client_count.load(std::sync::atomic::Ordering::Relaxed);
 
-                // 仅在客户端数量变化时更新托盘
+                // 仅在客户端数量变化时更新托盘图标状态
                 if client_count != last_count {
                     crate::platform::get_platform()
                         .update_server_state(&self.app_handle, client_count);
                     self.last_client_count.store(client_count, std::sync::atomic::Ordering::Relaxed);
                 }
             }
-            DomainEvent::ServerStopped => {
-                // 服务器停止时重置计数并更新托盘
-                crate::platform::get_platform().update_server_state(&self.app_handle, 0);
-                self.last_client_count.store(0, std::sync::atomic::Ordering::Relaxed);
-            }
             _ => {}
         }
     }
 
     fn interested_types(&self) -> Option<Vec<&'static str>> {
-        Some(vec!["StatsUpdated", "ServerStopped"])
+        Some(vec!["ServerStarted", "ServerStopped", "StatsUpdated"])
     }
 }
