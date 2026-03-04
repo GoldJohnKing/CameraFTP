@@ -54,6 +54,14 @@ impl EventBus {
         });
     }
 
+    /// 发布文件索引变化事件
+    pub fn emit_file_index_changed(&self, count: usize, latest_filename: Option<String>) {
+        self.emit(DomainEvent::FileIndexChanged {
+            count,
+            latest_filename,
+        });
+    }
+
     /// 发布统计更新（带增量检查）
     pub async fn emit_stats_updated(&self, stats: ServerStats) {
         let should_emit = {
@@ -158,6 +166,7 @@ fn event_type_name(event: &DomainEvent) -> &'static str {
         DomainEvent::ServerStopped { .. } => "ServerStopped",
         DomainEvent::FileUploaded { .. } => "FileUploaded",
         DomainEvent::StatsUpdated { .. } => "StatsUpdated",
+        DomainEvent::FileIndexChanged { .. } => "FileIndexChanged",
     }
 }
 
@@ -206,6 +215,15 @@ impl EventHandler for StatsEventHandler {
                     serde_json::json!({ "path": path, "size": size }),
                 );
             }
+            DomainEvent::FileIndexChanged { count, latest_filename } => {
+                self.emit_to_frontend(
+                    "file-index-changed",
+                    serde_json::json!({
+                        "count": count,
+                        "latestFilename": latest_filename
+                    }),
+                );
+            }
         }
     }
 
@@ -215,6 +233,7 @@ impl EventHandler for StatsEventHandler {
             "ServerStarted",
             "ServerStopped",
             "FileUploaded",
+            "FileIndexChanged",
         ])
     }
 }
@@ -271,7 +290,10 @@ impl EventHandler for TrayUpdateHandler {
                     self.last_client_count.store(client_count, std::sync::atomic::Ordering::Relaxed);
                 }
             }
-            _ => {}
+            // 文件索引变化事件不需要处理托盘状态
+            DomainEvent::FileIndexChanged { .. } => {}
+            // 文件上传事件不需要处理托盘状态
+            DomainEvent::FileUploaded { .. } => {}
         }
     }
 

@@ -54,7 +54,11 @@ use commands::{
     start_server,
     stop_server,
     validate_save_path,
-    FtpServerState
+    FtpServerState,
+    // 文件系统监听
+    start_file_watcher,
+    stop_file_watcher,
+    handle_file_system_event,
 };
 
 fn setup_logging() {
@@ -158,7 +162,11 @@ pub fn run() {
                             // 阻止默认关闭行为
                             api.prevent_close();
                             // 将窗口置于前台（处理任务栏预览关闭的情况）
+                            // 需要确保窗口显示并取消最小化，然后才能设置焦点
                             if let Some(win) = app_handle.get_webview_window("main") {
+                                let _ = win.set_skip_taskbar(false);
+                                let _ = win.unminimize();
+                                let _ = win.show();
                                 let _ = win.set_focus();
                             }
                             // 发送事件给前端显示确认对话框
@@ -182,6 +190,27 @@ pub fn run() {
                     tracing::error!("Failed to scan directory: {}", e);
                 }
             });
+
+            // 启动文件系统监听（桌面平台）
+            #[cfg(not(target_os = "android"))]
+            {
+                let app_handle_for_watcher = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    use std::sync::Arc;
+
+                    // 稍微延迟启动监听器，确保目录扫描完成
+                    tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+
+                    let file_index = app_handle_for_watcher.state::<FileIndexService>();
+                    let file_index_arc = Arc::new(file_index.inner().clone());
+
+                    match FileIndexService::start_watcher(file_index_arc).await {
+                        Ok(true) => tracing::info!("File watcher started successfully"),
+                        Ok(false) => tracing::info!("File watcher not started (unsupported platform)"),
+                        Err(e) => tracing::error!("Failed to start file watcher: {}", e),
+                    }
+                });
+            }
 
             // 托盘图标状态更新现在由 TrayUpdateHandler 事件驱动
             // 通过 EventBus 监听 StatsUpdated 事件，替代原有的轮询机制
@@ -242,6 +271,11 @@ pub fn run() {
             get_current_file_index,
             navigate_to_file,
             get_latest_file,
+
+            // 文件系统监听
+            start_file_watcher,
+            stop_file_watcher,
+            handle_file_system_event,
 
             // EXIF 信息
             get_image_exif,

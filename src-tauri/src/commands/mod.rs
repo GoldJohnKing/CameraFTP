@@ -49,6 +49,9 @@ pub use file_index::{
     get_file_list,
     get_latest_file,
     navigate_to_file,
+    start_file_watcher,
+    stop_file_watcher,
+    handle_file_system_event,
 };
 
 pub use server::{

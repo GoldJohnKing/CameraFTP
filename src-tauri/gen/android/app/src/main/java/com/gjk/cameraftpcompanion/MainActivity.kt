@@ -9,19 +9,21 @@ import android.webkit.WebView
 import androidx.activity.enableEdgeToEdge
 import com.gjk.cameraftpcompanion.bridges.FileUploadBridge
 import com.gjk.cameraftpcompanion.bridges.ServerStateBridge
+import com.gjk.cameraftpcompanion.bridges.FileWatcherBridge
 
 class MainActivity : TauriActivity() {
-    
+
     companion object {
         private const val TAG = "MainActivity"
         private const val TAURI_LISTENER_MAX_RETRIES = 50
         private const val TAURI_LISTENER_RETRY_DELAY_MS = 50L
     }
-    
+
     private var webViewRef: WebView? = null
     private var fileUploadBridge: FileUploadBridge? = null
     private var serverStateBridge: ServerStateBridge? = null
     private var permissionBridge: PermissionBridge? = null
+    private var fileWatcherBridge: FileWatcherBridge? = null
 
     /**
      * Helper to add a JavaScript bridge to WebView with logging
@@ -41,6 +43,7 @@ class MainActivity : TauriActivity() {
         fileUploadBridge = FileUploadBridge(this)
         serverStateBridge = ServerStateBridge(this)
         permissionBridge = PermissionBridge(this)
+        fileWatcherBridge = FileWatcherBridge(this)
     }
 
     /**
@@ -57,7 +60,8 @@ class MainActivity : TauriActivity() {
         addJsBridge(webView, fileUploadBridge, "FileUploadAndroid")
         addJsBridge(webView, serverStateBridge, "ServerStateAndroid")
         addJsBridge(webView, permissionBridge, "PermissionAndroid")
-        
+        addJsBridge(webView, fileWatcherBridge, "FileWatcherAndroid")
+
         // 注册Tauri事件监听 - 监听file-uploaded事件
         registerFileUploadEventListener()
     }
@@ -140,11 +144,39 @@ class MainActivity : TauriActivity() {
     override fun onDestroy() {
         Log.d(TAG, "onDestroy: cleaning up bridge references")
         super.onDestroy()
+        // 停止文件监听
+        fileWatcherBridge?.stopWatching()
         // Clear all bridge references to prevent memory leaks
         webViewRef = null
         fileUploadBridge = null
         serverStateBridge = null
         permissionBridge = null
+        fileWatcherBridge = null
+    }
+
+    /**
+     * 获取 WebView 引用（供 Bridge 使用）
+     */
+    fun getWebView(): WebView? {
+        return webViewRef
+    }
+
+    /**
+     * 启动文件系统监听（供外部调用）
+     * @param path 要监听的目录路径
+     * @return 是否成功启动
+     */
+    fun startFileWatching(path: String): Boolean {
+        Log.d(TAG, "startFileWatching: path=$path")
+        return fileWatcherBridge?.startWatching(path) ?: false
+    }
+
+    /**
+     * 停止文件系统监听（供外部调用）
+     */
+    fun stopFileWatching() {
+        Log.d(TAG, "stopFileWatching")
+        fileWatcherBridge?.stopWatching()
     }
     
     /**

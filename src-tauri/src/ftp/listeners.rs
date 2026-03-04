@@ -94,6 +94,19 @@ impl DataListener for FtpDataListener {
                 DataEvent::Deleted { path } => {
                     stats.record_delete(path.clone()).await;
                     info!(file = %path, "File deleted");
+
+                    // 从文件索引中移除
+                    if let Some(handle) = app_handle.as_ref() {
+                        let full_path = save_path.join(&path);
+                        let handle_clone = handle.clone();
+                        tokio::spawn(async move {
+                            if let Some(file_index) = handle_clone.try_state::<FileIndexService>() {
+                                if let Err(e) = file_index.remove_file(&full_path).await {
+                                    tracing::warn!("Failed to remove file from index: {}", e);
+                                }
+                            }
+                        });
+                    }
                 }
                 DataEvent::MadeDir { path } => {
                     stats.record_mkdir(path.clone()).await;

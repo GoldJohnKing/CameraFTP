@@ -1,9 +1,10 @@
-use tauri::{command, AppHandle, State};
+use tauri::{command, AppHandle, Manager, State};
 use tracing::{error, info, instrument};
 
 use crate::commands::FtpServerState;
 use crate::config::AppConfig;
 use crate::error::AppError;
+use crate::file_index::FileIndexService;
 use crate::ftp::types::{ServerInfo, ServerStateSnapshot};
 use crate::network::NetworkManager;
 
@@ -33,6 +34,10 @@ pub async fn start_server(
         Default::default(),
         Some(app.clone())
     ).await?;
+
+    // 设置 FileIndexService 的 EventBus，使其能够发射文件索引变化事件
+    let file_index = app.state::<FileIndexService>();
+    file_index.set_event_bus(ctx.event_bus.clone()).await;
 
     // 启动事件处理器（EventBus 会发送 server-started 事件）
     crate::ftp::server_factory::spawn_event_processor(

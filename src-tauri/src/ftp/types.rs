@@ -142,10 +142,20 @@ impl ServerStatus {
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(tag = "type", content = "data")]
 pub enum DomainEvent {
-    ServerStarted { bind_addr: String },
+    ServerStarted {
+        bind_addr: String,
+    },
     ServerStopped,
-    FileUploaded { path: String, size: u64 },
+    FileUploaded {
+        path: String,
+        size: u64,
+    },
     StatsUpdated(ServerStats),
+    /// 文件索引发生变化（添加或删除）
+    FileIndexChanged {
+        count: usize,
+        latest_filename: Option<String>,
+    },
 }
 
 /// 服务器连接信息（用于前端显示）

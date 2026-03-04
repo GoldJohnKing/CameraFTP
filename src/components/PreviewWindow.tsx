@@ -159,37 +159,140 @@ const PreviewWindowContent = memo(function PreviewWindowContent({
     loadFileInfo();
   }, [imagePath]);
 
+  // 监听文件索引变化事件（文件添加/删除时更新）
+  useEffect(() => {
+    const unlistenPromise = listen<{ count: number; latestFilename: string | null }>(
+      'file-index-changed',
+      (event) => {
+        setTotalFiles(event.payload.count);
+        // 如果当前索引超出范围，调整到有效范围
+        setCurrentIndex((prev) => {
+          if (event.payload.count === 0) return 0;
+          return Math.min(prev, event.payload.count - 1);
+        });
+      }
+    );
+
+    return () => {
+      unlistenPromise.then((unlisten) => unlisten()).catch(() => {});
+    };
+  }, []);
+
   // 导航方法
-  const navigateTo = useCallback(async (index: number) => {
-    if (index < 0 || index >= totalFiles) return;
+  const navigateTo = useCallback(async (targetIndex: number) => {
+    if (targetIndex < 0 || targetIndex >= totalFiles) return;
 
     try {
-      const file = await invoke<FileInfo>('navigate_to_file', { index });
-      setCurrentIndex(index);
+      const file = await invoke<FileInfo>('navigate_to_file', { index: targetIndex });
+      setCurrentIndex(targetIndex);
       setImageError(false);
       // 触发父组件更新图片路径
       window.dispatchEvent(new CustomEvent('navigate-image', { detail: file.path }));
       resetZoom();
-    } catch {
-      // Silently ignore - navigation errors are handled by UI state
+    } catch (err) {
+      // 导航失败（文件可能已被删除），刷新文件列表并尝试切换到有效文件
+      try {
+        const files = await invoke<FileInfo[]>('get_file_list');
+        setTotalFiles(files.length);
+
+        if (files.length === 0) {
+          // 没有文件了
+          setCurrentIndex(0);
+          window.dispatchEvent(new CustomEvent('navigate-image', { detail: null }));
+          return;
+        }
+
+        // 尝试切换到目标索引或最近的可用文件
+        const newIndex = Math.min(targetIndex, files.length - 1);
+        setCurrentIndex(newIndex);
+
+        // 始终尝试导航到新索引（即使索引相同，文件列表已更新）
+        try {
+          const file = await invoke<FileInfo>('navigate_to_file', { index: newIndex });
+          window.dispatchEvent(new CustomEvent('navigate-image', { detail: file.path }));
+          setImageError(false);
+          resetZoom();
+        } catch {
+          // 如果还是失败，可能是文件仍不存在，尝试下一张
+          if (newIndex < files.length - 1) {
+            navigateTo(newIndex + 1);
+          } else if (newIndex > 0) {
+            navigateTo(newIndex - 1);
+          }
+        }
+      } catch {
+        // 静默处理刷新失败
+      }
     }
   }, [totalFiles, resetZoom]);
 
   const goToPrevious = useCallback(() => {
+    if (totalFiles === 0) return;
     navigateTo(currentIndex + 1); // 更旧
-  }, [currentIndex, navigateTo]);
+  }, [currentIndex, navigateTo, totalFiles]);
 
   const goToNext = useCallback(() => {
+    if (totalFiles === 0) return;
     navigateTo(currentIndex - 1); // 更新
-  }, [currentIndex, navigateTo]);
+  }, [currentIndex, navigateTo, totalFiles]);
 
   const goToOldest = useCallback(() => {
+    if (totalFiles === 0) return;
     navigateTo(totalFiles - 1);
   }, [totalFiles, navigateTo]);
 
-  const goToLatest = useCallback(() => {
-    navigateTo(0);
-  }, [navigateTo]);
+  const goToLatest = useCallback(async () => {
+    if (totalFiles === 0) return;
+    
+    try {
+      // 尝试获取当前最新的文件（索引0）
+      const file = await invoke<FileInfo>('navigate_to_file', { index: 0 });
+      setCurrentIndex(0);
+      setImageError(false);
+      setTotalFiles(prev => Math.max(prev, 1));
+      window.dispatchEvent(new CustomEvent('navigate-image', { detail: file.path }));
+      resetZoom();
+    } catch {
+      // 导航失败，刷新文件列表并尝试显示最新文件
+      try {
+        const files = await invoke<FileInfo[]>('get_file_list');
+        setTotalFiles(files.length);
+        
+        if (files.length === 0) {
+          setCurrentIndex(0);
+          window.dispatchEvent(new CustomEvent('navigate-image', { detail: null }));
+          return;
+        }
+        
+        // 尝试显示当前最新的文件（索引0）
+        if (files.length > 0) {
+          try {
+            const file = await invoke<FileInfo>('navigate_to_file', { index: 0 });
+            setCurrentIndex(0);
+            setImageError(false);
+            window.dispatchEvent(new CustomEvent('navigate-image', { detail: file.path }));
+            resetZoom();
+          } catch {
+            // 如果还是失败，尝试顺序查找第一个存在的文件
+            for (let i = 0; i < files.length; i++) {
+              try {
+                const file = await invoke<FileInfo>('navigate_to_file', { index: i });
+                setCurrentIndex(i);
+                setImageError(false);
+                window.dispatchEvent(new CustomEvent('navigate-image', { detail: file.path }));
+                resetZoom();
+                break;
+              } catch {
+                continue;
+              }
+            }
+          }
+        }
+      } catch {
+        // 静默处理
+      }
+    }
+  }, [totalFiles, resetZoom]);
 
   // 同步外部状态
   useEffect(() => {
@@ -484,8 +587,14 @@ const PreviewWindowContent = memo(function PreviewWindowContent({
       >
         {imageError ? (
           <div className="text-gray-400 text-center">
-            <p>无法加载图片</p>
+            <svg className="w-16 h-16 mx-auto mb-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+            </svg>
+            <p>图片文件不存在或无法访问</p>
             <p className="text-xs mt-2 text-gray-500">{imagePath}</p>
+            <p className="text-sm mt-3 text-gray-500">
+              文件可能已被删除，请使用导航按钮切换到其他图片
+            </p>
           </div>
         ) : (
           <img
@@ -566,12 +675,11 @@ const PreviewWindowContent = memo(function PreviewWindowContent({
 
         {/* 中间：导航按钮 - 绝对居中 */}
         <div className="absolute left-1/2 -translate-x-1/2 flex items-center">
-          {totalFiles > 1 && (
           <div className="flex items-center gap-1">
             {/* 最旧 */}
             <button
               onClick={goToOldest}
-              disabled={currentIndex >= totalFiles - 1}
+              disabled={totalFiles <= 1 || currentIndex >= totalFiles - 1}
               className="p-2 text-gray-300 hover:text-white hover:bg-white/10 rounded-lg transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
               title="最旧 (Home)"
             >
@@ -583,7 +691,7 @@ const PreviewWindowContent = memo(function PreviewWindowContent({
             {/* 上一张 */}
             <button
               onClick={goToPrevious}
-              disabled={currentIndex >= totalFiles - 1}
+              disabled={totalFiles <= 1 || currentIndex >= totalFiles - 1}
               className="p-2 text-gray-300 hover:text-white hover:bg-white/10 rounded-lg transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
               title="上一张 (← ↑)"
             >
@@ -595,7 +703,7 @@ const PreviewWindowContent = memo(function PreviewWindowContent({
             {/* 下一张 */}
             <button
               onClick={goToNext}
-              disabled={currentIndex <= 0}
+              disabled={totalFiles <= 1 || currentIndex <= 0}
               className="p-2 text-gray-300 hover:text-white hover:bg-white/10 rounded-lg transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
               title="下一张 (→ ↓)"
             >
@@ -607,7 +715,7 @@ const PreviewWindowContent = memo(function PreviewWindowContent({
             {/* 最新 */}
             <button
               onClick={goToLatest}
-              disabled={currentIndex <= 0}
+              disabled={totalFiles <= 1 || currentIndex <= 0}
               className="p-2 text-gray-300 hover:text-white hover:bg-white/10 rounded-lg transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
               title="最新 (End)"
             >
@@ -616,7 +724,6 @@ const PreviewWindowContent = memo(function PreviewWindowContent({
               </svg>
             </button>
           </div>
-          )}
         </div>
 
         {/* 右侧：操作按钮 */}
