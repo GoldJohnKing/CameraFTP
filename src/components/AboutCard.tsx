@@ -9,6 +9,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { getVersion } from '@tauri-apps/api/app';
 import { createPortal } from 'react-dom';
 import { Info, X, ExternalLink, ChevronDown, ChevronUp, Heart } from 'lucide-react';
+import { toast } from 'sonner';
 import { Card, CardHeader } from './ui';
 import { useConfigStore } from '../stores/configStore';
 
@@ -32,6 +33,31 @@ async function openExternalLink(url: string) {
     // Fallback: try to open via window.open (may not work in Tauri)
     window.open(url, '_blank');
   }
+}
+
+/**
+ * Save image to gallery on Android
+ * @param assetPath The path to the asset image (e.g., "wechat.png")
+ */
+async function saveImageToGallery(assetPath: string): Promise<boolean> {
+  // Android 平台：使用 JS Bridge
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const permissionAndroid = (window as unknown as Record<string, unknown>).PermissionAndroid;
+  if (permissionAndroid && typeof permissionAndroid === 'object') {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const saveImage = (permissionAndroid as Record<string, unknown>).saveImageToGallery;
+    if (typeof saveImage === 'function') {
+      try {
+        const result = await (saveImage as (path: string) => Promise<string>)(assetPath);
+        const parsed = JSON.parse(result);
+        return parsed.success === true;
+      } catch (e) {
+        console.warn('Failed to save image:', e);
+        return false;
+      }
+    }
+  }
+  return false;
 }
 
 interface Dependency {
@@ -128,16 +154,6 @@ const DEPENDENCIES: DependencyGroup[] = [
   },
 ];
 
-// 支付宝图标组件
-function AlipayIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="currentColor">
-      <path d="M5.5 2v2H3v2h2.5v2H3v2h2.5v2H3v2h2.5v2H3v2h2.5v2H3v2h2.5v2H3v2h18v-2H5.5v-2H21v-2H5.5v-2H21v-2H5.5v-2H21v-2H5.5V8H21V6H5.5V4H21V2H5.5z"/>
-      <path d="M12 11c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 3c-.55 0-1-.45-1-1s.45-1 1-1 1 .45 1 1-.45 1-1 1z"/>
-    </svg>
-  );
-}
-
 // 捐赠对话框内容组件
 interface DonateDialogProps {
   isOpen: boolean;
@@ -194,18 +210,42 @@ function DonateDialog({ isOpen, onClose, platform }: DonateDialogProps) {
           )}
 
           {isAndroid && (
-            <div className="space-y-4">
-              {/* Android 平台显示支付宝按钮 */}
-              <div className="flex items-center justify-center">
-                <AlipayIcon className="w-16 h-16 text-blue-500" />
+            <div className="space-y-6">
+              {/* Android 平台显示微信支付和支付宝按钮 */}
+              <div className="grid grid-cols-2 gap-4">
+                {/* 微信支付按钮 */}
+                <button
+                  onClick={async () => {
+                    const success = await saveImageToGallery('wechat.png');
+                    if (success) {
+                      toast.success('付款码已保存，请使用微信扫码付款');
+                    } else {
+                      toast.error('保存付款码失败，请重试');
+                    }
+                  }}
+                  className="flex flex-col items-center gap-3 p-4 bg-gray-50 hover:bg-gray-100 rounded-xl transition-colors"
+                >
+                  <img
+                    src="/wechat-logo.png"
+                    alt="微信支付"
+                    className="h-12 w-auto"
+                  />
+                  <span className="text-sm font-medium text-gray-700">微信支付</span>
+                </button>
+
+                {/* 支付宝按钮 */}
+                <button
+                  onClick={() => openExternalLink('https://qr.alipay.com/tsx17021dzmlopsdspo1qde')}
+                  className="flex flex-col items-center gap-3 p-4 bg-gray-50 hover:bg-gray-100 rounded-xl transition-colors"
+                >
+                  <img
+                    src="/alipay-logo.png"
+                    alt="支付宝"
+                    className="h-12 w-auto"
+                  />
+                  <span className="text-sm font-medium text-gray-700">支付宝</span>
+                </button>
               </div>
-              <button
-                onClick={() => openExternalLink('https://qr.alipay.com/tsx17021dzmlopsdspo1qde')}
-                className="w-full py-3 px-4 bg-blue-500 hover:bg-blue-600 text-white rounded-lg transition-colors flex items-center justify-center gap-2 font-medium"
-              >
-                <AlipayIcon className="w-5 h-5" />
-                使用支付宝捐赠
-              </button>
             </div>
           )}
         </div>

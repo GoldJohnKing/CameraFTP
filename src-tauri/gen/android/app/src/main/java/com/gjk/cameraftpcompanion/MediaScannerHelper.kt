@@ -6,6 +6,7 @@
 
 package com.gjk.cameraftpcompanion
 
+import android.app.Activity
 import android.media.MediaScannerConnection
 import android.net.Uri
 import android.util.Log
@@ -21,10 +22,10 @@ object MediaScannerHelper {
 
     /**
      * 扫描单个文件
-     * @param activity MainActivity实例
+     * @param activity Activity实例
      * @param filePath 文件的完整路径
      */
-    fun scanFile(activity: MainActivity, filePath: String) {
+    fun scanFile(activity: Activity, filePath: String) {
         val file = File(filePath)
         if (!file.exists()) {
             Log.w(TAG, "File does not exist, skipping scan: $filePath")

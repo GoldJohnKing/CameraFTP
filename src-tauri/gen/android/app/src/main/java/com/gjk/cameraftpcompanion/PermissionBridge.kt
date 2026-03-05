@@ -21,6 +21,8 @@ import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import com.gjk.cameraftpcompanion.bridges.BaseJsBridge
 import org.json.JSONObject
+import java.io.File
+import java.io.FileOutputStream
 
 /**
  * Permission JavaScript Bridge
@@ -164,6 +166,55 @@ class PermissionBridge(activity: MainActivity) : BaseJsBridge(activity) {
             } catch (e: Exception) {
                 Log.e(TAG, "openExternalLink: failed to open URL", e)
             }
+        }
+    }
+
+    /**
+     * Save asset image to gallery (Pictures directory)
+     * @param assetPath The path to the asset image (e.g., "wechat.png")
+     * @return JSON string with success status and message
+     */
+    @JavascriptInterface
+    fun saveImageToGallery(assetPath: String?): String {
+        Log.d(TAG, "saveImageToGallery: assetPath=$assetPath")
+        
+        val result = JSONObject()
+        
+        if (assetPath.isNullOrEmpty()) {
+            result.put("success", false)
+            result.put("message", "Empty asset path")
+            return result.toString()
+        }
+        
+        return try {
+            // Create destination file in Pictures directory
+            val picturesDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES)
+            val appDir = File(picturesDir, "CameraFTP")
+            if (!appDir.exists()) {
+                appDir.mkdirs()
+            }
+            
+            val destFile = File(appDir, assetPath)
+            
+            // Copy from assets to destination
+            activity.assets.open(assetPath).use { input ->
+                FileOutputStream(destFile).use { output ->
+                    input.copyTo(output)
+                }
+            }
+            
+            // Scan the file to make it appear in gallery
+            MediaScannerHelper.scanFile(activity, destFile.absolutePath)
+            
+            Log.d(TAG, "saveImageToGallery: successfully saved to ${destFile.absolutePath}")
+            result.put("success", true)
+            result.put("message", "Image saved to gallery")
+            result.toString()
+        } catch (e: Exception) {
+            Log.e(TAG, "saveImageToGallery: failed to save image", e)
+            result.put("success", false)
+            result.put("message", e.message ?: "Unknown error")
+            result.toString()
         }
     }
 }
