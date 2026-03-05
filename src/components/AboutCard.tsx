@@ -8,7 +8,7 @@ import { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { getVersion } from '@tauri-apps/api/app';
 import { createPortal } from 'react-dom';
-import { Info, X, ExternalLink, ChevronDown, ChevronUp } from 'lucide-react';
+import { Info, X, ExternalLink, ChevronDown, ChevronUp, Heart } from 'lucide-react';
 import { Card, CardHeader } from './ui';
 
 async function openExternalLink(url: string) {
@@ -126,6 +126,60 @@ const DEPENDENCIES: DependencyGroup[] = [
     ],
   },
 ];
+
+// 捐赠对话框内容组件
+interface DonateDialogProps {
+  isOpen: boolean;
+  onClose: () => void;
+}
+
+function DonateDialog({ isOpen, onClose }: DonateDialogProps) {
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-xl max-w-md w-full shadow-2xl flex flex-col">
+        {/* 头部 */}
+        <div className="flex items-center justify-between p-4 border-b">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-pink-500 rounded-xl flex items-center justify-center">
+              <Heart className="w-5 h-5 text-white" />
+            </div>
+            <h2 className="text-lg font-semibold text-gray-900">捐赠渠道</h2>
+          </div>
+          <button
+            onClick={onClose}
+            className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+            aria-label="关闭"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        {/* 内容区域 */}
+        <div className="p-6 space-y-6">
+          <p className="text-sm text-gray-600 text-center">
+            感谢您对本项目的支持！您的捐赠将帮助我持续改进和维护这个项目。
+          </p>
+          {/* 预留捐赠收款码展示区域 */}
+          <div className="bg-gray-50 rounded-xl p-8 flex items-center justify-center min-h-[200px]">
+            <p className="text-sm text-gray-400">捐赠收款码（待添加）</p>
+          </div>
+        </div>
+
+        {/* 底部按钮 */}
+        <div className="border-t p-4 flex justify-end">
+          <button
+            onClick={onClose}
+            className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors text-sm font-medium"
+          >
+            关闭
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 // 关于对话框内容组件
 interface AboutDialogProps {
@@ -293,7 +347,8 @@ function AboutDialog({ isOpen, onClose }: AboutDialogProps) {
 }
 
 export function AboutCard() {
-  const [isOpen, setIsOpen] = useState(false);
+  const [isAboutOpen, setIsAboutOpen] = useState(false);
+  const [isDonateOpen, setIsDonateOpen] = useState(false);
   const [version, setVersion] = useState<string>('0.0.0');
 
   useEffect(() => {
@@ -311,22 +366,47 @@ export function AboutCard() {
         />
 
         <div className="p-4">
-          <button
-            onClick={() => setIsOpen(true)}
-            className="w-full text-left p-3 bg-gray-50 hover:bg-gray-100 rounded-lg transition-colors flex items-center justify-between group"
-          >
-            <div>
-              <h4 className="font-medium text-gray-900">图传伴侣 CameraFTP</h4>
-              <p className="text-sm text-gray-500 mt-0.5">版本 {version}</p>
-            </div>
-            <Info className="w-5 h-5 text-gray-400 group-hover:text-gray-600" />
-          </button>
+          <div className="grid grid-cols-2 gap-3">
+            {/* 关于项目按钮 */}
+            <button
+              onClick={() => setIsAboutOpen(true)}
+              className="text-left p-3 bg-gray-50 hover:bg-gray-100 rounded-lg transition-colors flex items-center gap-3 group"
+            >
+              <div className="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center flex-shrink-0">
+                <Info className="w-5 h-5 text-white" />
+              </div>
+              <div className="min-w-0">
+                <h4 className="font-medium text-gray-900 text-sm truncate">关于项目</h4>
+                <p className="text-xs text-gray-500 mt-0.5 truncate">版本 {version}</p>
+              </div>
+            </button>
+
+            {/* 捐赠渠道按钮 */}
+            <button
+              onClick={() => setIsDonateOpen(true)}
+              className="text-left p-3 bg-gray-50 hover:bg-gray-100 rounded-lg transition-colors flex items-center gap-3 group"
+            >
+              <div className="w-10 h-10 bg-pink-500 rounded-lg flex items-center justify-center flex-shrink-0">
+                <Heart className="w-5 h-5 text-white" />
+              </div>
+              <div className="min-w-0">
+                <h4 className="font-medium text-gray-900 text-sm truncate">捐赠渠道</h4>
+                <p className="text-xs text-gray-500 mt-0.5 truncate">支持开发</p>
+              </div>
+            </button>
+          </div>
         </div>
       </Card>
 
       {/* 关于对话框 - 使用 Portal 渲染到 body 下 */}
       {createPortal(
-        <AboutDialog isOpen={isOpen} onClose={() => setIsOpen(false)} />,
+        <AboutDialog isOpen={isAboutOpen} onClose={() => setIsAboutOpen(false)} />,
+        document.body
+      )}
+
+      {/* 捐赠对话框 - 使用 Portal 渲染到 body 下 */}
+      {createPortal(
+        <DonateDialog isOpen={isDonateOpen} onClose={() => setIsDonateOpen(false)} />,
         document.body
       )}
     </>
