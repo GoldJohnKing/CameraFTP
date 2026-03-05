@@ -63,7 +63,53 @@ AGPL-3.0-or-later © 2026 GoldJohnKing <GoldJohnKing@Live.cn>
 ---
 
 <details>
-<summary><h2>🏗️ 技术架构（开发者）</h2></summary>
+<summary><h2>🛠️ 开发指南</h2></summary>
+
+### 🚀 快速开始
+
+#### 环境要求
+
+- **Rust** ≥1.75
+- **Node.js** ≥18
+- **Bun** ≥1.0
+
+#### 开发模式
+
+```bash
+# 安装依赖
+bun install
+
+# 启动开发服务器
+cargo tauri dev
+```
+
+#### 生产构建
+
+```bash
+# 统一构建入口（必须使用）
+./build.sh <target> [options]
+
+# 构建目标：
+./build.sh windows         # Windows 可执行文件
+./build.sh android         # Android APK (release)
+./build.sh frontend        # 仅构建前端
+
+# 构建选项：
+./build.sh windows --debug     # Windows Debug 版本
+./build.sh android --debug     # Android Debug APK
+./build.sh windows --check     # 检查 Windows 编译环境
+./build.sh android --check     # 检查 Android 编译环境
+./build.sh windows android     # 并行构建多个目标
+./build.sh windows --serial    # 串行编译（默认并行）
+
+# 其他命令：
+./build.sh gen-types       # 生成 TypeScript 类型绑定
+./build.sh clean           # 清理所有构建缓存
+```
+
+---
+
+### 🏗️ 技术架构
 
 ```
     React + TypeScript + TailwindCSS (前端)
@@ -97,10 +143,9 @@ AGPL-3.0-or-later © 2026 GoldJohnKing <GoldJohnKing@Live.cn>
 | **Android API Level** | min 30 / target 36 | Android 11+ |
 | **Java** | JDK | 17 |
 
-</details>
+---
 
-<details>
-<summary><h2>📁 项目结构（开发者）</h2></summary>
+### 📁 项目结构
 
 ```
 cameraftp/
@@ -156,10 +201,9 @@ cameraftp/
 └── 📁 dist/                      # 构建输出
 ```
 
-</details>
+---
 
-<details>
-<summary><h2>🤖 Android 原生代码（开发者）</h2></summary>
+### 🤖 Android 原生代码
 
 Android平台使用Kotlin实现以下功能：
 
@@ -174,7 +218,7 @@ Android平台使用Kotlin实现以下功能：
 | **bridges/ServerStateBridge.kt** | 服务器状态更新转发到前台服务 |
 | **bridges/FileWatcherBridge.kt** | 使用 FileObserver 监听文件系统变化 |
 
-### JS Bridge 说明
+#### JS Bridge 说明
 
 前端通过以下Bridge与Android原生交互：
 
@@ -196,51 +240,6 @@ window.ServerStateBridge?.onServerStateChanged(isRunning, statsJson, connectedCl
 window.FileWatcherBridge?.startWatching(path)
 window.FileWatcherBridge?.stopWatching()
 window.FileWatcherBridge?.isWatching()
-```
-
-</details>
-
-<details>
-<summary><h2>🚀 快速开始（开发者）</h2></summary>
-
-### 环境要求
-
-- **Rust** ≥1.75
-- **Node.js** ≥18
-- **Bun** ≥1.0
-
-### 开发模式
-
-```bash
-# 安装依赖
-bun install
-
-# 启动开发服务器
-cargo tauri dev
-```
-
-### 生产构建
-
-```bash
-# 统一构建入口（必须使用）
-./build.sh <target> [options]
-
-# 构建目标：
-./build.sh windows         # Windows 可执行文件
-./build.sh android         # Android APK (release)
-./build.sh frontend        # 仅构建前端
-
-# 构建选项：
-./build.sh windows --debug     # Windows Debug 版本
-./build.sh android --debug     # Android Debug APK
-./build.sh windows --check     # 检查 Windows 编译环境
-./build.sh android --check     # 检查 Android 编译环境
-./build.sh windows android     # 并行构建多个目标
-./build.sh windows --serial    # 串行编译（默认并行）
-
-# 其他命令：
-./build.sh gen-types       # 生成 TypeScript 类型绑定
-./build.sh clean           # 清理所有构建缓存
 ```
 
 </details>
