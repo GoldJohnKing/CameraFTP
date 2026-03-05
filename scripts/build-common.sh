@@ -40,7 +40,7 @@ task() {
     echo -e "${CYAN}[TASK]${NC} $1"
 }
 
-# 仅在 --check-toolchain 模式下输出的信息
+# 仅在 --check 模式下输出的信息
 debug_info() {
     if [ "${CHECK_ONLY:-false}" = true ]; then
         info "$1"
@@ -62,7 +62,7 @@ parse_build_args() {
                 BUILD_TYPE="debug"
                 shift
                 ;;
-            --check-toolchain)
+            --check)
                 CHECK_ONLY=true
                 shift
                 ;;
@@ -384,17 +384,17 @@ show_build_help() {
 选项:
   --release         构建 Release 版本 (默认)
   --debug           构建 Debug 版本
-  --check-toolchain 仅检查环境，不编译
+  --check           仅检查环境，不编译
   --serial, -s      串行编译 (默认并行)
   --help, -h        显示此帮助信息
 
 示例:
   ./$script_name windows                      # 编译 Windows (release)
   ./$script_name windows --debug              # 编译 Windows (debug)
-  ./$script_name windows --check-toolchain    # 检查 Windows 编译环境
+  ./$script_name windows --check              # 检查 Windows 编译环境
   ./$script_name windows android              # 并行编译 (release)
   ./$script_name windows android --debug      # 并行编译 (debug)
-  ./$script_name windows android --check-toolchain  # 并行检查环境
+  ./$script_name windows android --check      # 并行检查环境
   ./$script_name windows android --serial     # 串行编译
   ./$script_name gen-types                    # 仅生成类型绑定
 

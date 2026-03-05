@@ -27,7 +27,7 @@ while [[ $# -gt 0 ]]; do
             BUILD_TYPE="debug"
             shift
             ;;
-        --check-toolchain)
+        --check)
             CHECK_ONLY=true
             shift
             ;;
@@ -75,7 +75,7 @@ build_target() {
 
     if [ "$check_only" = true ]; then
         task "[$target] 正在检查编译环境..."
-        check_arg="--check-toolchain"
+        check_arg="--check"
     else
         task "[$target] 开始构建（$build_type 模式）..."
     fi
