@@ -10,6 +10,7 @@ import { getVersion } from '@tauri-apps/api/app';
 import { createPortal } from 'react-dom';
 import { Info, X, ExternalLink, ChevronDown, ChevronUp, Heart } from 'lucide-react';
 import { Card, CardHeader } from './ui';
+import { useConfigStore } from '../stores/configStore';
 
 async function openExternalLink(url: string) {
   // Android 平台：使用 JS Bridge
@@ -127,14 +128,28 @@ const DEPENDENCIES: DependencyGroup[] = [
   },
 ];
 
+// 支付宝图标组件
+function AlipayIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="currentColor">
+      <path d="M5.5 2v2H3v2h2.5v2H3v2h2.5v2H3v2h2.5v2H3v2h2.5v2H3v2h2.5v2H3v2h18v-2H5.5v-2H21v-2H5.5v-2H21v-2H5.5v-2H21v-2H5.5V8H21V6H5.5V4H21V2H5.5z"/>
+      <path d="M12 11c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 3c-.55 0-1-.45-1-1s.45-1 1-1 1 .45 1 1-.45 1-1 1z"/>
+    </svg>
+  );
+}
+
 // 捐赠对话框内容组件
 interface DonateDialogProps {
   isOpen: boolean;
   onClose: () => void;
+  platform: string;
 }
 
-function DonateDialog({ isOpen, onClose }: DonateDialogProps) {
+function DonateDialog({ isOpen, onClose, platform }: DonateDialogProps) {
   if (!isOpen) return null;
+
+  const isAndroid = platform === 'android';
+  const isDesktop = platform === 'windows' || platform === 'macos' || platform === 'linux';
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
@@ -158,13 +173,41 @@ function DonateDialog({ isOpen, onClose }: DonateDialogProps) {
 
         {/* 内容区域 */}
         <div className="p-6 space-y-6">
-          <p className="text-sm text-gray-600 text-center">
+          <p className="text-sm text-gray-600 text-left">
             感谢您对本项目的支持！您的捐赠将帮助我持续改进和维护这个项目。
           </p>
-          {/* 预留捐赠收款码展示区域 */}
-          <div className="bg-gray-50 rounded-xl p-8 flex items-center justify-center min-h-[200px]">
-            <p className="text-sm text-gray-400">捐赠收款码（待添加）</p>
-          </div>
+
+          {isDesktop && (
+            <div className="flex flex-col items-center space-y-4">
+              {/* Windows 平台显示二维码 */}
+              <div className="bg-white rounded-xl p-4 border border-gray-200">
+                <img
+                  src="/donate-qrcode.png"
+                  alt="捐赠二维码"
+                  className="w-64 h-auto"
+                />
+              </div>
+              <p className="text-xs text-gray-500 text-center">
+                请使用微信或支付宝扫描二维码
+              </p>
+            </div>
+          )}
+
+          {isAndroid && (
+            <div className="space-y-4">
+              {/* Android 平台显示支付宝按钮 */}
+              <div className="flex items-center justify-center">
+                <AlipayIcon className="w-16 h-16 text-blue-500" />
+              </div>
+              <button
+                onClick={() => openExternalLink('https://qr.alipay.com/tsx17021dzmlopsdspo1qde')}
+                className="w-full py-3 px-4 bg-blue-500 hover:bg-blue-600 text-white rounded-lg transition-colors flex items-center justify-center gap-2 font-medium"
+              >
+                <AlipayIcon className="w-5 h-5" />
+                使用支付宝捐赠
+              </button>
+            </div>
+          )}
         </div>
 
         {/* 底部按钮 */}
@@ -350,6 +393,7 @@ export function AboutCard() {
   const [isAboutOpen, setIsAboutOpen] = useState(false);
   const [isDonateOpen, setIsDonateOpen] = useState(false);
   const [version, setVersion] = useState<string>('0.0.0');
+  const platform = useConfigStore(state => state.platform);
 
   useEffect(() => {
     getVersion().then(setVersion).catch(() => setVersion('0.0.0'));
@@ -361,7 +405,7 @@ export function AboutCard() {
       <Card>
         <CardHeader
           title="关于"
-          description="应用信息、开源协议与致谢"
+          description="应用信息、开源协议与捐赠方式"
           icon={<Info className="w-5 h-5 text-blue-600" />}
         />
 
@@ -406,7 +450,7 @@ export function AboutCard() {
 
       {/* 捐赠对话框 - 使用 Portal 渲染到 body 下 */}
       {createPortal(
-        <DonateDialog isOpen={isDonateOpen} onClose={() => setIsDonateOpen(false)} />,
+        <DonateDialog isOpen={isDonateOpen} onClose={() => setIsDonateOpen(false)} platform={platform} />,
         document.body
       )}
     </>
