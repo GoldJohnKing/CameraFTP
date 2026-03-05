@@ -153,7 +153,7 @@ class PermissionBridge(activity: MainActivity) : BaseJsBridge(activity) {
      */
     @JavascriptInterface
     fun openExternalLink(url: String?) {
-        Log.d(TAG, "openExternalLink: url=$url")
+        Log.d(TAG, "openExternalLink called: url=$url, thread=${Thread.currentThread().name}")
         if (url.isNullOrEmpty()) {
             Log.w(TAG, "openExternalLink: empty URL provided")
             return
@@ -161,10 +161,18 @@ class PermissionBridge(activity: MainActivity) : BaseJsBridge(activity) {
         runOnUiThread {
             try {
                 val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                Log.d(TAG, "openExternalLink: starting activity with intent $intent")
                 activity.startActivity(intent)
                 Log.d(TAG, "openExternalLink: successfully opened $url")
             } catch (e: Exception) {
                 Log.e(TAG, "openExternalLink: failed to open URL", e)
+                // Try to show a toast or handle the error
+                try {
+                    android.widget.Toast.makeText(activity, "无法打开链接: ${e.message}", android.widget.Toast.LENGTH_SHORT).show()
+                } catch (toastError: Exception) {
+                    Log.e(TAG, "Failed to show toast", toastError)
+                }
             }
         }
     }

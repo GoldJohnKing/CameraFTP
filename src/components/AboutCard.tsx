@@ -14,18 +14,21 @@ import { Card, CardHeader } from './ui';
 import { useConfigStore } from '../stores/configStore';
 
 async function openExternalLink(url: string) {
+  console.log('[openExternalLink] called with url:', url);
+  
   // Android 平台：使用 JS Bridge
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const permissionAndroid = (window as unknown as Record<string, unknown>).PermissionAndroid;
-  if (permissionAndroid && typeof permissionAndroid === 'object') {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const openLink = (permissionAndroid as Record<string, unknown>).openExternalLink;
-    if (typeof openLink === 'function') {
-      (openLink as (url: string) => void)(url);
-      return;
+  if (window.PermissionAndroid?.openExternalLink) {
+    console.log('[openExternalLink] calling Android bridge');
+    try {
+      window.PermissionAndroid.openExternalLink(url);
+      console.log('[openExternalLink] bridge call completed');
+    } catch (err) {
+      console.error('[openExternalLink] bridge call failed:', err);
     }
+    return;
   }
 
+  console.log('[openExternalLink] falling back to Tauri invoke');
   try {
     await invoke('open_external_link', { url });
   } catch (err) {
@@ -40,23 +43,23 @@ async function openExternalLink(url: string) {
  * @param assetPath The path to the asset image (e.g., "wechat.png")
  */
 async function saveImageToGallery(assetPath: string): Promise<boolean> {
+  console.log('[saveImageToGallery] called with assetPath:', assetPath);
+  
   // Android 平台：使用 JS Bridge
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const permissionAndroid = (window as unknown as Record<string, unknown>).PermissionAndroid;
-  if (permissionAndroid && typeof permissionAndroid === 'object') {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const saveImage = (permissionAndroid as Record<string, unknown>).saveImageToGallery;
-    if (typeof saveImage === 'function') {
-      try {
-        const result = await (saveImage as (path: string) => Promise<string>)(assetPath);
-        const parsed = JSON.parse(result);
-        return parsed.success === true;
-      } catch (e) {
-        console.warn('Failed to save image:', e);
-        return false;
-      }
+  if (window.PermissionAndroid?.saveImageToGallery) {
+    console.log('[saveImageToGallery] calling Android bridge');
+    try {
+      const result = await window.PermissionAndroid.saveImageToGallery(assetPath);
+      console.log('[saveImageToGallery] bridge result:', result);
+      const parsed = JSON.parse(result);
+      return parsed.success === true;
+    } catch (e) {
+      console.warn('[saveImageToGallery] failed:', e);
+      return false;
     }
   }
+  
+  console.log('[saveImageToGallery] bridge not available');
   return false;
 }
 

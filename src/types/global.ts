@@ -84,6 +84,19 @@ interface PermissionAndroid {
    * 请求电池优化白名单
    */
   requestBatteryOptimization: () => void;
+  
+  /**
+   * 打开外部链接
+   * @param url 要打开的 URL
+   */
+  openExternalLink: (url: string) => void;
+  
+  /**
+   * 保存图片到相册
+   * @param assetPath 资源路径
+   * @returns JSON 字符串，包含 success 和 message
+   */
+  saveImageToGallery: (assetPath: string) => Promise<string>;
 }
 
 // ===== 全局窗口扩展 =====
