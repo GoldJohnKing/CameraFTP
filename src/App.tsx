@@ -117,7 +117,7 @@ function App() {
     <div className="min-h-screen bg-gray-50 pb-20">
       {/* 退出确认对话框 */}
       {showQuitDialog && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[100]">
           <div className="bg-white rounded-lg p-6 max-w-sm mx-4 shadow-xl relative">
             <button
               onClick={() => setShowQuitDialog(false)}
