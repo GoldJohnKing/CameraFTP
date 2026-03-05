@@ -144,4 +144,26 @@ class PermissionBridge(activity: MainActivity) : BaseJsBridge(activity) {
             }
         }
     }
+
+    /**
+     * Open external link in default browser
+     * @param url The URL to open
+     */
+    @JavascriptInterface
+    fun openExternalLink(url: String?) {
+        Log.d(TAG, "openExternalLink: url=$url")
+        if (url.isNullOrEmpty()) {
+            Log.w(TAG, "openExternalLink: empty URL provided")
+            return
+        }
+        runOnUiThread {
+            try {
+                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                activity.startActivity(intent)
+                Log.d(TAG, "openExternalLink: successfully opened $url")
+            } catch (e: Exception) {
+                Log.e(TAG, "openExternalLink: failed to open URL", e)
+            }
+        }
+    }
 }

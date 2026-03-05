@@ -44,6 +44,7 @@ use commands::{
     navigate_to_file,
     needs_storage_permission,
     open_all_files_access_settings,
+    open_external_link,
     open_folder_select_file,
     open_preview_window,
     quit_application,
@@ -269,6 +270,7 @@ pub fn run() {
             open_preview_window,
             select_executable_file,
             open_folder_select_file,
+            open_external_link,
 
             // 文件索引
             get_file_list,

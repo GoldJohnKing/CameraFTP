@@ -177,6 +177,77 @@ pub async fn select_executable_file(app: AppHandle) -> Result<Option<String>, Ap
     }
 }
 
+/// 打开外部链接
+#[command]
+pub async fn open_external_link(url: String) -> Result<(), AppError> {
+    #[cfg(not(target_os = "android"))]
+    {
+        #[cfg(target_os = "windows")]
+        {
+            use std::ffi::OsStr;
+            use std::os::windows::ffi::OsStrExt;
+            use windows::core::PCWSTR;
+            use windows::Win32::UI::Shell::ShellExecuteW;
+            use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+
+            let url_wide: Vec<u16> = OsStr::new(&url)
+                .encode_wide()
+                .chain(Some(0))
+                .collect();
+            let open_wide: Vec<u16> = OsStr::new("open")
+                .encode_wide()
+                .chain(Some(0))
+                .collect();
+
+            let result = unsafe {
+                ShellExecuteW(
+                    None,
+                    PCWSTR::from_raw(open_wide.as_ptr()),
+                    PCWSTR::from_raw(url_wide.as_ptr()),
+                    None,
+                    None,
+                    SW_SHOWNORMAL,
+                )
+            };
+
+            // ShellExecuteW returns HINSTANCE, success > 32, failure <= 32
+            if result.0 as isize <= 32 {
+                return Err(AppError::Other(format!(
+                    "ShellExecute failed with code {:?}",
+                    result.0
+                )));
+            }
+        }
+
+        #[cfg(target_os = "macos")]
+        {
+            use std::process::Command;
+            Command::new("open")
+                .arg(&url)
+                .spawn()
+                .map_err(|e| AppError::Other(format!("Failed to open link: {}", e)))?;
+        }
+
+        #[cfg(target_os = "linux")]
+        {
+            use std::process::Command;
+            Command::new("xdg-open")
+                .arg(&url)
+                .spawn()
+                .map_err(|e| AppError::Other(format!("Failed to open link: {}", e)))?;
+        }
+
+        Ok(())
+    }
+
+    #[cfg(target_os = "android")]
+    {
+        let _ = url;
+        // Android 平台通过 JavaScript bridge 处理外部链接
+        Ok(())
+    }
+}
+
 /// 打开文件夹并选中文件（Windows 资源管理器）
 #[command]
 pub async fn open_folder_select_file(file_path: String) -> Result<(), AppError> {

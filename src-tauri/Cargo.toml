@@ -44,7 +44,7 @@ chrono = "0.4"
 notify = { version = "8.0", default-features = false, features = ["macos_fsevent"] }
 # 密码哈希
 argon2 = "0.5"
-rand = "0.8"
+rand = "0.8"  # 提供 rand_core/getrandom feature，argon2 依赖需要
 zeroize = "1.8"  # 内存安全：密码使用后自动清零
 
 [target.'cfg(windows)'.dependencies]

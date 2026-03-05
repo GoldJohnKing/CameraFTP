@@ -107,6 +107,8 @@ AGPL-3.0-or-later © 2026 GoldJohnKing <GoldJohnKing@Live.cn>
 | **前端** | React | ^18.2.0 |
 | **语言** | TypeScript | ^5.0.2 |
 | **状态管理** | Zustand | ^5.0.11 |
+| **UI组件** | lucide-react | ^0.460.0 |
+| **Toast通知** | sonner | ^2.0.7 |
 | **样式** | TailwindCSS | ^3.4.15 |
 | **构建工具** | Vite | ^5.0.0 |
 | **后端** | Rust | ≥1.75 |
@@ -117,7 +119,7 @@ AGPL-3.0-or-later © 2026 GoldJohnKing <GoldJohnKing@Live.cn>
 | **内存安全** | zeroize | 1.8 |
 | **Android Native** | Kotlin | 1.9.25 |
 | **Android API Level** | min 30 / target 36 | Android 11+ |
-| **Java** | JDK | 17 |
+| **Java** | JDK | 21 |
 
 ---
 
@@ -139,7 +141,9 @@ cameraftp/
 │   ├── main.tsx                  # React入口
 │   ├── App.tsx                   # 主应用组件
 │   ├── components/               # UI组件
+│   ├── hooks/                    # React Hooks
 │   ├── stores/                   # Zustand状态管理
+│   ├── types/                    # TypeScript类型定义
 │   └── utils/                    # 工具函数
 │
 ├── 📁 src-tauri/                 # Rust后端源码
@@ -158,6 +162,8 @@ cameraftp/
 │   │   ├── file_index/           # 文件索引服务
 │   │   ├── auto_open/            # 自动预览服务（Windows）
 │   │   ├── platform/             # 平台适配（Windows/Android）
+│   │   ├── constants.rs          # 应用常量定义
+│   │   ├── network.rs            # 网络工具函数
 │   │   ├── crypto.rs             # Argon2密码哈希
 │   │   ├── config.rs             # 应用配置管理
 │   │   └── error.rs              # 错误处理
@@ -169,10 +175,16 @@ cameraftp/
 │           ├── PermissionBridge.kt       # 权限JS Bridge
 │           ├── StorageHelper.kt          # 存储辅助
 │           ├── MediaScannerHelper.kt     # 媒体扫描
-│           └── bridges/                  # JS Bridge 目录
-│               ├── FileUploadBridge.kt   # 文件上传Bridge
-│               ├── ServerStateBridge.kt  # 服务器状态Bridge
-│               └── FileWatcherBridge.kt  # 文件监听Bridge
+│           ├── bridges/                  # JS Bridge 目录
+│           │   ├── BaseJsBridge.kt       # Bridge基类
+│           │   ├── FileUploadBridge.kt   # 文件上传Bridge
+│           │   ├── ServerStateBridge.kt  # 服务器状态Bridge
+│           │   └── FileWatcherBridge.kt  # 文件监听Bridge
+│           └── generated/                # Tauri自动生成代码
+│               ├── Ipc.kt                # IPC通信
+│               ├── Logger.kt             # 日志工具
+│               ├── PermissionHelper.kt   # 权限辅助
+│               └── RustWebView*.kt       # WebView组件
 │
 └── 📁 dist/                      # 构建输出
 ```

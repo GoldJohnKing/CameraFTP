@@ -16,6 +16,7 @@ import { PathSelector } from './PathSelector';
 import { AdvancedConnectionConfigPanel } from './AdvancedConnectionConfig';
 import { AutoStartToggle } from './AutoStartToggle';
 import { PreviewConfigCard } from './PreviewConfigCard';
+import { AboutCard } from './AboutCard';
 import type { AdvancedConnectionConfig, AppConfig } from '../types';
 
 const DEFAULT_ADVANCED_CONFIG: AdvancedConnectionConfig = {
@@ -246,6 +247,9 @@ export const ConfigCard = memo(function ConfigCard() {
           </div>
         </Card>
       )}
+
+      {/* 关于 - 放在配置页面底部 */}
+      <AboutCard />
     </>
   );
 });

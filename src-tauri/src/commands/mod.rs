@@ -36,6 +36,7 @@ pub use config::{
     get_preview_config,
     get_storage_path,
     load_config,
+    open_external_link,
     open_folder_select_file,
     open_preview_window,
     save_auth_config,
