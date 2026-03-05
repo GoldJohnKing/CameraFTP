@@ -1,3 +1,9 @@
+/**
+ * CameraFTP - A Cross-platform FTP companion for camera photo transfer
+ * Copyright (C) 2026 GoldJohnKing <GoldJohnKing@Live.cn>
+ * SPDX-License-Identifier: AGPL-3.0-or-later
+ */
+
 import { listen, Event, UnlistenFn } from '@tauri-apps/api/event';
 
 type EventHandler<T = any> = (event: Event<T>) => void;

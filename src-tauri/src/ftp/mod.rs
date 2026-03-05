@@ -1,3 +1,7 @@
+// CameraFTP - A Cross-platform FTP companion for camera photo transfer
+// Copyright (C) 2026 GoldJohnKing <GoldJohnKing@Live.cn>
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 //! FTP服务器模块
 //!
 //! 该模块提供了完整的FTP服务器功能，采用Actor模式实现，包括：

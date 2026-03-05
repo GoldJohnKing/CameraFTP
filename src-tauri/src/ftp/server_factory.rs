@@ -1,3 +1,7 @@
+// CameraFTP - A Cross-platform FTP companion for camera photo transfer
+// Copyright (C) 2026 GoldJohnKing <GoldJohnKing@Live.cn>
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 //! 服务器工厂 - 统一服务器启动逻辑
 
 use crate::config::AppConfig;

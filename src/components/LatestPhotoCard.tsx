@@ -1,3 +1,9 @@
+/**
+ * CameraFTP - A Cross-platform FTP companion for camera photo transfer
+ * Copyright (C) 2026 GoldJohnKing <GoldJohnKing@Live.cn>
+ * SPDX-License-Identifier: AGPL-3.0-or-later
+ */
+
 import { memo, useCallback, useState, useEffect } from 'react';
 import { Image } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
