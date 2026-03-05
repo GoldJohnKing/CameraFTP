@@ -17,6 +17,7 @@ import android.os.PowerManager
 import android.provider.Settings
 import android.util.Log
 import android.webkit.JavascriptInterface
+import android.widget.Toast
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import com.gjk.cameraftpcompanion.bridges.BaseJsBridge
@@ -191,6 +192,21 @@ class PermissionBridge(activity: MainActivity) : BaseJsBridge(activity) {
         if (assetPath.isNullOrEmpty()) {
             result.put("success", false)
             result.put("message", "Empty asset path")
+            return result.toString()
+        }
+        
+        // Check storage permission first
+        if (!checkStoragePermission()) {
+            Log.d(TAG, "saveImageToGallery: no storage permission, opening settings")
+            // Show Android Toast before opening settings (won't be covered by new activity)
+            runOnUiThread {
+                Toast.makeText(activity, "需要存储权限才能保存图片，请授予权限", Toast.LENGTH_LONG).show()
+            }
+            // Open storage permission settings
+            StorageHelper.openManageStorageSettings(activity)
+            result.put("success", false)
+            result.put("reason", "permission_denied")
+            result.put("message", "Storage permission required")
             return result.toString()
         }
         

@@ -38,13 +38,20 @@ async function openExternalLink(url: string) {
   }
 }
 
+interface SaveImageResult {
+  success: boolean;
+  reason?: string;
+  message?: string;
+}
+
 /**
  * Save image to gallery on Android
  * @param assetPath The path to the asset image (e.g., "wechat.png")
+ * @returns Save result with success status and optional reason
  */
-async function saveImageToGallery(assetPath: string): Promise<boolean> {
+async function saveImageToGallery(assetPath: string): Promise<SaveImageResult> {
   console.log('[saveImageToGallery] called with assetPath:', assetPath);
-  
+
   // Android 平台：使用 JS Bridge
   if (window.PermissionAndroid?.saveImageToGallery) {
     console.log('[saveImageToGallery] calling Android bridge');
@@ -52,15 +59,19 @@ async function saveImageToGallery(assetPath: string): Promise<boolean> {
       const result = await window.PermissionAndroid.saveImageToGallery(assetPath);
       console.log('[saveImageToGallery] bridge result:', result);
       const parsed = JSON.parse(result);
-      return parsed.success === true;
+      return {
+        success: parsed.success === true,
+        reason: parsed.reason,
+        message: parsed.message
+      };
     } catch (e) {
       console.warn('[saveImageToGallery] failed:', e);
-      return false;
+      return { success: false, reason: 'error', message: 'Parse error' };
     }
   }
-  
+
   console.log('[saveImageToGallery] bridge not available');
-  return false;
+  return { success: false, reason: 'not_available', message: 'Bridge not available' };
 }
 
 interface Dependency {
@@ -219,10 +230,12 @@ function DonateDialog({ isOpen, onClose, platform }: DonateDialogProps) {
                 {/* 微信支付按钮 */}
                 <button
                   onClick={async () => {
-                    const success = await saveImageToGallery('wechat.png');
-                    if (success) {
+                    const result = await saveImageToGallery('wechat.png');
+                    if (result.success) {
                       toast.success('付款码已保存，请使用微信扫码付款');
-                    } else {
+                    } else if (result.reason !== 'permission_denied') {
+                      // Only show error toast if it's not a permission denial
+                      // (permission denial already shows Android system toast)
                       toast.error('保存付款码失败，请重试');
                     }
                   }}
