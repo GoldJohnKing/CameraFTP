@@ -124,10 +124,9 @@ pub struct AppConfig {
     /// 自动选择端口
     pub auto_select_port: bool,
     /// 高级连接配置
-    #[serde(default)]
     pub advanced_connection: AdvancedConnectionConfig,
     /// 预览窗口配置（仅 Windows 有效，其他平台为 None）
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub preview_config: Option<PreviewWindowConfig>,
 }
 
