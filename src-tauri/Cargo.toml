@@ -1,8 +1,10 @@
 [package]
 name = "cameraftp"
 version = "0.1.0"
-description = "A Tauri App"
-authors = ["you"]
+description = "Cross-platform FTP companion for camera photo transfer"
+authors = ["GoldJohnKing <GoldJohnKing@Live.cn>"]
+repository = "https://github.com/GoldJohnKing/CameraFTP"
+license = "MIT"
 edition = "2021"
 
 [lib]
