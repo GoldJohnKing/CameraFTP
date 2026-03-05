@@ -18,6 +18,12 @@
 - 🔔 **状态指示** - 托盘图标颜色显示服务器状态（红/黄/绿）
 - 🔐 **权限管理** - Android 11+所有文件访问权限
 - 💾 **配置持久化** - 自动保存设置，跨会话保持
+- 📁 **文件索引** - 启动时自动扫描目录，建立图片索引数据库
+- 🖼️ **自动预览**（Windows）- 接收照片后自动打开预览窗口或第三方软件
+- 📷 **EXIF元数据** - 读取照片拍摄时间，支持 JPG/HEIF/HEIC 等格式
+- 👁️ **文件监听**（桌面平台）- 实时监听文件系统变化，同步更新索引
+- 🔒 **安全密码** - Argon2id 密码哈希，内存自动清零保护
+- 🐛 **日志系统** - Debug 模式支持，便于问题排查
 
 ---
 
@@ -47,6 +53,10 @@
 | **构建工具** | Vite | ^5.0.0 |
 | **后端** | Rust | ≥1.75 |
 | **FTP服务器** | libunftp | 0.23.0 |
+| **EXIF读取** | nom-exif | 2.7 |
+| **文件监听** | notify | 8.0 |
+| **密码哈希** | argon2 | 0.5 |
+| **内存安全** | zeroize | 1.8 |
 | **Android Native** | Kotlin | 1.9.25 |
 | **Android API Level** | min 30 / target 36 | Android 11+ |
 | **Java** | JDK | 17 |
@@ -78,17 +88,33 @@ cameraftp/
 │   ├── Cargo.toml                # Rust依赖
 │   ├── src/
 │   │   ├── main.rs               # 程序入口
-│   │   ├── commands.rs           # Tauri命令（IPC接口）
+│   │   ├── lib.rs                # 库入口
+│   │   ├── commands/             # Tauri命令（IPC接口）
+│   │   │   ├── mod.rs            # 命令模块入口
+│   │   │   ├── server.rs         # 服务器控制命令
+│   │   │   ├── config.rs         # 配置管理命令
+│   │   │   ├── storage.rs        # 存储相关命令
+│   │   │   ├── file_index.rs     # 文件索引命令
+│   │   │   └── exif.rs           # EXIF读取命令
 │   │   ├── ftp/                  # FTP服务器实现
-│   │   └── platform/             # 平台适配（Windows/Android）
+│   │   ├── file_index/           # 文件索引服务
+│   │   ├── auto_open/            # 自动预览服务（Windows）
+│   │   ├── platform/             # 平台适配（Windows/Android）
+│   │   ├── crypto.rs             # Argon2密码哈希
+│   │   ├── config.rs             # 应用配置管理
+│   │   └── error.rs              # 错误处理
 │   │
 │   └── 📁 gen/android/           # Android原生代码 (Kotlin)
 │       └── app/src/main/java/com/gjk/cameraftpcompanion/
-│           ├── MainActivity.kt           # 主活动 + JS Bridge
+│           ├── MainActivity.kt           # 主活动
 │           ├── FtpForegroundService.kt   # FTP前台服务
 │           ├── PermissionBridge.kt       # 权限JS Bridge
 │           ├── StorageHelper.kt          # 存储辅助
-│           └── MediaScannerHelper.kt     # 媒体扫描
+│           ├── MediaScannerHelper.kt     # 媒体扫描
+│           └── bridges/                  # JS Bridge 目录
+│               ├── FileUploadBridge.kt   # 文件上传Bridge
+│               ├── ServerStateBridge.kt  # 服务器状态Bridge
+│               └── FileWatcherBridge.kt  # 文件监听Bridge
 │
 └── 📁 dist/                      # 构建输出
 ```
@@ -101,11 +127,14 @@ Android平台使用Kotlin实现以下功能：
 
 | 文件 | 功能 |
 |------|------|
-| **MainActivity.kt** | 主活动，管理JS Bridge（文件上传、服务器状态、存储设置） |
+| **MainActivity.kt** | 主活动，管理应用生命周期和Bridge注册 |
 | **FtpForegroundService.kt** | 前台服务，保持FTP在后台运行，显示状态通知 |
 | **PermissionBridge.kt** | 权限管理（存储、通知、电池优化） |
 | **StorageHelper.kt** | 跳转到系统存储权限设置页面 |
 | **MediaScannerHelper.kt** | 文件上传后触发媒体扫描，让照片出现在相册 |
+| **bridges/FileUploadBridge.kt** | 文件上传事件处理，触发媒体扫描 |
+| **bridges/ServerStateBridge.kt** | 服务器状态更新转发到前台服务 |
+| **bridges/FileWatcherBridge.kt** | 使用 FileObserver 监听文件系统变化 |
 
 ### JS Bridge 说明
 
@@ -120,10 +149,15 @@ window.PermissionAndroid?.checkAllPermissions()
 window.PermissionAndroid?.requestStoragePermission()
 
 // 文件上传事件（由Rust通过Tauri事件触发）
-window.FileUploadAndroid?.onFileUploaded(path, size)
+window.FileUploadBridge?.onFileUploaded(path)
 
 // 服务器状态更新
-window.ServerStateAndroid?.onServerStateChanged(isRunning, statsJson, connectedClients)
+window.ServerStateBridge?.onServerStateChanged(isRunning, statsJson, connectedClients)
+
+// 文件系统监听（Android端使用 FileObserver）
+window.FileWatcherBridge?.startWatching(path)
+window.FileWatcherBridge?.stopWatching()
+window.FileWatcherBridge?.isWatching()
 ```
 
 ---
@@ -201,7 +235,7 @@ A: 确保已授予"所有文件访问权限"。
 
 ## 📄 许可证
 
-MIT © 2025 CameraFTP
+AGPL-3.0-or-later © 2026 GoldJohnKing <GoldJohnKing@Live.cn>
 
 ---
 
