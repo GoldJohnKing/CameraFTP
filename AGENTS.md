@@ -104,6 +104,23 @@ const result = await invoke<string>('command_name', { arg: value });
 
 ---
 
+## License Headers
+
+**Always add SPDX license headers to new source files.**
+
+The project is licensed under AGPL-3.0. Use the appropriate comment syntax for each language:
+
+```rust
+// CameraFTP - A Cross-platform FTP companion for camera photo transfer
+// Copyright (C) 2026 GoldJohnKing <GoldJohnKing@Live.cn>
+// SPDX-License-Identifier: AGPL-3.0-or-later
+```
+
+- **Rust**: `//` single-line comments
+- **TypeScript/Kotlin**: `/** */` block comments (same format)
+
+---
+
 ## Common Tasks
 
 ### Add Tauri Command
