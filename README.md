@@ -17,12 +17,10 @@
 ### 🖥️ Windows专属功能
 
 - 🔔 **开机自启** - Windows后台运行，支持开机自启
-- 🚦 **状态指示** - 托盘图标颜色显示服务器状态（红/黄/绿）
-- 🖼️ **自动预览** - 接收照片后自动打开预览窗口或第三方软件
-- 🖼️ **内置预览工具**
-  - 📷 **EXIF元数据** - 读取照片拍摄时间，支持 JPG/HEIF/HEIC 等格式
-  - 📁 **文件索引** - 启动时自动扫描目录，建立图片索引数据库
-  - 👁️ **文件监听** - 实时监听文件系统变化，同步更新索引
+- 🚦 **状态指示** - 托盘图标颜色显示服务器状态
+- 🖼️ **自动预览** - 支持接收照片后自动打开预览窗口或第三方软件
+- 📷 **EXIF元数据** - 预览窗口支持显示ISO/光圈/快门速度/拍摄时间
+- 🎨 **多格式支持** - 支持 JPG/HEIF/HEIC 等格式
 
 ### 📱 Android专属功能
 
@@ -31,7 +29,41 @@
 
 ---
 
-## 🏗️ 技术架构
+## ⚙️ 配置与存储
+
+### 配置文件位置
+
+- **Windows**: `%APPDATA%\cameraftp\config.json`
+- **Android**: `/data/data/com.gjk.cameraftpcompanion/files/config.json`
+
+### 照片存储路径
+
+- **Windows**: 用户图片目录下的 `CameraFTP` 文件夹（可配置）
+- **Android**: `/storage/emulated/0/DCIM/CameraFTP`（固定路径）
+
+---
+
+## 🐛 常见问题
+
+**Q: 端口被占用？**  
+A: 应用会自动切换到下一个可用端口。
+
+**Q: 相机连接失败？**  
+A: 检查防火墙设置，确保电脑和相机在同一网络。
+
+**Q: Android无法保存照片？**  
+A: 确保已授予"所有文件访问权限"。
+
+---
+
+## 📄 许可证
+
+AGPL-3.0-or-later © 2026 GoldJohnKing <GoldJohnKing@Live.cn>
+
+---
+
+<details>
+<summary><h2>🏗️ 技术架构（开发者）</h2></summary>
 
 ```
     React + TypeScript + TailwindCSS (前端)
@@ -65,9 +97,10 @@
 | **Android API Level** | min 30 / target 36 | Android 11+ |
 | **Java** | JDK | 17 |
 
----
+</details>
 
-## 📁 项目结构
+<details>
+<summary><h2>📁 项目结构（开发者）</h2></summary>
 
 ```
 cameraftp/
@@ -123,9 +156,10 @@ cameraftp/
 └── 📁 dist/                      # 构建输出
 ```
 
----
+</details>
 
-## 🤖 Android 原生代码
+<details>
+<summary><h2>🤖 Android 原生代码（开发者）</h2></summary>
 
 Android平台使用Kotlin实现以下功能：
 
@@ -164,9 +198,10 @@ window.FileWatcherBridge?.stopWatching()
 window.FileWatcherBridge?.isWatching()
 ```
 
----
+</details>
 
-## 🚀 快速开始
+<details>
+<summary><h2>🚀 快速开始（开发者）</h2></summary>
 
 ### 环境要求
 
@@ -208,38 +243,7 @@ cargo tauri dev
 ./build.sh clean           # 清理所有构建缓存
 ```
 
----
-
-## ⚙️ 配置与存储
-
-### 配置文件位置
-
-- **Windows**: `%APPDATA%\cameraftp\config.json`
-- **Android**: `/data/data/com.gjk.cameraftpcompanion/files/config.json`
-
-### 照片存储路径
-
-- **Windows**: 用户图片目录下的 `CameraFTP` 文件夹（可配置）
-- **Android**: `/storage/emulated/0/DCIM/CameraFTP`（固定路径）
-
----
-
-## 🐛 常见问题
-
-**Q: 端口被占用？**  
-A: 应用会自动切换到下一个可用端口。
-
-**Q: 相机连接失败？**  
-A: 检查防火墙设置，确保电脑和相机在同一网络。
-
-**Q: Android无法保存照片？**  
-A: 确保已授予"所有文件访问权限"。
-
----
-
-## 📄 许可证
-
-AGPL-3.0-or-later © 2026 GoldJohnKing <GoldJohnKing@Live.cn>
+</details>
 
 ---
 
