@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "camera-ftp-companion",
+      "name": "cameraftp",
       "dependencies": {
         "@tauri-apps/api": "^2.0.0",
         "lucide-react": "^0.460.0",

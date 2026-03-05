@@ -18,8 +18,8 @@ check_windows_env() {
 
 terminate_running_process() {
     info "正在检查运行中的进程..."
-    if taskkill.exe /F /IM camera-ftp-companion.exe >/dev/null 2>&1; then
-        info "已终止进程: camera-ftp-companion.exe"
+    if taskkill.exe /F /IM cameraftp.exe >/dev/null 2>&1; then
+        info "已终止进程: cameraftp.exe"
     fi
 }
 
@@ -46,13 +46,13 @@ build_windows() {
     cd ..
 
     # 复制输出
-    local OUTPUT_NAME="camera-ftp-companion.exe"
+    local OUTPUT_NAME="cameraftp.exe"
     local DEST_NAME="$OUTPUT_NAME"
     local SRC_PATH
 
     if [ "$BUILD_TYPE" = "debug" ]; then
         SRC_PATH="src-tauri/target/x86_64-pc-windows-msvc/debug/$OUTPUT_NAME"
-        DEST_NAME="camera-ftp-companion-debug.exe"
+        DEST_NAME="cameraftp-debug.exe"
     else
         SRC_PATH="src-tauri/target/x86_64-pc-windows-msvc/release/$OUTPUT_NAME"
     fi
@@ -76,8 +76,8 @@ show_help() {
     echo "  ./build-windows.sh --check-toolchain  # 检查编译环境"
     echo ""
     echo "输出位置:"
-    echo "  Release: out/camera-ftp-companion.exe"
-    echo "  Debug:   out/camera-ftp-companion-debug.exe"
+    echo "  Release: out/cameraftp.exe"
+    echo "  Debug:   out/cameraftp-debug.exe"
     echo ""
     echo "注意: 推荐使用 ./build.sh windows 进行构建，会自动生成类型绑定"
 }

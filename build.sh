@@ -87,7 +87,7 @@ build_target() {
 # 主流程
 echo ""
 echo "=========================================="
-echo "  图传伴侣 (Camera FTP Companion)"
+echo "  图传伴侣 (CameraFTP)"
 echo "  统一构建脚本"
 echo "=========================================="
 echo ""
@@ -100,16 +100,16 @@ fi
 
 info "编译目标：${TARGETS[*]}"
 info "编译模式：$BUILD_TYPE"
-if [ "$CHECK_ONLY" = true ]; then
-    info "执行操作：环境检查"
-else
-    if [ "$SERIAL_MODE" = true ]; then
-        info "执行方式：串行编译"
-    else
-        info "执行方式：并行编译"
-    fi
-fi
-echo ""
+# if [ "$CHECK_ONLY" = true ]; then
+#     info "执行操作：环境检查"
+# else
+#     if [ "$SERIAL_MODE" = true ]; then
+#         info "执行方式：串行编译"
+#     else
+#         info "执行方式：并行编译"
+#     fi
+# fi
+# echo ""
 
 START_TIME=$(date +%s)
 

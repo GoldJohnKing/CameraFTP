@@ -76,7 +76,7 @@ fn setup_logging() {
         #[cfg(not(target_os = "android"))]
         let log_dir = dirs::data_dir()
             .unwrap_or_else(|| PathBuf::from("."))
-            .join("camera-ftp-companion/logs");
+            .join("cameraftp/logs");
 
         let log_file = log_dir.join("app.log");
         let log_file_for_writer = log_file.clone();

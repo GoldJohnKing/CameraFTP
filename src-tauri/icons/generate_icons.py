@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-图标生成脚本 - 为 Camera FTP Companion 生成应用图标
+图标生成脚本 - 为 CameraFTP 生成应用图标
 
 使用方法:
     cd src-tauri/icons && uv run python3 generate_icons.py
@@ -66,7 +66,7 @@ def create_icon(size: int) -> Image.Image:
 
 
 def main():
-    print("Generating Camera FTP Companion icons...")
+    print("Generating CameraFTP icons...")
 
     # 生成 128x128 主图标
     img128 = create_icon(128)

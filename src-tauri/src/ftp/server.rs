@@ -289,7 +289,7 @@ impl FtpServerActor {
             }),
             authenticator,
         )
-        .greeting("Camera FTP Companion Ready")
+        .greeting("CameraFTP Ready")
         .idle_session_timeout(config.idle_timeout_seconds)
         .notify_data(data_listener)
         .notify_presence(presence_listener)

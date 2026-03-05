@@ -1,5 +1,5 @@
 [package]
-name = "camera-ftp-companion"
+name = "cameraftp"
 version = "0.1.0"
 description = "A Tauri App"
 authors = ["you"]

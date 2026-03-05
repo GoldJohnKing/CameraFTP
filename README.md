@@ -1,4 +1,4 @@
-# 📸 Camera FTP Companion（图传伴侣）
+# 📸 CameraFTP（图传伴侣）
 
 一款跨平台的相机FTP伴侣应用，让相机照片直接传输到电脑或手机。
 
@@ -56,7 +56,7 @@
 ## 📁 项目结构
 
 ```
-camera-ftp-companion/
+cameraftp/
 ├── 📄 配置文件
 │   ├── package.json              # Node.js依赖
 │   └── build.sh                  # ⭐ 统一构建入口
@@ -176,7 +176,7 @@ cargo tauri dev
 
 ### 配置文件位置
 
-- **Windows**: `%APPDATA%\camera-ftp-companion\config.json`
+- **Windows**: `%APPDATA%\cameraftp\config.json`
 - **Android**: `/data/data/com.gjk.cameraftpcompanion/files/config.json`
 
 ### 照片存储路径
@@ -201,7 +201,7 @@ A: 确保已授予"所有文件访问权限"。
 
 ## 📄 许可证
 
-MIT © 2025 Camera FTP Companion
+MIT © 2025 CameraFTP
 
 ---
 

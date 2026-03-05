@@ -399,7 +399,7 @@ show_build_help() {
   ./$script_name gen-types                    # 仅生成类型绑定
 
 输出位置:
-  Windows: out/camera-ftp-companion.exe
-  Android: out/camera-ftp-companion.apk
+  Windows: out/cameraftp.exe
+  Android: out/cameraftp.apk
 EOF
 }

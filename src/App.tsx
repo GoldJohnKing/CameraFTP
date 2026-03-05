@@ -162,7 +162,7 @@ function App() {
               图传伴侣
             </h1>
             <p className="text-sm text-gray-500 mt-1">
-              Camera FTP Companion
+              让摄影工作流更简单
             </p>
           </header>
         )}
@@ -184,8 +184,7 @@ function App() {
         {/* Footer - 只在主页显示 */}
         {activeTab === 'home' && (
           <footer className="text-center py-6 text-xs text-gray-400">
-            <p>© 2025 Camera FTP Companion</p>
-            <p className="mt-1">让摄影工作流更简单</p>
+            <p>© 2025 CameraFTP by GoldJohnKing</p>
           </footer>
         )}
       </div>

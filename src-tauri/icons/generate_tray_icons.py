@@ -110,7 +110,7 @@ def generate_tray_icon(state: str, size: int = 32) -> Image.Image:
 
 
 def main():
-    print("Generating Camera FTP Companion tray icons with status dots...")
+    print("Generating CameraFTP tray icons with status dots...")
 
     # 生成 32x32 托盘图标
     icon_size = 32

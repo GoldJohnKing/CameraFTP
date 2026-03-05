@@ -237,12 +237,12 @@ setup_android_env() {
 # 签名密钥
 check_or_create_keystore() {
     local keystore_path="src-tauri/gen/android/keystore.properties"
-    local keystore_file="camera-ftp-companion.keystore"
+    local keystore_file="cameraftp.keystore"
 
     local key_alias="${KEYSTORE_ALIAS:-cameraftp}"
     local key_store_pass="${KEYSTORE_PASSWORD:-cameraftp123}"
     local key_pass="${KEY_PASSWORD:-$key_store_pass}"
-    local key_dname="${KEYSTORE_DNAME:-CN=Camera FTP Companion, OU=Development, O=GJK, L=Unknown, ST=Unknown, C=CN}"
+    local key_dname="${KEYSTORE_DNAME:-CN=CameraFTP, OU=Development, O=GJK, L=Unknown, ST=Unknown, C=CN}"
 
     if [ ! -f "$keystore_path" ]; then
         warn "签名配置不存在，创建新的签名密钥..."
@@ -296,7 +296,7 @@ build_android() {
             }
             copy_to_out \
                 "src-tauri/gen/android/app/build/outputs/apk/universal/debug/*.apk" \
-                "camera-ftp-companion-debug.apk" \
+                "cameraftp-debug.apk" \
                 "Debug APK"
             ;;
         "release")
@@ -306,7 +306,7 @@ build_android() {
             }
             copy_to_out \
                 "src-tauri/gen/android/app/build/outputs/apk/universal/release/*.apk" \
-                "camera-ftp-companion.apk" \
+                "cameraftp.apk" \
                 "Release APK"
             ;;
     esac
@@ -328,8 +328,8 @@ show_help() {
     echo "  ./build-android.sh --check-toolchain  # 检查编译环境"
     echo ""
     echo "输出位置:"
-    echo "  Release: out/camera-ftp-companion.apk"
-    echo "  Debug:   out/camera-ftp-companion-debug.apk"
+    echo "  Release: out/cameraftp.apk"
+    echo "  Debug:   out/cameraftp-debug.apk"
     echo ""
     echo "注意: 推荐使用 ./build.sh android 进行构建，会自动生成类型绑定"
 }

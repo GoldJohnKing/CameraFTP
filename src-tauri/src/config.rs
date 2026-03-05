@@ -180,7 +180,7 @@ impl AppConfig {
         #[cfg(not(target_os = "android"))]
         {
             dirs::config_dir()
-                .map(|d| d.join("camera-ftp-companion"))
+                .map(|d| d.join("cameraftp"))
                 .unwrap_or_else(|| PathBuf::from("./config"))
                 .join("config.json")
         }

@@ -308,7 +308,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "camera-ftp-companion"
+name = "cameraftp"
 version = "0.1.0"
 dependencies = [
  "argon2",
