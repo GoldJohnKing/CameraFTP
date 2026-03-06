@@ -4,14 +4,12 @@
 
 use super::traits::PlatformService;
 use super::types::{PermissionStatus, StorageInfo};
-use crate::constants::{
-    ANDROID_DCIM_PATH, ANDROID_DEFAULT_STORAGE_PATH, ANDROID_STORAGE_DISPLAY_NAME,
-};
+use crate::constants::ANDROID_DCIM_PATH;
 use crate::utils::fs::is_path_writable;
 use tauri::{AppHandle, Emitter};
 use tracing::{debug, error, info};
 
-// 为了保持向后兼容，重新导出常量
+// 重新导出常量（使用 crate 路径避免导入警告）
 pub use crate::constants::ANDROID_DEFAULT_STORAGE_PATH as DEFAULT_STORAGE_PATH;
 pub use crate::constants::ANDROID_STORAGE_DISPLAY_NAME as STORAGE_DISPLAY_NAME;
 

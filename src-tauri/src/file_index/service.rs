@@ -79,6 +79,7 @@ impl FileIndexService {
 
     /// 启动文件系统监听（桌面平台）
     /// 注意：需要传入 Arc<Self> 以在 watcher 任务中保持服务存活
+    #[cfg_attr(target_os = "android", allow(unused_variables))]
     pub async fn start_watcher(self_arc: Arc<Self>) -> Result<bool, AppError> {
         #[cfg(not(target_os = "android"))]
         {

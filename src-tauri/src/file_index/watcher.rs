@@ -4,13 +4,22 @@
 
 use std::path::PathBuf;
 use std::sync::Arc;
+#[cfg(not(target_os = "android"))]
 use std::time::Duration;
-use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher};
-use tokio::sync::mpsc::{channel, Sender};
-use tracing::{debug, error, info, warn};
+use notify::RecommendedWatcher;
+#[cfg(not(target_os = "android"))]
+use notify::{Event, RecursiveMode, Watcher};
+use tokio::sync::mpsc::Sender;
+#[cfg(not(target_os = "android"))]
+use tokio::sync::mpsc::channel;
+use tracing::info;
+#[cfg(not(target_os = "android"))]
+use tracing::{debug, error, warn};
 
-use crate::constants::FILE_READY_TIMEOUT_SECS;
 use crate::file_index::FileIndexService;
+#[cfg(not(target_os = "android"))]
+use crate::constants::FILE_READY_TIMEOUT_SECS;
+#[cfg(not(target_os = "android"))]
 use crate::utils::wait_for_file_ready;
 
 /// 文件系统事件类型
@@ -165,6 +174,7 @@ impl FileWatcher {
     }
 
     /// 处理文件系统事件并同步到索引
+    #[cfg(not(target_os = "android"))]
     async fn process_event(event: FileSystemEvent, file_index: Arc<FileIndexService>) {
         match event {
             FileSystemEvent::Created(path) => {

@@ -17,12 +17,14 @@ use tracing::error;
 use crate::config::{AppConfig, ImageOpenMethod};
 use crate::config::PreviewWindowConfig;
 use crate::error::AppError;
+#[cfg(target_os = "windows")]
 use crate::constants::{
     PREVIEW_WINDOW_WIDTH, PREVIEW_WINDOW_HEIGHT, PREVIEW_EMIT_DELAY_MS,
     PREVIEW_ON_TOP_DURATION_SECS,
 };
 
 /// Macro to wrap errors with context message
+#[cfg(target_os = "windows")]
 macro_rules! wrap_err {
     ($result:expr, $msg:expr) => {
         $result.map_err(|e| AppError::Other(format!("{}: {}", $msg, e)))?

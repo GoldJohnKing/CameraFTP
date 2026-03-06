@@ -153,6 +153,7 @@ pub async fn open_preview_window(
 
 /// 选择可执行文件（用于自定义打开程序）
 #[command]
+#[cfg_attr(target_os = "android", allow(unused_variables))]
 pub async fn select_executable_file(app: AppHandle) -> Result<Option<String>, AppError> {
     #[cfg(not(target_os = "android"))]
     {

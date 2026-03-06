@@ -4,7 +4,9 @@
 
 use super::types::{PermissionStatus, ServerStartCheckResult, StorageInfo};
 use std::sync::Arc;
-use tauri::{AppHandle, Manager};
+use tauri::AppHandle;
+#[cfg(not(target_os = "android"))]
+use tauri::Manager;
 use tokio::sync::Mutex;
 
 /// 平台服务接口
