@@ -8,7 +8,7 @@ use std::sync::Arc;
 #[cfg(target_os = "windows")]
 use tokio::sync::Mutex;
 #[cfg(target_os = "windows")]
-use tauri::{Emitter, Listener, Manager};
+use tauri::{Emitter, Manager};
 use tauri::AppHandle;
 #[cfg(target_os = "windows")]
 use tracing::error;
@@ -18,7 +18,7 @@ use crate::config::{AppConfig, ImageOpenMethod};
 use crate::config::PreviewWindowConfig;
 use crate::error::AppError;
 use crate::constants::{
-    PREVIEW_WINDOW_WIDTH, PREVIEW_WINDOW_HEIGHT, PREVIEW_READY_TIMEOUT_SECS,
+    PREVIEW_WINDOW_WIDTH, PREVIEW_WINDOW_HEIGHT, PREVIEW_EMIT_DELAY_MS,
     PREVIEW_ON_TOP_DURATION_SECS,
 };
 
@@ -176,6 +176,7 @@ impl AutoOpenService {
     }
 
     /// 设置预览窗口事件处理
+    /// 使用固定延迟确保窗口已加载完成
     #[cfg(target_os = "windows")]
     async fn setup_preview_event_handling(
         &self,
@@ -183,32 +184,13 @@ impl AutoOpenService {
         event: PreviewEvent
     ) {
         let event_clone = event.clone();
+        let window_clone = window.clone();
         
-        // 使用 Tauri 的事件系统监听窗口就绪
-        // 注意：listen 需要 &self，所以我们需要克隆窗口供闭包使用
-        let _unlisten = window.listen("preview-ready", {
-            let window_for_emit = window.clone();
-            move |_event| {
-                // 窗口就绪，发送图片数据
-                let event_json = match serde_json::to_value(&event_clone) {
-                    Ok(json) => json,
-                    Err(_) => return,
-                };
-                let _ = window_for_emit.emit("preview-image", event_json);
-            }
-        });
-        
-        // 设置超时，以防窗口永远不就绪
-        let window_clone_for_timeout = window.clone();
-        let event_clone_for_timeout = event;
+        // 延迟发送事件，确保窗口已加载
         tokio::spawn(async move {
-            tokio::time::sleep(tokio::time::Duration::from_secs(PREVIEW_READY_TIMEOUT_SECS)).await;
-            // 超时后强制发送（窗口可能已关闭）
-            let event_json = match serde_json::to_value(&event_clone_for_timeout) {
-                Ok(json) => json,
-                Err(_) => return,
-            };
-            let _ = window_clone_for_timeout.emit("preview-image", event_json);
+            tokio::time::sleep(tokio::time::Duration::from_millis(PREVIEW_EMIT_DELAY_MS)).await;
+            // 窗口可能已关闭，忽略发送错误
+            let _ = window_clone.emit("preview-image", event_clone);
         });
     }
 
