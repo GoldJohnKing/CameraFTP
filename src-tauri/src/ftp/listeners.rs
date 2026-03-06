@@ -2,6 +2,7 @@
 // Copyright (C) 2026 GoldJohnKing <GoldJohnKing@Live.cn>
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+use crate::constants::FILE_READY_TIMEOUT_SECS;
 use crate::file_index::FileIndexService;
 use crate::ftp::events::EventBus;
 use crate::ftp::stats::StatsActor;
@@ -12,9 +13,6 @@ use std::sync::Arc;
 use std::time::Duration;
 use tauri::{AppHandle, Manager};
 use tracing::{info, warn};
-
-/// 文件就绪检查的最大等待时间
-const FILE_READY_TIMEOUT_SECS: u64 = 5;
 
 /// 数据事件监听器（上传、下载等）
 #[derive(Debug, Clone)]

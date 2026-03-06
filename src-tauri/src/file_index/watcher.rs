@@ -9,11 +9,9 @@ use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher};
 use tokio::sync::mpsc::{channel, Sender};
 use tracing::{debug, error, info, warn};
 
+use crate::constants::FILE_READY_TIMEOUT_SECS;
 use crate::file_index::FileIndexService;
 use crate::utils::wait_for_file_ready;
-
-/// 文件就绪检查的最大等待时间
-const FILE_READY_TIMEOUT_SECS: u64 = 5;
 
 /// 文件系统事件类型
 #[derive(Debug, Clone)]

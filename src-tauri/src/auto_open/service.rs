@@ -8,7 +8,7 @@ use std::sync::Arc;
 #[cfg(target_os = "windows")]
 use tokio::sync::Mutex;
 #[cfg(target_os = "windows")]
-use tauri::{Emitter, Manager};
+use tauri::{Emitter, Listener, Manager};
 use tauri::AppHandle;
 #[cfg(target_os = "windows")]
 use tracing::error;
@@ -17,6 +17,10 @@ use tracing::error;
 use crate::config::{AppConfig, ImageOpenMethod};
 use crate::config::PreviewWindowConfig;
 use crate::error::AppError;
+use crate::constants::{
+    PREVIEW_WINDOW_WIDTH, PREVIEW_WINDOW_HEIGHT, PREVIEW_READY_TIMEOUT_SECS,
+    PREVIEW_ON_TOP_DURATION_SECS,
+};
 
 /// Macro to wrap errors with context message
 macro_rules! wrap_err {
@@ -48,65 +52,15 @@ impl AutoOpenService {
         }
     }
 
-/// 处理文件上传事件
+    /// 处理文件上传事件
     pub async fn on_file_uploaded(&self, _file_path: PathBuf) -> Result<(), AppError> {
-        // 检查是否启用自动预览
-        let config = self.config.lock().await.clone();
-        if !config.enabled {
-            return Ok(());
-        }
-        // 如果需要置顶
-        if bring_to_front {
-            // 创建或更新预览窗口
-            let window = wrap_err!(
-                tauri::WebviewWindowBuilder::new(
-                    &self.app_handle,
-                    "preview",
-                    tauri::WebviewUrl::App("/preview".into())
-                )
-                .title("图片预览")
-                .inner_size(1024.0, 768.0)
-                .center()
-                .resizable(true)
-                .visible(true)
-                .build(),
-                "Failed to create preview window"
-            );
-            
-            // 发送图片数据（使用Tauri事件系统，而非固定延迟）
-            let event_clone = event.clone();
-            let window_clone = window.clone();
-            let file_path_for_event = file_path.clone();
-            tokio::spawn(async move {
-                // 监听 preview-ready 事件（前端窗口加载完成后发送）
-                window_clone.listen("preview-ready", move |_event| {
-                    // 窗口已就绪，但发送图片数据
-                    let _ = window_clone.emit("preview-image", event_clone);
-                })
-            });
-
-            // 设置超时（5秒）
-            tokio::spawn(async move {
-                // 超时后强制发送
-                tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
-                let _ = window_clone.emit("preview-image", event_clone);
-            });
-
-            // 如果需要置顶
-            if bring_to_front {
-                // 创建或更新预览窗口
-                wrap_err!(window.set_focus(), "Failed to focus window");
-                wrap_err!(window.set_always_on_top(true), "Failed to set always on top");
-                // 短暂置顶后恢复
-                let window_clone_for_top = window.clone();
-                tokio::spawn(async move {
-                    tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
-                    let _ = window_clone_for_top.set_always_on_top(false);
-                });
+        #[cfg(target_os = "windows")]
+        {
+            // 检查是否启用自动预览
+            let config = self.config.lock().await.clone();
+            if !config.enabled {
+                return Ok(());
             }
-        }
-        Ok(())
-    }
 
             match &config.method {
                 ImageOpenMethod::BuiltInPreview => {
@@ -173,157 +127,104 @@ impl AutoOpenService {
         // 检查预览窗口是否已存在
         if let Some(window) = self.app_handle.get_webview_window("preview") {
             // 窗口已存在，发送事件更新图片
+            let event_json = serde_json::to_value(&event)
+                .map_err(|e| AppError::Other(format!("Failed to serialize event: {}", e)))?;
             wrap_err!(
-                window.emit::<serde_json::Value>("preview-image", serde_json::to_value(&event).unwrap()),
+                window.emit::<serde_json::Value>("preview-image", event_json),
                 "Failed to emit preview event"
             );
             
             // 如果需要置顶
             if bring_to_front {
-                wrap_err!(window.set_focus(), "Failed to focus window");
-                wrap_err!(window.set_always_on_top(true), "Failed to set always on top");
-                // 短暂置顶后恢复
-                let window_clone = window.clone();
-                tokio::spawn(async move {
-                    tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
-                    let _ = window_clone.set_always_on_top(false);
-                });
+                self.setup_window_on_top(&window).await?;
             }
         } else {
             // 创建新窗口
-            let window = wrap_err!(
-                tauri::WebviewWindowBuilder::new(
-                    &self.app_handle,
-                    "preview",
-                    tauri::WebviewUrl::App("/preview".into())
-                )
-                .title("图片预览")
-                .inner_size(1024.0, 768.0)
-                .center()
-                .resizable(true)
-                .visible(true)
-                .build(),
-                "Failed to create preview window"
-            );
+            let window = self.create_preview_window().await?;
             
-            // 监听窗口加载完成事件， let event_clone = event.clone();
-            let window_clone = window.clone();
-            
-            // 使用 Tauri 的事件系统监听窗口就绪
-            let _unlisten = window_clone.listen("preview-ready", move |_event| {
-                // 窗口就绪，发送图片数据
-                let _ = window_clone.emit("preview-image", event_clone);
-            });
-            
-            // 设置超时，以防窗口永远不就绪
-            tokio::spawn(async move {
-                tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
-                // 超时后强制发送（窗口可能已关闭）
-                let _ = window_clone.emit("preview-image", event_clone);
-            });
+            // 设置事件监听和超时
+            self.setup_preview_event_handling(&window, event).await;
             
             // 如果需要置顶
             if bring_to_front {
-                wrap_err!(window.set_focus(), "Failed to focus window");
-                wrap_err!(window.set_always_on_top(true), "Failed to set always on top");
-                // 短暂置顶后恢复
-                let window_clone_for_top = window.clone();
-                tokio::spawn(async move {
-                    tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
-                    let _ = window_clone_for_top.set_always_on_top(false);
-                });
+                self.setup_window_on_top(&window).await?;
             }
         }
 
         Ok(())
     }
-}
-        } else {
-            // 创建新窗口
-            let window = wrap_err!(
-                tauri::WebviewWindowBuilder::new(
-                    &self.app_handle,
-                    "preview",
-                    tauri::WebviewUrl::App("/preview".into())
-                )
-                .title("图片预览")
-                .inner_size(1024.0, 768.0)
-                .center()
-                .resizable(true)
-                .visible(true)
-                .build(),
-                "Failed to create preview window"
-            );
-            
-            // 监听窗口加载完成事件， let event_clone = event.clone();
-            let file_path_for_event = file_path.clone();
-            let window_clone = window.clone();
-            
-            // 使用 Tauri 的事件系统监听窗口就绪
-            let _unlisten = window_clone.listen("preview-ready", move |_event| {
-                // 窗口就绪，发送图片数据
-                let _ = window_clone.emit("preview-image", event_clone);
-            });
-            
-            // 设置超时，以防窗口永远不就绪
-            tokio::spawn(async move {
-                tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
-                // 超时后强制发送（窗口可能已关闭）
-                let _ = window_clone.emit("preview-image", event_clone);
-            });
-            
-            // 如果需要置顶
-            if bring_to_front {
-                wrap_err!(window.set_focus(), "Failed to focus window");
-                wrap_err!(window.set_always_on_top(true), "Failed to set always on top");
-                // 短暂置顶后恢复
-                let window_clone_for_top = window.clone();
-                tokio::spawn(async move {
-                    tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
-                    let _ = window_clone_for_top.set_always_on_top(false);
-                });
-            }
-        }
 
-        Ok(())
+    /// 创建预览窗口
+    #[cfg(target_os = "windows")]
+    async fn create_preview_window(&self) -> Result<tauri::WebviewWindow, AppError> {
+        let window = wrap_err!(
+            tauri::WebviewWindowBuilder::new(
+                &self.app_handle,
+                "preview",
+                tauri::WebviewUrl::App("/preview".into())
+            )
+            .title("图片预览")
+            .inner_size(PREVIEW_WINDOW_WIDTH, PREVIEW_WINDOW_HEIGHT)
+            .center()
+            .resizable(true)
+            .visible(true)
+            .build(),
+            "Failed to create preview window"
+        );
+        
+        Ok(window)
     }
-        } else {
-            // 创建新窗口
-            let window = wrap_err!(
-                tauri::WebviewWindowBuilder::new(
-                    &self.app_handle,
-                    "preview",
-                    tauri::WebviewUrl::App("/preview".into())
-                )
-                .title("图片预览")
-                .inner_size(1024.0, 768.0)
-                .center()
-                .resizable(true)
-                .visible(true)
-                .build(),
-                "Failed to create preview window"
-            );
-            
-            // 延迟发送事件，确保窗口已加载
-            let event_clone = event.clone();
-            let window_clone = window.clone();
-            tokio::spawn(async move {
-                tokio::time::sleep(tokio::time::Duration::from_millis(300)).await;
-                let _ = window_clone.emit("preview-image", event_clone);
-            });
 
-            // 如果需要置顶
-            if bring_to_front {
-                wrap_err!(window.set_focus(), "Failed to focus window");
-                wrap_err!(window.set_always_on_top(true), "Failed to set always on top");
-                let window_clone = window.clone();
-                tokio::spawn(async move {
-                    tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
-                    let _ = window_clone.set_always_on_top(false);
-                });
+    /// 设置预览窗口事件处理
+    #[cfg(target_os = "windows")]
+    async fn setup_preview_event_handling(
+        &self,
+        window: &tauri::WebviewWindow,
+        event: PreviewEvent
+    ) {
+        let event_clone = event.clone();
+        
+        // 使用 Tauri 的事件系统监听窗口就绪
+        // 注意：listen 需要 &self，所以我们需要克隆窗口供闭包使用
+        let _unlisten = window.listen("preview-ready", {
+            let window_for_emit = window.clone();
+            move |_event| {
+                // 窗口就绪，发送图片数据
+                let event_json = match serde_json::to_value(&event_clone) {
+                    Ok(json) => json,
+                    Err(_) => return,
+                };
+                let _ = window_for_emit.emit("preview-image", event_json);
             }
-        }
+        });
+        
+        // 设置超时，以防窗口永远不就绪
+        let window_clone_for_timeout = window.clone();
+        let event_clone_for_timeout = event;
+        tokio::spawn(async move {
+            tokio::time::sleep(tokio::time::Duration::from_secs(PREVIEW_READY_TIMEOUT_SECS)).await;
+            // 超时后强制发送（窗口可能已关闭）
+            let event_json = match serde_json::to_value(&event_clone_for_timeout) {
+                Ok(json) => json,
+                Err(_) => return,
+            };
+            let _ = window_clone_for_timeout.emit("preview-image", event_json);
+        });
+    }
 
+    /// 设置窗口置顶
+    #[cfg(target_os = "windows")]
+    async fn setup_window_on_top(&self, window: &tauri::WebviewWindow) -> Result<(), AppError> {
+        wrap_err!(window.set_focus(), "Failed to focus window");
+        wrap_err!(window.set_always_on_top(true), "Failed to set always on top");
+        
+        // 短暂置顶后恢复
+        let window_clone = window.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(tokio::time::Duration::from_secs(PREVIEW_ON_TOP_DURATION_SECS)).await;
+            let _ = window_clone.set_always_on_top(false);
+        });
+        
         Ok(())
     }
 

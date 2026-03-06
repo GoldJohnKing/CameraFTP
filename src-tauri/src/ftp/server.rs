@@ -2,6 +2,9 @@
 // Copyright (C) 2026 GoldJohnKing <GoldJohnKing@Live.cn>
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+use crate::constants::{
+    CHECK_INTERVAL_MS, SERVER_READY_TIMEOUT_SECS, SERVER_SHUTDOWN_TIMEOUT_SECS,
+};
 use crate::error::{AppError, AppResult};
 use crate::ftp::events::EventBus;
 use crate::ftp::listeners::{FtpDataListener, FtpPresenceListener};
@@ -17,15 +20,8 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tauri::AppHandle;
 use tokio::sync::{mpsc, oneshot, RwLock};
-use tracing::{error, info, instrument};
+use tracing::{error, info, instrument, warn};
 use unftp_core::auth::{Authenticator, Credentials, AuthenticationError, Principal};
-
-/// 服务器启动检查的最大等待时间
-const SERVER_READY_TIMEOUT_SECS: u64 = 5;
-/// 服务器停止检查的最大等待时间
-const SERVER_SHUTDOWN_TIMEOUT_SECS: u64 = 5;
-/// 检查间隔
-const CHECK_INTERVAL_MS: u64 = 50;
 
 /// 自定义 FTP 认证器
 #[derive(Debug)]
@@ -434,6 +430,8 @@ impl FtpServerActor {
     /// 执行停止
     #[instrument(skip(self))]
     async fn do_stop(&mut self) -> AppResult<()> {
+        let port = self.bind_addr.map(|addr| addr.port()).unwrap_or_default();
+        
         {
             let status = self.status.read().await;
             if !status.is_running() {
@@ -441,7 +439,7 @@ impl FtpServerActor {
             }
         }
 
-        info!("Stopping FTP server");
+        info!(port = port, "Stopping FTP server");
 
         if let Some(tx) = self.shutdown_tx.take() {
             let _ = tx.send(());

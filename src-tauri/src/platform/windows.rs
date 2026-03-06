@@ -10,6 +10,10 @@ use tauri::menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconEvent};
 use winreg::enums::*;
 use winreg::RegKey;
+
+use crate::constants::{
+    SERVER_READY_TIMEOUT_SECS, AUTOSTART_DELAY_MS,
+};
 use super::traits::PlatformService;
 use super::types::{StorageInfo, PermissionStatus};
 
@@ -343,7 +347,7 @@ impl PlatformService for WindowsPlatform {
 
         tauri::async_runtime::spawn(async move {
             // 短暂延迟，让应用完全初始化（而非等待服务器启动的1秒）
-            tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+            tokio::time::sleep(tokio::time::Duration::from_millis(AUTOSTART_DELAY_MS)).await;
 
             match crate::ftp::server_factory::start_ftp_server(&state_clone, Default::default(), Some(app_handle.clone())).await {
                 Ok(ctx) => {
@@ -357,7 +361,7 @@ impl PlatformService for WindowsPlatform {
 
                     // 等待事件处理器就绪（而非固定延迟）
                     match tokio::time::timeout(
-                        tokio::time::Duration::from_secs(5),
+                        tokio::time::Duration::from_secs(SERVER_READY_TIMEOUT_SECS),
                         ready_rx
                     ).await {
                         Ok(_) => tracing::debug!("Event processor ready"),

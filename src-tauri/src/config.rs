@@ -12,6 +12,8 @@ use tracing::warn;
 use tracing::{error, info};
 use ts_rs::TS;
 
+use crate::constants::{DEFAULT_FTP_PORT_ANDROID, DEFAULT_FTP_PORT_WINDOWS};
+
 /// 认证配置
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export)]
@@ -138,9 +140,9 @@ impl Default for AppConfig {
     fn default() -> Self {
         // Windows 默认使用端口 21，Android 默认使用端口 2121
         let default_port = if cfg!(target_os = "windows") {
-            21
+            DEFAULT_FTP_PORT_WINDOWS
         } else {
-            2121
+            DEFAULT_FTP_PORT_ANDROID
         };
 
         // preview_config 仅在 Windows 上启用

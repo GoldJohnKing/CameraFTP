@@ -6,19 +6,17 @@ use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::sync::Arc;
-use std::time::{Duration, SystemTime};
+use std::time::SystemTime;
 use tokio::sync::{Mutex, RwLock};
 use tracing::{debug, error, info, trace, warn};
 
 use crate::config::AppConfig;
+use crate::constants::FILE_READY_TIMEOUT_SECS;
 use crate::error::AppError;
 use crate::ftp::EventBus;
 use crate::utils::wait_for_file_ready;
 use super::types::{FileIndex, FileInfo};
 use super::watcher::FileWatcher;
-
-/// 文件就绪检查的最大等待时间
-const FILE_READY_TIMEOUT_SECS: u64 = 5;
 
 type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 

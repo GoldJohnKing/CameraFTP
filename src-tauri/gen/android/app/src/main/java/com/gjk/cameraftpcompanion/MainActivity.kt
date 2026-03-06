@@ -21,6 +21,9 @@ class MainActivity : TauriActivity() {
 
     companion object {
         private const val TAG = "MainActivity"
+        // 注意：这些常量与 Rust 侧 constants.rs 中的定义保持一致
+        // Rust 侧: TAURI_LISTENER_MAX_RETRIES = 50
+        // Rust 侧: TAURI_LISTENER_RETRY_DELAY_MS = 50L
         private const val TAURI_LISTENER_MAX_RETRIES = 50
         private const val TAURI_LISTENER_RETRY_DELAY_MS = 50L
     }

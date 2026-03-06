@@ -5,6 +5,10 @@
 //! 服务器工厂 - 统一服务器启动逻辑
 
 use crate::config::AppConfig;
+use crate::constants::{
+    DEFAULT_FTP_PORT_WINDOWS, DEFAULT_FTP_PORT_ANDROID, DEFAULT_FTP_PORT_OTHER,
+    MIN_PORT, IDLE_TIMEOUT_SECONDS,
+};
 use crate::error::AppError;
 use crate::ftp::{
     create_ftp_server, EventBus, EventProcessor, FtpServerHandle, FtpAuthConfig, ServerConfig, StatsEventHandler, TrayUpdateHandler,
@@ -12,7 +16,7 @@ use crate::ftp::{
 use crate::network::NetworkManager;
 use std::sync::Arc;
 use tauri::AppHandle;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, oneshot};
 use tracing::{error, info, warn};
 
 #[derive(Debug)]
@@ -31,7 +35,7 @@ pub struct ServerStartupOptions {
 impl Default for ServerStartupOptions {
     fn default() -> Self {
         Self {
-            min_port: 1025,
+            min_port: MIN_PORT,
         }
     }
 }
@@ -65,7 +69,13 @@ pub async fn start_ftp_server(
 
     // 查找可用端口
     // 当 advanced_connection 禁用时，Windows 使用默认端口 21，Android 使用 2121
-    let default_port = if cfg!(target_os = "windows") { 21 } else { 2121 };
+    let default_port = if cfg!(target_os = "windows") {
+        DEFAULT_FTP_PORT_WINDOWS
+    } else if cfg!(target_os = "android") {
+        DEFAULT_FTP_PORT_ANDROID
+    } else {
+        DEFAULT_FTP_PORT_OTHER
+    };
     let requested_port = if config.advanced_connection.enabled {
         config.port
     } else {
@@ -100,7 +110,7 @@ pub async fn start_ftp_server(
     let server_config = ServerConfig {
         port,
         root_path: save_path.clone(),
-        idle_timeout_seconds: 600,
+        idle_timeout_seconds: IDLE_TIMEOUT_SECONDS,
         auth: if config.advanced_connection.enabled {
             FtpAuthConfig::from(&config.advanced_connection.auth)
         } else {
@@ -152,7 +162,7 @@ pub async fn start_ftp_server(
     }
 }
 
-pub fn spawn_event_processor(app_handle: AppHandle, event_bus: EventBus) -> oneshot::Sender<()> {
+pub fn spawn_event_processor(app_handle: AppHandle, event_bus: EventBus) -> oneshot::Receiver<()> {
     let app_handle_for_tray = app_handle.clone();
     let (ready_tx, ready_rx) = oneshot::channel();
     
