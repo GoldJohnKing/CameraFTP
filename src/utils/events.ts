@@ -6,9 +6,9 @@
 
 import { listen, Event, UnlistenFn } from '@tauri-apps/api/event';
 
-type EventHandler<T = any> = (event: Event<T>) => void;
+type EventHandler<T = unknown> = (event: Event<T>) => void;
 
-export interface EventRegistration<T = any> {
+export interface EventRegistration<T = unknown> {
   name: string;
   handler: EventHandler<T>;
 }
@@ -55,7 +55,7 @@ export function createEventManager() {
       }
     },
 
-    async registerAll(registrations: EventRegistration<any>[]): Promise<void> {
+    async registerAll(registrations: EventRegistration<unknown>[]): Promise<void> {
       if (isCleanedUp) {
         return;
       }

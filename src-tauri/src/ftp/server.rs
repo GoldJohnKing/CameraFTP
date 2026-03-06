@@ -403,17 +403,23 @@ impl FtpServerActor {
     }
 
     /// 创建文件系统实例（路径已验证，不应失败）
+    /// 
+    /// # Panics
+    /// 
+    /// 仅在文件系统创建失败时 panic，这种情况在正常流程中不应发生，
+    /// 因为路径已在 `validate_filesystem` 中验证过。
     fn create_filesystem(root_path: &std::path::Path) -> unftp_sbe_fs::Filesystem {
-        unftp_sbe_fs::Filesystem::new(root_path.to_path_buf())
-            .map_err(|e| {
+        match unftp_sbe_fs::Filesystem::new(root_path.to_path_buf()) {
+            Ok(fs) => fs,
+            Err(e) => {
                 error!(
                     error = %e,
                     root_path = %root_path.display(),
                     "CRITICAL: Filesystem creation failed despite validation"
                 );
-                e
-            })
-            .expect("Filesystem creation failed after successful validation")
+                panic!("Filesystem creation failed after successful validation: {}", e)
+            }
+        }
     }
 
     /// 完成启动流程，更新状态

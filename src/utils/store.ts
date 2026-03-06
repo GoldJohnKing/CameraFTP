@@ -10,7 +10,11 @@ import { formatError } from './error';
  * Creates a debounced version of a function.
  * The returned function delays execution until after `delay` milliseconds
  * have elapsed since the last time it was invoked.
+ * 
+ * Uses `any[]` to preserve the original function's parameter types through type inference.
+ * This is a common and accepted pattern for higher-order utility functions.
  */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function debounce<T extends (...args: any[]) => any>(
   fn: T,
   delay: number

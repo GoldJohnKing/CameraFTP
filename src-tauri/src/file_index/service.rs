@@ -213,10 +213,10 @@ impl FileIndexService {
                 let path = entry.path();
                 let metadata = entry.metadata().await;
                 
-                if metadata.is_err() {
-                    continue; // 跳过无权限文件
-                }
-                let metadata = metadata.unwrap();
+                let metadata = match metadata {
+                    Ok(m) => m,
+                    Err(_) => continue, // 跳过无权限文件
+                };
                 
                 if metadata.is_dir() {
                     // 递归扫描子目录
