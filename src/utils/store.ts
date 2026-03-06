@@ -6,6 +6,46 @@
 
 import { formatError } from './error';
 
+/**
+ * Creates a debounced version of a function.
+ * The returned function delays execution until after `delay` milliseconds
+ * have elapsed since the last time it was invoked.
+ */
+export function debounce<T extends (...args: any[]) => any>(
+  fn: T,
+  delay: number
+): T & { cancel: () => void; flush: () => void } {
+  let timeoutId: ReturnType<typeof setTimeout> | null = null;
+  let lastArgs: Parameters<T> | null = null;
+
+  const debounced = (...args: Parameters<T>) => {
+    lastArgs = args;
+    if (timeoutId) clearTimeout(timeoutId);
+    timeoutId = setTimeout(() => {
+      if (lastArgs) fn(...lastArgs);
+      timeoutId = null;
+      lastArgs = null;
+    }, delay);
+  };
+
+  debounced.cancel = () => {
+    if (timeoutId) clearTimeout(timeoutId);
+    timeoutId = null;
+    lastArgs = null;
+  };
+
+  debounced.flush = () => {
+    if (timeoutId && lastArgs) {
+      clearTimeout(timeoutId);
+      fn(...lastArgs);
+      timeoutId = null;
+      lastArgs = null;
+    }
+  };
+
+  return debounced as T & { cancel: () => void; flush: () => void };
+}
+
 interface AsyncActionOptions<T, S> {
   operation: () => Promise<T>;
   onSuccess: (result: T, set: (fn: (state: S) => S) => void) => void;

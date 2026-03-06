@@ -156,30 +156,9 @@ pub fn run() {
                 platform.hide_window_on_autostart(app.handle());
             }
 
-            // 获取主窗口并监听关闭请求（仅桌面平台）
+            // 设置主窗口关闭处理（桌面平台）
             #[cfg(not(target_os = "android"))]
-            {
-                use tauri::Emitter;
-                if let Some(window) = app.get_webview_window("main") {
-                    let app_handle = app.handle().clone();
-                    window.on_window_event(move |event| {
-                        if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                            // 阻止默认关闭行为
-                            api.prevent_close();
-                            // 将窗口置于前台（处理任务栏预览关闭的情况）
-                            // 需要确保窗口显示并取消最小化，然后才能设置焦点
-                            if let Some(win) = app_handle.get_webview_window("main") {
-                                let _ = win.set_skip_taskbar(false);
-                                let _ = win.unminimize();
-                                let _ = win.show();
-                                let _ = win.set_focus();
-                            }
-                            // 发送事件给前端显示确认对话框
-                            let _ = app_handle.emit("window-close-requested", ());
-                        }
-                    });
-                }
-            }
+            setup_window_close_handler(app.handle());
 
             // 如果是开机启动模式，自动启动服务器
             if is_autostart {
@@ -187,35 +166,8 @@ pub fn run() {
                 platform.execute_autostart_server(app.handle(), &state.0);
             }
 
-            // 启动时扫描文件目录建立索引
-            let app_handle_for_scan = app.handle().clone();
-            tauri::async_runtime::spawn(async move {
-                let file_index = app_handle_for_scan.state::<FileIndexService>();
-                if let Err(e) = file_index.scan_directory().await {
-                    tracing::error!("Failed to scan directory: {}", e);
-                }
-            });
-
-            // 启动文件系统监听（桌面平台）
-            #[cfg(not(target_os = "android"))]
-            {
-                let app_handle_for_watcher = app.handle().clone();
-                tauri::async_runtime::spawn(async move {
-                    use std::sync::Arc;
-
-                    // 稍微延迟启动监听器，确保目录扫描完成
-                    tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
-
-                    let file_index = app_handle_for_watcher.state::<FileIndexService>();
-                    let file_index_arc = Arc::new(file_index.inner().clone());
-
-                    match FileIndexService::start_watcher(file_index_arc).await {
-                        Ok(true) => tracing::info!("File watcher started successfully"),
-                        Ok(false) => tracing::info!("File watcher not started (unsupported platform)"),
-                        Err(e) => tracing::error!("Failed to start file watcher: {}", e),
-                    }
-                });
-            }
+            // 启动后台任务
+            spawn_background_tasks(app.handle());
 
             // 托盘图标状态更新现在由 TrayUpdateHandler 事件驱动
             // 通过 EventBus 监听 StatsUpdated 事件，替代原有的轮询机制
@@ -291,4 +243,59 @@ pub fn run() {
             eprintln!("Fatal error running Tauri application: {}", e);
             std::process::exit(1);
         });
+}
+
+/// 设置主窗口关闭请求处理器（桌面平台）
+#[cfg(not(target_os = "android"))]
+fn setup_window_close_handler(app_handle: &tauri::AppHandle) {
+    use tauri::Emitter;
+    
+    if let Some(window) = app_handle.get_webview_window("main") {
+        let handle = app_handle.clone();
+        window.on_window_event(move |event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                api.prevent_close();
+                restore_and_focus_window(&handle);
+                let _ = handle.emit("window-close-requested", ());
+            }
+        });
+    }
+}
+
+/// 恢复并聚焦主窗口
+#[cfg(not(target_os = "android"))]
+fn restore_and_focus_window(app_handle: &tauri::AppHandle) {
+    if let Some(window) = app_handle.get_webview_window("main") {
+        let _ = window.set_skip_taskbar(false);
+        let _ = window.unminimize();
+        let _ = window.show();
+        let _ = window.set_focus();
+    }
+}
+
+/// 启动后台任务（文件扫描、文件监听等）
+/// 先执行文件扫描，扫描完成后再启动文件监听，避免竞态条件
+fn spawn_background_tasks(app_handle: &tauri::AppHandle) {
+    let handle = app_handle.clone();
+    
+    tauri::async_runtime::spawn(async move {
+        // 1. 先执行文件扫描
+        let file_index = handle.state::<FileIndexService>();
+        if let Err(e) = file_index.scan_directory().await {
+            tracing::error!("Failed to scan directory: {}", e);
+        }
+        
+        // 2. 扫描完成后，启动文件监听（桌面平台）
+        #[cfg(not(target_os = "android"))]
+        {
+            use std::sync::Arc;
+            
+            let file_index_arc = Arc::new(file_index.inner().clone());
+            match FileIndexService::start_watcher(file_index_arc).await {
+                Ok(true) => tracing::info!("File watcher started successfully"),
+                Ok(false) => tracing::info!("File watcher not started (unsupported platform)"),
+                Err(e) => tracing::error!("Failed to start file watcher: {}", e),
+            }
+        }
+    });
 }

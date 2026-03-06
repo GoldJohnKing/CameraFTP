@@ -7,42 +7,7 @@
 import { create } from 'zustand';
 import { invoke } from '@tauri-apps/api/core';
 import type { AppConfig } from '../types';
-import { executeAsync } from '../utils/store';
-
-function debounce<T extends (...args: any[]) => any>(
-  fn: T,
-  delay: number
-): T & { cancel: () => void; flush: () => void } {
-  let timeoutId: ReturnType<typeof setTimeout> | null = null;
-  let lastArgs: Parameters<T> | null = null;
-
-  const debounced = (...args: Parameters<T>) => {
-    lastArgs = args;
-    if (timeoutId) clearTimeout(timeoutId);
-    timeoutId = setTimeout(() => {
-      if (lastArgs) fn(...lastArgs);
-      timeoutId = null;
-      lastArgs = null;
-    }, delay);
-  };
-
-  debounced.cancel = () => {
-    if (timeoutId) clearTimeout(timeoutId);
-    timeoutId = null;
-    lastArgs = null;
-  };
-
-  debounced.flush = () => {
-    if (timeoutId && lastArgs) {
-      clearTimeout(timeoutId);
-      fn(...lastArgs);
-      timeoutId = null;
-      lastArgs = null;
-    }
-  };
-
-  return debounced as T & { cancel: () => void; flush: () => void };
-}
+import { debounce, executeAsync } from '../utils/store';
 
 interface ConfigState {
   config: AppConfig | null;

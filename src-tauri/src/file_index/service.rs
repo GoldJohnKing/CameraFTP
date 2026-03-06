@@ -6,15 +6,19 @@ use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::sync::Arc;
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime};
 use tokio::sync::{Mutex, RwLock};
 use tracing::{debug, error, info, trace, warn};
 
 use crate::config::AppConfig;
 use crate::error::AppError;
 use crate::ftp::EventBus;
+use crate::utils::wait_for_file_ready;
 use super::types::{FileIndex, FileInfo};
 use super::watcher::FileWatcher;
+
+/// 文件就绪检查的最大等待时间
+const FILE_READY_TIMEOUT_SECS: u64 = 5;
 
 type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
@@ -149,8 +153,11 @@ impl FileIndexService {
     pub async fn handle_external_created(&self, path: PathBuf) {
         info!("Handling external file creation: {:?}", path);
 
-        // 延迟处理确保文件写入完成
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        // 等待文件就绪（而非固定延迟）
+        if !wait_for_file_ready(&path, tokio::time::Duration::from_secs(FILE_READY_TIMEOUT_SECS)).await {
+            warn!("File not ready after timeout: {:?}", path);
+            return;
+        }
 
         if let Err(e) = self.add_file(path.clone()).await {
             warn!("Failed to add external file to index: {}", e);
@@ -426,39 +433,66 @@ impl FileIndexService {
     /// 导航到指定索引
     /// 如果目标文件不存在，会尝试清理并返回错误
     pub async fn navigate_to(&self, new_index: usize) -> Result<FileInfo, AppError> {
-        // 先验证索引范围并获取文件信息
-        let file_info = {
-            let index = self.index.read().await;
-            if new_index >= index.files.len() {
-                return Err(AppError::Other("Index out of bounds".to_string()));
-            }
-            index.files[new_index].clone()
-        }; // 读锁在这里自动释放
+        let file_info = self.get_file_at_index(new_index).await?;
 
-        // 检查文件是否存在
-        if !tokio::fs::try_exists(&file_info.path).await.unwrap_or(false) {
-            // 文件不存在，清理索引
-            let mut index = self.index.write().await;
-            if let Some(pos) = index.files.iter().position(|f| f.path == file_info.path) {
-                index.files.remove(pos);
-                // 调整 current_index
-                if let Some(current) = index.current_index {
-                    if pos < current {
-                        index.current_index = Some(current - 1);
-                    } else if pos == current && current >= index.files.len() && !index.files.is_empty() {
-                        index.current_index = Some(index.files.len() - 1);
-                    }
-                }
-                info!("Removed missing file from index during navigation: {:?}", file_info.path);
-            }
-            return Err(AppError::Other(format!("File not found: {}", file_info.path.display())));
+        if !self.verify_file_exists(&file_info.path).await {
+            self.remove_missing_file(&file_info.path).await;
+            return Err(AppError::Other(format!(
+                "File not found: {}",
+                file_info.path.display()
+            )));
         }
 
-        // 然后更新当前索引
+        self.set_current_index(new_index).await;
+        Ok(file_info)
+    }
+
+    /// 获取指定索引处的文件信息
+    async fn get_file_at_index(&self, index: usize) -> Result<FileInfo, AppError> {
+        let idx = self.index.read().await;
+        if index >= idx.files.len() {
+            return Err(AppError::Other("Index out of bounds".to_string()));
+        }
+        Ok(idx.files[index].clone())
+    }
+
+    /// 验证文件是否存在
+    async fn verify_file_exists(&self, path: &Path) -> bool {
+        tokio::fs::try_exists(path).await.unwrap_or(false)
+    }
+
+    /// 从索引中移除不存在的文件，并调整当前索引
+    async fn remove_missing_file(&self, path: &Path) {
+        let mut index = self.index.write().await;
+        let Some(pos) = index.files.iter().position(|f| f.path == path) else {
+            return;
+        };
+
+        index.files.remove(pos);
+        let new_len = index.files.len();
+        Self::adjust_current_index_after_removal(&mut index.current_index, pos, new_len);
+        info!("Removed missing file from index: {:?}", path);
+    }
+
+    /// 移除文件后调整当前索引
+    fn adjust_current_index_after_removal(
+        current_index: &mut Option<usize>,
+        removed_pos: usize,
+        new_len: usize,
+    ) {
+        let Some(current) = current_index else { return };
+
+        if removed_pos < *current {
+            *current_index = Some(*current - 1);
+        } else if removed_pos == *current && *current >= new_len && new_len > 0 {
+            *current_index = Some(new_len - 1);
+        }
+    }
+
+    /// 设置当前索引
+    async fn set_current_index(&self, new_index: usize) {
         let mut index = self.index.write().await;
         index.current_index = Some(new_index);
-
-        Ok(file_info)
     }
 
     /// 获取最新文件（排序第一个）
@@ -483,26 +517,34 @@ impl FileIndexService {
     /// 更新存储路径并重新扫描
     pub async fn update_save_path(&self, new_path: PathBuf) -> Result<(), AppError> {
         let current_path = self.save_path.read().await.clone();
-        if current_path != new_path {
-            info!("Updating save_path from {:?} to {:?}", current_path, new_path);
-
-            // 停止当前 watcher
-            self.stop_watcher().await;
-
-            // 更新路径
-            *self.save_path.write().await = new_path.clone();
-
-            // 重新扫描
-            self.scan_directory().await?;
-
-            // 重启 watcher（桌面平台）
-            #[cfg(not(target_os = "android"))]
-            {
-                let mut watcher_guard = self.watcher.lock().await;
-                *watcher_guard = Some(FileWatcher::new(new_path));
-            }
+        if current_path == new_path {
+            return Ok(());
         }
+
+        info!(
+            "Updating save_path from {:?} to {:?}",
+            current_path, new_path
+        );
+
+        self.stop_watcher().await;
+        *self.save_path.write().await = new_path.clone();
+        self.scan_directory().await?;
+        self.restart_watcher(new_path).await;
+
         Ok(())
+    }
+
+    /// 重启文件监听器（桌面平台）
+    #[cfg(not(target_os = "android"))]
+    async fn restart_watcher(&self, path: PathBuf) {
+        let mut watcher_guard = self.watcher.lock().await;
+        *watcher_guard = Some(FileWatcher::new(path));
+    }
+
+    /// 重启文件监听器（Android 平台 - 无操作）
+    #[cfg(target_os = "android")]
+    async fn restart_watcher(&self, _path: PathBuf) {
+        // Android 使用 FileObserver，在 Kotlin 侧实现
     }
 
     /// 触发文件系统事件（供 Android FileObserver 调用）

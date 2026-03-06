@@ -5,11 +5,16 @@
 use crate::file_index::FileIndexService;
 use crate::ftp::events::EventBus;
 use crate::ftp::stats::StatsActor;
+use crate::utils::wait_for_file_ready;
 use dashmap::DashSet;
 use libunftp::notification::{DataEvent, DataListener, EventMeta, PresenceEvent, PresenceListener};
 use std::sync::Arc;
+use std::time::Duration;
 use tauri::{AppHandle, Manager};
 use tracing::{info, warn};
+
+/// 文件就绪检查的最大等待时间
+const FILE_READY_TIMEOUT_SECS: u64 = 5;
 
 /// 数据事件监听器（上传、下载等）
 #[derive(Debug, Clone)]
@@ -59,13 +64,15 @@ impl DataListener for FtpDataListener {
                             let handle_clone = handle.clone();
                             // 使用 tokio::spawn 启动异步任务，避免阻塞事件处理
                             tokio::spawn(async move {
-                                // 延迟一小段时间确保文件写入完成
-                                tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-                                
-                                // 调用 AutoOpenService 处理预览（服务内部会检查 enabled 状态）
-                                let auto_open: tauri::State<'_, crate::auto_open::AutoOpenService> = handle_clone.state();
-                                if let Err(e) = auto_open.on_file_uploaded(full_path.clone()).await {
-                                    tracing::error!("Failed to auto open image: {}", e);
+                                // 等待文件就绪（而非固定延迟）
+                                if wait_for_file_ready(&full_path, Duration::from_secs(FILE_READY_TIMEOUT_SECS)).await {
+                                    // 调用 AutoOpenService 处理预览（服务内部会检查 enabled 状态）
+                                    let auto_open: tauri::State<'_, crate::auto_open::AutoOpenService> = handle_clone.state();
+                                    if let Err(e) = auto_open.on_file_uploaded(full_path.clone()).await {
+                                        tracing::error!("Failed to auto open image: {}", e);
+                                    }
+                                } else {
+                                    tracing::warn!("File not ready after timeout: {:?}", full_path);
                                 }
                             });
                         } else {
@@ -79,13 +86,15 @@ impl DataListener for FtpDataListener {
                             let full_path = save_path.join(&path);
                             let handle_clone = handle.clone();
                             tokio::spawn(async move {
-                                // 延迟确保文件写入完成
-                                tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-                                
-                                if let Some(file_index) = handle_clone.try_state::<FileIndexService>() {
-                                    if let Err(e) = file_index.add_file(full_path).await {
-                                        tracing::warn!("Failed to add file to index: {}", e);
+                                // 等待文件就绪（而非固定延迟）
+                                if wait_for_file_ready(&full_path, Duration::from_secs(FILE_READY_TIMEOUT_SECS)).await {
+                                    if let Some(file_index) = handle_clone.try_state::<FileIndexService>() {
+                                        if let Err(e) = file_index.add_file(full_path).await {
+                                            tracing::warn!("Failed to add file to index: {}", e);
+                                        }
                                     }
+                                } else {
+                                    tracing::warn!("File not ready for indexing after timeout: {:?}", full_path);
                                 }
                             });
                         }

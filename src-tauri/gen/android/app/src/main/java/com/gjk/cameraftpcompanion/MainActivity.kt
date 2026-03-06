@@ -80,72 +80,72 @@ class MainActivity : TauriActivity() {
     @SuppressLint("SetJavaScriptEnabled")
     private fun registerFileUploadEventListener() {
         webViewRef?.let { webView ->
-            attemptRegisterEventListener(webView, 0)
-        } ?: run {
-            Log.e(TAG, "WebView is null, cannot register event listeners")
-        }
+            EventListenerRegistration(webView).start()
+        } ?: Log.e(TAG, "WebView is null, cannot register event listeners")
     }
-    
+
     /**
-     * 尝试注册事件监听器，支持重试
-     * @param webView WebView实例
-     * @param retryCount 当前重试次数
+     * Tauri事件监听器注册器
+     * 处理重试逻辑和事件注册
      */
-    private fun attemptRegisterEventListener(webView: android.webkit.WebView, retryCount: Int) {
-        if (retryCount >= TAURI_LISTENER_MAX_RETRIES) {
-            Log.w(TAG, "Max retries reached, Tauri event listener registration failed")
-            return
+    private inner class EventListenerRegistration(private val webView: WebView) {
+        private var retryCount = 0
+
+        fun start() {
+            attemptRegister()
         }
-        
-        val jsCode = """
-            (function() {
-                if (window.__tauriEventListenerRegistered) return 'already_registered';
-                
-                if (window.__TAURI__ && window.__TAURI__.event) {
-                    window.__tauriEventListenerRegistered = true;
-                    
-                    // 监听Tauri的file-uploaded事件
-                    window.__TAURI__.event.listen('file-uploaded', function(event) {
-                        console.log('[Android] file-uploaded event received:', event.payload);
-                        if (window.FileUploadAndroid) {
-                            window.FileUploadAndroid.onFileUploaded(
-                                event.payload.path || ''
-                            );
-                        }
-                    });
-                    
-                    // 监听服务器状态更新事件
-                    window.__TAURI__.event.listen('android-service-state-update', function(event) {
-                        console.log('[Android] android-service-state-update event received:', event.payload);
-                        if (window.ServerStateAndroid) {
-                            window.ServerStateAndroid.onServerStateChanged(
-                                event.payload.is_running || false,
-                                event.payload.stats ? JSON.stringify(event.payload.stats) : null,
-                                event.payload.connected_clients || 0
-                            );
-                        }
-                    });
-                    
-                    return 'success';
-                } else {
-                    return 'not_ready';
-                }
-            })();
-        """
-        
-        webView.evaluateJavascript(jsCode) { result ->
-            when (result?.trim()?.removeSurrounding("\"")) {
+
+        private fun attemptRegister() {
+            if (retryCount >= TAURI_LISTENER_MAX_RETRIES) {
+                Log.w(TAG, "Max retries reached, Tauri event listener registration failed")
+                return
+            }
+
+            webView.evaluateJavascript(jsRegistrationCode) { result ->
+                handleResult(result?.trim()?.removeSurrounding("\""))
+            }
+        }
+
+        private fun handleResult(result: String?) {
+            when (result) {
                 "success" -> Log.d(TAG, "Tauri event listeners registered successfully")
                 "already_registered" -> Log.d(TAG, "Event listeners already registered")
                 else -> {
-                    // Tauri not ready, retry after delay
-                    webView.postDelayed({
-                        attemptRegisterEventListener(webView, retryCount + 1)
-                    }, TAURI_LISTENER_RETRY_DELAY_MS)
+                    retryCount++
+                    webView.postDelayed({ attemptRegister() }, TAURI_LISTENER_RETRY_DELAY_MS)
                 }
             }
         }
     }
+
+    /**
+     * 用于注册Tauri事件监听器的JavaScript代码
+     */
+    private val jsRegistrationCode = """
+        (function() {
+            if (window.__tauriEventListenerRegistered) return 'already_registered';
+            
+            if (window.__TAURI__?.event) {
+                window.__tauriEventListenerRegistered = true;
+                
+                window.__TAURI__.event.listen('file-uploaded', (event) => {
+                    window.FileUploadAndroid?.onFileUploaded(event.payload?.path || '');
+                });
+                
+                window.__TAURI__.event.listen('android-service-state-update', (event) => {
+                    const p = event.payload;
+                    window.ServerStateAndroid?.onServerStateChanged(
+                        p?.is_running || false,
+                        p?.stats ? JSON.stringify(p.stats) : null,
+                        p?.connected_clients || 0
+                    );
+                });
+                
+                return 'success';
+            }
+            return 'not_ready';
+        })();
+    """.trimIndent()
 
     override fun onDestroy() {
         Log.d(TAG, "onDestroy: cleaning up bridge references")
@@ -219,26 +219,29 @@ class MainActivity : TauriActivity() {
      */
     fun updateServiceState(isRunning: Boolean, statsJson: String?, connectedClients: Int) {
         Log.d(TAG, "updateServiceState: isRunning=$isRunning, connectedClients=$connectedClients")
-        var service = FtpForegroundService.getInstance()
 
-        if (isRunning) {
-            // Server is running - ensure foreground service is started
-            if (service == null) {
-                startFtpForegroundService()
-                service = FtpForegroundService.getInstance()
-                if (service == null) {
-                    Log.w(TAG, "Failed to start foreground service - service is still null after start attempt")
-                    return
-                }
-            }
+        when {
+            isRunning -> startOrUpdateService(statsJson, connectedClients)
+            else -> stopServiceIfRunning()
+        }
+    }
 
-            // Now update the state
-            service.updateServerState(statsJson, connectedClients)
-        } else {
-            // Server is stopped - stop foreground service
-            if (service != null) {
-                stopFtpForegroundService()
-            }
+    private fun startOrUpdateService(statsJson: String?, connectedClients: Int) {
+        val service = getOrCreateService()
+        service?.updateServerState(statsJson, connectedClients)
+            ?: Log.w(TAG, "Failed to start foreground service")
+    }
+
+    private fun getOrCreateService(): FtpForegroundService? {
+        return FtpForegroundService.getInstance() ?: run {
+            startFtpForegroundService()
+            FtpForegroundService.getInstance()
+        }
+    }
+
+    private fun stopServiceIfRunning() {
+        FtpForegroundService.getInstance()?.let {
+            stopFtpForegroundService()
         }
     }
     

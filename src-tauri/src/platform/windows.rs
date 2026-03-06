@@ -342,28 +342,33 @@ impl PlatformService for WindowsPlatform {
         let state_clone = state.clone();
 
         tauri::async_runtime::spawn(async move {
-            tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+            // 短暂延迟，让应用完全初始化（而非等待服务器启动的1秒）
+            tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
 
             match crate::ftp::server_factory::start_ftp_server(&state_clone, Default::default(), Some(app_handle.clone())).await {
                 Ok(ctx) => {
                     tracing::info!("FTP server auto-started on {}:{}", ctx.ip, ctx.port);
 
-                    // 先启动事件处理器（确保在重发事件前就绪）
-                    crate::ftp::server_factory::spawn_event_processor(
+                    // 先启动事件处理器（获取就绪信号）
+                    let ready_rx = crate::ftp::server_factory::spawn_event_processor(
                         app_handle.clone(),
                         ctx.event_bus.clone(),
                     );
 
-                    // 给 EventProcessor 一点时间启动订阅（关键！）
-                    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+                    // 等待事件处理器就绪（而非固定延迟）
+                    match tokio::time::timeout(
+                        tokio::time::Duration::from_secs(5),
+                        ready_rx
+                    ).await {
+                        Ok(_) => tracing::debug!("Event processor ready"),
+                        Err(_) => tracing::warn!("Event processor ready timeout, continuing anyway"),
+                    }
 
                     // 重新发送 server-started 事件（因为原事件在 EventProcessor 就绪前已发出）
-                    // 通过 EventBus 发送，确保与正常启动流程一致
                     ctx.event_bus.emit_server_started(format!("{}:{}", ctx.ip, ctx.port));
                     tracing::info!("Re-emitted server-started event for autostart via EventBus");
 
                     // 统一通过 PlatformService 处理启动后逻辑
-                    // 这会自动更新托盘图标为 idle 状态
                     crate::platform::get_platform().on_server_started(&app_handle);
                 }
                 Err(e) => {

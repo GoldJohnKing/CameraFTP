@@ -10,6 +10,10 @@ use tokio::sync::mpsc::{channel, Sender};
 use tracing::{debug, error, info, warn};
 
 use crate::file_index::FileIndexService;
+use crate::utils::wait_for_file_ready;
+
+/// 文件就绪检查的最大等待时间
+const FILE_READY_TIMEOUT_SECS: u64 = 5;
 
 /// 文件系统事件类型
 #[derive(Debug, Clone)]
@@ -167,13 +171,15 @@ impl FileWatcher {
         match event {
             FileSystemEvent::Created(path) => {
                 debug!("File created: {:?}", path);
-                // 延迟处理，确保文件写入完成
-                tokio::time::sleep(Duration::from_millis(100)).await;
-                
-                if let Err(e) = file_index.add_file(path.clone()).await {
-                    warn!("Failed to add file to index: {}", e);
+                // 等待文件就绪（而非固定延迟）
+                if wait_for_file_ready(&path, Duration::from_secs(FILE_READY_TIMEOUT_SECS)).await {
+                    if let Err(e) = file_index.add_file(path.clone()).await {
+                        warn!("Failed to add file to index: {}", e);
+                    } else {
+                        info!("File added to index via watcher: {:?}", path);
+                    }
                 } else {
-                    info!("File added to index via watcher: {:?}", path);
+                    warn!("File not ready after timeout: {:?}", path);
                 }
             }
             FileSystemEvent::Deleted(path) => {
@@ -203,12 +209,15 @@ impl FileWatcher {
                     _ => {}
                 }
                 
-                // 添加新路径
-                tokio::time::sleep(Duration::from_millis(50)).await;
-                if let Err(e) = file_index.add_file(to.clone()).await {
-                    warn!("Failed to add renamed file to index: {}", e);
+                // 等待新路径文件就绪（而非固定延迟）
+                if wait_for_file_ready(&to, Duration::from_secs(FILE_READY_TIMEOUT_SECS)).await {
+                    if let Err(e) = file_index.add_file(to.clone()).await {
+                        warn!("Failed to add renamed file to index: {}", e);
+                    } else {
+                        info!("Added renamed file to index: {:?}", to);
+                    }
                 } else {
-                    info!("Added renamed file to index: {:?}", to);
+                    warn!("Renamed file not ready after timeout: {:?}", to);
                 }
             }
             FileSystemEvent::Modified(path) => {

@@ -152,12 +152,20 @@ pub async fn start_ftp_server(
     }
 }
 
-pub fn spawn_event_processor(app_handle: AppHandle, event_bus: EventBus) {
+pub fn spawn_event_processor(app_handle: AppHandle, event_bus: EventBus) -> oneshot::Sender<()> {
     let app_handle_for_tray = app_handle.clone();
+    let (ready_tx, ready_rx) = oneshot::channel();
+    
     tokio::spawn(async move {
         let processor = EventProcessor::new(&event_bus)
             .register(StatsEventHandler::new(app_handle))
             .register(TrayUpdateHandler::new(app_handle_for_tray));
+        
+        // 信号就绪
+        let _ = ready_tx.send(());
+        
         processor.run().await;
     });
+    
+    ready_rx
 }
