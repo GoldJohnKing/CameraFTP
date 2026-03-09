@@ -1,5 +1,20 @@
 <?xml version="1.0" encoding="utf-8"?>
 <paths xmlns:android="http://schemas.android.com/apk/res/android">
-  <external-path name="my_images" path="." />
-  <cache-path name="my_cache_images" path="." />
+    <!-- External storage root - allows access to all external storage -->
+    <external-path name="external_files" path="." />
+    
+    <!-- External storage pictures directory -->
+    <external-path name="pictures" path="Pictures" />
+    
+    <!-- External storage DCIM directory -->
+    <external-path name="dcim" path="DCIM" />
+    
+    <!-- Internal app files -->
+    <files-path name="app_files" path="." />
+    
+    <!-- Cache directory -->
+    <cache-path name="cache" path="." />
+    
+    <!-- External cache -->
+    <external-cache-path name="external_cache" path="." />
 </paths>

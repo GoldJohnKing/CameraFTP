@@ -22,6 +22,7 @@ import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import com.gjk.cameraftpcompanion.bridges.BaseJsBridge
 import org.json.JSONObject
+import android.content.SharedPreferences
 import java.io.File
 import java.io.FileOutputStream
 
@@ -34,6 +35,8 @@ class PermissionBridge(activity: MainActivity) : BaseJsBridge(activity) {
         private const val TAG = "PermissionBridge"
         // Request code for notification permission - shared with MainActivity
         const val REQUEST_POST_NOTIFICATIONS = 1001
+        private const val PREFS_NAME = "image_viewer_prefs"
+        private const val KEY_IMAGE_VIEWER_PACKAGE = "preferred_image_viewer_package"
     }
 
     /**
@@ -240,5 +243,67 @@ class PermissionBridge(activity: MainActivity) : BaseJsBridge(activity) {
             result.put("message", e.message ?: "Unknown error")
             result.toString()
         }
+    }
+
+    /**
+     * Open image with external app
+     * - If user has set a default app, uses it directly
+     * - If no default app, shows system chooser with "Always" / "Just once" options
+     * - User can set default by selecting "Always" in the system chooser
+     * @param path The absolute path to the image file
+     * @return JSON string with success status
+     */
+    @JavascriptInterface
+    fun openImageWithChooser(path: String?): String {
+        Log.d(TAG, "openImageWithChooser: path=$path")
+
+        val result = JSONObject()
+
+        if (path.isNullOrEmpty()) {
+            result.put("success", false)
+            result.put("message", "Empty path")
+            return result.toString()
+        }
+
+        val imageFile = File(path)
+        if (!imageFile.exists()) {
+            Log.e(TAG, "openImageWithChooser: file does not exist: $path")
+            result.put("success", false)
+            result.put("message", "File does not exist")
+            return result.toString()
+        }
+
+        runOnUiThread {
+            try {
+                val uri = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                    androidx.core.content.FileProvider.getUriForFile(
+                        activity,
+                        "${activity.packageName}.fileprovider",
+                        imageFile
+                    )
+                } else {
+                    Uri.fromFile(imageFile)
+                }
+
+                // Use ACTION_VIEW directly - system will handle default app logic
+                // If user has a default app, it opens directly
+                // If no default, system shows chooser with "Always" / "Just once" options
+                val intent = Intent(Intent.ACTION_VIEW).apply {
+                    setDataAndType(uri, "image/*")
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+
+                activity.startActivity(intent)
+                Log.d(TAG, "openImageWithChooser: intent started")
+
+            } catch (e: Exception) {
+                Log.e(TAG, "openImageWithChooser: failed to open image", e)
+                Toast.makeText(activity, "无法打开图片: ${e.message}", Toast.LENGTH_SHORT).show()
+            }
+        }
+
+        result.put("success", true)
+        return result.toString()
     }
 }

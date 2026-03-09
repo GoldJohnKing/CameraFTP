@@ -106,6 +106,13 @@ export const LatestPhotoCard = memo(function LatestPhotoCard() {
     }
 
     if (targetPath) {
+      // Android: 使用 JS Bridge 打开图片选择器
+      if (window.PermissionAndroid?.openImageWithChooser) {
+        window.PermissionAndroid.openImageWithChooser(targetPath);
+        return;
+      }
+
+      // Windows/Desktop: 使用 Tauri 命令打开预览窗口
       try {
         await invoke('open_preview_window', { filePath: targetPath });
       } catch {

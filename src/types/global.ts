@@ -91,12 +91,20 @@ interface PermissionAndroid {
    */
   openExternalLink: (url: string) => void;
   
-  /**
-   * 保存图片到相册
-   * @param assetPath 资源路径
-   * @returns JSON 字符串，包含 success 和 message
-   */
-  saveImageToGallery: (assetPath: string) => Promise<string>;
+   /**
+    * 保存图片到相册
+    * @param assetPath 资源路径
+    * @returns JSON 字符串，包含 success 和 message
+    */
+   saveImageToGallery: (assetPath: string) => Promise<string>;
+   
+   /**
+    * 用外部APP打开图片
+    * 首次点击会显示选择器，用户选择"始终"后系统会记住选择
+    * @param path 图片的绝对路径
+    * @returns JSON 字符串，包含 success 和 message
+    */
+   openImageWithChooser: (path: string) => string;
 }
 
 // ===== 全局窗口扩展 =====
