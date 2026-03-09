@@ -116,6 +116,7 @@ export interface GalleryImage {
   filename: string;
   thumbnail: string; // base64 data URL
   dateModified: number;
+  sortTime: number; // EXIF-based time for sorting
 }
 
 /**

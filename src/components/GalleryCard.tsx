@@ -6,8 +6,14 @@
 
 import { memo, useCallback, useEffect, useState, useRef } from 'react';
 import { RefreshCw, ImageOff, Loader2 } from 'lucide-react';
+import { listen } from '@tauri-apps/api/event';
 import { useConfigStore } from '../stores/configStore';
 import type { GalleryImage } from '../types';
+
+interface FileIndexChangedEvent {
+  count: number;
+  latestFilename: string | null;
+}
 
 export const GalleryCard = memo(function GalleryCard() {
   const { config } = useConfigStore();
@@ -29,8 +35,8 @@ export const GalleryCard = memo(function GalleryCard() {
       const result = await window.GalleryAndroid.getGalleryImages(config.savePath);
       const response = JSON.parse(result) as { images: GalleryImage[] };
       const parsed = response.images;
-      // Sort by dateModified descending (newest first)
-      parsed.sort((a, b) => b.dateModified - a.dateModified);
+      // Sort by EXIF-based sortTime descending (newest first)
+      parsed.sort((a, b) => b.sortTime - a.sortTime);
       setImages(parsed);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load images');
@@ -43,6 +49,18 @@ export const GalleryCard = memo(function GalleryCard() {
   // Load images on mount
   useEffect(() => {
     loadImages();
+  }, [loadImages]);
+
+  // Listen for file index changes
+  useEffect(() => {
+    const unlistenPromise = listen<FileIndexChangedEvent>('file-index-changed', () => {
+      // Refresh the gallery when files change
+      loadImages();
+    });
+
+    return () => {
+      unlistenPromise.then((unlisten) => unlisten()).catch(() => {});
+    };
   }, [loadImages]);
 
   // Setup intersection observer for lazy loading

@@ -11,6 +11,7 @@ import android.content.Context
 import android.database.Cursor
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.media.ExifInterface
 import android.provider.MediaStore
 import android.util.Base64
 import android.util.Log
@@ -18,6 +19,8 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
 import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Locale
 
 class GalleryBridge(private val context: Context) : BaseJsBridge(context as android.app.Activity) {
 
@@ -74,12 +77,17 @@ class GalleryBridge(private val context: Context) : BaseJsBridge(context as andr
                     // Get thumbnail using MediaStore
                     val thumbnail = getThumbnail(id)
 
+                    // Prefer EXIF capture time over file modification time
+                    val exifTime = getExifDateTime(path)
+                    val sortTime = if (exifTime > 0) exifTime else dateModified
+
                     val imageJson = JSONObject().apply {
                         put("id", id)
                         put("path", path)
                         put("filename", name)
                         put("thumbnail", thumbnail)
                         put("dateModified", dateModified)
+                        put("sortTime", sortTime)
                     }
                     images.put(imageJson)
                 }
@@ -168,6 +176,23 @@ class GalleryBridge(private val context: Context) : BaseJsBridge(context as andr
         val byteArray = outputStream.toByteArray()
         val base64 = Base64.encodeToString(byteArray, Base64.NO_WRAP)
         return "data:image/jpeg;base64,$base64"
+    }
+
+    private fun getExifDateTime(path: String): Long {
+        return try {
+            val exif = ExifInterface(path)
+            val dateTimeStr = exif.getAttribute(ExifInterface.TAG_DATETIME_ORIGINAL)
+                ?: exif.getAttribute(ExifInterface.TAG_DATETIME)
+            
+            if (dateTimeStr != null) {
+                val format = SimpleDateFormat("yyyy:MM:dd HH:mm:ss", Locale.US)
+                format.parse(dateTimeStr)?.time ?: 0L
+            } else {
+                0L
+            }
+        } catch (e: Exception) {
+            0L
+        }
     }
 
     private fun createResult(images: JSONArray): String {
