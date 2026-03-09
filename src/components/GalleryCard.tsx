@@ -22,13 +22,17 @@ export const GalleryCard = memo(function GalleryCard() {
   const [isLoading, setIsLoading] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [visibleImages, setVisibleImages] = useState<Set<number>>(new Set());
+  const [thumbnails, setThumbnails] = useState<Map<number, string>>(new Map());
+  const [loadingThumbnails, setLoadingThumbnails] = useState<Set<number>>(new Set());
   const [isSelectionMode, setIsSelectionMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [showMenu, setShowMenu] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const observerRef = useRef<IntersectionObserver | null>(null);
+  // Refs to track loading state without causing re-renders in observer callback
+  const loadingThumbnailsRef = useRef<Set<number>>(new Set());
+  const loadedThumbnailsRef = useRef<Set<number>>(new Set());
 
   const loadImages = useCallback(async () => {
     if (!config?.savePath || !window.GalleryAndroid) {
@@ -37,12 +41,19 @@ export const GalleryCard = memo(function GalleryCard() {
 
     setIsLoading(true);
     setError(null);
+    // Clear thumbnails when refreshing
+    setThumbnails(new Map());
+    setLoadingThumbnails(new Set());
+    // Also clear refs
+    loadingThumbnailsRef.current.clear();
+    loadedThumbnailsRef.current.clear();
 
     try {
+      // Load only metadata (fast, no thumbnails)
       const result = await window.GalleryAndroid.getGalleryImages(config.savePath);
       const response = JSON.parse(result) as { images: GalleryImage[] };
       const parsed = response.images;
-      // Sort by EXIF-based sortTime descending (newest first)
+      // Sort by sortTime descending (newest first)
       parsed.sort((a, b) => b.sortTime - a.sortTime);
       setImages(parsed);
     } catch (err) {
@@ -52,6 +63,39 @@ export const GalleryCard = memo(function GalleryCard() {
       setIsLoading(false);
     }
   }, [config?.savePath]);
+
+  // Load thumbnail for a specific image
+  const loadThumbnail = useCallback(async (imageId: number) => {
+    // Skip if already loaded or loading (check refs for current state)
+    if (loadedThumbnailsRef.current.has(imageId) || loadingThumbnailsRef.current.has(imageId)) {
+      return;
+    }
+
+    // Mark as loading in ref (immediate, no re-render)
+    loadingThumbnailsRef.current.add(imageId);
+    // Also update state for UI feedback
+    setLoadingThumbnails(prev => new Set(prev).add(imageId));
+
+    try {
+      const thumbnail = await window.GalleryAndroid?.getThumbnail(imageId);
+      if (thumbnail) {
+        // Mark as loaded in ref
+        loadedThumbnailsRef.current.add(imageId);
+        // Update state for rendering
+        setThumbnails(prev => new Map(prev).set(imageId, thumbnail));
+      }
+    } catch (err) {
+      console.error('Failed to load thumbnail for imageId:', imageId, err);
+    } finally {
+      // Remove from loading set
+      loadingThumbnailsRef.current.delete(imageId);
+      setLoadingThumbnails(prev => {
+        const next = new Set(prev);
+        next.delete(imageId);
+        return next;
+      });
+    }
+  }, []); // No dependencies - uses refs for state checks
 
   // Load images on mount
   useEffect(() => {
@@ -70,24 +114,26 @@ export const GalleryCard = memo(function GalleryCard() {
     };
   }, [loadImages]);
 
-  // Setup intersection observer for lazy loading
+  // Setup intersection observer for lazy loading thumbnails
+  // Observer is created once and uses loadThumbnail which tracks state via refs
   useEffect(() => {
     observerRef.current = new IntersectionObserver(
       (entries) => {
         entries.forEach((entry) => {
           const id = Number(entry.target.getAttribute('data-id'));
           if (entry.isIntersecting) {
-            setVisibleImages((prev) => new Set(prev).add(id));
+            // Load thumbnail when image becomes visible
+            loadThumbnail(id);
           }
         });
       },
-      { rootMargin: '100px' }
+      { rootMargin: '100px' } // Preload images 100px before they enter viewport
     );
 
     return () => {
       observerRef.current?.disconnect();
     };
-  }, []);
+  }, [loadThumbnail]); // loadThumbnail is stable (no deps), so this runs once
 
   // Observe image elements
   const imageRefCallback = useCallback((el: HTMLDivElement | null) => {
@@ -285,48 +331,57 @@ export const GalleryCard = memo(function GalleryCard() {
 
       {/* Image grid */}
       <div className="grid grid-cols-3 gap-1">
-        {images.map((image) => (
-          <div
-            key={image.id}
-            data-id={image.id}
-            ref={imageRefCallback}
-            onClick={() => handleImageClick(image)}
-            onTouchStart={(e) => handleTouchStart(image, e)}
-            onTouchEnd={handleTouchEnd}
-            onTouchMove={handleTouchEnd}
-            onTouchCancel={handleTouchEnd}
-            onContextMenu={(e) => e.preventDefault()}
-            className={`aspect-square bg-gray-100 rounded-lg overflow-hidden cursor-pointer hover:opacity-90 transition-opacity relative select-none ${
-              isSelectionMode && selectedIds.has(image.id) ? 'ring-2 ring-blue-500' : ''
-            }`}
-          >
-            {visibleImages.has(image.id) ? (
-              <img
-                src={image.thumbnail}
-                alt={image.filename}
-                className="w-full h-full object-cover pointer-events-none"
-                loading="lazy"
-                draggable={false}
-              />
-            ) : (
-              <div className="w-full h-full flex items-center justify-center">
-                <div className="w-8 h-8 bg-gray-200 rounded animate-pulse" />
-              </div>
-            )}
-            
-            {isSelectionMode && (
-              <div className={`absolute top-2 left-2 w-6 h-6 rounded-full flex items-center justify-center ${
-                selectedIds.has(image.id)
-                  ? 'bg-blue-500'
-                  : 'bg-black/30 border-2 border-white/70'
-              }`}>
-                {selectedIds.has(image.id) && (
-                  <Check className="w-4 h-4 text-white" />
-                )}
-              </div>
-            )}
-          </div>
-        ))}
+        {images.map((image) => {
+          const thumbnail = thumbnails.get(image.id);
+          const isLoadingThumb = loadingThumbnails.has(image.id);
+
+          return (
+            <div
+              key={image.id}
+              data-id={image.id}
+              ref={imageRefCallback}
+              onClick={() => handleImageClick(image)}
+              onTouchStart={(e) => handleTouchStart(image, e)}
+              onTouchEnd={handleTouchEnd}
+              onTouchMove={handleTouchEnd}
+              onTouchCancel={handleTouchEnd}
+              onContextMenu={(e) => e.preventDefault()}
+              className={`aspect-square bg-gray-100 rounded-lg overflow-hidden cursor-pointer hover:opacity-90 transition-opacity relative select-none ${
+                isSelectionMode && selectedIds.has(image.id) ? 'ring-2 ring-blue-500' : ''
+              }`}
+            >
+              {thumbnail ? (
+                <img
+                  src={thumbnail}
+                  alt={image.filename}
+                  className="w-full h-full object-cover pointer-events-none"
+                  loading="lazy"
+                  draggable={false}
+                />
+              ) : isLoadingThumb ? (
+                <div className="w-full h-full flex items-center justify-center bg-gray-200">
+                  <Loader2 className="w-6 h-6 text-gray-400 animate-spin" />
+                </div>
+              ) : (
+                <div className="w-full h-full flex items-center justify-center">
+                  <div className="w-8 h-8 bg-gray-200 rounded animate-pulse" />
+                </div>
+              )}
+
+              {isSelectionMode && (
+                <div className={`absolute top-2 left-2 w-6 h-6 rounded-full flex items-center justify-center ${
+                  selectedIds.has(image.id)
+                    ? 'bg-blue-500'
+                    : 'bg-black/30 border-2 border-white/70'
+                }`}>
+                  {selectedIds.has(image.id) && (
+                    <Check className="w-4 h-4 text-white" />
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
 
       {/* FAB and Menu for selection mode */}

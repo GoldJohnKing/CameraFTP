@@ -109,35 +109,53 @@ interface PermissionAndroid {
 
 /**
  * Gallery image data returned by Android MediaStore
+ * Note: thumbnail is loaded separately via getThumbnail() for lazy loading
  */
 export interface GalleryImage {
   id: number;
   path: string;
   filename: string;
-  thumbnail: string; // base64 data URL
   dateModified: number;
-  sortTime: number; // EXIF-based time for sorting
+  sortTime: number;
+  // thumbnail is loaded on-demand
+  thumbnail?: string;
 }
 
 /**
  * Android Gallery interface
  * Provides access to device image gallery via MediaStore
+ * Uses lazy loading for thumbnails to improve performance
  */
 interface GalleryAndroid {
   /**
-   * Get all images from the specified directory
+   * Get image metadata from the specified directory (fast, no thumbnails)
+   * Thumbnails should be loaded separately via getThumbnail()
    * @param storagePath The directory path to scan for images
    * @returns JSON string containing { images: GalleryImage[] }
    */
   getGalleryImages(storagePath: string): Promise<string>;
-  
+
+  /**
+   * Get thumbnail for a single image (for lazy loading)
+   * @param imageId The MediaStore image ID
+   * @returns base64 data URL string, or empty string on error
+   */
+  getThumbnail(imageId: number): Promise<string>;
+
+  /**
+   * Get accurate EXIF-based sort time for an image
+   * @param imageId The MediaStore image ID
+   * @returns EXIF datetime as timestamp (ms), or 0 if unavailable
+   */
+  getImageSortTime(imageId: number): Promise<number>;
+
   /**
    * Delete images by their IDs
    * @param idsJson JSON array of image IDs to delete
    * @returns true if deletion succeeded, false otherwise
    */
   deleteImages(idsJson: string): Promise<boolean>;
-  
+
   /**
    * Share images by their IDs
    * @param idsJson JSON array of image IDs to share

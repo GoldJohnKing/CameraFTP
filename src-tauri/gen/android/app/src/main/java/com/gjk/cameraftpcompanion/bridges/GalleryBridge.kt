@@ -31,12 +31,16 @@ class GalleryBridge(private val context: Context) : BaseJsBridge(context as andr
         private const val THUMBNAIL_QUALITY = 85
     }
 
+    /**
+     * Get image metadata only (fast, for initial load).
+     * Thumbnails should be loaded separately via getThumbnail().
+     */
     @android.webkit.JavascriptInterface
     fun getGalleryImages(storagePath: String): String {
         Log.d(TAG, "getGalleryImages: storagePath=$storagePath")
-        
+
         val images = JSONArray()
-        
+
         try {
             val imagesDir = File(storagePath)
             if (!imagesDir.exists() || !imagesDir.isDirectory) {
@@ -74,23 +78,16 @@ class GalleryBridge(private val context: Context) : BaseJsBridge(context as andr
                     val id = it.getLong(idColumn)
                     val name = it.getString(nameColumn)
                     val path = it.getString(dataColumn)
-                    // Use file system lastModified time (consistent with Rust side)
-                    val dateModified = File(path).lastModified()
-
-                    // Get thumbnail using MediaStore
-                    val thumbnail = getThumbnail(id)
-
-                    // Prefer EXIF capture time over file modification time
-                    val exifTime = getExifDateTime(path)
-                    val sortTime = if (exifTime > 0) exifTime else dateModified
+                    // Use MediaStore's DATE_MODIFIED for fast sorting
+                    // This avoids file I/O and EXIF reading for each image
+                    val dateModified = it.getLong(dateColumn) * 1000 // Convert to milliseconds
 
                     val imageJson = JSONObject().apply {
                         put("id", id)
                         put("path", path)
                         put("filename", name)
-                        put("thumbnail", thumbnail)
                         put("dateModified", dateModified)
-                        put("sortTime", sortTime)
+                        put("sortTime", dateModified) // Use file time for fast initial load
                     }
                     images.put(imageJson)
                 }
@@ -102,6 +99,41 @@ class GalleryBridge(private val context: Context) : BaseJsBridge(context as andr
         }
 
         return createResult(images)
+    }
+
+    /**
+     * Get thumbnail for a single image (for lazy loading).
+     * This is called on-demand when an image becomes visible.
+     */
+    @android.webkit.JavascriptInterface
+    fun getThumbnail(imageId: Long): String {
+        Log.d(TAG, "getThumbnail: imageId=$imageId")
+        return try {
+            getThumbnailInternal(imageId)
+        } catch (e: Exception) {
+            Log.e(TAG, "getThumbnail error for imageId=$imageId", e)
+            ""
+        }
+    }
+
+    /**
+     * Get accurate EXIF-based sort time for an image.
+     * Called separately to avoid blocking initial load.
+     */
+    @android.webkit.JavascriptInterface
+    fun getImageSortTime(imageId: Long): Long {
+        return try {
+            val path = getImagePath(imageId)
+            if (path != null) {
+                val exifTime = getExifDateTime(path)
+                if (exifTime > 0) exifTime else 0L
+            } else {
+                0L
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "getImageSortTime error for imageId=$imageId", e)
+            0L
+        }
     }
 
     @android.webkit.JavascriptInterface
@@ -185,29 +217,24 @@ class GalleryBridge(private val context: Context) : BaseJsBridge(context as andr
     }
 
     @SuppressLint("Recycle")
-    private fun getThumbnail(imageId: Long): String {
-        return try {
-            // Try to get cached thumbnail from MediaStore first
-            val thumbnail = MediaStore.Images.Thumbnails.getThumbnail(
-                context.contentResolver,
-                imageId,
-                MediaStore.Images.Thumbnails.MINI_KIND,
-                null
-            )
+    private fun getThumbnailInternal(imageId: Long): String {
+        // Try to get cached thumbnail from MediaStore first
+        val thumbnail = MediaStore.Images.Thumbnails.getThumbnail(
+            context.contentResolver,
+            imageId,
+            MediaStore.Images.Thumbnails.MINI_KIND,
+            null
+        )
 
-            if (thumbnail != null) {
-                bitmapToBase64(thumbnail)
-            } else {
-                // Fallback: create thumbnail manually
-                createThumbnailManually(imageId)
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "Failed to get thumbnail for imageId=$imageId", e)
-            ""
+        return if (thumbnail != null) {
+            bitmapToBase64(thumbnail)
+        } else {
+            // Fallback: create thumbnail manually
+            createThumbnailManually(imageId)
         }
     }
 
-    private fun createThumbnailManually(imageId: Long): String {
+    private fun getImagePath(imageId: Long): String? {
         val projection = arrayOf(MediaStore.Images.Media.DATA)
         val selection = "${MediaStore.Images.Media._ID} = ?"
         val selectionArgs = arrayOf(imageId.toString())
@@ -220,25 +247,29 @@ class GalleryBridge(private val context: Context) : BaseJsBridge(context as andr
             null
         )?.use { cursor ->
             if (cursor.moveToFirst()) {
-                val path = cursor.getString(cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DATA))
-                val file = File(path)
-                if (file.exists()) {
-                    val options = BitmapFactory.Options().apply {
-                        inJustDecodeBounds = true
-                    }
-                    BitmapFactory.decodeFile(path, options)
-
-                    // Calculate sample size for thumbnail (~512px)
-                    val sampleSize = calculateSampleSize(options.outWidth, options.outHeight, 512, 384)
-                    options.inJustDecodeBounds = false
-                    options.inSampleSize = sampleSize
-
-                    val bitmap = BitmapFactory.decodeFile(path, options)
-                    return bitmap?.let { bitmapToBase64(it) } ?: ""
-                }
+                return cursor.getString(cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DATA))
             }
         }
-        return ""
+        return null
+    }
+
+    private fun createThumbnailManually(imageId: Long): String {
+        val path = getImagePath(imageId) ?: return ""
+        val file = File(path)
+        if (!file.exists()) return ""
+
+        val options = BitmapFactory.Options().apply {
+            inJustDecodeBounds = true
+        }
+        BitmapFactory.decodeFile(path, options)
+
+        // Calculate sample size for thumbnail (~512px)
+        val sampleSize = calculateSampleSize(options.outWidth, options.outHeight, 512, 384)
+        options.inJustDecodeBounds = false
+        options.inSampleSize = sampleSize
+
+        val bitmap = BitmapFactory.decodeFile(path, options)
+        return bitmap?.let { bitmapToBase64(it) } ?: ""
     }
 
     private fun calculateSampleSize(width: Int, height: Int, reqWidth: Int, reqHeight: Int): Int {
