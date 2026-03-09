@@ -111,6 +111,15 @@ export const GalleryCard = memo(function GalleryCard() {
     }
   }, []);
 
+  // Cleanup long-press timer on unmount to prevent memory leak
+  useEffect(() => {
+    return () => {
+      if (longPressTimerRef.current) {
+        clearTimeout(longPressTimerRef.current);
+      }
+    };
+  }, []);
+
   const handleImageClick = useCallback((image: GalleryImage) => {
     if (isSelectionMode) {
       setSelectedIds(prev => {
@@ -147,12 +156,16 @@ export const GalleryCard = memo(function GalleryCard() {
     if (selectedIds.size === 0) return;
     
     if (confirm(`确定删除 ${selectedIds.size} 张图片？`)) {
-      const success = await window.GalleryAndroid?.deleteImages(JSON.stringify([...selectedIds]));
-      if (success) {
-        loadImages();
-        setIsSelectionMode(false);
-        setSelectedIds(new Set());
-        setShowMenu(false);
+      try {
+        const success = await window.GalleryAndroid?.deleteImages(JSON.stringify([...selectedIds]));
+        if (success) {
+          loadImages();
+          setIsSelectionMode(false);
+          setSelectedIds(new Set());
+          setShowMenu(false);
+        }
+      } catch (err) {
+        console.error('Delete failed:', err);
       }
     }
   }, [selectedIds, loadImages]);
@@ -160,8 +173,12 @@ export const GalleryCard = memo(function GalleryCard() {
   const handleShare = useCallback(async () => {
     if (selectedIds.size === 0) return;
     
-    await window.GalleryAndroid?.shareImages(JSON.stringify([...selectedIds]));
-    setShowMenu(false);
+    try {
+      await window.GalleryAndroid?.shareImages(JSON.stringify([...selectedIds]));
+      setShowMenu(false);
+    } catch (err) {
+      console.error('Share failed:', err);
+    }
   }, [selectedIds]);
 
   const handleCancelSelection = useCallback(() => {
@@ -261,6 +278,7 @@ export const GalleryCard = memo(function GalleryCard() {
             onClick={() => handleImageClick(image)}
             onTouchStart={() => handleTouchStart(image)}
             onTouchEnd={handleTouchEnd}
+            onTouchMove={handleTouchEnd}
             onTouchCancel={handleTouchEnd}
             className={`aspect-square bg-gray-100 rounded-lg overflow-hidden cursor-pointer hover:opacity-90 transition-opacity relative ${
               isSelectionMode && selectedIds.has(image.id) ? 'ring-2 ring-blue-500' : ''
