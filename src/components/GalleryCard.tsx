@@ -25,6 +25,7 @@ export const GalleryCard = memo(function GalleryCard() {
   const [isSelectionMode, setIsSelectionMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [showMenu, setShowMenu] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const observerRef = useRef<IntersectionObserver | null>(null);
 
@@ -155,22 +156,26 @@ export const GalleryCard = memo(function GalleryCard() {
     }
   }, [loadImages]);
 
-  const handleDelete = useCallback(async () => {
+  const handleDelete = useCallback(() => {
     if (selectedIds.size === 0) return;
-    
-    if (confirm(`确定删除 ${selectedIds.size} 张图片？`)) {
+    setShowDeleteConfirm(true);
+    setShowMenu(false);
+  }, [selectedIds.size]);
+
+  const handleDeleteConfirm = useCallback(async (confirmed: boolean) => {
+    if (confirmed) {
       try {
         const success = await window.GalleryAndroid?.deleteImages(JSON.stringify([...selectedIds]));
         if (success) {
           loadImages();
           setIsSelectionMode(false);
           setSelectedIds(new Set());
-          setShowMenu(false);
         }
       } catch (err) {
         console.error('Delete failed:', err);
       }
     }
+    setShowDeleteConfirm(false);
   }, [selectedIds, loadImages]);
 
   const handleShare = useCallback(async () => {
@@ -363,6 +368,34 @@ export const GalleryCard = memo(function GalleryCard() {
               {selectedIds.size > 99 ? '99+' : selectedIds.size}
             </div>
           )}
+        </div>
+      )}
+
+      {/* Delete confirmation dialog */}
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[100]">
+          <div className="bg-white rounded-xl p-6 max-w-sm mx-4 shadow-xl">
+            <h3 className="text-lg font-semibold text-gray-900 mb-2">
+              确认删除
+            </h3>
+            <p className="text-gray-600 mb-6">
+              确定要删除选中的 {selectedIds.size} 张图片吗？此操作无法撤销。
+            </p>
+            <div className="flex gap-3 justify-end">
+              <button
+                onClick={() => handleDeleteConfirm(false)}
+                className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+              >
+                取消
+              </button>
+              <button
+                onClick={() => handleDeleteConfirm(true)}
+                className="px-4 py-2 text-white bg-red-500 rounded-lg hover:bg-red-600 transition-colors"
+              >
+                删除
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>
