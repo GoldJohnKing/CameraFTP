@@ -293,6 +293,55 @@ export const GalleryCard = memo(function GalleryCard() {
           </div>
         ))}
       </div>
+
+      {/* FAB and Menu for selection mode */}
+      {isSelectionMode && (
+        <div className="fixed bottom-20 right-4 z-50" ref={menuRef}>
+          {/* Menu */}
+          {showMenu && (
+            <div className="absolute bottom-16 right-0 bg-white rounded-xl shadow-xl min-w-[140px] overflow-hidden mb-2">
+              <button
+                onClick={handleDelete}
+                disabled={selectedIds.size === 0}
+                className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <Trash2 className="w-5 h-5 text-red-500" />
+                <span>删除({selectedIds.size})</span>
+              </button>
+              <button
+                onClick={handleShare}
+                disabled={selectedIds.size === 0}
+                className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed border-t border-gray-100"
+              >
+                <Share2 className="w-5 h-5 text-blue-500" />
+                <span>分享({selectedIds.size})</span>
+              </button>
+              <button
+                onClick={handleCancelSelection}
+                className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-gray-50 border-t border-gray-100"
+              >
+                <X className="w-5 h-5 text-gray-500" />
+                <span>取消选择</span>
+              </button>
+            </div>
+          )}
+          
+          {/* FAB */}
+          <button
+            onClick={() => setShowMenu(prev => !prev)}
+            className="w-14 h-14 rounded-full bg-blue-500 shadow-lg flex items-center justify-center text-white hover:bg-blue-600 transition-colors"
+          >
+            <MoreVertical className="w-6 h-6" />
+          </button>
+          
+          {/* Badge */}
+          {selectedIds.size > 0 && (
+            <div className="absolute -top-1 -right-1 w-6 h-6 rounded-full bg-red-500 text-white text-xs flex items-center justify-center font-medium">
+              {selectedIds.size > 99 ? '99+' : selectedIds.size}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 });
