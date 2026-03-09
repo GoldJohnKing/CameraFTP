@@ -130,7 +130,7 @@ export const GalleryCard = memo(function GalleryCard() {
   }
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-3 pt-6">
       {/* Header with refresh button */}
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-semibold text-gray-900">
