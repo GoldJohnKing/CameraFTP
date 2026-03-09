@@ -107,6 +107,30 @@ interface PermissionAndroid {
    openImageWithChooser: (path: string) => string;
 }
 
+/**
+ * Gallery image data returned by Android MediaStore
+ */
+export interface GalleryImage {
+  id: number;
+  path: string;
+  filename: string;
+  thumbnail: string; // base64 data URL
+  dateModified: number;
+}
+
+/**
+ * Android Gallery interface
+ * Provides access to device image gallery via MediaStore
+ */
+interface GalleryAndroid {
+  /**
+   * Get all images from the specified directory
+   * @param storagePath The directory path to scan for images
+   * @returns JSON string containing { images: GalleryImage[] }
+   */
+  getGalleryImages(storagePath: string): Promise<string>;
+}
+
 // ===== 全局窗口扩展 =====
 
 declare global {
@@ -131,6 +155,11 @@ declare global {
      * Android 权限管理 JS Bridge
      */
     PermissionAndroid?: PermissionAndroid;
+    
+    /**
+     * Android Gallery JS Bridge
+     */
+    GalleryAndroid?: GalleryAndroid;
   }
 }
 
