@@ -16,6 +16,7 @@ import androidx.activity.enableEdgeToEdge
 import com.gjk.cameraftpcompanion.bridges.FileUploadBridge
 import com.gjk.cameraftpcompanion.bridges.ServerStateBridge
 import com.gjk.cameraftpcompanion.bridges.FileWatcherBridge
+import com.gjk.cameraftpcompanion.bridges.GalleryBridge
 
 class MainActivity : TauriActivity() {
 
@@ -33,6 +34,7 @@ class MainActivity : TauriActivity() {
     private var serverStateBridge: ServerStateBridge? = null
     private var permissionBridge: PermissionBridge? = null
     private var fileWatcherBridge: FileWatcherBridge? = null
+    private var galleryBridge: GalleryBridge? = null
 
     /**
      * Helper to add a JavaScript bridge to WebView with logging
@@ -53,6 +55,7 @@ class MainActivity : TauriActivity() {
         serverStateBridge = ServerStateBridge(this)
         permissionBridge = PermissionBridge(this)
         fileWatcherBridge = FileWatcherBridge(this)
+        galleryBridge = GalleryBridge(this)
     }
 
     /**
@@ -70,6 +73,7 @@ class MainActivity : TauriActivity() {
         addJsBridge(webView, serverStateBridge, "ServerStateAndroid")
         addJsBridge(webView, permissionBridge, "PermissionAndroid")
         addJsBridge(webView, fileWatcherBridge, "FileWatcherAndroid")
+        addJsBridge(webView, galleryBridge, "GalleryAndroid")
 
         // 注册Tauri事件监听 - 监听file-uploaded事件
         registerFileUploadEventListener()
@@ -161,6 +165,7 @@ class MainActivity : TauriActivity() {
         serverStateBridge = null
         permissionBridge = null
         fileWatcherBridge = null
+        galleryBridge = null
     }
 
     /**
