@@ -17,7 +17,6 @@ import android.media.ExifInterface
 import android.provider.MediaStore
 import android.util.Base64
 import android.util.Log
-import android.widget.Toast
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
@@ -132,16 +131,9 @@ class GalleryBridge(private val context: Context) : BaseJsBridge(context as andr
             }
             
             Log.d(TAG, "deleteImages: deleted $deletedCount/${ids.size} images")
-            activity.runOnUiThread {
-                Toast.makeText(context, "已删除 $deletedCount 张图片", Toast.LENGTH_SHORT).show()
-            }
-            
             deletedCount > 0
         } catch (e: Exception) {
             Log.e(TAG, "deleteImages error", e)
-            activity.runOnUiThread {
-                Toast.makeText(context, "删除失败: ${e.message}", Toast.LENGTH_SHORT).show()
-            }
             false
         }
     }
@@ -188,9 +180,6 @@ class GalleryBridge(private val context: Context) : BaseJsBridge(context as andr
             true
         } catch (e: Exception) {
             Log.e(TAG, "shareImages error", e)
-            activity.runOnUiThread {
-                Toast.makeText(context, "分享失败: ${e.message}", Toast.LENGTH_SHORT).show()
-            }
             false
         }
     }

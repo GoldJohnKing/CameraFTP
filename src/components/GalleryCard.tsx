@@ -6,6 +6,7 @@
 
 import { memo, useCallback, useEffect, useState, useRef } from 'react';
 import { RefreshCw, ImageOff, Loader2, Check, X, Trash2, Share2, MoreVertical } from 'lucide-react';
+import { toast } from 'sonner';
 import { listen } from '@tauri-apps/api/event';
 import { useConfigStore } from '../stores/configStore';
 import type { GalleryImage } from '../types';
@@ -167,12 +168,16 @@ export const GalleryCard = memo(function GalleryCard() {
       try {
         const success = await window.GalleryAndroid?.deleteImages(JSON.stringify([...selectedIds]));
         if (success) {
+          toast.success(`已删除 ${selectedIds.size} 张图片`);
           loadImages();
           setIsSelectionMode(false);
           setSelectedIds(new Set());
+        } else {
+          toast.error('删除失败');
         }
       } catch (err) {
         console.error('Delete failed:', err);
+        toast.error('删除失败');
       }
     }
     setShowDeleteConfirm(false);
@@ -183,9 +188,11 @@ export const GalleryCard = memo(function GalleryCard() {
     
     try {
       await window.GalleryAndroid?.shareImages(JSON.stringify([...selectedIds]));
+      toast.success(`已分享 ${selectedIds.size} 张图片`);
       setShowMenu(false);
     } catch (err) {
       console.error('Share failed:', err);
+      toast.error('分享失败');
     }
   }, [selectedIds]);
 
