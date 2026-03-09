@@ -146,6 +146,56 @@ class GalleryBridge(private val context: Context) : BaseJsBridge(context as andr
         }
     }
 
+    @android.webkit.JavascriptInterface
+    fun shareImages(idsJson: String): Boolean {
+        Log.d(TAG, "shareImages: idsJson=$idsJson")
+        
+        return try {
+            val ids = JSONArray(idsJson).let { json ->
+                (0 until json.length()).map { json.getInt(it) }
+            }
+            
+            if (ids.isEmpty()) {
+                Log.w(TAG, "shareImages: no IDs provided")
+                return false
+            }
+            
+            val uris = ids.map { id ->
+                ContentUris.withAppendedId(
+                    MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+                    id.toLong()
+                )
+            }
+            
+            val intent = if (uris.size == 1) {
+                Intent(Intent.ACTION_SEND).apply {
+                    type = "image/*"
+                    putExtra(Intent.EXTRA_STREAM, uris[0])
+                }
+            } else {
+                Intent(Intent.ACTION_SEND_MULTIPLE).apply {
+                    type = "image/*"
+                    putParcelableArrayListExtra(Intent.EXTRA_STREAM, ArrayList(uris))
+                }
+            }.apply {
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            
+            val chooser = Intent.createChooser(intent, "分享图片")
+            chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            context.startActivity(chooser)
+            
+            Log.d(TAG, "shareImages: shared ${uris.size} images")
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "shareImages error", e)
+            activity.runOnUiThread {
+                Toast.makeText(context, "分享失败: ${e.message}", Toast.LENGTH_SHORT).show()
+            }
+            false
+        }
+    }
+
     @SuppressLint("Recycle")
     private fun getThumbnail(imageId: Long): String {
         return try {
