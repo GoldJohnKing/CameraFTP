@@ -8,6 +8,7 @@ import { memo, useCallback, useEffect, useState, useRef } from 'react';
 import { RefreshCw, ImageOff, Loader2, Check, X, Trash2, Share2, MoreVertical } from 'lucide-react';
 import { toast } from 'sonner';
 import { listen } from '@tauri-apps/api/event';
+import { convertFileSrc } from '@tauri-apps/api/core';
 import { useConfigStore } from '../stores/configStore';
 import type { GalleryImage } from '../types';
 
@@ -47,12 +48,23 @@ export const GalleryCard = memo(function GalleryCard() {
     setLoadingThumbnails(prev => new Set(prev).add(imageId));
 
     try {
-      const thumbnail = await window.GalleryAndroid?.getThumbnail(imageId);
-      if (thumbnail) {
+      const thumbnailPath = await window.GalleryAndroid?.getThumbnail(imageId);
+      if (thumbnailPath) {
         // Mark as loaded in ref
         loadedThumbnailsRef.current.add(imageId);
+
+        // 处理缩略图路径：如果是 Base64 直接使用，否则使用 convertFileSrc 转换为 asset:// URL
+        let thumbnailUrl: string;
+        if (thumbnailPath.startsWith('data:image/')) {
+          // 回退到 Base64 格式（兼容旧实现或缓存失败）
+          thumbnailUrl = thumbnailPath;
+        } else {
+          // 使用 Tauri 的 asset 协议加载本地文件
+          thumbnailUrl = convertFileSrc(thumbnailPath);
+        }
+
         // Update state for rendering
-        setThumbnails(prev => new Map(prev).set(imageId, thumbnail));
+        setThumbnails(prev => new Map(prev).set(imageId, thumbnailUrl));
       }
     } catch (err) {
       console.error('Failed to load thumbnail for imageId:', imageId, err);

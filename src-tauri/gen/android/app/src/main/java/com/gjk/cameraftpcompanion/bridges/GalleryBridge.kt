@@ -29,6 +29,56 @@ class GalleryBridge(private val context: Context) : BaseJsBridge(context as andr
     companion object {
         private const val TAG = "GalleryBridge"
         private const val THUMBNAIL_QUALITY = 85
+        private const val THUMBNAIL_WIDTH = 400  // 增大尺寸以获得更好的显示效果
+        private const val THUMBNAIL_HEIGHT = 400
+        private const val MAX_CACHE_SIZE_MB = 100  // 最大缓存 100MB
+        private const val THUMBNAIL_SUBDIR = "thumbnails"
+    }
+
+    /**
+     * 获取缩略图缓存目录
+     */
+    private fun getThumbnailCacheDir(): File {
+        return File(context.cacheDir, THUMBNAIL_SUBDIR).apply {
+            if (!exists()) mkdirs()
+        }
+    }
+
+    /**
+     * 获取缩略图缓存文件路径
+     */
+    private fun getThumbnailCacheFile(imageId: Long): File {
+        return File(getThumbnailCacheDir(), "thumb_$imageId.jpg")
+    }
+
+    /**
+     * 清理旧的缓存文件（LRU策略）
+     */
+    private fun cleanupOldCache() {
+        try {
+            val cacheDir = getThumbnailCacheDir()
+            val files = cacheDir.listFiles() ?: return
+            
+            // 计算总大小
+            val totalSize = files.sumOf { it.length() }
+            val maxSizeBytes = MAX_CACHE_SIZE_MB * 1024 * 1024
+            
+            if (totalSize > maxSizeBytes) {
+                // 按最后修改时间排序，删除最旧的
+                files.sortBy { it.lastModified() }
+                var currentSize = totalSize
+                
+                for (file in files) {
+                    if (currentSize <= maxSizeBytes * 0.7) break  // 清理到 70%
+                    currentSize -= file.length()
+                    file.delete()
+                }
+                
+                Log.d(TAG, "Cleaned up thumbnail cache. Reduced from ${totalSize / 1024 / 1024}MB to ${currentSize / 1024 / 1024}MB")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to cleanup cache", e)
+        }
     }
 
     /**
@@ -104,15 +154,73 @@ class GalleryBridge(private val context: Context) : BaseJsBridge(context as andr
     /**
      * Get thumbnail for a single image (for lazy loading).
      * This is called on-demand when an image becomes visible.
+     * Returns the file path to the cached thumbnail, which can be loaded via convertFileSrc().
      */
     @android.webkit.JavascriptInterface
     fun getThumbnail(imageId: Long): String {
         Log.d(TAG, "getThumbnail: imageId=$imageId")
         return try {
-            getThumbnailInternal(imageId)
+            getThumbnailWithCache(imageId)
         } catch (e: Exception) {
             Log.e(TAG, "getThumbnail error for imageId=$imageId", e)
             ""
+        }
+    }
+
+    /**
+     * 获取缩略图并缓存到文件系统
+     * 返回缓存文件的绝对路径，前端通过 convertFileSrc() 转换为 asset:// URL 加载
+     */
+    private fun getThumbnailWithCache(imageId: Long): String {
+        val cacheFile = getThumbnailCacheFile(imageId)
+        
+        // 检查缓存是否已存在且有效（24小时内）
+        if (cacheFile.exists() && cacheFile.length() > 0) {
+            val age = System.currentTimeMillis() - cacheFile.lastModified()
+            if (age < 24 * 60 * 60 * 1000) {  // 24小时
+                Log.d(TAG, "Using cached thumbnail: ${cacheFile.absolutePath}")
+                return cacheFile.absolutePath
+            }
+        }
+        
+        // 生成缩略图
+        val bitmap = getThumbnailBitmap(imageId) ?: return ""
+        
+        // 保存到缓存
+        try {
+            cacheFile.outputStream().use { out ->
+                bitmap.compress(Bitmap.CompressFormat.JPEG, THUMBNAIL_QUALITY, out)
+            }
+            
+            // 检查并清理旧缓存
+            cleanupOldCache()
+            
+            Log.d(TAG, "Saved thumbnail to cache: ${cacheFile.absolutePath}")
+            return cacheFile.absolutePath
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to save thumbnail to cache", e)
+            // 失败时回退到 Base64（确保兼容性）
+            return bitmapToBase64(bitmap)
+        }
+    }
+
+    /**
+     * 获取缩略图 Bitmap
+     */
+    private fun getThumbnailBitmap(imageId: Long): Bitmap? {
+        // 首先尝试从 MediaStore 获取缓存的缩略图
+        val thumbnail = MediaStore.Images.Thumbnails.getThumbnail(
+            context.contentResolver,
+            imageId,
+            MediaStore.Images.Thumbnails.MINI_KIND,
+            null
+        )
+        
+        return if (thumbnail != null) {
+            thumbnail
+        } else {
+            // 手动生成缩略图
+            createThumbnailManually(imageId)
         }
     }
 
@@ -290,24 +398,6 @@ class GalleryBridge(private val context: Context) : BaseJsBridge(context as andr
         }
     }
 
-    @SuppressLint("Recycle")
-    private fun getThumbnailInternal(imageId: Long): String {
-        // Try to get cached thumbnail from MediaStore first
-        val thumbnail = MediaStore.Images.Thumbnails.getThumbnail(
-            context.contentResolver,
-            imageId,
-            MediaStore.Images.Thumbnails.MINI_KIND,
-            null
-        )
-
-        return if (thumbnail != null) {
-            bitmapToBase64(thumbnail)
-        } else {
-            // Fallback: create thumbnail manually
-            createThumbnailManually(imageId)
-        }
-    }
-
     private fun getImagePath(imageId: Long): String? {
         val projection = arrayOf(MediaStore.Images.Media.DATA)
         val selection = "${MediaStore.Images.Media._ID} = ?"
@@ -327,23 +417,26 @@ class GalleryBridge(private val context: Context) : BaseJsBridge(context as andr
         return null
     }
 
-    private fun createThumbnailManually(imageId: Long): String {
-        val path = getImagePath(imageId) ?: return ""
+    /**
+     * 手动生成缩略图（当 MediaStore 缓存不存在时）
+     * 返回 Bitmap，由调用者决定如何保存
+     */
+    private fun createThumbnailManually(imageId: Long): Bitmap? {
+        val path = getImagePath(imageId) ?: return null
         val file = File(path)
-        if (!file.exists()) return ""
+        if (!file.exists()) return null
 
         val options = BitmapFactory.Options().apply {
             inJustDecodeBounds = true
         }
         BitmapFactory.decodeFile(path, options)
 
-        // Calculate sample size for thumbnail (~512px)
-        val sampleSize = calculateSampleSize(options.outWidth, options.outHeight, 512, 384)
+        // Calculate sample size for thumbnail (使用 THUMBNAIL_WIDTH/HEIGHT)
+        val sampleSize = calculateSampleSize(options.outWidth, options.outHeight, THUMBNAIL_WIDTH, THUMBNAIL_HEIGHT)
         options.inJustDecodeBounds = false
         options.inSampleSize = sampleSize
 
-        val bitmap = BitmapFactory.decodeFile(path, options)
-        return bitmap?.let { bitmapToBase64(it) } ?: ""
+        return BitmapFactory.decodeFile(path, options)
     }
 
     private fun calculateSampleSize(width: Int, height: Int, reqWidth: Int, reqHeight: Int): Int {
