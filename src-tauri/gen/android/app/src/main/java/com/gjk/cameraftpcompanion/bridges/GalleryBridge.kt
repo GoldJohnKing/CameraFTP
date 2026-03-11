@@ -14,6 +14,7 @@ import android.graphics.BitmapFactory
 import android.provider.MediaStore
 import android.util.Base64
 import android.util.Log
+import com.gjk.cameraftpcompanion.MainActivity
 import org.json.JSONArray
 import java.io.ByteArrayOutputStream
 import java.io.File
@@ -290,5 +291,33 @@ class GalleryBridge(private val context: Context) : BaseJsBridge(context as andr
         val byteArray = outputStream.toByteArray()
         val base64 = Base64.encodeToString(byteArray, Base64.NO_WRAP)
         return "data:image/jpeg;base64,$base64"
+    }
+
+    /**
+     * Register back press callback to intercept back button
+     * Called from JS when entering selection mode
+     */
+    @android.webkit.JavascriptInterface
+    fun registerBackPressCallback(): Boolean {
+        return try {
+            (activity as? MainActivity)?.registerBackPressCallback() ?: false
+        } catch (e: Exception) {
+            Log.e(TAG, "registerBackPressCallback: exception", e)
+            false
+        }
+    }
+
+    /**
+     * Unregister back press callback
+     * Called from JS when exiting selection mode
+     */
+    @android.webkit.JavascriptInterface
+    fun unregisterBackPressCallback(): Boolean {
+        return try {
+            (activity as? MainActivity)?.unregisterBackPressCallback() ?: false
+        } catch (e: Exception) {
+            Log.e(TAG, "unregisterBackPressCallback: exception", e)
+            false
+        }
     }
 }

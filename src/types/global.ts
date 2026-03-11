@@ -146,6 +146,25 @@ interface GalleryAndroid {
    * @returns true if sharing succeeded, false otherwise
    */
   shareImages(pathsJson: string): Promise<boolean>;
+
+  /**
+   * Register back press callback to intercept back button
+   * Called when entering selection mode
+   * @returns true if registration succeeded
+   */
+  registerBackPressCallback?(): boolean;
+
+  /**
+   * Unregister back press callback
+   * Called when exiting selection mode
+   * @returns true if unregistration succeeded
+   */
+  unregisterBackPressCallback?(): boolean;
+
+  /**
+   * Callback for back button press (set by JS, called by Android)
+   */
+  onBackPressed?(): void;
 }
 
 // ===== 全局窗口扩展 =====

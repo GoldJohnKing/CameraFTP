@@ -19,7 +19,7 @@ interface FileIndexChangedEvent {
 }
 
 export const GalleryCard = memo(function GalleryCard() {
-  useConfigStore();
+  const { activeTab } = useConfigStore();
   const [images, setImages] = useState<GalleryImage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -268,6 +268,11 @@ export const GalleryCard = memo(function GalleryCard() {
       }
     }
 
+    // Cancel selection mode when refreshing
+    setIsSelectionMode(false);
+    setSelectedIds(new Set());
+    setShowMenu(false);
+
     setIsRefreshing(true);
     const startTime = Date.now();
 
@@ -295,7 +300,6 @@ export const GalleryCard = memo(function GalleryCard() {
       try {
         const success = await window.GalleryAndroid?.deleteImages(JSON.stringify([...selectedIds]));
         if (success) {
-          toast.success(`已删除 ${selectedIds.size} 张图片`);
           loadImages();
           setIsSelectionMode(false);
           setSelectedIds(new Set());
@@ -315,7 +319,6 @@ export const GalleryCard = memo(function GalleryCard() {
     
     try {
       await window.GalleryAndroid?.shareImages(JSON.stringify([...selectedIds]));
-      toast.success(`已分享 ${selectedIds.size} 张图片`);
       setShowMenu(false);
     } catch (err) {
       console.error('Share failed:', err);
@@ -329,21 +332,71 @@ export const GalleryCard = memo(function GalleryCard() {
     setShowMenu(false);
   }, []);
 
+  // Ref to track selection mode for back press callback
+  // This ref ensures the onBackPressed callback always sees the latest state
+  // even when the callback is called from Android without triggering a re-render
+  const isSelectionModeRef = useRef(false);
+  
+  // Sync ref with state on every render
+  useEffect(() => {
+    isSelectionModeRef.current = isSelectionMode;
+  }, [isSelectionMode]);
+
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
         setShowMenu(false);
       }
     };
-    
+
     if (showMenu) {
       document.addEventListener('mousedown', handleClickOutside);
     }
-    
+
     return () => {
       document.removeEventListener('mousedown', handleClickOutside);
     };
   }, [showMenu]);
+
+  // Register/unregister back press callback when selection mode changes
+  useEffect(() => {
+    // Register back press callback when entering selection mode
+    if (isSelectionMode) {
+      window.GalleryAndroid?.registerBackPressCallback?.();
+    } else {
+      window.GalleryAndroid?.unregisterBackPressCallback?.();
+    }
+
+    // Cleanup on unmount
+    return () => {
+      window.GalleryAndroid?.unregisterBackPressCallback?.();
+    };
+  }, [isSelectionMode]);
+
+  // Expose onBackPressed callback for Android to call
+  useEffect(() => {
+    // Define the callback function - use ref to always get latest state
+    const onBackPressed = () => {
+      if (isSelectionModeRef.current) {
+        handleCancelSelection();
+      }
+    };
+
+    // Attach to window as global function (WebView JS interface doesn't allow adding properties to the bridge object)
+    (window as Window & { __galleryOnBackPressed?: () => void }).__galleryOnBackPressed = onBackPressed;
+
+    return () => {
+      // Cleanup: remove the callback when component unmounts
+      delete (window as Window & { __galleryOnBackPressed?: () => void }).__galleryOnBackPressed;
+    };
+  }, [handleCancelSelection]);
+
+  // Cancel selection when switching to other tabs
+  useEffect(() => {
+    if (activeTab !== 'gallery' && isSelectionMode) {
+      handleCancelSelection();
+    }
+  }, [activeTab, isSelectionMode, handleCancelSelection]);
 
   // Not on Android
   if (!window.GalleryAndroid) {
@@ -403,7 +456,7 @@ export const GalleryCard = memo(function GalleryCard() {
       </div>
 
       {/* Image grid */}
-      <div className="grid grid-cols-3 gap-1">
+      <div className="grid grid-cols-3 gap-1.5">
         {images.map((image) => {
           const thumbnail = thumbnails.get(image.path);
           const isLoadingThumb = loadingThumbnails.has(image.path);

@@ -238,4 +238,54 @@ class MainActivity : TauriActivity() {
         }
         stopService(intent)
     }
+
+    /**
+     * Flag to track if we're in selection mode (for back button handling)
+     */
+    private var isInSelectionMode = false
+
+    /**
+     * Register back press callback to intercept back button
+     * Called from JS when entering selection mode
+     */
+    fun registerBackPressCallback(): Boolean {
+        Log.d(TAG, "registerBackPressCallback: entering selection mode")
+        isInSelectionMode = true
+        return true
+    }
+
+    /**
+     * Unregister back press callback
+     * Called from JS when exiting selection mode
+     */
+    fun unregisterBackPressCallback(): Boolean {
+        Log.d(TAG, "unregisterBackPressCallback: exiting selection mode")
+        isInSelectionMode = false
+        return true
+    }
+
+    /**
+     * Handle back button press
+     * Override to intercept back button when in selection mode
+     */
+    @Deprecated("Deprecated in Java")
+    override fun onBackPressed() {
+        if (isInSelectionMode) {
+            // Notify JS to cancel selection
+            try {
+                webViewRef?.evaluateJavascript(
+                    "if (window.__galleryOnBackPressed) { window.__galleryOnBackPressed(); }",
+                    null
+                )
+            } catch (e: Exception) {
+                Log.e(TAG, "onBackPressed: error calling evaluateJavascript", e)
+            }
+            // Don't call super to prevent default back behavior
+            return
+        }
+
+        // Normal back behavior
+        @Suppress("DEPRECATION")
+        super.onBackPressed()
+    }
 }
