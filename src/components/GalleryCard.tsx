@@ -8,9 +8,9 @@ import { memo, useCallback, useEffect, useState, useRef } from 'react';
 import { RefreshCw, ImageOff, Loader2, Check, X, Trash2, Share2, MoreVertical } from 'lucide-react';
 import { toast } from 'sonner';
 import { listen } from '@tauri-apps/api/event';
-import { convertFileSrc } from '@tauri-apps/api/core';
+import { invoke, convertFileSrc } from '@tauri-apps/api/core';
 import { useConfigStore } from '../stores/configStore';
-import type { GalleryImage } from '../types';
+import type { GalleryImage, FileInfo } from '../types';
 
 interface FileIndexChangedEvent {
   count: number;
@@ -18,69 +18,69 @@ interface FileIndexChangedEvent {
 }
 
 export const GalleryCard = memo(function GalleryCard() {
-  const { config } = useConfigStore();
+  useConfigStore();
   const [images, setImages] = useState<GalleryImage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [thumbnails, setThumbnails] = useState<Map<number, string>>(new Map());
-  const [loadingThumbnails, setLoadingThumbnails] = useState<Set<number>>(new Set());
+  const [thumbnails, setThumbnails] = useState<Map<string, string>>(new Map());
+  const [loadingThumbnails, setLoadingThumbnails] = useState<Set<string>>(new Set());
   const [isSelectionMode, setIsSelectionMode] = useState(false);
-  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [showMenu, setShowMenu] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const observerRef = useRef<IntersectionObserver | null>(null);
   // Refs to track loading state without causing re-renders in observer callback
-  const loadingThumbnailsRef = useRef<Set<number>>(new Set());
-  const loadedThumbnailsRef = useRef<Set<number>>(new Set());
+  const loadingThumbnailsRef = useRef<Set<string>>(new Set());
+  const loadedThumbnailsRef = useRef<Set<string>>(new Set());
 
   // Load thumbnail for a specific image - defined before loadImages to avoid TDZ
-  const loadThumbnail = useCallback(async (imageId: number) => {
+  const loadThumbnail = useCallback(async (imagePath: string) => {
     // Skip if already loaded or loading (check refs for current state)
-    if (loadedThumbnailsRef.current.has(imageId) || loadingThumbnailsRef.current.has(imageId)) {
+    if (loadedThumbnailsRef.current.has(imagePath) || loadingThumbnailsRef.current.has(imagePath)) {
       return;
     }
 
     // Mark as loading in ref (immediate, no re-render)
-    loadingThumbnailsRef.current.add(imageId);
+    loadingThumbnailsRef.current.add(imagePath);
     // Also update state for UI feedback
-    setLoadingThumbnails(prev => new Set(prev).add(imageId));
+    setLoadingThumbnails(prev => new Set(prev).add(imagePath));
 
     try {
-      const thumbnailPath = await window.GalleryAndroid?.getThumbnail(imageId);
+      const thumbnailPath = await window.GalleryAndroid?.getThumbnail(imagePath);
       if (thumbnailPath) {
         // Mark as loaded in ref
-        loadedThumbnailsRef.current.add(imageId);
+        loadedThumbnailsRef.current.add(imagePath);
 
-        // 处理缩略图路径：如果是 Base64 直接使用，否则使用 convertFileSrc 转换为 asset:// URL
+        // Process thumbnail path: use Base64 directly if available, otherwise convert to asset:// URL
         let thumbnailUrl: string;
         if (thumbnailPath.startsWith('data:image/')) {
-          // 回退到 Base64 格式（兼容旧实现或缓存失败）
+          // Fallback to Base64 format (for compatibility or cache failure)
           thumbnailUrl = thumbnailPath;
         } else {
-          // 使用 Tauri 的 asset 协议加载本地文件
+          // Use Tauri's asset protocol to load local files
           thumbnailUrl = convertFileSrc(thumbnailPath);
         }
 
         // Update state for rendering
-        setThumbnails(prev => new Map(prev).set(imageId, thumbnailUrl));
+        setThumbnails(prev => new Map(prev).set(imagePath, thumbnailUrl));
       }
     } catch (err) {
-      console.error('Failed to load thumbnail for imageId:', imageId, err);
+      console.error('Failed to load thumbnail for imagePath:', imagePath, err);
     } finally {
       // Remove from loading set
-      loadingThumbnailsRef.current.delete(imageId);
+      loadingThumbnailsRef.current.delete(imagePath);
       setLoadingThumbnails(prev => {
         const next = new Set(prev);
-        next.delete(imageId);
+        next.delete(imagePath);
         return next;
       });
     }
   }, []); // No dependencies - uses refs for state checks
 
   const loadImages = useCallback(async () => {
-    if (!config?.savePath || !window.GalleryAndroid) {
+    if (!window.GalleryAndroid) {
       return;
     }
 
@@ -90,10 +90,15 @@ export const GalleryCard = memo(function GalleryCard() {
     // This prevents race conditions between clear and load
 
     try {
-      // Load only metadata (fast, no thumbnails)
-      const result = await window.GalleryAndroid.getGalleryImages(config.savePath);
-      const response = JSON.parse(result) as { images: GalleryImage[] };
-      setImages(response.images);
+      // Use Rust command to scan gallery images
+      const files = await invoke<FileInfo[]>('scan_gallery_images');
+      // Convert FileInfo to GalleryImage format
+      const galleryImages: GalleryImage[] = files.map(file => ({
+        path: file.path,
+        filename: file.filename,
+        sortTime: Number(file.sortTime), // bigint to number
+      }));
+      setImages(galleryImages);
       // Thumbnail loading is handled by the useEffect that watches images array
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load images');
@@ -101,7 +106,7 @@ export const GalleryCard = memo(function GalleryCard() {
     } finally {
       setIsLoading(false);
     }
-  }, [config?.savePath]);
+  }, []);
 
   // Load images on mount
   useEffect(() => {
@@ -116,11 +121,11 @@ export const GalleryCard = memo(function GalleryCard() {
       loadedThumbnailsRef.current.clear();
       
       // Clear any stale thumbnail data that doesn't match current images
-      const currentIds = new Set(images.map(img => img.id));
+      const currentPaths = new Set(images.map(img => img.path));
       setThumbnails(prev => {
         const next = new Map();
         prev.forEach((value, key) => {
-          if (currentIds.has(key)) {
+          if (currentPaths.has(key)) {
             next.set(key, value);
           }
         });
@@ -133,9 +138,9 @@ export const GalleryCard = memo(function GalleryCard() {
         imagesToPreload.forEach((image, index) => {
           setTimeout(() => {
             // Force reload by clearing the loaded state first
-            loadedThumbnailsRef.current.delete(image.id);
-            loadingThumbnailsRef.current.delete(image.id);
-            loadThumbnail(image.id);
+            loadedThumbnailsRef.current.delete(image.path);
+            loadingThumbnailsRef.current.delete(image.path);
+            loadThumbnail(image.path);
           }, index * 50);
         });
       });
@@ -157,15 +162,15 @@ export const GalleryCard = memo(function GalleryCard() {
   // Setup intersection observer for lazy loading thumbnails
   // Observer is created once and uses loadThumbnail which tracks state via refs
   useEffect(() => {
-    // 批量处理可见图片，减少重渲染
-    const pendingLoads = new Set<number>();
+    // Batch process visible images to reduce re-renders
+    const pendingLoads = new Set<string>();
     let loadTimeout: ReturnType<typeof setTimeout> | null = null;
 
     const processPendingLoads = () => {
       loadTimeout = null;
-      pendingLoads.forEach((id) => {
-        if (!loadedThumbnailsRef.current.has(id) && !loadingThumbnailsRef.current.has(id)) {
-          loadThumbnail(id);
+      pendingLoads.forEach((path) => {
+        if (!loadedThumbnailsRef.current.has(path) && !loadingThumbnailsRef.current.has(path)) {
+          loadThumbnail(path);
         }
       });
       pendingLoads.clear();
@@ -174,20 +179,20 @@ export const GalleryCard = memo(function GalleryCard() {
     observerRef.current = new IntersectionObserver(
       (entries) => {
         entries.forEach((entry) => {
-          const id = Number(entry.target.getAttribute('data-id'));
-          if (entry.isIntersecting && id) {
-            pendingLoads.add(id);
+          const path = entry.target.getAttribute('data-path');
+          if (entry.isIntersecting && path) {
+            pendingLoads.add(path);
           }
         });
 
-        // 批量延迟加载，减少主线程压力
+        // Batch delayed loading to reduce main thread pressure
         if (pendingLoads.size > 0 && !loadTimeout) {
           loadTimeout = setTimeout(processPendingLoads, 50);
         }
       },
       { 
-        rootMargin: '200px', // 增加预加载范围到 200px
-        threshold: 0.01 // 只要进入 rootMargin 就触发
+        rootMargin: '200px', // Increase preload range to 200px
+        threshold: 0.01 // Trigger as soon as it enters rootMargin
       }
     );
 
@@ -199,12 +204,12 @@ export const GalleryCard = memo(function GalleryCard() {
     };
   }, [loadThumbnail]); // loadThumbnail is stable (no deps), so this runs once
 
-  // Observe image elements - 仅观察，不立即加载（避免与预加载重复）
+  // Observe image elements - only observe, don't load immediately (avoid duplicate with preload)
   const imageRefCallback = useCallback((el: HTMLDivElement | null) => {
     if (el && observerRef.current) {
       observerRef.current.observe(el);
-      // 注意：不在这里立即加载，让 IntersectionObserver 处理可见图片
-      // 预加载逻辑在 loadImages 中通过 requestAnimationFrame 延迟执行
+      // Note: don't load here, let IntersectionObserver handle visible images
+      // Preload logic is in loadImages via requestAnimationFrame with delay
     }
   }, []);
 
@@ -217,7 +222,7 @@ export const GalleryCard = memo(function GalleryCard() {
     
     longPressTimerRef.current = setTimeout(() => {
       setIsSelectionMode(true);
-      setSelectedIds(new Set([image.id]));
+      setSelectedIds(new Set([image.path]));
     }, LONG_PRESS_DURATION);
   }, []);
 
@@ -241,7 +246,7 @@ export const GalleryCard = memo(function GalleryCard() {
     if (isSelectionMode) {
       setSelectedIds(prev => {
         const next = new Set(prev);
-        next.has(image.id) ? next.delete(image.id) : next.add(image.id);
+        next.has(image.path) ? next.delete(image.path) : next.add(image.path);
         if (next.size === 0) {
           setIsSelectionMode(false);
         }
@@ -259,7 +264,7 @@ export const GalleryCard = memo(function GalleryCard() {
     try {
       await loadImages();
     } finally {
-      // 确保动画至少持续 200ms，让用户能看到刷新效果
+      // Ensure animation lasts at least 200ms so users can see the refresh effect
       const elapsed = Date.now() - startTime;
       const remaining = Math.max(0, 200 - elapsed);
 
@@ -398,13 +403,13 @@ export const GalleryCard = memo(function GalleryCard() {
       {/* Image grid */}
       <div className="grid grid-cols-3 gap-1">
         {images.map((image) => {
-          const thumbnail = thumbnails.get(image.id);
-          const isLoadingThumb = loadingThumbnails.has(image.id);
+          const thumbnail = thumbnails.get(image.path);
+          const isLoadingThumb = loadingThumbnails.has(image.path);
 
           return (
             <div
-              key={image.id}
-              data-id={image.id}
+              key={image.path}
+              data-path={image.path}
               ref={imageRefCallback}
               onClick={() => handleImageClick(image)}
               onTouchStart={(e) => handleTouchStart(image, e)}
@@ -413,7 +418,7 @@ export const GalleryCard = memo(function GalleryCard() {
               onTouchCancel={handleTouchEnd}
               onContextMenu={(e) => e.preventDefault()}
               className={`aspect-square bg-gray-100 rounded-lg overflow-hidden cursor-pointer hover:opacity-90 transition-opacity relative select-none ${
-                isSelectionMode && selectedIds.has(image.id) ? 'ring-2 ring-blue-500' : ''
+                isSelectionMode && selectedIds.has(image.path) ? 'ring-2 ring-blue-500' : ''
               }`}
             >
               {thumbnail ? (
@@ -436,11 +441,11 @@ export const GalleryCard = memo(function GalleryCard() {
 
               {isSelectionMode && (
                 <div className={`absolute top-2 left-2 w-6 h-6 rounded-full flex items-center justify-center ${
-                  selectedIds.has(image.id)
+                  selectedIds.has(image.path)
                     ? 'bg-blue-500'
                     : 'bg-black/30 border-2 border-white/70'
                 }`}>
-                  {selectedIds.has(image.id) && (
+                  {selectedIds.has(image.path) && (
                     <Check className="w-4 h-4 text-white" />
                   )}
                 </div>
