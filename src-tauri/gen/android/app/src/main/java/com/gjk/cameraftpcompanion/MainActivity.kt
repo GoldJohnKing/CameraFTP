@@ -15,7 +15,6 @@ import android.webkit.WebView
 import androidx.activity.enableEdgeToEdge
 import com.gjk.cameraftpcompanion.bridges.FileUploadBridge
 import com.gjk.cameraftpcompanion.bridges.ServerStateBridge
-import com.gjk.cameraftpcompanion.bridges.FileWatcherBridge
 import com.gjk.cameraftpcompanion.bridges.GalleryBridge
 
 class MainActivity : TauriActivity() {
@@ -33,7 +32,6 @@ class MainActivity : TauriActivity() {
     private var fileUploadBridge: FileUploadBridge? = null
     private var serverStateBridge: ServerStateBridge? = null
     private var permissionBridge: PermissionBridge? = null
-    private var fileWatcherBridge: FileWatcherBridge? = null
     private var galleryBridge: GalleryBridge? = null
 
     /**
@@ -54,7 +52,6 @@ class MainActivity : TauriActivity() {
         fileUploadBridge = FileUploadBridge(this)
         serverStateBridge = ServerStateBridge(this)
         permissionBridge = PermissionBridge(this)
-        fileWatcherBridge = FileWatcherBridge(this)
         galleryBridge = GalleryBridge(this)
     }
 
@@ -72,7 +69,6 @@ class MainActivity : TauriActivity() {
         addJsBridge(webView, fileUploadBridge, "FileUploadAndroid")
         addJsBridge(webView, serverStateBridge, "ServerStateAndroid")
         addJsBridge(webView, permissionBridge, "PermissionAndroid")
-        addJsBridge(webView, fileWatcherBridge, "FileWatcherAndroid")
         addJsBridge(webView, galleryBridge, "GalleryAndroid")
 
         // 注册Tauri事件监听 - 监听file-uploaded事件
@@ -157,14 +153,11 @@ class MainActivity : TauriActivity() {
     override fun onDestroy() {
         Log.d(TAG, "onDestroy: cleaning up bridge references")
         super.onDestroy()
-        // 停止文件监听
-        fileWatcherBridge?.stopWatching()
         // Clear all bridge references to prevent memory leaks
         webViewRef = null
         fileUploadBridge = null
         serverStateBridge = null
         permissionBridge = null
-        fileWatcherBridge = null
         galleryBridge = null
     }
 
@@ -173,24 +166,6 @@ class MainActivity : TauriActivity() {
      */
     fun getWebView(): WebView? {
         return webViewRef
-    }
-
-    /**
-     * 启动文件系统监听（供外部调用）
-     * @param path 要监听的目录路径
-     * @return 是否成功启动
-     */
-    fun startFileWatching(path: String): Boolean {
-        Log.d(TAG, "startFileWatching: path=$path")
-        return fileWatcherBridge?.startWatching(path) ?: false
-    }
-
-    /**
-     * 停止文件系统监听（供外部调用）
-     */
-    fun stopFileWatching() {
-        Log.d(TAG, "stopFileWatching")
-        fileWatcherBridge?.stopWatching()
     }
     
     /**
