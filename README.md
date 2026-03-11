@@ -186,8 +186,7 @@ cameraftp/
 │           ├── bridges/                  # JS Bridge 目录
 │           │   ├── BaseJsBridge.kt       # Bridge基类
 │           │   ├── FileUploadBridge.kt   # 文件上传Bridge
-│           │   ├── ServerStateBridge.kt  # 服务器状态Bridge
-│           │   └── FileWatcherBridge.kt  # 文件监听Bridge
+│           │   └── ServerStateBridge.kt  # 服务器状态Bridge
 │           └── generated/                # Tauri自动生成代码
 │               ├── Ipc.kt                # IPC通信
 │               ├── Logger.kt             # 日志工具
@@ -212,7 +211,6 @@ Android平台使用Kotlin实现以下功能：
 | **MediaScannerHelper.kt** | 文件上传后触发媒体扫描，让照片出现在相册 |
 | **bridges/FileUploadBridge.kt** | 文件上传事件处理，触发媒体扫描 |
 | **bridges/ServerStateBridge.kt** | 服务器状态更新转发到前台服务 |
-| **bridges/FileWatcherBridge.kt** | 使用 FileObserver 监听文件系统变化 |
 
 #### JS Bridge 说明
 
@@ -231,11 +229,6 @@ window.FileUploadBridge?.onFileUploaded(path)
 
 // 服务器状态更新
 window.ServerStateBridge?.onServerStateChanged(isRunning, statsJson, connectedClients)
-
-// 文件系统监听（Android端使用 FileObserver）
-window.FileWatcherBridge?.startWatching(path)
-window.FileWatcherBridge?.stopWatching()
-window.FileWatcherBridge?.isWatching()
 ```
 
 </details>

@@ -5,7 +5,7 @@
 use super::types::{PermissionStatus, ServerStartCheckResult, StorageInfo};
 use std::sync::Arc;
 use tauri::AppHandle;
-#[cfg(not(target_os = "android"))]
+#[cfg(target_os = "windows")]
 use tauri::Manager;
 use tokio::sync::Mutex;
 
@@ -126,7 +126,7 @@ pub trait PlatformService: Send + Sync {
 
     /// 显示并聚焦主窗口
     fn show_main_window(&self, app: &AppHandle) -> Result<(), String> {
-        #[cfg(not(target_os = "android"))]
+        #[cfg(target_os = "windows")]
         {
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.set_skip_taskbar(false);

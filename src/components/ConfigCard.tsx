@@ -51,7 +51,7 @@ export const ConfigCard = memo(function ConfigCard() {
   const [isCheckingPermissions, setIsCheckingPermissions] = useState(false);
 
   // Platform detection
-  const isDesktop = platform === 'windows' || platform === 'macos' || platform === 'linux';
+  const isDesktop = platform === 'windows';
   const isAndroid = platform === 'android';
 
   useEffect(() => {

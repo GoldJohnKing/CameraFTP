@@ -171,7 +171,7 @@ impl AppConfig {
             // 从 constants 模块导入，避免与 platform 模块的循环依赖
             PathBuf::from(crate::constants::ANDROID_DEFAULT_STORAGE_PATH)
         }
-        #[cfg(not(target_os = "android"))]
+        #[cfg(target_os = "windows")]
         {
             dirs::picture_dir().unwrap_or_else(|| PathBuf::from("./pictures"))
         }
@@ -182,7 +182,7 @@ impl AppConfig {
         {
             get_android_config_path()
         }
-        #[cfg(not(target_os = "android"))]
+        #[cfg(target_os = "windows")]
         {
             dirs::config_dir()
                 .map(|d| d.join("cameraftp"))
@@ -261,7 +261,7 @@ impl AppConfig {
             cloned
         };
 
-        #[cfg(not(target_os = "android"))]
+        #[cfg(target_os = "windows")]
         let config_to_save = self;
 
         let content = serde_json::to_string_pretty(&config_to_save)?;
@@ -307,7 +307,7 @@ pub fn init_android_paths(app_handle: &tauri::AppHandle) {
     }
 }
 
-#[cfg(not(target_os = "android"))]
+#[cfg(target_os = "windows")]
 pub fn init_android_paths(_app_handle: &tauri::AppHandle) {
     // 非 Android 平台无需初始化
 }

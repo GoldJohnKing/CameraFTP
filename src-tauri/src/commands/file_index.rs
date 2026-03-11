@@ -80,42 +80,6 @@ pub async fn stop_file_watcher(
     Ok(())
 }
 
-/// 处理文件系统事件（供 Android FileObserver 调用）
-/// Android 平台通过 JS Bridge 调用此命令通知 Rust 文件变化
-#[command]
-pub async fn handle_file_system_event(
-    file_index: State<'_, Arc<FileIndexService>>,
-    event_type: String,
-    path: String,
-) -> Result<(), AppError> {
-    debug!(
-        "Received file system event from Android: {} - {}",
-        event_type, path
-    );
-
-    let path_buf = PathBuf::from(&path);
-
-    match event_type.as_str() {
-        "created" => {
-            info!("Handling external file creation: {}", path);
-            file_index.handle_external_created(path_buf).await;
-        }
-        "deleted" => {
-            info!("Handling external file deletion: {}", path);
-            file_index.handle_external_deleted(path_buf).await;
-        }
-        "modified" => {
-            // 修改事件通常不需要特殊处理索引
-            debug!("File modified (ignoring for index): {}", path);
-        }
-        _ => {
-            debug!("Unknown file event type: {}", event_type);
-        }
-    }
-
-    Ok(())
-}
-
 /// 扫描图库图片（供Android前端调用）
 #[command]
 pub async fn scan_gallery_images(

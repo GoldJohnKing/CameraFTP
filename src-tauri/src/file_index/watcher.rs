@@ -2,6 +2,10 @@
 // Copyright (C) 2026 GoldJohnKing <GoldJohnKing@Live.cn>
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+// 文件系统监听仅在 Windows 平台启用
+// Android 不使用文件系统监听
+#![cfg(target_os = "windows")]
+
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
@@ -26,12 +30,9 @@ pub enum FileSystemEvent {
     Modified(PathBuf),
 }
 
-/// 跨平台文件系统监听器
+/// Windows 文件系统监听器
 /// 
-/// 所有平台统一使用 notify crate
-/// - Windows: ReadDirectoryChangesW
-/// - Linux/Android: inotify
-/// - macOS: FSEvents
+/// 使用 notify crate 的 ReadDirectoryChangesW 后端
 pub struct FileWatcher {
     watcher: Option<RecommendedWatcher>,
     watch_path: PathBuf,
@@ -54,7 +55,7 @@ impl FileWatcher {
     /// * `file_index` - 文件索引服务，用于同步索引
     /// 
     /// # Platform Support
-    /// - Windows/Linux/macOS/Android: 统一使用 notify crate
+    /// - Windows: 使用 notify crate
     pub async fn start(&mut self, file_index: Arc<FileIndexService>) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
         if self.watcher.is_some() {
             info!("File watcher already running");

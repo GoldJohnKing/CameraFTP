@@ -4,6 +4,9 @@
 
 mod service;
 mod types;
+
+// 文件系统监听模块仅在 Windows 平台启用
+#[cfg(target_os = "windows")]
 pub mod watcher;
 
 pub use service::FileIndexService;

@@ -91,7 +91,7 @@ pub async fn select_save_directory(app: AppHandle) -> Result<Option<String>, Str
     let result = platform.select_save_directory(&app)?;
     
     // 如果平台返回 None（如 Windows），则使用对话框选择
-    #[cfg(not(target_os = "android"))]
+    #[cfg(target_os = "windows")]
     if result.is_none() {
         use tauri_plugin_dialog::DialogExt;
 
@@ -155,7 +155,7 @@ pub async fn open_preview_window(
 #[command]
 #[cfg_attr(target_os = "android", allow(unused_variables))]
 pub async fn select_executable_file(app: AppHandle) -> Result<Option<String>, AppError> {
-    #[cfg(not(target_os = "android"))]
+    #[cfg(target_os = "windows")]
     {
         use tauri_plugin_dialog::DialogExt;
 
@@ -181,61 +181,40 @@ pub async fn select_executable_file(app: AppHandle) -> Result<Option<String>, Ap
 /// 打开外部链接
 #[command]
 pub async fn open_external_link(url: String) -> Result<(), AppError> {
-    #[cfg(not(target_os = "android"))]
+    #[cfg(target_os = "windows")]
     {
-        #[cfg(target_os = "windows")]
-        {
-            use std::ffi::OsStr;
-            use std::os::windows::ffi::OsStrExt;
-            use windows::core::PCWSTR;
-            use windows::Win32::UI::Shell::ShellExecuteW;
-            use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+        use std::ffi::OsStr;
+        use std::os::windows::ffi::OsStrExt;
+        use windows::core::PCWSTR;
+        use windows::Win32::UI::Shell::ShellExecuteW;
+        use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
 
-            let url_wide: Vec<u16> = OsStr::new(&url)
-                .encode_wide()
-                .chain(Some(0))
-                .collect();
-            let open_wide: Vec<u16> = OsStr::new("open")
-                .encode_wide()
-                .chain(Some(0))
-                .collect();
+        let url_wide: Vec<u16> = OsStr::new(&url)
+            .encode_wide()
+            .chain(Some(0))
+            .collect();
+        let open_wide: Vec<u16> = OsStr::new("open")
+            .encode_wide()
+            .chain(Some(0))
+            .collect();
 
-            let result = unsafe {
-                ShellExecuteW(
-                    None,
-                    PCWSTR::from_raw(open_wide.as_ptr()),
-                    PCWSTR::from_raw(url_wide.as_ptr()),
-                    None,
-                    None,
-                    SW_SHOWNORMAL,
-                )
-            };
+        let result = unsafe {
+            ShellExecuteW(
+                None,
+                PCWSTR::from_raw(open_wide.as_ptr()),
+                PCWSTR::from_raw(url_wide.as_ptr()),
+                None,
+                None,
+                SW_SHOWNORMAL,
+            )
+        };
 
-            // ShellExecuteW returns HINSTANCE, success > 32, failure <= 32
-            if result.0 as isize <= 32 {
-                return Err(AppError::Other(format!(
-                    "ShellExecute failed with code {:?}",
-                    result.0
-                )));
-            }
-        }
-
-        #[cfg(target_os = "macos")]
-        {
-            use std::process::Command;
-            Command::new("open")
-                .arg(&url)
-                .spawn()
-                .map_err(|e| AppError::Other(format!("Failed to open link: {}", e)))?;
-        }
-
-        #[cfg(target_os = "linux")]
-        {
-            use std::process::Command;
-            Command::new("xdg-open")
-                .arg(&url)
-                .spawn()
-                .map_err(|e| AppError::Other(format!("Failed to open link: {}", e)))?;
+        // ShellExecuteW returns HINSTANCE, success > 32, failure <= 32
+        if result.0 as isize <= 32 {
+            return Err(AppError::Other(format!(
+                "ShellExecute failed with code {:?}",
+                result.0
+            )));
         }
 
         Ok(())
@@ -257,7 +236,7 @@ pub async fn open_folder_select_file(file_path: String) -> Result<(), AppError> 
         crate::auto_open::windows::open_folder_and_select_file(&std::path::PathBuf::from(&file_path))
     }
 
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(target_os = "android")]
     {
         let _ = file_path;
         Ok(())

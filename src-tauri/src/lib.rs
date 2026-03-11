@@ -63,7 +63,6 @@ use commands::{
     // 文件系统监听
     start_file_watcher,
     stop_file_watcher,
-    handle_file_system_event,
     scan_gallery_images,
     get_latest_image,
 };
@@ -80,7 +79,7 @@ fn setup_logging() {
         #[cfg(target_os = "android")]
         let log_dir = PathBuf::from(platform::android::DEFAULT_STORAGE_PATH).join("logs");
         
-        #[cfg(not(target_os = "android"))]
+        #[cfg(target_os = "windows")]
         let log_dir = dirs::data_dir()
             .unwrap_or_else(|| PathBuf::from("."))
             .join("cameraftp/logs");
@@ -159,7 +158,7 @@ pub fn run() {
             }
 
             // 设置主窗口关闭处理（桌面平台）
-            #[cfg(not(target_os = "android"))]
+            #[cfg(target_os = "windows")]
             setup_window_close_handler(app.handle());
 
             // 如果是开机启动模式，自动启动服务器
@@ -235,7 +234,6 @@ pub fn run() {
             // 文件系统监听
             start_file_watcher,
             stop_file_watcher,
-            handle_file_system_event,
             scan_gallery_images,
             get_latest_image,
 
@@ -250,7 +248,7 @@ pub fn run() {
 }
 
 /// 设置主窗口关闭请求处理器（桌面平台）
-#[cfg(not(target_os = "android"))]
+#[cfg(target_os = "windows")]
 fn setup_window_close_handler(app_handle: &tauri::AppHandle) {
     use tauri::Emitter;
     
@@ -267,7 +265,7 @@ fn setup_window_close_handler(app_handle: &tauri::AppHandle) {
 }
 
 /// 恢复并聚焦主窗口
-#[cfg(not(target_os = "android"))]
+#[cfg(target_os = "windows")]
 fn restore_and_focus_window(app_handle: &tauri::AppHandle) {
     if let Some(window) = app_handle.get_webview_window("main") {
         let _ = window.set_skip_taskbar(false);
