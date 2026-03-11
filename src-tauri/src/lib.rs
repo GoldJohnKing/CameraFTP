@@ -289,8 +289,7 @@ fn spawn_background_tasks(app_handle: &tauri::AppHandle) {
             tracing::error!("Failed to scan directory: {}", e);
         }
         
-        // 2. 扫描完成后，启动文件监听（桌面平台）
-        #[cfg(not(target_os = "android"))]
+        // 2. 扫描完成后，启动文件监听
         {
             use std::sync::Arc;
             
