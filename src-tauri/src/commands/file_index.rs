@@ -15,7 +15,7 @@ use crate::file_index::FileInfo;
 /// 获取文件列表
 #[command]
 pub async fn get_file_list(
-    file_index: State<'_, FileIndexService>,
+    file_index: State<'_, Arc<FileIndexService>>,
 ) -> Result<Arc<Vec<FileInfo>>, AppError> {
     Ok(file_index.get_files().await)
 }
@@ -23,7 +23,7 @@ pub async fn get_file_list(
 /// 获取当前文件索引
 #[command]
 pub async fn get_current_file_index(
-    file_index: State<'_, FileIndexService>,
+    file_index: State<'_, Arc<FileIndexService>>,
 ) -> Result<Option<usize>, AppError> {
     Ok(file_index.get_current_index().await)
 }
@@ -31,7 +31,7 @@ pub async fn get_current_file_index(
 /// 导航到指定索引
 #[command]
 pub async fn navigate_to_file(
-    file_index: State<'_, FileIndexService>,
+    file_index: State<'_, Arc<FileIndexService>>,
     index: usize,
 ) -> Result<FileInfo, AppError> {
     file_index.navigate_to(index).await
@@ -40,7 +40,7 @@ pub async fn navigate_to_file(
 /// 获取最新文件
 #[command]
 pub async fn get_latest_file(
-    file_index: State<'_, FileIndexService>,
+    file_index: State<'_, Arc<FileIndexService>>,
 ) -> Result<Option<FileInfo>, AppError> {
     Ok(file_index.get_latest_file().await)
 }
@@ -49,13 +49,11 @@ pub async fn get_latest_file(
 /// 返回是否成功启动
 #[command]
 pub async fn start_file_watcher(
-    file_index: State<'_, FileIndexService>,
+    file_index: State<'_, Arc<FileIndexService>>,
 ) -> Result<bool, AppError> {
-    use std::sync::Arc;
-
     info!("Starting file watcher...");
 
-    let file_index_arc = Arc::new(file_index.inner().clone());
+    let file_index_arc = Arc::clone(&file_index);
     match FileIndexService::start_watcher(file_index_arc).await {
         Ok(started) => {
             if started {
@@ -75,7 +73,7 @@ pub async fn start_file_watcher(
 /// 停止文件系统监听
 #[command]
 pub async fn stop_file_watcher(
-    file_index: State<'_, FileIndexService>,
+    file_index: State<'_, Arc<FileIndexService>>,
 ) -> Result<(), AppError> {
     info!("Stopping file watcher...");
     file_index.stop_watcher().await;
@@ -86,7 +84,7 @@ pub async fn stop_file_watcher(
 /// Android 平台通过 JS Bridge 调用此命令通知 Rust 文件变化
 #[command]
 pub async fn handle_file_system_event(
-    file_index: State<'_, FileIndexService>,
+    file_index: State<'_, Arc<FileIndexService>>,
     event_type: String,
     path: String,
 ) -> Result<(), AppError> {
@@ -121,7 +119,7 @@ pub async fn handle_file_system_event(
 /// 扫描图库图片（供Android前端调用）
 #[command]
 pub async fn scan_gallery_images(
-    file_index: State<'_, FileIndexService>,
+    file_index: State<'_, Arc<FileIndexService>>,
 ) -> Result<Vec<FileInfo>, AppError> {
     file_index.scan_directory().await?;
     let files = file_index.get_files().await;
@@ -131,7 +129,7 @@ pub async fn scan_gallery_images(
 /// 获取最新图片（供Android前端调用）
 #[command]
 pub async fn get_latest_image(
-    file_index: State<'_, FileIndexService>,
+    file_index: State<'_, Arc<FileIndexService>>,
 ) -> Result<Option<FileInfo>, AppError> {
     Ok(file_index.get_latest_file().await)
 }

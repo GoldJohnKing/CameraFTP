@@ -138,7 +138,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(FtpServerState(Arc::new(Mutex::new(None))))
-        .manage(FileIndexService::new())
+        .manage(Arc::new(FileIndexService::new()))
         .setup(move |app| {
             // 在 setup 中管理 AutoOpenService
             app.manage(AutoOpenService::new(app.handle().clone()));
@@ -284,16 +284,14 @@ fn spawn_background_tasks(app_handle: &tauri::AppHandle) {
     
     tauri::async_runtime::spawn(async move {
         // 1. 先执行文件扫描
-        let file_index = handle.state::<FileIndexService>();
+        let file_index: tauri::State<'_, Arc<FileIndexService>> = handle.state::<Arc<FileIndexService>>();
         if let Err(e) = file_index.scan_directory().await {
             tracing::error!("Failed to scan directory: {}", e);
         }
         
         // 2. 扫描完成后，启动文件监听
         {
-            use std::sync::Arc;
-            
-            let file_index_arc = Arc::new(file_index.inner().clone());
+            let file_index_arc = Arc::clone(&file_index);
             match FileIndexService::start_watcher(file_index_arc).await {
                 Ok(true) => tracing::info!("File watcher started successfully"),
                 Ok(false) => tracing::info!("File watcher not started (unsupported platform)"),
