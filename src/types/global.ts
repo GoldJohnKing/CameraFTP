@@ -108,66 +108,41 @@ interface PermissionAndroid {
 }
 
 /**
- * Gallery image data returned by Android MediaStore
- * Note: thumbnail is loaded separately via getThumbnail() for lazy loading
+ * Gallery image data returned by Android file scanner
+ * Uses file path as unique identifier (not MediaStore ID)
+ * Thumbnail is loaded separately via getThumbnail() for lazy loading
  */
 export interface GalleryImage {
-  id: number;
-  path: string;
+  path: string; // 完整文件路径（作为主键）
   filename: string;
-  dateModified: number;
-  sortTime: number;
+  sortTime: number; // EXIF优先的排序时间
   // thumbnail is loaded on-demand
   thumbnail?: string;
 }
 
 /**
  * Android Gallery interface
- * Provides access to device image gallery via MediaStore
+ * Provides access to device image gallery via direct file access
  * Uses lazy loading for thumbnails to improve performance
  */
 interface GalleryAndroid {
   /**
-   * Get image metadata from the specified directory (fast, no thumbnails)
-   * Thumbnails should be loaded separately via getThumbnail()
-   * @param storagePath The directory path to scan for images
-   * @returns JSON string containing { images: GalleryImage[] }
-   */
-  getGalleryImages(storagePath: string): Promise<string>;
-
-  /**
    * Get thumbnail for a single image (for lazy loading)
-   * @param imageId The MediaStore image ID
+   * @param imagePath The image file path
    * @returns base64 data URL string, or empty string on error
    */
-  getThumbnail(imageId: number): Promise<string>;
+  getThumbnail(imagePath: string): Promise<string>;
 
   /**
-   * Get accurate EXIF-based sort time for an image
-   * @param imageId The MediaStore image ID
-   * @returns EXIF datetime as timestamp (ms), or 0 if unavailable
-   */
-  getImageSortTime(imageId: number): Promise<number>;
-
-  /**
-   * Get the latest image from the specified directory.
-   * Uses MediaStore DATE_MODIFIED for sorting (fast, consistent with getGalleryImages).
-   * This replaces Rust FileIndex for Android platform to ensure data consistency.
-   * @param storagePath The directory path to query
-   * @returns JSON string containing { id, path, filename, dateModified } or "null" if not found
-   */
-  getLatestImage(storagePath: string): Promise<string>;
-
-  /**
-   * Delete images by their IDs
-   * @param idsJson JSON array of image IDs to delete
+   * Delete images by their paths
+   * @param idsJson JSON array of image paths to delete
    * @returns true if deletion succeeded, false otherwise
    */
   deleteImages(idsJson: string): Promise<boolean>;
 
   /**
-   * Share images by their IDs
-   * @param idsJson JSON array of image IDs to share
+   * Share images by their paths
+   * @param idsJson JSON array of image paths to share
    * @returns true if sharing succeeded, false otherwise
    */
   shareImages(idsJson: string): Promise<boolean>;
