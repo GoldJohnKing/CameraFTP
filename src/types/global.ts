@@ -135,17 +135,17 @@ interface GalleryAndroid {
 
   /**
    * Delete images by their paths
-   * @param idsJson JSON array of image paths to delete
+   * @param pathsJson JSON array of image paths to delete
    * @returns true if deletion succeeded, false otherwise
    */
-  deleteImages(idsJson: string): Promise<boolean>;
+  deleteImages(pathsJson: string): Promise<boolean>;
 
   /**
    * Share images by their paths
-   * @param idsJson JSON array of image paths to share
+   * @param pathsJson JSON array of image paths to share
    * @returns true if sharing succeeded, false otherwise
    */
-  shareImages(idsJson: string): Promise<boolean>;
+  shareImages(pathsJson: string): Promise<boolean>;
 }
 
 // ===== 全局窗口扩展 =====

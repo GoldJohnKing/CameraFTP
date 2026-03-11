@@ -150,32 +150,48 @@ class GalleryBridge(private val context: Context) : BaseJsBridge(context as andr
     }
 
     @android.webkit.JavascriptInterface
-    fun deleteImages(idsJson: String): Boolean {
-        Log.d(TAG, "deleteImages: idsJson=$idsJson")
-        
+    fun deleteImages(pathsJson: String): Boolean {
+        Log.d(TAG, "deleteImages: pathsJson=$pathsJson")
+
         return try {
-            val ids = JSONArray(idsJson).let { json ->
-                (0 until json.length()).map { json.getInt(it) }
+            val paths = JSONArray(pathsJson).let { json ->
+                (0 until json.length()).map { json.getString(it) }
             }
-            
-            if (ids.isEmpty()) {
-                Log.w(TAG, "deleteImages: no IDs provided")
+
+            if (paths.isEmpty()) {
+                Log.w(TAG, "deleteImages: no paths provided")
                 return false
             }
-            
-            val uri = MediaStore.Images.Media.EXTERNAL_CONTENT_URI
+
             var deletedCount = 0
-            
-            ids.forEach { id ->
-                val contentUri = ContentUris.withAppendedId(uri, id.toLong())
-                val deleted = context.contentResolver.delete(contentUri, null, null)
-                if (deleted > 0) {
-                    deletedCount++
-                    Log.d(TAG, "Deleted image id=$id")
+
+            paths.forEach { path ->
+                val file = File(path)
+                if (file.exists()) {
+                    // Try to delete via MediaStore first (for proper media index update)
+                    val uri = MediaStore.Images.Media.EXTERNAL_CONTENT_URI
+                    val rowsDeleted = context.contentResolver.delete(
+                        uri,
+                        "${MediaStore.Images.Media.DATA}=?",
+                        arrayOf(path)
+                    )
+
+                    // Also delete the actual file if it still exists
+                    if (file.exists() && file.delete()) {
+                        deletedCount++
+                        Log.d(TAG, "Deleted image path=$path")
+                    } else if (rowsDeleted > 0) {
+                        deletedCount++
+                        Log.d(TAG, "Deleted image via MediaStore path=$path")
+                    } else {
+                        Log.w(TAG, "Failed to delete image path=$path")
+                    }
+                } else {
+                    Log.w(TAG, "File does not exist path=$path")
                 }
             }
-            
-            Log.d(TAG, "deleteImages: deleted $deletedCount/${ids.size} images")
+
+            Log.d(TAG, "deleteImages: deleted $deletedCount/${paths.size} images")
             deletedCount > 0
         } catch (e: Exception) {
             Log.e(TAG, "deleteImages error", e)
@@ -184,26 +200,29 @@ class GalleryBridge(private val context: Context) : BaseJsBridge(context as andr
     }
 
     @android.webkit.JavascriptInterface
-    fun shareImages(idsJson: String): Boolean {
-        Log.d(TAG, "shareImages: idsJson=$idsJson")
-        
+    fun shareImages(pathsJson: String): Boolean {
+        Log.d(TAG, "shareImages: pathsJson=$pathsJson")
+
         return try {
-            val ids = JSONArray(idsJson).let { json ->
-                (0 until json.length()).map { json.getInt(it) }
+            val paths = JSONArray(pathsJson).let { json ->
+                (0 until json.length()).map { json.getString(it) }
             }
-            
-            if (ids.isEmpty()) {
-                Log.w(TAG, "shareImages: no IDs provided")
+
+            if (paths.isEmpty()) {
+                Log.w(TAG, "shareImages: no paths provided")
                 return false
             }
-            
-            val uris = ids.map { id ->
-                ContentUris.withAppendedId(
-                    MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
-                    id.toLong()
+
+            // Convert file paths to content URIs via FileProvider
+            val uris = paths.map { path ->
+                val file = File(path)
+                androidx.core.content.FileProvider.getUriForFile(
+                    context,
+                    "${context.packageName}.fileprovider",
+                    file
                 )
             }
-            
+
             val intent = if (uris.size == 1) {
                 Intent(Intent.ACTION_SEND).apply {
                     type = "image/*"
@@ -215,12 +234,12 @@ class GalleryBridge(private val context: Context) : BaseJsBridge(context as andr
                     putParcelableArrayListExtra(Intent.EXTRA_STREAM, ArrayList(uris))
                 }
             }
-            
+
             val chooser = Intent.createChooser(intent, "分享图片").apply {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
             context.startActivity(chooser)
-            
+
             Log.d(TAG, "shareImages: shared ${uris.size} images")
             true
         } catch (e: Exception) {
