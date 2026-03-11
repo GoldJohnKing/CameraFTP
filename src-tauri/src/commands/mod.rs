@@ -57,6 +57,8 @@ pub use file_index::{
     start_file_watcher,
     stop_file_watcher,
     handle_file_system_event,
+    scan_gallery_images,
+    get_latest_image,
 };
 
 pub use server::{

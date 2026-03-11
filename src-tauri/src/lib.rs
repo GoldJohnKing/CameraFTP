@@ -64,6 +64,8 @@ use commands::{
     start_file_watcher,
     stop_file_watcher,
     handle_file_system_event,
+    scan_gallery_images,
+    get_latest_image,
 };
 
 fn setup_logging() {
@@ -234,6 +236,8 @@ pub fn run() {
             start_file_watcher,
             stop_file_watcher,
             handle_file_system_event,
+            scan_gallery_images,
+            get_latest_image,
 
             // EXIF 信息
             get_image_exif,

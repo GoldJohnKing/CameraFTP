@@ -117,3 +117,21 @@ pub async fn handle_file_system_event(
 
     Ok(())
 }
+
+/// 扫描图库图片（供Android前端调用）
+#[command]
+pub async fn scan_gallery_images(
+    file_index: State<'_, FileIndexService>,
+) -> Result<Vec<FileInfo>, AppError> {
+    file_index.scan_directory().await?;
+    let files = file_index.get_files().await;
+    Ok(files.to_vec())
+}
+
+/// 获取最新图片（供Android前端调用）
+#[command]
+pub async fn get_latest_image(
+    file_index: State<'_, FileIndexService>,
+) -> Result<Option<FileInfo>, AppError> {
+    Ok(file_index.get_latest_file().await)
+}
