@@ -9,7 +9,6 @@ import { Image } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { useServerStore } from '../stores/serverStore';
-import { useConfigStore } from '../stores/configStore';
 import { IconContainer } from './ui';
 import type { FileInfo } from '../types';
 
@@ -20,33 +19,29 @@ interface FileIndexChangedEvent {
 
 export const LatestPhotoCard = memo(function LatestPhotoCard() {
   const { stats } = useServerStore();
-  const { config } = useConfigStore();
   const [scannedLatestFile, setScannedLatestFile] = useState<FileInfo | null>(null);
 
   // 加载时获取扫描的最新文件
   useEffect(() => {
     const fetchLatestFile = async () => {
       try {
-        const latest = await invoke<FileInfo | null>('get_latest_file');
+        const latest = await invoke<FileInfo | null>('get_latest_image');
         setScannedLatestFile(latest);
-      } catch {
-        // Silently ignore - non-critical feature
+      } catch (err) {
+        console.error('[LatestPhotoCard] Failed to fetch latest image:', err);
       }
     };
 
-    // 立即获取一次
     fetchLatestFile();
   }, []);
 
   // 监听文件索引变化事件
   useEffect(() => {
     const unlistenPromise = listen<FileIndexChangedEvent>('file-index-changed', (event) => {
-      // 当文件索引变化时，重新获取最新文件
       if (event.payload.count === 0) {
         setScannedLatestFile(null);
       } else {
-        // 重新获取最新文件信息
-        invoke<FileInfo | null>('get_latest_file')
+        invoke<FileInfo | null>('get_latest_image')
           .then((latest) => {
             setScannedLatestFile(latest);
           })
@@ -78,41 +73,21 @@ export const LatestPhotoCard = memo(function LatestPhotoCard() {
   const filename = getFilename();
 
   const handleOpenPreview = useCallback(async () => {
-    if (!config?.savePath) return;
-
-    // 实时获取最新文件（而不是使用缓存），确保文件未被删除
-    let targetPath: string | null = null;
     try {
-      const latest = await invoke<FileInfo | null>('get_latest_file');
+      const latest = await invoke<FileInfo | null>('get_latest_image');
       if (latest) {
-        targetPath = latest.path.replace(/\\/g, '/');
-        // 更新缓存的状态
         setScannedLatestFile(latest);
-      } else {
-        // 没有文件了，清空缓存
-        setScannedLatestFile(null);
+        // 打开图片
+        if (window.GalleryAndroid) {
+          window.PermissionAndroid?.openImageWithChooser(latest.path);
+        } else {
+          await invoke('open_preview_window', { filePath: latest.path });
+        }
       }
     } catch {
-      // 如果获取失败，回退到缓存的数据
+      // Silently ignore
     }
-
-    // 如果实时获取失败，回退到 stats 或缓存
-    if (!targetPath) {
-      if (stats.lastFile) {
-        targetPath = `${config.savePath}/${stats.lastFile}`.replace(/\\/g, '/');
-      } else if (scannedLatestFile) {
-        targetPath = scannedLatestFile.path.replace(/\\/g, '/');
-      }
-    }
-
-    if (targetPath) {
-      try {
-        await invoke('open_preview_window', { filePath: targetPath });
-      } catch {
-        // Silently ignore - preview is optional
-      }
-    }
-  }, [stats.lastFile, scannedLatestFile, config?.savePath]);
+  }, []);
 
   // 优先使用 scannedLatestFile 判断是否有文件（实时更新）
   const hasFile = scannedLatestFile || stats.lastFile;

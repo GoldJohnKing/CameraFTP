@@ -51,7 +51,7 @@ export const ConfigCard = memo(function ConfigCard() {
   const [isCheckingPermissions, setIsCheckingPermissions] = useState(false);
 
   // Platform detection
-  const isDesktop = platform === 'windows' || platform === 'macos' || platform === 'linux';
+  const isDesktop = platform === 'windows';
   const isAndroid = platform === 'android';
 
   useEffect(() => {
@@ -136,7 +136,7 @@ export const ConfigCard = memo(function ConfigCard() {
   }, [updateDraft]);
 
   return (
-    <>
+    <div className="space-y-4">
       {/* 基础设置 - Android上增加顶部留白 */}
       <Card className={`overflow-hidden ${isAndroid ? 'mt-6' : ''}`}>
         <CardHeader 
@@ -242,7 +242,7 @@ export const ConfigCard = memo(function ConfigCard() {
             }
           />
 
-          <div className="p-4">
+          <div className="p-4 space-y-4">
             <PermissionList variant="compact" />
           </div>
         </Card>
@@ -250,6 +250,6 @@ export const ConfigCard = memo(function ConfigCard() {
 
       {/* 关于 - 放在配置页面底部 */}
       <AboutCard />
-    </>
+    </div>
   );
 });

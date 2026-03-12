@@ -91,12 +91,100 @@ interface PermissionAndroid {
    */
   openExternalLink: (url: string) => void;
   
+   /**
+    * 保存图片到相册
+    * @param assetPath 资源路径
+    * @returns JSON 字符串，包含 success 和 message
+    */
+   saveImageToGallery: (assetPath: string) => Promise<string>;
+   
+   /**
+    * 用外部APP打开图片
+    * 首次点击会显示选择器，用户选择"始终"后系统会记住选择
+    * @param path 图片的绝对路径
+    * @returns JSON 字符串，包含 success 和 message
+    */
+   openImageWithChooser: (path: string) => string;
+}
+
+/**
+ * Gallery image data returned by Android file scanner
+ * Uses file path as unique identifier (not MediaStore ID)
+ * Thumbnail is loaded separately via getThumbnail() for lazy loading
+ */
+export interface GalleryImage {
+  path: string; // 完整文件路径（作为主键）
+  filename: string;
+  sortTime: number; // EXIF优先的排序时间
+  // thumbnail is loaded on-demand
+  thumbnail?: string;
+}
+
+/**
+ * Result of deleting images
+ */
+export interface DeleteImagesResult {
+  /** Paths of successfully deleted files */
+  deleted: string[];
+  /** Paths of files that didn't exist (should still animate) */
+  notFound: string[];
+  /** Paths of files that failed to delete (should not animate) */
+  failed: string[];
+}
+
+/**
+ * Android Gallery interface
+ * Provides access to device image gallery via direct file access
+ * Uses lazy loading for thumbnails to improve performance
+ */
+interface GalleryAndroid {
   /**
-   * 保存图片到相册
-   * @param assetPath 资源路径
-   * @returns JSON 字符串，包含 success 和 message
+   * Get thumbnail for a single image (for lazy loading)
+   * @param imagePath The image file path
+   * @returns base64 data URL string, or empty string on error
    */
-  saveImageToGallery: (assetPath: string) => Promise<string>;
+  getThumbnail(imagePath: string): Promise<string>;
+
+  /**
+   * Delete images by their paths
+   * @param pathsJson JSON array of image paths to delete
+   * @returns JSON string with deletion results containing deleted, notFound, and failed arrays
+   */
+  deleteImages(pathsJson: string): Promise<string>;
+
+  /**
+   * Remove thumbnail cache files for the given paths
+   * Called after delete animation completes
+   * @param pathsJson JSON array of image paths to remove thumbnails for
+   * @returns true if any thumbnails were removed
+   */
+  removeThumbnails(pathsJson: string): Promise<boolean>;
+
+  /**
+   * Share images by their paths
+   * @param pathsJson JSON array of image paths to share
+   * @returns true if sharing succeeded, false otherwise
+   */
+  shareImages(pathsJson: string): Promise<boolean>;
+
+  /**
+   * Register back press callback to intercept back button
+   * Called when entering selection mode
+   * @returns true if registration succeeded
+   */
+  registerBackPressCallback?(): boolean;
+
+  /**
+   * Unregister back press callback
+   * Called when exiting selection mode
+   * @returns true if unregistration succeeded
+   */
+  unregisterBackPressCallback?(): boolean;
+
+  /**
+   * Callback for back button press (set by JS, called by Android)
+   */
+  onBackPressed?(): void;
 }
 
 // ===== 全局窗口扩展 =====
@@ -123,6 +211,11 @@ declare global {
      * Android 权限管理 JS Bridge
      */
     PermissionAndroid?: PermissionAndroid;
+    
+    /**
+     * Android Gallery JS Bridge
+     */
+    GalleryAndroid?: GalleryAndroid;
   }
 }
 

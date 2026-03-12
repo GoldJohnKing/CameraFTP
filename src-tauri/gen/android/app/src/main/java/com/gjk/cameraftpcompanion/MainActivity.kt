@@ -15,7 +15,7 @@ import android.webkit.WebView
 import androidx.activity.enableEdgeToEdge
 import com.gjk.cameraftpcompanion.bridges.FileUploadBridge
 import com.gjk.cameraftpcompanion.bridges.ServerStateBridge
-import com.gjk.cameraftpcompanion.bridges.FileWatcherBridge
+import com.gjk.cameraftpcompanion.bridges.GalleryBridge
 
 class MainActivity : TauriActivity() {
 
@@ -32,7 +32,7 @@ class MainActivity : TauriActivity() {
     private var fileUploadBridge: FileUploadBridge? = null
     private var serverStateBridge: ServerStateBridge? = null
     private var permissionBridge: PermissionBridge? = null
-    private var fileWatcherBridge: FileWatcherBridge? = null
+    private var galleryBridge: GalleryBridge? = null
 
     /**
      * Helper to add a JavaScript bridge to WebView with logging
@@ -52,7 +52,7 @@ class MainActivity : TauriActivity() {
         fileUploadBridge = FileUploadBridge(this)
         serverStateBridge = ServerStateBridge(this)
         permissionBridge = PermissionBridge(this)
-        fileWatcherBridge = FileWatcherBridge(this)
+        galleryBridge = GalleryBridge(this)
     }
 
     /**
@@ -69,7 +69,7 @@ class MainActivity : TauriActivity() {
         addJsBridge(webView, fileUploadBridge, "FileUploadAndroid")
         addJsBridge(webView, serverStateBridge, "ServerStateAndroid")
         addJsBridge(webView, permissionBridge, "PermissionAndroid")
-        addJsBridge(webView, fileWatcherBridge, "FileWatcherAndroid")
+        addJsBridge(webView, galleryBridge, "GalleryAndroid")
 
         // 注册Tauri事件监听 - 监听file-uploaded事件
         registerFileUploadEventListener()
@@ -153,14 +153,12 @@ class MainActivity : TauriActivity() {
     override fun onDestroy() {
         Log.d(TAG, "onDestroy: cleaning up bridge references")
         super.onDestroy()
-        // 停止文件监听
-        fileWatcherBridge?.stopWatching()
         // Clear all bridge references to prevent memory leaks
         webViewRef = null
         fileUploadBridge = null
         serverStateBridge = null
         permissionBridge = null
-        fileWatcherBridge = null
+        galleryBridge = null
     }
 
     /**
@@ -168,24 +166,6 @@ class MainActivity : TauriActivity() {
      */
     fun getWebView(): WebView? {
         return webViewRef
-    }
-
-    /**
-     * 启动文件系统监听（供外部调用）
-     * @param path 要监听的目录路径
-     * @return 是否成功启动
-     */
-    fun startFileWatching(path: String): Boolean {
-        Log.d(TAG, "startFileWatching: path=$path")
-        return fileWatcherBridge?.startWatching(path) ?: false
-    }
-
-    /**
-     * 停止文件系统监听（供外部调用）
-     */
-    fun stopFileWatching() {
-        Log.d(TAG, "stopFileWatching")
-        fileWatcherBridge?.stopWatching()
     }
     
     /**
@@ -257,5 +237,55 @@ class MainActivity : TauriActivity() {
             action = FtpForegroundService.ACTION_STOP
         }
         stopService(intent)
+    }
+
+    /**
+     * Flag to track if we're in selection mode (for back button handling)
+     */
+    private var isInSelectionMode = false
+
+    /**
+     * Register back press callback to intercept back button
+     * Called from JS when entering selection mode
+     */
+    fun registerBackPressCallback(): Boolean {
+        Log.d(TAG, "registerBackPressCallback: entering selection mode")
+        isInSelectionMode = true
+        return true
+    }
+
+    /**
+     * Unregister back press callback
+     * Called from JS when exiting selection mode
+     */
+    fun unregisterBackPressCallback(): Boolean {
+        Log.d(TAG, "unregisterBackPressCallback: exiting selection mode")
+        isInSelectionMode = false
+        return true
+    }
+
+    /**
+     * Handle back button press
+     * Override to intercept back button when in selection mode
+     */
+    @Deprecated("Deprecated in Java")
+    override fun onBackPressed() {
+        if (isInSelectionMode) {
+            // Notify JS to cancel selection
+            try {
+                webViewRef?.evaluateJavascript(
+                    "if (window.__galleryOnBackPressed) { window.__galleryOnBackPressed(); }",
+                    null
+                )
+            } catch (e: Exception) {
+                Log.e(TAG, "onBackPressed: error calling evaluateJavascript", e)
+            }
+            // Don't call super to prevent default back behavior
+            return
+        }
+
+        // Normal back behavior
+        @Suppress("DEPRECATION")
+        super.onBackPressed()
     }
 }

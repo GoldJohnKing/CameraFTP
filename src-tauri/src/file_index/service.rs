@@ -16,6 +16,7 @@ use crate::error::AppError;
 use crate::ftp::EventBus;
 use crate::utils::wait_for_file_ready;
 use super::types::{FileIndex, FileInfo};
+#[cfg(target_os = "windows")]
 use super::watcher::FileWatcher;
 
 type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
@@ -23,6 +24,7 @@ type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 pub struct FileIndexService {
     index: RwLock<FileIndex>,
     save_path: RwLock<PathBuf>,
+    #[cfg(target_os = "windows")]
     watcher: Mutex<Option<FileWatcher>>,
     // 使用 Arc<RwLock<...>> 使 event_bus 可以在克隆实例间共享
     event_bus: Arc<RwLock<Option<EventBus>>>,
@@ -33,6 +35,7 @@ impl Clone for FileIndexService {
         Self {
             index: RwLock::new(self.index.blocking_read().clone()),
             save_path: RwLock::new(self.save_path.blocking_read().clone()),
+            #[cfg(target_os = "windows")]
             watcher: Mutex::new(None), // watcher 不克隆，新实例需要重新启动
             event_bus: Arc::clone(&self.event_bus), // 共享 event_bus
         }
@@ -45,6 +48,7 @@ impl FileIndexService {
         Self {
             index: RwLock::new(FileIndex::new()),
             save_path: RwLock::new(config.save_path.clone()),
+            #[cfg(target_os = "windows")]
             watcher: Mutex::new(Some(FileWatcher::new(config.save_path))),
             event_bus: Arc::new(RwLock::new(None)),
         }
@@ -81,7 +85,7 @@ impl FileIndexService {
     /// 注意：需要传入 Arc<Self> 以在 watcher 任务中保持服务存活
     #[cfg_attr(target_os = "android", allow(unused_variables))]
     pub async fn start_watcher(self_arc: Arc<Self>) -> Result<bool, AppError> {
-        #[cfg(not(target_os = "android"))]
+        #[cfg(target_os = "windows")]
         {
             // 先检查/创建 watcher
             let save_path = self_arc.save_path.read().await.clone();
@@ -133,13 +137,14 @@ impl FileIndexService {
 
         #[cfg(target_os = "android")]
         {
-            // Android 使用 FileObserver，在 Kotlin 侧实现
-            info!("File watcher on Android is handled by FileObserverBridge");
+            // Android 不使用文件系统监听
+            info!("File watcher is disabled on Android");
             Ok(false)
         }
     }
 
     /// 停止文件系统监听
+    #[cfg(target_os = "windows")]
     pub async fn stop_watcher(&self) {
         let mut watcher_guard = self.watcher.lock().await;
         if let Some(ref mut watcher) = *watcher_guard {
@@ -148,39 +153,10 @@ impl FileIndexService {
         }
     }
 
-    /// 处理来自 Android 的文件创建事件
-    pub async fn handle_external_created(&self, path: PathBuf) {
-        info!("Handling external file creation: {:?}", path);
-
-        // 等待文件就绪（而非固定延迟）
-        if !wait_for_file_ready(&path, tokio::time::Duration::from_secs(FILE_READY_TIMEOUT_SECS)).await {
-            warn!("File not ready after timeout: {:?}", path);
-            return;
-        }
-
-        if let Err(e) = self.add_file(path.clone()).await {
-            warn!("Failed to add external file to index: {}", e);
-        } else {
-            info!("External file added to index: {:?}", path);
-        }
-    }
-
-    /// 处理来自 Android 的文件删除事件
-    pub async fn handle_external_deleted(&self, path: PathBuf) {
-        info!("Handling external file deletion: {:?}", path);
-
-        match self.remove_file(&path).await {
-            Ok(true) => {
-                info!("External file removed from index: {:?}", path);
-            }
-            Ok(false) => {
-                // 文件不在索引中，忽略（幂等性保证）
-                debug!("External file not in index, ignoring: {:?}", path);
-            }
-            Err(e) => {
-                error!("Failed to remove external file from index: {}", e);
-            }
-        }
+    /// 停止文件系统监听（Android 平台 - 无操作）
+    #[cfg(target_os = "android")]
+    pub async fn stop_watcher(&self) {
+        // Android 不使用文件系统监听
     }
 
     /// 扫描目录建立索引
@@ -264,13 +240,17 @@ impl FileIndexService {
         
         // sort_time 优先使用 exif_time
         let sort_time = exif_time.unwrap_or(modified_time);
-        
+        let sort_time_ms = sort_time
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
+
         Ok(FileInfo {
             path: path.to_path_buf(),
             filename,
             exif_time,
             modified_time,
-            sort_time,
+            sort_time: sort_time_ms,
         })
     }
 
@@ -534,7 +514,7 @@ impl FileIndexService {
     }
 
     /// 重启文件监听器（桌面平台）
-    #[cfg(not(target_os = "android"))]
+    #[cfg(target_os = "windows")]
     async fn restart_watcher(&self, path: PathBuf) {
         let mut watcher_guard = self.watcher.lock().await;
         *watcher_guard = Some(FileWatcher::new(path));
@@ -543,18 +523,7 @@ impl FileIndexService {
     /// 重启文件监听器（Android 平台 - 无操作）
     #[cfg(target_os = "android")]
     async fn restart_watcher(&self, _path: PathBuf) {
-        // Android 使用 FileObserver，在 Kotlin 侧实现
-    }
-
-    /// 触发文件系统事件（供 Android FileObserver 调用）
-    pub async fn notify_file_event(&self, event_type: &str, path: PathBuf) {
-        match event_type {
-            "created" => self.handle_external_created(path).await,
-            "deleted" => self.handle_external_deleted(path).await,
-            _ => {
-                warn!("Unknown file event type: {}", event_type);
-            }
-        }
+        // Android 不使用文件系统监听
     }
 }
 

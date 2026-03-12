@@ -171,7 +171,7 @@ impl AppConfig {
             // 从 constants 模块导入，避免与 platform 模块的循环依赖
             PathBuf::from(crate::constants::ANDROID_DEFAULT_STORAGE_PATH)
         }
-        #[cfg(not(target_os = "android"))]
+        #[cfg(target_os = "windows")]
         {
             dirs::picture_dir().unwrap_or_else(|| PathBuf::from("./pictures"))
         }
@@ -182,7 +182,7 @@ impl AppConfig {
         {
             get_android_config_path()
         }
-        #[cfg(not(target_os = "android"))]
+        #[cfg(target_os = "windows")]
         {
             dirs::config_dir()
                 .map(|d| d.join("cameraftp"))
@@ -194,28 +194,47 @@ impl AppConfig {
     pub fn load() -> Self {
         let path = Self::config_path();
 
-        if path.exists() {
+        let mut config = if path.exists() {
             match fs::read_to_string(&path) {
                 Ok(content) => match serde_json::from_str(&content) {
                     Ok(config) => {
                         info!("Config loaded from {:?}", path);
-                        return config;
+                        config
                     }
                     Err(e) => {
                         error!("Failed to parse config: {}", e);
+                        Self::default()
                     }
                 },
                 Err(e) => {
                     error!("Failed to read config file: {}", e);
+                    Self::default()
                 }
+            }
+        } else {
+            Self::default()
+        };
+
+        // Android 端强制使用固定存储路径，忽略配置文件中的值
+        #[cfg(target_os = "android")]
+        {
+            let fixed_path = PathBuf::from(crate::constants::ANDROID_DEFAULT_STORAGE_PATH);
+            if config.save_path != fixed_path {
+                info!(
+                    "Android: Overriding save_path from {:?} to fixed path {:?}",
+                    config.save_path, fixed_path
+                );
+                config.save_path = fixed_path;
             }
         }
 
-        // Create default config
-        let config = Self::default();
-        if let Err(e) = config.save() {
-            error!("Failed to save default config: {}", e);
+        // 如果是新创建的默认配置，保存到文件
+        if !path.exists() {
+            if let Err(e) = config.save() {
+                error!("Failed to save default config: {}", e);
+            }
         }
+
         config
     }
 
@@ -227,7 +246,25 @@ impl AppConfig {
             fs::create_dir_all(parent)?;
         }
 
-        let content = serde_json::to_string_pretty(self)?;
+        // Android 端强制使用固定存储路径进行保存
+        #[cfg(target_os = "android")]
+        let config_to_save = {
+            let mut cloned = self.clone();
+            let fixed_path = PathBuf::from(crate::constants::ANDROID_DEFAULT_STORAGE_PATH);
+            if cloned.save_path != fixed_path {
+                info!(
+                    "Android: Setting save_path to fixed path {:?} before saving",
+                    fixed_path
+                );
+                cloned.save_path = fixed_path;
+            }
+            cloned
+        };
+
+        #[cfg(target_os = "windows")]
+        let config_to_save = self;
+
+        let content = serde_json::to_string_pretty(&config_to_save)?;
         fs::write(&path, content)?;
 
         info!("Config saved to {:?}", path);
@@ -270,7 +307,7 @@ pub fn init_android_paths(app_handle: &tauri::AppHandle) {
     }
 }
 
-#[cfg(not(target_os = "android"))]
+#[cfg(target_os = "windows")]
 pub fn init_android_paths(_app_handle: &tauri::AppHandle) {
     // 非 Android 平台无需初始化
 }

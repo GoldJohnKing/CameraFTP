@@ -63,7 +63,8 @@ use commands::{
     // 文件系统监听
     start_file_watcher,
     stop_file_watcher,
-    handle_file_system_event,
+    scan_gallery_images,
+    get_latest_image,
 };
 
 fn setup_logging() {
@@ -78,7 +79,7 @@ fn setup_logging() {
         #[cfg(target_os = "android")]
         let log_dir = PathBuf::from(platform::android::DEFAULT_STORAGE_PATH).join("logs");
         
-        #[cfg(not(target_os = "android"))]
+        #[cfg(target_os = "windows")]
         let log_dir = dirs::data_dir()
             .unwrap_or_else(|| PathBuf::from("."))
             .join("cameraftp/logs");
@@ -136,7 +137,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(FtpServerState(Arc::new(Mutex::new(None))))
-        .manage(FileIndexService::new())
+        .manage(Arc::new(FileIndexService::new()))
         .setup(move |app| {
             // 在 setup 中管理 AutoOpenService
             app.manage(AutoOpenService::new(app.handle().clone()));
@@ -157,7 +158,7 @@ pub fn run() {
             }
 
             // 设置主窗口关闭处理（桌面平台）
-            #[cfg(not(target_os = "android"))]
+            #[cfg(target_os = "windows")]
             setup_window_close_handler(app.handle());
 
             // 如果是开机启动模式，自动启动服务器
@@ -233,7 +234,8 @@ pub fn run() {
             // 文件系统监听
             start_file_watcher,
             stop_file_watcher,
-            handle_file_system_event,
+            scan_gallery_images,
+            get_latest_image,
 
             // EXIF 信息
             get_image_exif,
@@ -246,7 +248,7 @@ pub fn run() {
 }
 
 /// 设置主窗口关闭请求处理器（桌面平台）
-#[cfg(not(target_os = "android"))]
+#[cfg(target_os = "windows")]
 fn setup_window_close_handler(app_handle: &tauri::AppHandle) {
     use tauri::Emitter;
     
@@ -263,7 +265,7 @@ fn setup_window_close_handler(app_handle: &tauri::AppHandle) {
 }
 
 /// 恢复并聚焦主窗口
-#[cfg(not(target_os = "android"))]
+#[cfg(target_os = "windows")]
 fn restore_and_focus_window(app_handle: &tauri::AppHandle) {
     if let Some(window) = app_handle.get_webview_window("main") {
         let _ = window.set_skip_taskbar(false);
@@ -277,25 +279,20 @@ fn restore_and_focus_window(app_handle: &tauri::AppHandle) {
 /// 先执行文件扫描，扫描完成后再启动文件监听，避免竞态条件
 fn spawn_background_tasks(app_handle: &tauri::AppHandle) {
     let handle = app_handle.clone();
-    
+
     tauri::async_runtime::spawn(async move {
         // 1. 先执行文件扫描
-        let file_index = handle.state::<FileIndexService>();
+        let file_index: tauri::State<'_, Arc<FileIndexService>> = handle.state::<Arc<FileIndexService>>();
         if let Err(e) = file_index.scan_directory().await {
             tracing::error!("Failed to scan directory: {}", e);
         }
-        
-        // 2. 扫描完成后，启动文件监听（桌面平台）
-        #[cfg(not(target_os = "android"))]
-        {
-            use std::sync::Arc;
-            
-            let file_index_arc = Arc::new(file_index.inner().clone());
-            match FileIndexService::start_watcher(file_index_arc).await {
-                Ok(true) => tracing::info!("File watcher started successfully"),
-                Ok(false) => tracing::info!("File watcher not started (unsupported platform)"),
-                Err(e) => tracing::error!("Failed to start file watcher: {}", e),
-            }
+
+        // 2. 扫描完成后，启动文件监听
+        let file_index_arc = Arc::clone(&file_index);
+        match FileIndexService::start_watcher(file_index_arc).await {
+            Ok(true) => tracing::info!("File watcher started successfully"),
+            Ok(false) => tracing::info!("File watcher not started (unsupported platform)"),
+            Err(e) => tracing::error!("Failed to start file watcher: {}", e),
         }
     });
 }

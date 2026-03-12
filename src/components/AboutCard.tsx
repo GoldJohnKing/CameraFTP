@@ -179,7 +179,7 @@ function DonateDialog({ isOpen, onClose, platform }: DonateDialogProps) {
   if (!isOpen) return null;
 
   const isAndroid = platform === 'android';
-  const isDesktop = platform === 'windows' || platform === 'macos' || platform === 'linux';
+  const isDesktop = platform === 'windows';
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">

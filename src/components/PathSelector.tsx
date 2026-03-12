@@ -32,7 +32,7 @@ export const PathSelector = memo(function PathSelector({
   const [isCreatingDir, setIsCreatingDir] = useState(false);
 
   const isAndroid = platform === 'android';
-  const isDesktop = platform === 'windows' || platform === 'macos' || platform === 'linux';
+  const isDesktop = platform === 'windows';
 
   const handleEnsureReady = async () => {
     setIsCreatingDir(true);

@@ -86,7 +86,7 @@ impl DataListener for FtpDataListener {
                             tokio::spawn(async move {
                                 // 等待文件就绪（而非固定延迟）
                                 if wait_for_file_ready(&full_path, Duration::from_secs(FILE_READY_TIMEOUT_SECS)).await {
-                                    if let Some(file_index) = handle_clone.try_state::<FileIndexService>() {
+                                    if let Some(file_index) = handle_clone.try_state::<Arc<FileIndexService>>() {
                                         if let Err(e) = file_index.add_file(full_path).await {
                                             tracing::warn!("Failed to add file to index: {}", e);
                                         }
@@ -111,7 +111,7 @@ impl DataListener for FtpDataListener {
                         let full_path = save_path.join(&path);
                         let handle_clone = handle.clone();
                         tokio::spawn(async move {
-                            if let Some(file_index) = handle_clone.try_state::<FileIndexService>() {
+                            if let Some(file_index) = handle_clone.try_state::<Arc<FileIndexService>>() {
                                 if let Err(e) = file_index.remove_file(&full_path).await {
                                     tracing::warn!("Failed to remove file from index: {}", e);
                                 }

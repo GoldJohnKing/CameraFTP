@@ -287,6 +287,7 @@ move_to_out() {
     local src="$1"
     local dest_name="$2"
     local desc="$3"
+    local extra_dest="${4:-}"
 
     mkdir -p "$OUTPUT_DIR"
 
@@ -303,6 +304,16 @@ move_to_out() {
         mv "$src_file" "$OUTPUT_DIR/$dest_name"
         success "$desc 构建完成"
         info "输出位置: $OUTPUT_DIR/$dest_name"
+
+        # 如果指定了额外目标路径，同时拷贝到该路径
+        if [ -n "$extra_dest" ]; then
+            if [ -d "$(dirname "$extra_dest")" ]; then
+                cp "$OUTPUT_DIR/$dest_name" "$extra_dest"
+                info "已拷贝到: $extra_dest"
+            else
+                warn "额外目标目录不存在，跳过拷贝: $(dirname "$extra_dest")"
+            fi
+        fi
     else
         error "未找到构建产物: $src"
         echo "提示：请检查构建是否成功，或路径模式是否正确"

@@ -22,8 +22,12 @@ import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import com.gjk.cameraftpcompanion.bridges.BaseJsBridge
 import org.json.JSONObject
+import android.content.ClipData
+import android.database.Cursor
+import android.provider.MediaStore
 import java.io.File
 import java.io.FileOutputStream
+import java.util.Locale
 
 /**
  * Permission JavaScript Bridge
@@ -239,6 +243,204 @@ class PermissionBridge(activity: MainActivity) : BaseJsBridge(activity) {
             result.put("success", false)
             result.put("message", e.message ?: "Unknown error")
             result.toString()
+        }
+    }
+
+    /**
+     * Open image with external app, supporting browsing other images in the same directory
+     * Uses MediaStore URIs for best compatibility with system galleries
+     * Falls back to FileProvider URIs if MediaStore has no results
+     * @param path The absolute path to the image file
+     * @return JSON string with success status
+     */
+    @JavascriptInterface
+    fun openImageWithChooser(path: String?): String {
+        Log.d(TAG, "openImageWithChooser: path=$path")
+
+        val result = JSONObject()
+
+        if (path.isNullOrEmpty()) {
+            result.put("success", false)
+            result.put("message", "Empty path")
+            return result.toString()
+        }
+
+        val imageFile = File(path)
+        if (!imageFile.exists()) {
+            Log.e(TAG, "openImageWithChooser: file does not exist: $path")
+            result.put("success", false)
+            result.put("message", "File does not exist")
+            return result.toString()
+        }
+
+        runOnUiThread {
+            try {
+                // Query MediaStore for images in the same directory
+                val mediaStoreUris = queryImagesFromMediaStore(imageFile.parentFile?.absolutePath ?: "")
+                
+                if (mediaStoreUris.containsKey(imageFile.absolutePath)) {
+                    // MediaStore has the target file - use content URIs
+                    openWithMediaStore(imageFile, mediaStoreUris)
+                } else {
+                    // MediaStore doesn't have the file - fallback to FileProvider
+                    openWithFileProvider(imageFile)
+                }
+
+            } catch (e: Exception) {
+                Log.e(TAG, "openImageWithChooser: failed to open image", e)
+                Toast.makeText(activity, "无法打开图片: ${e.message}", Toast.LENGTH_SHORT).show()
+            }
+        }
+
+        result.put("success", true)
+        return result.toString()
+    }
+
+    /**
+     * Query images from MediaStore in the specified directory
+     * Returns a map of file path to content URI
+     */
+    private fun queryImagesFromMediaStore(directoryPath: String): Map<String, Uri> {
+        val uriMap = mutableMapOf<String, Uri>()
+        
+        if (directoryPath.isEmpty()) return uriMap
+
+        val projection = arrayOf(
+            MediaStore.Images.Media._ID,
+            MediaStore.Images.Media.DATA
+        )
+
+        // Query images in the directory (excluding subdirectories)
+        val selection = "${MediaStore.Images.Media.DATA} LIKE ? AND ${MediaStore.Images.Media.DATA} NOT LIKE ?"
+        val selectionArgs = arrayOf(
+            "$directoryPath/%",
+            "$directoryPath/%/%"
+        )
+
+        val cursor: Cursor? = activity.contentResolver.query(
+            MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+            projection,
+            selection,
+            selectionArgs,
+            "${MediaStore.Images.Media.DATE_ADDED} DESC"
+        )
+
+        cursor?.use {
+            val idColumn = it.getColumnIndexOrThrow(MediaStore.Images.Media._ID)
+            val dataColumn = it.getColumnIndexOrThrow(MediaStore.Images.Media.DATA)
+
+            while (it.moveToNext()) {
+                val id = it.getLong(idColumn)
+                val filePath = it.getString(dataColumn)
+                val contentUri = Uri.withAppendedPath(
+                    MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+                    id.toString()
+                )
+                uriMap[filePath] = contentUri
+            }
+        }
+
+        Log.d(TAG, "queryImagesFromMediaStore: found ${uriMap.size} images in $directoryPath")
+        return uriMap
+    }
+
+    /**
+     * Open image using MediaStore content URIs (preferred method)
+     */
+    private fun openWithMediaStore(targetFile: File, uriMap: Map<String, Uri>) {
+        val targetPath = targetFile.absolutePath
+        val targetUri = uriMap[targetPath]!!
+
+        // Build ClipData with all URIs for browsing support
+        val allUris = uriMap.values.toList()
+        val clipData = ClipData.newRawUri(null, targetUri)
+        
+        // Limit to prevent Intent size issues
+        val maxUris = 100
+        var addedCount = 0
+        for (uri in allUris) {
+            if (uri != targetUri && addedCount < maxUris) {
+                clipData.addItem(ClipData.Item(uri))
+                addedCount++
+            }
+        }
+
+        val intent = Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(targetUri, "image/*")
+            setClipData(clipData)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+
+        activity.startActivity(intent)
+        Log.d(TAG, "openWithMediaStore: opened with ${allUris.size} URIs via MediaStore")
+    }
+
+    /**
+     * Open image using FileProvider URIs (fallback method)
+     */
+    private fun openWithFileProvider(targetFile: File) {
+        val parentDir = targetFile.parentFile
+
+        // Get all image files in directory
+        val imageFiles = if (parentDir != null) {
+            val imageExtensions = setOf("jpg", "jpeg", "png", "gif", "bmp", "webp", "heic", "heif")
+            parentDir.listFiles { file ->
+                file.isFile && file.extension.lowercase(Locale.getDefault()) in imageExtensions
+            }?.sortedByDescending { it.lastModified() } ?: emptyList()
+        } else {
+            emptyList()
+        }
+
+        // Limit to prevent Intent size issues
+        val maxFiles = 50
+        val limitedFiles = imageFiles.take(maxFiles)
+
+        val targetUri = getUriForFile(targetFile)
+
+        if (limitedFiles.size <= 1) {
+            // Single image - simple intent
+            val intent = Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(targetUri, "image/*")
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            activity.startActivity(intent)
+            Log.d(TAG, "openWithFileProvider: opened single image")
+            return
+        }
+
+        // Multiple images - use ClipData for browsing support
+        val clipData = ClipData.newRawUri(null, targetUri)
+        for (file in limitedFiles) {
+            if (file != targetFile) {
+                clipData.addItem(ClipData.Item(getUriForFile(file)))
+            }
+        }
+
+        val intent = Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(targetUri, "image/*")
+            setClipData(clipData)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+
+        activity.startActivity(intent)
+        Log.d(TAG, "openWithFileProvider: opened with ${limitedFiles.size} images via FileProvider")
+    }
+
+    /**
+     * Get URI for a file using FileProvider on Android N+
+     */
+    private fun getUriForFile(file: File): Uri {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            androidx.core.content.FileProvider.getUriForFile(
+                activity,
+                "${activity.packageName}.fileprovider",
+                file
+            )
+        } else {
+            Uri.fromFile(file)
         }
     }
 }

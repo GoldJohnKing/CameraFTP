@@ -13,6 +13,7 @@ import { StatsCard } from './components/StatsCard';
 import { InfoCard } from './components/InfoCard';
 import { LatestPhotoCard } from './components/LatestPhotoCard';
 import { ConfigCard } from './components/ConfigCard';
+import { GalleryCard } from './components/GalleryCard';
 import { BottomNav } from './components/BottomNav';
 import { PermissionDialog } from './components/PermissionDialog';
 import { PreviewWindow } from './components/PreviewWindow';
@@ -175,16 +176,25 @@ function App() {
 
         {/* Main Content */}
         <div className="space-y-4">
-          {activeTab === 'home' ? (
-            <>
+          {/* 主页 */}
+          <div className={activeTab === 'home' ? '' : 'hidden'}>
+            <div className="space-y-4">
               <ServerCard />
               <InfoCard />
               <LatestPhotoCard />
               <StatsCard />
-            </>
-          ) : (
+            </div>
+          </div>
+
+          {/* 图库 - 使用 CSS 隐藏代替条件渲染，保持状态和滚动位置 */}
+          <div className={activeTab === 'gallery' ? '' : 'hidden'}>
+            <GalleryCard />
+          </div>
+
+          {/* 配置 */}
+          <div className={activeTab === 'config' ? '' : 'hidden'}>
             <ConfigCard />
-          )}
+          </div>
         </div>
 
         {/* Footer - 只在主页显示 */}

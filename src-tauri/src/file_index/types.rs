@@ -17,8 +17,7 @@ pub struct FileInfo {
     pub exif_time: Option<SystemTime>,
     #[ts(skip)]
     pub modified_time: SystemTime,
-    #[ts(skip)]
-    pub sort_time: SystemTime, // 优先使用 exif_time，不存在则使用 modified_time
+    pub sort_time: u64, // 时间戳（毫秒）用于TypeScript
 }
 
 #[derive(Debug, Clone)]

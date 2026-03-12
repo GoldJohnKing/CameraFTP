@@ -10,6 +10,7 @@ use crate::config::AppConfig;
 use crate::error::AppError;
 use crate::file_index::FileIndexService;
 use crate::ftp::types::{ServerInfo, ServerStateSnapshot};
+use std::sync::Arc;
 use crate::network::NetworkManager;
 
 #[command]
@@ -40,7 +41,7 @@ pub async fn start_server(
     ).await?;
 
     // 设置 FileIndexService 的 EventBus，使其能够发射文件索引变化事件
-    let file_index = app.state::<FileIndexService>();
+    let file_index = app.state::<Arc<FileIndexService>>();
     file_index.set_event_bus(ctx.event_bus.clone()).await;
 
     // 启动事件处理器（EventBus 会发送 server-started 事件）

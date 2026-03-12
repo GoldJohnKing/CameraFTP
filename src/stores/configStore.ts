@@ -14,7 +14,7 @@ interface ConfigState {
   draft: AppConfig | null;
   isLoading: boolean;
   error: string | null;
-  activeTab: 'home' | 'config';
+  activeTab: 'home' | 'gallery' | 'config';
   platform: string;
   draftRevision: number;
 
@@ -23,7 +23,7 @@ interface ConfigState {
   commitDraft: () => Promise<void>;
   resetDraft: () => void;
   setAutostart: (enabled: boolean) => Promise<void>;
-  setActiveTab: (tab: 'home' | 'config') => void;
+  setActiveTab: (tab: 'home' | 'gallery' | 'config') => void;
   loadPlatform: () => Promise<void>;
 }
 
@@ -95,7 +95,7 @@ export const useConfigStore = create<ConfigState>((set, get) => {
       }
     },
 
-    setActiveTab: (tab: 'home' | 'config') => {
+    setActiveTab: (tab: 'home' | 'gallery' | 'config') => {
       set({ activeTab: tab });
     },
 

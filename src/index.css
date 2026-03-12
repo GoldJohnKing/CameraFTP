@@ -84,3 +84,11 @@ input[type="password"]::-ms-reveal,
 input[type="password"]::-webkit-credentials-auto-fill-button {
   display: none;
 }
+
+/* ========================================
+   Sonner Toast 自定义样式
+   位置：留出底部导航栏高度（约 80px）
+   ======================================== */
+[data-sonner-toaster] {
+  bottom: 80px !important;
+}

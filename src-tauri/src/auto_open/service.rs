@@ -48,7 +48,7 @@ impl AutoOpenService {
                 config: Arc::new(Mutex::new(config)),
             }
         }
-        #[cfg(not(target_os = "windows"))]
+        #[cfg(target_os = "android")]
         {
             Self { app_handle }
         }
@@ -235,7 +235,7 @@ impl AutoOpenService {
     }
 
     /// 更新配置（Android 空实现）
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(target_os = "android")]
     pub async fn update_config(&self, _new_config: PreviewWindowConfig) {
         // Android 上暂时不支持
     }
@@ -247,7 +247,7 @@ impl AutoOpenService {
     }
 
     /// 获取当前配置（Android 返回默认）
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(target_os = "android")]
     pub async fn get_config(&self) -> PreviewWindowConfig {
         PreviewWindowConfig::default()
     }
