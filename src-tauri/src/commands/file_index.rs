@@ -2,11 +2,10 @@
 // Copyright (C) 2026 GoldJohnKing <GoldJohnKing@Live.cn>
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-use std::path::PathBuf;
 use std::sync::Arc;
 
 use tauri::{command, State};
-use tracing::{debug, error, info};
+use tracing::{error, info};
 
 use crate::error::AppError;
 use crate::file_index::FileIndexService;

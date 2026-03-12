@@ -7,14 +7,16 @@ use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::sync::Arc;
 use std::time::SystemTime;
-use tokio::sync::{Mutex, RwLock};
-use tracing::{debug, error, info, trace, warn};
+use tokio::sync::RwLock;
+#[cfg(target_os = "windows")]
+use tokio::sync::Mutex;
+use tracing::{info, trace, warn};
+#[cfg(target_os = "windows")]
+use tracing::error;
 
 use crate::config::AppConfig;
-use crate::constants::FILE_READY_TIMEOUT_SECS;
 use crate::error::AppError;
 use crate::ftp::EventBus;
-use crate::utils::wait_for_file_ready;
 use super::types::{FileIndex, FileInfo};
 #[cfg(target_os = "windows")]
 use super::watcher::FileWatcher;

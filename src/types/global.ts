@@ -161,6 +161,13 @@ interface GalleryAndroid {
   removeThumbnails(pathsJson: string): Promise<boolean>;
 
   /**
+   * Clean up thumbnail caches for images that no longer exist
+   * @param existingPathsJson JSON array of all existing image paths
+   * @returns number of orphaned thumbnails removed
+   */
+  cleanupThumbnailsNotInList(existingPathsJson: string): Promise<number>;
+
+  /**
    * Share images by their paths
    * @param pathsJson JSON array of image paths to share
    * @returns true if sharing succeeded, false otherwise

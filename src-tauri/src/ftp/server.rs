@@ -71,7 +71,6 @@ impl Authenticator for CustomAuthenticator {
     }
 }
 
-/// FTP服务器Actor命令
 #[derive(Debug)]
 pub enum ServerCommand {
     Start {
@@ -81,7 +80,6 @@ pub enum ServerCommand {
     Stop {
         respond_to: oneshot::Sender<AppResult<()>>,
     },
-
     GetSnapshot {
         respond_to: oneshot::Sender<ServerStateSnapshot>,
     },
@@ -90,14 +88,12 @@ pub enum ServerCommand {
     },
 }
 
-/// FTP服务器Actor句柄
 #[derive(Debug, Clone)]
 pub struct FtpServerHandle {
     tx: mpsc::Sender<ServerCommand>,
 }
 
 impl FtpServerHandle {
-    /// Helper method to send a command and receive the response
     async fn send_command<T: Send + 'static>(
         &self,
         cmd_factory: impl FnOnce(oneshot::Sender<T>) -> ServerCommand,

@@ -101,6 +101,16 @@ export const GalleryCard = memo(function GalleryCard() {
         sortTime: Number(file.sortTime), // bigint to number
       }));
       setImages(galleryImages);
+      
+      // Clean up orphaned thumbnails for files that no longer exist
+      try {
+        const paths = galleryImages.map(img => img.path);
+        await window.GalleryAndroid?.cleanupThumbnailsNotInList(JSON.stringify(paths));
+      } catch (cleanupErr) {
+        // Silently ignore cleanup errors - it's not critical
+        console.debug('Thumbnail cleanup skipped or failed:', cleanupErr);
+      }
+      
       // Thumbnail loading is handled by the useEffect that watches images array
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load images');

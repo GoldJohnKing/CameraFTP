@@ -26,7 +26,6 @@ class GalleryBridge(private val context: Context) : BaseJsBridge(context as andr
         private const val THUMBNAIL_QUALITY = 85
         private const val THUMBNAIL_WIDTH = 400  // 增大尺寸以获得更好的显示效果
         private const val THUMBNAIL_HEIGHT = 400
-        private const val MAX_CACHE_SIZE_MB = 100  // 最大缓存 100MB
         private const val THUMBNAIL_SUBDIR = "thumbnails"
     }
 
@@ -57,38 +56,6 @@ class GalleryBridge(private val context: Context) : BaseJsBridge(context as andr
     }
 
     /**
-     * 清理旧的缓存文件（LRU策略）
-     */
-    private fun cleanupOldCache() {
-        try {
-            val cacheDir = getThumbnailCacheDir()
-            val files = cacheDir.listFiles() ?: return
-            
-            // 计算总大小
-            val totalSize = files.sumOf { it.length() }
-            val maxSizeBytes = MAX_CACHE_SIZE_MB * 1024 * 1024
-            
-            if (totalSize > maxSizeBytes) {
-                // 按最后修改时间排序，删除最旧的
-                files.sortBy { it.lastModified() }
-                var currentSize = totalSize
-                
-                for (file in files) {
-                    if (currentSize <= maxSizeBytes * 0.7) break  // 清理到 70%
-                    currentSize -= file.length()
-                    file.delete()
-                }
-                
-                Log.d(TAG, "Cleaned up thumbnail cache. Reduced from ${totalSize / 1024 / 1024}MB to ${currentSize / 1024 / 1024}MB")
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to cleanup cache", e)
-        }
-    }
-
-
-
-    /**
      * Get thumbnail for a single image (for lazy loading).
      * This is called on-demand when an image becomes visible.
      * Returns the file path to the cached thumbnail, which can be loaded via convertFileSrc().
@@ -111,13 +78,10 @@ class GalleryBridge(private val context: Context) : BaseJsBridge(context as andr
     private fun getThumbnailWithCache(imagePath: String): String {
         val cacheFile = getThumbnailCacheFile(imagePath)
 
-        // 检查缓存是否已存在且有效（24小时内）
+        // 检查缓存是否已存在
         if (cacheFile.exists() && cacheFile.length() > 0) {
-            val age = System.currentTimeMillis() - cacheFile.lastModified()
-            if (age < 24 * 60 * 60 * 1000) {  // 24小时
-                Log.d(TAG, "Using cached thumbnail: ${cacheFile.absolutePath}")
-                return cacheFile.absolutePath
-            }
+            Log.d(TAG, "Using cached thumbnail: ${cacheFile.absolutePath}")
+            return cacheFile.absolutePath
         }
 
         // 生成缩略图
@@ -128,9 +92,6 @@ class GalleryBridge(private val context: Context) : BaseJsBridge(context as andr
             cacheFile.outputStream().use { out ->
                 bitmap.compress(Bitmap.CompressFormat.JPEG, THUMBNAIL_QUALITY, out)
             }
-
-            // 检查并清理旧缓存
-            cleanupOldCache()
 
             Log.d(TAG, "Saved thumbnail to cache: ${cacheFile.absolutePath}")
             return cacheFile.absolutePath
@@ -195,7 +156,9 @@ class GalleryBridge(private val context: Context) : BaseJsBridge(context as andr
 
                     if (fileDeleted || rowsDeleted > 0) {
                         deleted.add(path)
-                        Log.d(TAG, "Deleted image path=$path")
+                        // 删除对应缩略图缓存
+                        removeThumbnailForPath(path)
+                        Log.d(TAG, "Deleted image and thumbnail cache path=$path")
                     } else {
                         failed.add(path)
                         Log.w(TAG, "Failed to delete image path=$path")
@@ -260,6 +223,63 @@ class GalleryBridge(private val context: Context) : BaseJsBridge(context as andr
         } catch (e: Exception) {
             Log.e(TAG, "removeThumbnails error", e)
             false
+        }
+    }
+
+    /**
+     * 删除单个图片的缩略图缓存
+     * @param imagePath 原始图片路径
+     */
+    private fun removeThumbnailForPath(imagePath: String) {
+        try {
+            val cacheFile = getThumbnailCacheFile(imagePath)
+            if (cacheFile.exists() && cacheFile.delete()) {
+                Log.d(TAG, "Removed thumbnail cache for path=$imagePath")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to remove thumbnail for path=$imagePath", e)
+        }
+    }
+
+    /**
+     * 清理不在给定路径列表中的缩略图缓存
+     * @param existingPathsJson JSON 数组，包含所有存在的图片路径
+     * @return 清理的缓存文件数量
+     */
+    @android.webkit.JavascriptInterface
+    fun cleanupThumbnailsNotInList(existingPathsJson: String): Int {
+        Log.d(TAG, "cleanupThumbnailsNotInList: starting cleanup")
+
+        return try {
+            val existingPaths = JSONArray(existingPathsJson).let { json ->
+                (0 until json.length()).map { json.getString(it) }
+            }
+
+            // 构建存在的路径的 MD5 集合
+            val existingMd5s = existingPaths.map { path ->
+                path.toByteArray().md5()
+            }.toSet()
+
+            val cacheDir = getThumbnailCacheDir()
+            val cacheFiles = cacheDir.listFiles() ?: return 0
+
+            var removedCount = 0
+            cacheFiles.forEach { cacheFile ->
+                // 从文件名中提取 MD5
+                val md5 = cacheFile.name.removePrefix("thumb_").removeSuffix(".jpg")
+                if (md5 !in existingMd5s) {
+                    if (cacheFile.delete()) {
+                        removedCount++
+                        Log.d(TAG, "Removed orphaned thumbnail: ${cacheFile.name}")
+                    }
+                }
+            }
+
+            Log.d(TAG, "cleanupThumbnailsNotInList: removed $removedCount orphaned thumbnails")
+            removedCount
+        } catch (e: Exception) {
+            Log.e(TAG, "cleanupThumbnailsNotInList error", e)
+            0
         }
     }
 
