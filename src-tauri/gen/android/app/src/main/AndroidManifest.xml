@@ -11,8 +11,8 @@
         android:maxSdkVersion="32" />
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
         android:maxSdkVersion="32" />
-    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
-        tools:ignore="ScopedStorage" />
+    <!-- READ_MEDIA_IMAGES for Android 13+ (API 33+) -->
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
     
     <!-- Foreground service permissions -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />

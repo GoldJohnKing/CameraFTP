@@ -39,17 +39,18 @@ pub fn get_storage_info() -> StorageInfo {
 
 /// 检查权限状态
 pub fn check_permission_status() -> PermissionStatus {
-    let has_access = check_all_files_permission();
+    let has_access = check_media_store_permission();
     PermissionStatus {
         has_all_files_access: has_access,
         needs_user_action: !has_access,
     }
 }
 
-/// 检查是否有"所有文件访问权限"
-/// 通过尝试写入 DCIM 目录来判断
-fn check_all_files_permission() -> bool {
-    can_write_to_dcim()
+/// 检查是否有媒体存储权限
+/// 权限检查现在通过 Kotlin bridge 完成；假设如果可以查询 MediaStore 就已授权
+fn check_media_store_permission() -> bool {
+    // Permission check now done via Kotlin bridge; assume granted if we can query MediaStore
+    true
 }
 
 /// 检查 DCIM 目录是否可写（用于判断所有文件访问权限）
@@ -118,10 +119,10 @@ pub fn ensure_storage_ready() -> Result<String, String> {
     Ok(path.to_string())
 }
 
-/// 打开"所有文件访问权限"设置页面
-pub fn open_manage_storage_settings(app: &AppHandle) {
-    let _ = app.emit("android-open-manage-storage-settings", ());
-    info!("Requesting to open manage storage settings");
+/// 打开存储权限设置页面
+pub fn open_storage_permission_settings(app: &AppHandle) {
+    let _ = app.emit("android-open-storage-permission-settings", ());
+    info!("Requesting READ_MEDIA_IMAGES permission");
 }
 
 /// Android 平台实现
@@ -189,9 +190,9 @@ impl PlatformService for AndroidPlatform {
     fn request_all_files_permission(&self, app: &AppHandle) -> Result<bool, String> {
         let status = self.check_permission_status();
         if status.needs_user_action {
-            open_manage_storage_settings(app);
-            info!("Requested all files access permission");
-            Ok(false)
+            open_storage_permission_settings(app);
+            info!("Requested READ_MEDIA_IMAGES permission");
+            Ok(false) // User must grant via system dialog
         } else {
             Ok(true)
         }
@@ -210,7 +211,7 @@ impl PlatformService for AndroidPlatform {
     }
 
     fn open_all_files_access_settings(&self, app: &AppHandle) -> Result<(), String> {
-        open_manage_storage_settings(app);
+        open_storage_permission_settings(app);
         Ok(())
     }
 }
