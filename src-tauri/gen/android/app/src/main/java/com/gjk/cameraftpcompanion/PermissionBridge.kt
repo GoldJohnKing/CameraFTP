@@ -28,6 +28,7 @@ import android.provider.MediaStore
 import java.io.File
 import java.io.FileOutputStream
 import java.util.Locale
+import kotlin.concurrent.thread
 
 /**
  * Permission JavaScript Bridge
@@ -38,6 +39,8 @@ class PermissionBridge(activity: MainActivity) : BaseJsBridge(activity) {
         private const val TAG = "PermissionBridge"
         // Request code for notification permission - shared with MainActivity
         const val REQUEST_POST_NOTIFICATIONS = 1001
+        private const val MEDIASTORE_WAIT_TIMEOUT_MS = 2000L
+        private const val MEDIASTORE_WAIT_POLL_MS = 150L
     }
 
     /**
@@ -273,27 +276,38 @@ class PermissionBridge(activity: MainActivity) : BaseJsBridge(activity) {
             return result.toString()
         }
 
-        runOnUiThread {
+        thread(name = "open-image") {
             try {
-                // Query MediaStore for images in the same directory
-                val mediaStoreEntries = queryImagesFromMediaStore(imageFile.parentFile?.absolutePath ?: "")
+                val directoryPath = imageFile.parentFile?.absolutePath ?: ""
+                val mediaStoreEntries = queryImagesFromMediaStore(directoryPath)
                 val targetEntry = mediaStoreEntries[imageFile.absolutePath]
 
                 if (targetEntry != null && isMediaStoreEntryFresh(targetEntry, imageFile)) {
-                    // MediaStore has the target file and is up-to-date - use content URIs
-                    openWithMediaStore(imageFile, mediaStoreEntries)
-                } else {
-                    // MediaStore is missing or stale - rescan and fallback to FileProvider
-                    if (targetEntry != null) {
-                        Log.w(TAG, "MediaStore entry is stale, using FileProvider: ${imageFile.absolutePath}")
+                    runOnUiThread {
+                        openWithMediaStore(imageFile, mediaStoreEntries)
                     }
-                    MediaScannerHelper.scanFile(activity, imageFile.absolutePath)
-                    openWithFileProvider(imageFile)
+                    return@thread
                 }
 
+                if (targetEntry != null) {
+                    Log.w(TAG, "MediaStore entry is stale, waiting for refresh: ${imageFile.absolutePath}")
+                }
+
+                MediaScannerHelper.scanFile(activity, imageFile.absolutePath)
+                val refreshedEntries = waitForFreshMediaStoreEntry(directoryPath, imageFile)
+
+                runOnUiThread {
+                    if (refreshedEntries != null) {
+                        openWithMediaStore(imageFile, refreshedEntries)
+                    } else {
+                        openWithFileProvider(imageFile)
+                    }
+                }
             } catch (e: Exception) {
                 Log.e(TAG, "openImageWithChooser: failed to open image", e)
-                Toast.makeText(activity, "无法打开图片: ${e.message}", Toast.LENGTH_SHORT).show()
+                runOnUiThread {
+                    Toast.makeText(activity, "无法打开图片: ${e.message}", Toast.LENGTH_SHORT).show()
+                }
             }
         }
 
@@ -309,6 +323,7 @@ class PermissionBridge(activity: MainActivity) : BaseJsBridge(activity) {
         val uri: Uri,
         val dateModifiedSeconds: Long,
         val sizeBytes: Long,
+        val dateAddedSeconds: Long,
     )
 
     private fun queryImagesFromMediaStore(directoryPath: String): Map<String, MediaStoreEntry> {
@@ -320,7 +335,8 @@ class PermissionBridge(activity: MainActivity) : BaseJsBridge(activity) {
             MediaStore.Images.Media._ID,
             MediaStore.Images.Media.DATA,
             MediaStore.Images.Media.DATE_MODIFIED,
-            MediaStore.Images.Media.SIZE
+            MediaStore.Images.Media.SIZE,
+            MediaStore.Images.Media.DATE_ADDED
         )
 
         // Query images in the directory (excluding subdirectories)
@@ -343,22 +359,46 @@ class PermissionBridge(activity: MainActivity) : BaseJsBridge(activity) {
             val dataColumn = it.getColumnIndexOrThrow(MediaStore.Images.Media.DATA)
             val modifiedColumn = it.getColumnIndexOrThrow(MediaStore.Images.Media.DATE_MODIFIED)
             val sizeColumn = it.getColumnIndexOrThrow(MediaStore.Images.Media.SIZE)
+            val addedColumn = it.getColumnIndexOrThrow(MediaStore.Images.Media.DATE_ADDED)
 
             while (it.moveToNext()) {
                 val id = it.getLong(idColumn)
                 val filePath = it.getString(dataColumn)
                 val dateModified = it.getLong(modifiedColumn)
                 val sizeBytes = it.getLong(sizeColumn)
+                val dateAdded = it.getLong(addedColumn)
                 val contentUri = Uri.withAppendedPath(
                     MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
                     id.toString()
                 )
-                uriMap[filePath] = MediaStoreEntry(contentUri, dateModified, sizeBytes)
+                val entry = MediaStoreEntry(contentUri, dateModified, sizeBytes, dateAdded)
+                val existing = uriMap[filePath]
+                uriMap[filePath] = selectNewestEntry(existing, entry)
             }
         }
 
         Log.d(TAG, "queryImagesFromMediaStore: found ${uriMap.size} images in $directoryPath")
         return uriMap
+    }
+
+    private fun selectNewestEntry(
+        existing: MediaStoreEntry?,
+        candidate: MediaStoreEntry,
+    ): MediaStoreEntry {
+        if (existing == null) return candidate
+
+        val existingScore = maxOf(existing.dateModifiedSeconds, existing.dateAddedSeconds)
+        val candidateScore = maxOf(candidate.dateModifiedSeconds, candidate.dateAddedSeconds)
+
+        if (candidateScore != existingScore) {
+            return if (candidateScore > existingScore) candidate else existing
+        }
+
+        if (candidate.sizeBytes != existing.sizeBytes) {
+            return if (candidate.sizeBytes > existing.sizeBytes) candidate else existing
+        }
+
+        return existing
     }
 
     private fun isMediaStoreEntryFresh(entry: MediaStoreEntry, file: File): Boolean {
@@ -374,6 +414,24 @@ class PermissionBridge(activity: MainActivity) : BaseJsBridge(activity) {
         }
 
         return entry.dateModifiedSeconds >= fileModifiedSeconds
+    }
+
+    private fun waitForFreshMediaStoreEntry(
+        directoryPath: String,
+        file: File,
+    ): Map<String, MediaStoreEntry>? {
+        val deadline = android.os.SystemClock.elapsedRealtime() + MEDIASTORE_WAIT_TIMEOUT_MS
+
+        while (android.os.SystemClock.elapsedRealtime() < deadline) {
+            val entries = queryImagesFromMediaStore(directoryPath)
+            val targetEntry = entries[file.absolutePath]
+            if (targetEntry != null && isMediaStoreEntryFresh(targetEntry, file)) {
+                return entries
+            }
+            Thread.sleep(MEDIASTORE_WAIT_POLL_MS)
+        }
+
+        return null
     }
 
     /**
