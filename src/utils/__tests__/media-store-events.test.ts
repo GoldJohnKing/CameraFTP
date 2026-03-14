@@ -4,15 +4,18 @@
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
 
+import { describe, it, expect } from 'vitest';
 import { shouldRefreshOnEvent, toGalleryImage } from '../media-store-events';
 import type { MediaStoreEntry } from '../media-store-events';
 
-it('refreshes only on media-store-ready', () => {
+describe('media-store-events', () => {
+  it('refreshes only on media-store-ready', () => {
   expect(shouldRefreshOnEvent('file-uploaded')).toBe(false);
   expect(shouldRefreshOnEvent('media-store-ready')).toBe(true);
 });
 
-it('maps mediastore entry to gallery image', () => {
-  const entry: MediaStoreEntry = { uri: 'content://media/1', displayName: 'IMG_1.JPG', dateModified: 1 };
-  expect(toGalleryImage(entry).path).toBe(entry.uri);
+  it('maps mediastore entry to gallery image', () => {
+    const entry: MediaStoreEntry = { uri: 'content://media/1', displayName: 'IMG_1.JPG', dateModified: 1 };
+    expect(toGalleryImage(entry).path).toBe(entry.uri);
+  });
 });
