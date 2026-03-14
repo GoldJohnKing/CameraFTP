@@ -226,6 +226,11 @@ class MediaStoreBridge(activity: MainActivity) : BaseJsBridge(activity) {
             return MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
         }
 
+        private fun isFilesPrimaryDirAllowed(relativePath: String): Boolean {
+            val normalized = relativePath.trimStart('/').lowercase()
+            return normalized.startsWith("download/") || normalized.startsWith("documents/")
+        }
+
         private fun listCollections(): List<Uri> {
             return listOf(
                 filesCollectionUri()
@@ -251,7 +256,15 @@ class MediaStoreBridge(activity: MainActivity) : BaseJsBridge(activity) {
             sizeHint: Long?
         ): String {
             val resolver = context.contentResolver
-            val uri = collectionUri(collection)
+            var uri = collectionUri(collection)
+
+            if (collection.lowercase() == COLLECTION_DOWNLOADS && !isFilesPrimaryDirAllowed(relativePath)) {
+                Log.w(
+                    TAG,
+                    "Files collection rejects primary dir for '$relativePath'; fallback to Images collection for compatibility"
+                )
+                uri = MediaStore.Images.Media.EXTERNAL_CONTENT_URI
+            }
 
             // Check if entry already exists
             val existingUri = findEntryUriNative(context, relativePath, displayName)
