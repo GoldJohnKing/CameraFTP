@@ -46,7 +46,8 @@ class GalleryBridge(private val context: Context) : BaseJsBridge(context as andr
         private const val URI_WINDOW_SIZE = 25  // Number of URIs to include on each side of target
 
         /**
-         * Pick the freshest/newest entry based on dateAdded (to match system gallery), then dateModified, then size
+         * Pick the freshest/newest entry based on dateAdded (to match system gallery), then dateModified, then id
+         * Using id as final tie-breaker (higher id = more recent in MediaStore)
          */
         @JvmStatic
         fun pick_newest(a: MediaEntry, b: MediaEntry): MediaEntry {
@@ -60,8 +61,8 @@ class GalleryBridge(private val context: Context) : BaseJsBridge(context as andr
                 return if (a.dateModified > b.dateModified) a else b
             }
 
-            // If both are equal, prefer larger size (likely higher quality)
-            return if (a.size >= b.size) a else b
+            // If both are equal, prefer higher id (more recent in MediaStore)
+            return if (a.id >= b.id) a else b
         }
 
         /**
@@ -87,14 +88,15 @@ class GalleryBridge(private val context: Context) : BaseJsBridge(context as andr
         }
 
         /**
-         * Sort entries by dateAdded DESC (to match system gallery order), then dateModified DESC, then size DESC
+         * Sort entries by dateAdded DESC (to match system gallery order), then dateModified DESC, then id DESC
+         * Using id as final tie-breaker ensures stable ordering (newer id = more recent in MediaStore)
          */
         @JvmStatic
         fun sort_entries(entries: List<MediaEntry>): List<MediaEntry> {
             return entries.sortedWith(
                 compareByDescending<MediaEntry> { it.dateAdded }
                     .thenByDescending { it.dateModified }
-                    .thenByDescending { it.size }
+                    .thenByDescending { it.id }
             )
         }
 
@@ -591,7 +593,8 @@ class GalleryBridge(private val context: Context) : BaseJsBridge(context as andr
             )
 
             val entries = mutableListOf<MediaEntry>()
-            val uriMap = mutableMapOf<String, MediaEntry>()
+            // Use LinkedHashMap to preserve insertion order from MediaStore query
+            val uriMap = LinkedHashMap<String, MediaEntry>()
 
             cursor?.use {
                 val idColumn = it.getColumnIndexOrThrow(MediaStore.Images.Media._ID)
