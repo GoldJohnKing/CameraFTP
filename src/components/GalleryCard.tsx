@@ -6,22 +6,11 @@
 
 import { memo, useCallback, useEffect, useState, useRef } from 'react';
 import { RefreshCw, ImageOff, Loader2, Check, X, Trash2, Share2, MoreVertical } from 'lucide-react';
-import { listen } from '@tauri-apps/api/event';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import { useConfigStore } from '../stores/configStore';
 import { permissionBridge } from '../types';
 import { toGalleryImage, type MediaStoreEntry } from '../utils/media-store-events';
 import type { GalleryImage, DeleteImagesResult } from '../types';
-
-interface FileIndexChangedEvent {
-  count: number;
-  latestFilename: string | null;
-}
-
-interface FileUploadedEvent {
-  path: string;
-  size: number;
-}
 
 export const GalleryCard = memo(function GalleryCard() {
   const { activeTab } = useConfigStore();
@@ -161,34 +150,6 @@ export const GalleryCard = memo(function GalleryCard() {
       });
     }
   }, [images, isLoading, loadThumbnail]);
-
-  // Listen for file index changes
-  useEffect(() => {
-    const unlistenPromise = listen<FileIndexChangedEvent>('file-index-changed', () => {
-      // Refresh the gallery when files change
-      loadImages();
-    });
-
-    return () => {
-      unlistenPromise.then((unlisten) => unlisten()).catch(() => {});
-    };
-  }, [loadImages]);
-
-  // Also listen for file-uploaded event as a backup mechanism
-  // On Android, file-index-changed event may not always reach the frontend reliably
-  useEffect(() => {
-    const unlistenPromise = listen<FileUploadedEvent>('file-uploaded', () => {
-      // Refresh the gallery when a new file is uploaded
-      // Small delay to ensure the file is fully written and indexed
-      setTimeout(() => {
-        loadImages();
-      }, 500);
-    });
-
-    return () => {
-      unlistenPromise.then((unlisten) => unlisten()).catch(() => {});
-    };
-  }, [loadImages]);
 
   // Setup intersection observer for lazy loading thumbnails
   // Observer is created once and uses loadThumbnail which tracks state via refs

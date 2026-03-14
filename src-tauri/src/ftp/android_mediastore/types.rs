@@ -58,6 +58,8 @@ pub struct FileDescriptorInfo {
     /// The raw file descriptor (only valid on Unix/Android).
     #[cfg(unix)]
     pub fd: i32,
+    /// MediaStore content URI for this entry.
+    pub content_uri: String,
     /// The file path for reference.
     pub path: PathBuf,
 }
@@ -115,6 +117,16 @@ pub trait MediaStoreBridgeClient: Send + Sync + std::fmt::Debug {
         mime_type: &str,
         relative_path: &str,
     ) -> Result<FileDescriptorInfo, MediaStoreError>;
+
+    /// Finalizes a MediaStore entry after write completion.
+    async fn finalize_entry(
+        &self,
+        content_uri: &str,
+        expected_size: Option<u64>,
+    ) -> Result<(), MediaStoreError>;
+
+    /// Aborts a MediaStore entry and removes its pending row.
+    async fn abort_entry(&self, content_uri: &str) -> Result<(), MediaStoreError>;
 
     /// Queries files in the given directory path.
     ///

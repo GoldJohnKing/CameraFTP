@@ -14,18 +14,8 @@ import { retryAction, executeAsync } from '../utils/store';
 import { checkAndroidPermissions } from '../types';
 import type { MediaStoreReadyPayload } from '../types/events';
 
-// TypeScript declarations for window extensions
-declare global {
-  interface Window {
-    FileUploadAndroid?: {
-      onFileUploaded: (path: string, size: number) => void;
-    };
-  }
-}
-
 // Event payload types
 type ServerStartedPayload = { ip: string; port: number };
-type FileUploadedPayload = { path: string; size: number };
 
 interface ServerState {
   // 状态
@@ -111,19 +101,6 @@ const createEventRegistrations = (
       const stats = event.payload;
       set((state) => ({ ...state, stats }));
       updateAndroidServiceState(true, stats, stats.connectedClients || 0);
-    },
-  },
-  {
-    name: 'file-uploaded',
-    handler: (event: Event<FileUploadedPayload>) => {
-      const { path, size } = event.payload;
-      if (window.FileUploadAndroid?.onFileUploaded) {
-        try {
-          window.FileUploadAndroid.onFileUploaded(path, size);
-        } catch {
-          // Silently ignore media scan errors
-        }
-      }
     },
   },
   {

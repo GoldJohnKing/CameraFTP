@@ -15,11 +15,13 @@ use super::types::{
     MediaStoreError, QueryResult,
 };
 use async_trait::async_trait;
-use std::fmt::{self, Debug};
+use std::fmt::Debug;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::SystemTime;
-use tokio::io::{AsyncRead, AsyncReadExt};
+use tokio::io::AsyncRead;
+#[cfg(unix)]
+use tokio::io::AsyncReadExt;
 use tracing::{debug, error, info, warn};
 use unftp_core::auth::DefaultUser;
 use unftp_core::storage::{Fileinfo, Metadata, StorageBackend, Error as StorageError};
@@ -267,10 +269,11 @@ impl AndroidMediaStoreBackend {
     {
         use std::fs::File;
         use std::io::{Seek, SeekFrom, Write};
-        use std::os::unix::io::FromRawFd;
+        use std::os::fd::{FromRawFd, OwnedFd};
 
         // SAFETY: The fd should be valid and opened for writing
-        let mut file = unsafe { File::from_raw_fd(fd) };
+        let owned_fd = unsafe { OwnedFd::from_raw_fd(fd) };
+        let mut file = File::from(owned_fd);
         
         // Seek to start position if needed
         if start_pos > 0 {
@@ -296,9 +299,6 @@ impl AndroidMediaStoreBackend {
         }
 
         file.sync_all()?;
-        
-        // Don't close the fd - let the Android side handle that
-        std::mem::forget(file);
         
         Ok(total_written - start_pos)
     }
@@ -407,12 +407,55 @@ impl StorageBackend<DefaultUser> for AndroidMediaStoreBackend {
         let full_path = self.resolve_path(path);
         debug!(path = %full_path, start_pos, "Getting file");
 
-        // On Android, we would open a file descriptor and wrap it in an AsyncRead.
-        // For now, this returns an error as reading is not the primary use case.
-        Err(StorageError::from(std::io::Error::new(
-            std::io::ErrorKind::Unsupported,
-            "Reading from MediaStore not yet supported",
-        )))
+        let bridge = self.bridge.clone();
+        let fd_info = retry_with_backoff(&self.retry_config, "open_fd_for_read", || {
+            let bridge = bridge.clone();
+            let path = full_path.clone();
+            async move { bridge.open_fd_for_read(&path).await }
+        })
+        .await
+        .map_err(|e| {
+            error!(error = ?e, "Failed to open file descriptor for read");
+            match e {
+                MediaStoreError::NotFound(_) => StorageError::from(std::io::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    e.to_string(),
+                )),
+                _ => StorageError::from(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    e.to_string(),
+                )),
+            }
+        })?;
+
+        #[cfg(unix)]
+        {
+            use std::os::fd::{FromRawFd, OwnedFd};
+            use tokio::io::AsyncSeekExt;
+
+            // SAFETY: fd is detached from Java side and owned by Rust now.
+            let owned_fd = unsafe { OwnedFd::from_raw_fd(fd_info.fd) };
+            let std_file = std::fs::File::from(owned_fd);
+            let mut tokio_file = tokio::fs::File::from_std(std_file);
+
+            if start_pos > 0 {
+                tokio_file
+                    .seek(std::io::SeekFrom::Start(start_pos))
+                    .await
+                    .map_err(StorageError::from)?;
+            }
+
+            Ok(Box::new(tokio_file))
+        }
+
+        #[cfg(not(unix))]
+        {
+            let _ = fd_info;
+            Err(StorageError::from(std::io::Error::new(
+                std::io::ErrorKind::Unsupported,
+                "File descriptor operations not supported on this platform",
+            )))
+        }
     }
 
     async fn put<P, R>(&self, _user: &DefaultUser, reader: R, path: P, start_pos: u64) -> Result<u64, StorageError>
@@ -436,6 +479,13 @@ impl StorageBackend<DefaultUser> for AndroidMediaStoreBackend {
             start_pos,
             "Uploading file"
         );
+
+        if start_pos > 0 {
+            return Err(StorageError::from(std::io::Error::new(
+                std::io::ErrorKind::Unsupported,
+                "Resume upload is not supported for Android MediaStore backend",
+            )));
+        }
 
         // Acquire upload slot (limit concurrency)
         let _permit = self.limiter.acquire().await;
@@ -465,6 +515,36 @@ impl StorageBackend<DefaultUser> for AndroidMediaStoreBackend {
         {
             let bytes_written = self.write_to_fd(fd_info.fd, reader, start_pos).await.map_err(|e| {
                 error!(error = ?e, "Failed to write to file descriptor");
+                let bridge = self.bridge.clone();
+                let content_uri = fd_info.content_uri.clone();
+                tauri::async_runtime::spawn(async move {
+                    if let Err(abort_err) = bridge.abort_entry(&content_uri).await {
+                        error!(error = ?abort_err, uri = %content_uri, "Failed to abort MediaStore entry after write error");
+                    }
+                });
+                StorageError::from(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    e.to_string(),
+                ))
+            })?;
+
+            let bridge = self.bridge.clone();
+            let content_uri = fd_info.content_uri.clone();
+            retry_with_backoff(&self.retry_config, "finalize_entry", || {
+                let bridge = bridge.clone();
+                let content_uri = content_uri.clone();
+                async move { bridge.finalize_entry(&content_uri, Some(bytes_written)).await }
+            })
+            .await
+            .map_err(|e| {
+                error!(error = ?e, uri = %fd_info.content_uri, "Failed to finalize MediaStore entry");
+                let bridge = self.bridge.clone();
+                let content_uri = fd_info.content_uri.clone();
+                tauri::async_runtime::spawn(async move {
+                    if let Err(abort_err) = bridge.abort_entry(&content_uri).await {
+                        error!(error = ?abort_err, uri = %content_uri, "Failed to abort MediaStore entry after finalize error");
+                    }
+                });
                 StorageError::from(std::io::Error::new(
                     std::io::ErrorKind::Other,
                     e.to_string(),
@@ -474,6 +554,7 @@ impl StorageBackend<DefaultUser> for AndroidMediaStoreBackend {
             info!(
                 path = %path.display(),
                 bytes = bytes_written,
+                uri = %fd_info.content_uri,
                 "File uploaded successfully"
             );
 

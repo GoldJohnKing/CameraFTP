@@ -53,6 +53,10 @@ rustls-pemfile = "2.0"
 # 文件系统监听（仅 Windows 使用）
 notify = { version = "8.0", default-features = false, features = [] }
 
+[target.'cfg(target_os = "android")'.dependencies]
+jni = "0.21"
+ndk-context = "0.1"
+
 [target.'cfg(windows)'.dependencies]
 winreg = "0.52"
 windows = { version = "0.58", features = [

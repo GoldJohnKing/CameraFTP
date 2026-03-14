@@ -19,3 +19,7 @@
 # If you keep the line number information, uncomment this to
 # hide the original source file name.
 #-renamesourcefileattribute SourceFile
+
+# Keep Android bridge classes that are referenced from Rust JNI by class name.
+-keep class com.gjk.cameraftpcompanion.bridges.MediaStoreBridge { *; }
+-keep class com.gjk.cameraftpcompanion.bridges.MediaStoreBridge$Companion { *; }

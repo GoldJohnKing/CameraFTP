@@ -24,11 +24,9 @@ import com.gjk.cameraftpcompanion.bridges.BaseJsBridge
 import org.json.JSONObject
 import android.content.ClipData
 import android.content.ContentUris
-import android.database.Cursor
 import android.provider.MediaStore
 import java.io.File
 import java.io.FileOutputStream
-import java.util.Locale
 import kotlin.concurrent.thread
 
 /**
@@ -40,11 +38,8 @@ class PermissionBridge(activity: MainActivity) : BaseJsBridge(activity) {
         private const val TAG = "PermissionBridge"
         // Request code for notification permission - shared with MainActivity
         const val REQUEST_POST_NOTIFICATIONS = 1001
-        private const val MEDIASTORE_WAIT_TIMEOUT_MS = 2000L
-        private const val MEDIASTORE_WAIT_POLL_MS = 150L
         // Limits for ClipData to prevent Intent size issues
         private const val MAX_URIS_IN_CLIP_DATA = 100
-        private const val MAX_FILES_IN_CLIP_DATA = 50
 
         /**
          * Get required permissions for MediaStore-based operations
@@ -270,10 +265,8 @@ class PermissionBridge(activity: MainActivity) : BaseJsBridge(activity) {
     }
 
     /**
-     * Open image with external app, supporting browsing other images in the same directory
-     * Uses MediaStore URIs for best compatibility with system galleries
-     * Falls back to FileProvider URIs if MediaStore has no results
-     * Supports both MediaStore URIs (content://...) and file paths
+     * Open image with external app, supporting browsing other images in the same directory.
+     * Uses MediaStore URIs only.
      * @param path The MediaStore URI or file path to the image
      * @return JSON string with success status
      */
@@ -308,46 +301,27 @@ class PermissionBridge(activity: MainActivity) : BaseJsBridge(activity) {
             return result.toString()
         }
 
-        // Legacy file path support
-        val imageFile = File(path)
-        if (!imageFile.exists()) {
-            Log.e(TAG, "openImageWithChooser: file does not exist: $path")
+        // Non-content inputs must be resolved to MediaStore first.
+        val resolvedUri = resolveToMediaStoreUri(path)
+        if (resolvedUri == null) {
+            Log.e(TAG, "openImageWithChooser: unable to resolve MediaStore URI from input: $path")
+            runOnUiThread {
+                Toast.makeText(activity, "无法打开图片", Toast.LENGTH_SHORT).show()
+            }
             result.put("success", false)
-            result.put("message", "File does not exist")
+            result.put("message", "MediaStore URI not found")
             return result.toString()
         }
 
         thread(name = "open-image") {
             try {
-                val directoryPath = imageFile.parentFile?.absolutePath ?: ""
-                val mediaStoreEntries = queryImagesFromMediaStore(directoryPath)
-                val targetEntry = mediaStoreEntries[imageFile.absolutePath]
-
-                if (targetEntry != null && isMediaStoreEntryFresh(targetEntry, imageFile)) {
-                    runOnUiThread {
-                        openWithMediaStore(imageFile, mediaStoreEntries)
-                    }
-                    return@thread
-                }
-
-                if (targetEntry != null) {
-                    Log.w(TAG, "MediaStore entry is stale, waiting for refresh: ${imageFile.absolutePath}")
-                }
-
-                MediaScannerHelper.scanFile(activity, imageFile.absolutePath)
-                val refreshedEntries = waitForFreshMediaStoreEntry(directoryPath, imageFile)
-
                 runOnUiThread {
-                    if (refreshedEntries != null) {
-                        openWithMediaStore(imageFile, refreshedEntries)
-                    } else {
-                        openWithFileProvider(imageFile)
-                    }
+                    openWithMediaStoreUri(resolvedUri)
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "openImageWithChooser: failed to open image", e)
                 runOnUiThread {
-                    Toast.makeText(activity, "无法打开图片: ${e.message}", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(activity, "无法打开图片", Toast.LENGTH_SHORT).show()
                 }
             }
         }
@@ -422,220 +396,40 @@ class PermissionBridge(activity: MainActivity) : BaseJsBridge(activity) {
         Log.d(TAG, "openWithMediaStoreUri: opened with ${windowUris.size} URIs via MediaStore")
     }
 
-    /**
-     * Query images from MediaStore in the specified directory
-     * Returns a map of file path to content URI
-     */
-    private data class MediaStoreEntry(
-        val uri: Uri,
-        val dateModifiedSeconds: Long,
-        val sizeBytes: Long,
-        val dateAddedSeconds: Long,
-    )
+    private fun resolveToMediaStoreUri(path: String): Uri? {
+        val imageFile = File(path)
+        if (!imageFile.exists()) {
+            return null
+        }
 
-    private fun queryImagesFromMediaStore(directoryPath: String): Map<String, MediaStoreEntry> {
-        val uriMap = mutableMapOf<String, MediaStoreEntry>()
-        
-        if (directoryPath.isEmpty()) return uriMap
+        val storageRoot = Environment.getExternalStorageDirectory().absolutePath
+        val absolutePath = imageFile.absolutePath
+        if (!absolutePath.startsWith("$storageRoot/")) {
+            return null
+        }
 
-        val projection = arrayOf(
-            MediaStore.Images.Media._ID,
-            MediaStore.Images.Media.DATA,
-            MediaStore.Images.Media.DATE_MODIFIED,
-            MediaStore.Images.Media.SIZE,
-            MediaStore.Images.Media.DATE_ADDED
-        )
+        val relativeToStorageRoot = absolutePath.removePrefix("$storageRoot/")
+        val displayName = imageFile.name
+        val parentRelativePath = relativeToStorageRoot.substringBeforeLast("/", "")
+        val mediaRelativePath = if (parentRelativePath.isEmpty()) "" else "$parentRelativePath/"
 
-        // Query images in the directory (excluding subdirectories)
-        val selection = "${MediaStore.Images.Media.DATA} LIKE ? AND ${MediaStore.Images.Media.DATA} NOT LIKE ?"
-        val selectionArgs = arrayOf(
-            "$directoryPath/%",
-            "$directoryPath/%/%"
-        )
+        val projection = arrayOf(MediaStore.Images.Media._ID)
+        val selection = "${MediaStore.Images.Media.RELATIVE_PATH} = ? AND ${MediaStore.Images.Media.DISPLAY_NAME} = ?"
+        val selectionArgs = arrayOf(mediaRelativePath, displayName)
 
-        val cursor: Cursor? = activity.contentResolver.query(
+        activity.contentResolver.query(
             MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
             projection,
             selection,
             selectionArgs,
             "${MediaStore.Images.Media.DATE_ADDED} DESC"
-        )
-
-        cursor?.use {
-            val idColumn = it.getColumnIndexOrThrow(MediaStore.Images.Media._ID)
-            val dataColumn = it.getColumnIndexOrThrow(MediaStore.Images.Media.DATA)
-            val modifiedColumn = it.getColumnIndexOrThrow(MediaStore.Images.Media.DATE_MODIFIED)
-            val sizeColumn = it.getColumnIndexOrThrow(MediaStore.Images.Media.SIZE)
-            val addedColumn = it.getColumnIndexOrThrow(MediaStore.Images.Media.DATE_ADDED)
-
-            while (it.moveToNext()) {
-                val id = it.getLong(idColumn)
-                val filePath = it.getString(dataColumn)
-                val dateModified = it.getLong(modifiedColumn)
-                val sizeBytes = it.getLong(sizeColumn)
-                val dateAdded = it.getLong(addedColumn)
-                val contentUri = Uri.withAppendedPath(
-                    MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
-                    id.toString()
-                )
-                val entry = MediaStoreEntry(contentUri, dateModified, sizeBytes, dateAdded)
-                val existing = uriMap[filePath]
-                uriMap[filePath] = selectNewestEntry(existing, entry)
+        )?.use { cursor ->
+            if (cursor.moveToFirst()) {
+                val id = cursor.getLong(cursor.getColumnIndexOrThrow(MediaStore.Images.Media._ID))
+                return ContentUris.withAppendedId(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, id)
             }
-        }
-
-        Log.d(TAG, "queryImagesFromMediaStore: found ${uriMap.size} images in $directoryPath")
-        return uriMap
-    }
-
-    private fun selectNewestEntry(
-        existing: MediaStoreEntry?,
-        candidate: MediaStoreEntry,
-    ): MediaStoreEntry {
-        if (existing == null) return candidate
-
-        val existingScore = maxOf(existing.dateModifiedSeconds, existing.dateAddedSeconds)
-        val candidateScore = maxOf(candidate.dateModifiedSeconds, candidate.dateAddedSeconds)
-
-        if (candidateScore != existingScore) {
-            return if (candidateScore > existingScore) candidate else existing
-        }
-
-        if (candidate.sizeBytes != existing.sizeBytes) {
-            return if (candidate.sizeBytes > existing.sizeBytes) candidate else existing
-        }
-
-        return existing
-    }
-
-    private fun isMediaStoreEntryFresh(entry: MediaStoreEntry, file: File): Boolean {
-        val fileSize = file.length()
-        val fileModifiedSeconds = file.lastModified() / 1000
-
-        if (entry.sizeBytes <= 0L || entry.dateModifiedSeconds <= 0L) {
-            return false
-        }
-
-        if (entry.sizeBytes != fileSize) {
-            return false
-        }
-
-        return entry.dateModifiedSeconds >= fileModifiedSeconds
-    }
-
-    private fun waitForFreshMediaStoreEntry(
-        directoryPath: String,
-        file: File,
-    ): Map<String, MediaStoreEntry>? {
-        val deadline = android.os.SystemClock.elapsedRealtime() + MEDIASTORE_WAIT_TIMEOUT_MS
-
-        while (android.os.SystemClock.elapsedRealtime() < deadline) {
-            val entries = queryImagesFromMediaStore(directoryPath)
-            val targetEntry = entries[file.absolutePath]
-            if (targetEntry != null && isMediaStoreEntryFresh(targetEntry, file)) {
-                return entries
-            }
-            Thread.sleep(MEDIASTORE_WAIT_POLL_MS)
         }
 
         return null
-    }
-
-    /**
-     * Open image using MediaStore content URIs (preferred method)
-     */
-    private fun openWithMediaStore(targetFile: File, uriMap: Map<String, MediaStoreEntry>) {
-        val targetPath = targetFile.absolutePath
-        val targetUri = uriMap[targetPath]!!.uri
-
-        // Build ClipData with all URIs for browsing support
-        val allUris = uriMap.values.map { it.uri }
-        val clipData = ClipData.newRawUri(null, targetUri)
-        
-        // Limit to prevent Intent size issues
-        var addedCount = 0
-        for (uri in allUris) {
-            if (uri != targetUri && addedCount < MAX_URIS_IN_CLIP_DATA) {
-                clipData.addItem(ClipData.Item(uri))
-                addedCount++
-            }
-        }
-
-        val intent = Intent(Intent.ACTION_VIEW).apply {
-            setDataAndType(targetUri, "image/*")
-            setClipData(clipData)
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        }
-
-        activity.startActivity(intent)
-        Log.d(TAG, "openWithMediaStore: opened with ${allUris.size} URIs via MediaStore")
-    }
-
-    /**
-     * Open image using FileProvider URIs (fallback method)
-     */
-    private fun openWithFileProvider(targetFile: File) {
-        val parentDir = targetFile.parentFile
-
-        // Get all image files in directory
-        val imageFiles = if (parentDir != null) {
-            val imageExtensions = setOf("jpg", "jpeg", "png", "gif", "bmp", "webp", "heic", "heif")
-            parentDir.listFiles { file ->
-                file.isFile && file.extension.lowercase(Locale.getDefault()) in imageExtensions
-            }?.sortedByDescending { it.lastModified() } ?: emptyList()
-        } else {
-            emptyList()
-        }
-
-        // Limit to prevent Intent size issues
-        val limitedFiles = imageFiles.take(MAX_FILES_IN_CLIP_DATA)
-
-        val targetUri = getUriForFile(targetFile)
-
-        if (limitedFiles.size <= 1) {
-            // Single image - simple intent
-            val intent = Intent(Intent.ACTION_VIEW).apply {
-                setDataAndType(targetUri, "image/*")
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            }
-            activity.startActivity(intent)
-            Log.d(TAG, "openWithFileProvider: opened single image")
-            return
-        }
-
-        // Multiple images - use ClipData for browsing support
-        val clipData = ClipData.newRawUri(null, targetUri)
-        for (file in limitedFiles) {
-            if (file != targetFile) {
-                clipData.addItem(ClipData.Item(getUriForFile(file)))
-            }
-        }
-
-        val intent = Intent(Intent.ACTION_VIEW).apply {
-            setDataAndType(targetUri, "image/*")
-            setClipData(clipData)
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        }
-
-        activity.startActivity(intent)
-        Log.d(TAG, "openWithFileProvider: opened with ${limitedFiles.size} images via FileProvider")
-    }
-
-    /**
-     * Get URI for a file using FileProvider on Android N+
-     */
-    private fun getUriForFile(file: File): Uri {
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-            androidx.core.content.FileProvider.getUriForFile(
-                activity,
-                "${activity.packageName}.fileprovider",
-                file
-            )
-        } else {
-            Uri.fromFile(file)
-        }
     }
 }

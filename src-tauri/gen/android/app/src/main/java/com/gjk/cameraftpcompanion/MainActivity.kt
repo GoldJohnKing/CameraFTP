@@ -83,8 +83,8 @@ class MainActivity : TauriActivity() {
         addJsBridge(webView, galleryBridge, "GalleryAndroid")
         addJsBridge(webView, mediaStoreBridge, "MediaStoreAndroid")
 
-        // 注册Tauri事件监听 - 监听file-uploaded事件
-        registerFileUploadEventListener()
+        // 注册Tauri事件监听
+        registerTauriEventListeners()
     }
     
     /**
@@ -93,7 +93,7 @@ class MainActivity : TauriActivity() {
      * 使用轮询重试机制确保Tauri环境就绪
      */
     @SuppressLint("SetJavaScriptEnabled")
-    private fun registerFileUploadEventListener() {
+    private fun registerTauriEventListeners() {
         webViewRef?.let { webView ->
             EventListenerRegistration(webView).start()
         } ?: Log.e(TAG, "WebView is null, cannot register event listeners")
@@ -142,10 +142,6 @@ class MainActivity : TauriActivity() {
             
             if (window.__TAURI__?.event) {
                 window.__tauriEventListenerRegistered = true;
-                
-                window.__TAURI__.event.listen('file-uploaded', (event) => {
-                    window.FileUploadAndroid?.onFileUploaded(event.payload?.path || '');
-                });
                 
                 window.__TAURI__.event.listen('android-service-state-update', (event) => {
                     const p = event.payload;
