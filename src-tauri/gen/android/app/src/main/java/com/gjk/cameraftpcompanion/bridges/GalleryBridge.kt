@@ -33,6 +33,7 @@ class GalleryBridge(private val context: Context) : BaseJsBridge(context as andr
         val uri: String,
         val dateModified: Long,  // seconds
         val dateAdded: Long,     // seconds
+        val dateTaken: Long,     // milliseconds (EXIF capture time)
         val id: Long,
         val size: Long
     )
@@ -46,19 +47,28 @@ class GalleryBridge(private val context: Context) : BaseJsBridge(context as andr
         private const val URI_WINDOW_SIZE = 25  // Number of URIs to include on each side of target
 
         /**
-         * Pick the freshest/newest entry based on dateAdded (to match system gallery), then dateModified, then id
+         * Pick the freshest/newest entry based on dateTaken (EXIF capture time), then dateAdded, then id
          * Using id as final tie-breaker (higher id = more recent in MediaStore)
          */
         @JvmStatic
         fun pick_newest(a: MediaEntry, b: MediaEntry): MediaEntry {
-            // Compare by dateAdded first (higher is newer) to match system gallery order
-            if (a.dateAdded != b.dateAdded) {
-                return if (a.dateAdded > b.dateAdded) a else b
+            // Compare by dateTaken first (actual photo capture time from EXIF)
+            // dateTaken is in milliseconds, 0 means not available
+            val aHasTaken = a.dateTaken > 0
+            val bHasTaken = b.dateTaken > 0
+            if (aHasTaken && bHasTaken) {
+                if (a.dateTaken != b.dateTaken) {
+                    return if (a.dateTaken > b.dateTaken) a else b
+                }
+            } else if (aHasTaken) {
+                return a
+            } else if (bHasTaken) {
+                return b
             }
 
-            // If dateAdded is equal, compare by dateModified
-            if (a.dateModified != b.dateModified) {
-                return if (a.dateModified > b.dateModified) a else b
+            // Fall back to dateAdded if dateTaken not available
+            if (a.dateAdded != b.dateAdded) {
+                return if (a.dateAdded > b.dateAdded) a else b
             }
 
             // If both are equal, prefer higher id (more recent in MediaStore)
@@ -88,14 +98,15 @@ class GalleryBridge(private val context: Context) : BaseJsBridge(context as andr
         }
 
         /**
-         * Sort entries by dateAdded DESC (to match system gallery order), then dateModified DESC, then id DESC
+         * Sort entries by dateTaken DESC (EXIF capture time, matches system gallery), then dateAdded DESC, then id DESC
+         * Entries with dateTaken=0 (not available) are sorted after those with valid dateTaken
          * Using id as final tie-breaker ensures stable ordering (newer id = more recent in MediaStore)
          */
         @JvmStatic
         fun sort_entries(entries: List<MediaEntry>): List<MediaEntry> {
             return entries.sortedWith(
-                compareByDescending<MediaEntry> { it.dateAdded }
-                    .thenByDescending { it.dateModified }
+                compareByDescending<MediaEntry> { it.dateTaken }
+                    .thenByDescending { it.dateAdded }
                     .thenByDescending { it.id }
             )
         }
@@ -577,19 +588,20 @@ class GalleryBridge(private val context: Context) : BaseJsBridge(context as andr
                 MediaStore.Images.Media.DISPLAY_NAME,
                 MediaStore.Images.Media.DATE_MODIFIED,
                 MediaStore.Images.Media.DATE_ADDED,
+                MediaStore.Images.Media.DATE_TAKEN,
                 MediaStore.Images.Media.SIZE,
                 MediaStore.Images.Media.RELATIVE_PATH
             )
 
             val selection = build_query_selection()
             
-            // Query with DATE_ADDED DESC to match system gallery order
+            // Query with DATE_TAKEN DESC to match system gallery order (actual capture time)
             val cursor = context.contentResolver.query(
                 MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
                 projection,
                 selection,
                 null,
-                "${MediaStore.Images.Media.DATE_ADDED} DESC"
+                "${MediaStore.Images.Media.DATE_TAKEN} DESC"
             )
 
             val entries = mutableListOf<MediaEntry>()
@@ -601,6 +613,7 @@ class GalleryBridge(private val context: Context) : BaseJsBridge(context as andr
                 val nameColumn = it.getColumnIndexOrThrow(MediaStore.Images.Media.DISPLAY_NAME)
                 val modifiedColumn = it.getColumnIndexOrThrow(MediaStore.Images.Media.DATE_MODIFIED)
                 val addedColumn = it.getColumnIndexOrThrow(MediaStore.Images.Media.DATE_ADDED)
+                val takenColumn = it.getColumnIndexOrThrow(MediaStore.Images.Media.DATE_TAKEN)
                 val sizeColumn = it.getColumnIndexOrThrow(MediaStore.Images.Media.SIZE)
 
                 while (it.moveToNext()) {
@@ -608,14 +621,15 @@ class GalleryBridge(private val context: Context) : BaseJsBridge(context as andr
                     val displayName = it.getString(nameColumn)
                     val dateModified = it.getLong(modifiedColumn)
                     val dateAdded = it.getLong(addedColumn)
+                    val dateTaken = it.getLong(takenColumn)
                     val size = it.getLong(sizeColumn)
-                    
+
                     val contentUri = ContentUris.withAppendedId(
                         MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
                         id
                     ).toString()
 
-                    val entry = MediaEntry(contentUri, dateModified, dateAdded, id, size)
+                    val entry = MediaEntry(contentUri, dateModified, dateAdded, dateTaken, id, size)
                     
                     // Deduplicate by display name, keeping the newest
                     val existing = uriMap[displayName]
