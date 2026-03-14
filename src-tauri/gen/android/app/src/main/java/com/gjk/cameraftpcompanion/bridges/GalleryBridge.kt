@@ -535,8 +535,8 @@ class GalleryBridge(private val context: Context) : BaseJsBridge(context as andr
      * Returns JSON array of image metadata
      */
     @android.webkit.JavascriptInterface
-    fun list_media_store_images(): String {
-        Log.d(TAG, "list_media_store_images: querying MediaStore")
+    fun listMediaStoreImages(): String {
+        Log.d(TAG, "listMediaStoreImages: querying MediaStore")
         
         return try {
             val projection = arrayOf(
