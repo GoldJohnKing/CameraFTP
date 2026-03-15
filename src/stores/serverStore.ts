@@ -13,6 +13,7 @@ import { createEventManager, type EventRegistration } from '../utils/events';
 import { retryAction, executeAsync } from '../utils/store';
 import { checkAndroidPermissions } from '../types';
 import type { MediaStoreReadyPayload } from '../types/events';
+import { scheduleMediaLibraryRefresh } from '../utils/gallery-refresh';
 
 // Event payload types
 type ServerStartedPayload = { ip: string; port: number };
@@ -105,8 +106,13 @@ const createEventRegistrations = (
   },
   {
     name: 'media-store-ready',
-    handler: (_event: Event<MediaStoreReadyPayload>) => {
-      window.dispatchEvent(new CustomEvent('gallery-refresh-requested'));
+    handler: (event: Event<MediaStoreReadyPayload>) => {
+      scheduleMediaLibraryRefresh({
+        reason: 'upload',
+        uri: event.payload.uri,
+        displayName: event.payload.displayName,
+        timestamp: event.payload.timestamp,
+      });
     },
   },
   {

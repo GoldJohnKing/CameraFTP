@@ -4,16 +4,30 @@
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
 
-import { memo, useCallback, useEffect, useState, useRef } from 'react';
+import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { RefreshCw, ImageOff, Loader2, Check, X, Trash2, Share2, MoreVertical } from 'lucide-react';
 import { convertFileSrc } from '@tauri-apps/api/core';
+import { toast } from 'sonner';
 import { useConfigStore } from '../stores/configStore';
+import { usePermissionStore } from '../stores/permissionStore';
 import { permissionBridge } from '../types';
 import { toGalleryImage, type MediaStoreEntry } from '../utils/media-store-events';
 import type { GalleryImage, DeleteImagesResult } from '../types';
+import { buildDeleteFailureMessage } from '../utils/gallery-delete';
+import {
+  GALLERY_REFRESH_REQUESTED_EVENT,
+  requestLatestPhotoRefresh,
+} from '../utils/gallery-refresh';
+
+const GRID_MOVE_DURATION_MS = 220;
+const GRID_ENTER_DURATION_MS = 200;
+const GRID_EXIT_DURATION_MS = 180;
+const GRID_MOVE_EASING = 'cubic-bezier(0.22, 1, 0.36, 1)';
 
 export const GalleryCard = memo(function GalleryCard() {
   const { activeTab } = useConfigStore();
+  const requestStoragePermission = usePermissionStore((state) => state.requestStoragePermission);
+  const startPermissionPolling = usePermissionStore((state) => state.startPolling);
   const [images, setImages] = useState<GalleryImage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -25,11 +39,48 @@ export const GalleryCard = memo(function GalleryCard() {
   const [showMenu, setShowMenu] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deletingIds, setDeletingIds] = useState<Set<string>>(new Set());
+  const [enteringIds, setEnteringIds] = useState<Set<string>>(new Set());
   const menuRef = useRef<HTMLDivElement>(null);
   const observerRef = useRef<IntersectionObserver | null>(null);
+  const tileRefs = useRef(new Map<string, HTMLDivElement>());
+  const previousPositionsRef = useRef(new Map<string, DOMRect>());
+  const imagesRef = useRef<GalleryImage[]>([]);
+  const enteringTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Refs to track loading state without causing re-renders in observer callback
   const loadingThumbnailsRef = useRef<Set<string>>(new Set());
   const loadedThumbnailsRef = useRef<Set<string>>(new Set());
+
+  const animateGridMovement = useCallback((element: HTMLDivElement, oldRect: DOMRect, newRect: DOMRect) => {
+    const deltaX = oldRect.left - newRect.left;
+    const deltaY = oldRect.top - newRect.top;
+
+    if (deltaX === 0 && deltaY === 0) {
+      return;
+    }
+
+    element.style.transition = 'none';
+    element.style.transform = `translate(${deltaX}px, ${deltaY}px)`;
+
+    requestAnimationFrame(() => {
+      element.style.transition = `transform ${GRID_MOVE_DURATION_MS}ms ${GRID_MOVE_EASING}`;
+      element.style.transform = '';
+    });
+  }, []);
+
+  const animateGridEntry = useCallback((element: HTMLDivElement) => {
+    element.style.transition = 'none';
+    element.style.transform = 'scale(0.88)';
+    element.style.opacity = '0';
+
+    requestAnimationFrame(() => {
+      element.style.transition = [
+        `transform ${GRID_ENTER_DURATION_MS}ms ${GRID_MOVE_EASING}`,
+        `opacity ${GRID_ENTER_DURATION_MS}ms ease-out`,
+      ].join(', ');
+      element.style.transform = '';
+      element.style.opacity = '1';
+    });
+  }, []);
 
   // Load thumbnail for a specific image - defined before loadImages to avoid TDZ
   const loadThumbnail = useCallback(async (imagePath: string) => {
@@ -88,6 +139,26 @@ export const GalleryCard = memo(function GalleryCard() {
       const listJson = await window.GalleryAndroid.listMediaStoreImages();
       const entries = JSON.parse(listJson ?? '[]') as MediaStoreEntry[];
       const galleryImages = entries.map(toGalleryImage);
+      const previousPaths = new Set(imagesRef.current.map((image) => image.path));
+      const newPaths = imagesRef.current.length === 0
+        ? []
+        : galleryImages
+            .filter((image) => !previousPaths.has(image.path))
+            .map((image) => image.path);
+
+      if (enteringTimeoutRef.current) {
+        clearTimeout(enteringTimeoutRef.current);
+        enteringTimeoutRef.current = null;
+      }
+
+      setEnteringIds(new Set(newPaths));
+      if (newPaths.length > 0) {
+        enteringTimeoutRef.current = setTimeout(() => {
+          setEnteringIds(new Set());
+          enteringTimeoutRef.current = null;
+        }, GRID_ENTER_DURATION_MS + 80);
+      }
+
       setImages(galleryImages);
       
       // Clean up orphaned thumbnails for files that no longer exist
@@ -108,48 +179,77 @@ export const GalleryCard = memo(function GalleryCard() {
     }
   }, []);
 
+  useEffect(() => {
+    imagesRef.current = images;
+  }, [images]);
+
   // Load images on mount and listen for refresh requests
   useEffect(() => {
     loadImages();
     
     const handler = () => void loadImages();
-    window.addEventListener('gallery-refresh-requested', handler);
-    return () => window.removeEventListener('gallery-refresh-requested', handler);
+    window.addEventListener(GALLERY_REFRESH_REQUESTED_EVENT, handler);
+    return () => window.removeEventListener(GALLERY_REFRESH_REQUESTED_EVENT, handler);
   }, [loadImages]);
 
-  // Force thumbnail reload when images array changes (after refresh)
+  // Keep only current thumbnails and preload the first visible rows.
   useEffect(() => {
-    if (images.length > 0 && !isLoading) {
-      // Reset thumbnail loading state for all images to ensure fresh load
-      loadingThumbnailsRef.current.clear();
-      loadedThumbnailsRef.current.clear();
-      
-      // Clear any stale thumbnail data that doesn't match current images
-      const currentPaths = new Set(images.map(img => img.path));
-      setThumbnails(prev => {
-        const next = new Map();
-        prev.forEach((value, key) => {
-          if (currentPaths.has(key)) {
-            next.set(key, value);
-          }
-        });
-        return next;
+    const currentPaths = new Set(images.map((image) => image.path));
+
+    loadingThumbnailsRef.current.forEach((path) => {
+      if (!currentPaths.has(path)) {
+        loadingThumbnailsRef.current.delete(path);
+      }
+    });
+
+    loadedThumbnailsRef.current = new Set(
+      [...loadedThumbnailsRef.current].filter((path) => currentPaths.has(path)),
+    );
+
+    setLoadingThumbnails((prev) => new Set([...prev].filter((path) => currentPaths.has(path))));
+    setThumbnails((prev) => {
+      const next = new Map<string, string>();
+      prev.forEach((value, key) => {
+        if (currentPaths.has(key)) {
+          next.set(key, value);
+        }
       });
-      
-      // Preload first 9 images after a short delay to ensure DOM is ready
+      return next;
+    });
+
+    if (images.length > 0 && !isLoading) {
       requestAnimationFrame(() => {
-        const imagesToPreload = images.slice(0, 9);
-        imagesToPreload.forEach((image, index) => {
+        images.slice(0, 9).forEach((image, index) => {
           setTimeout(() => {
-            // Force reload by clearing the loaded state first
-            loadedThumbnailsRef.current.delete(image.path);
-            loadingThumbnailsRef.current.delete(image.path);
-            loadThumbnail(image.path);
+            void loadThumbnail(image.path);
           }, index * 50);
         });
       });
     }
   }, [images, isLoading, loadThumbnail]);
+
+  useLayoutEffect(() => {
+    const currentPositions = new Map<string, DOMRect>();
+
+    images.forEach((image) => {
+      const element = tileRefs.current.get(image.path);
+      if (!element) {
+        return;
+      }
+
+      const newRect = element.getBoundingClientRect();
+      currentPositions.set(image.path, newRect);
+
+      const previousRect = previousPositionsRef.current.get(image.path);
+      if (previousRect) {
+        animateGridMovement(element, previousRect, newRect);
+      } else if (enteringIds.has(image.path)) {
+        animateGridEntry(element);
+      }
+    });
+
+    previousPositionsRef.current = currentPositions;
+  }, [images, enteringIds, animateGridEntry, animateGridMovement]);
 
   // Setup intersection observer for lazy loading thumbnails
   // Observer is created once and uses loadThumbnail which tracks state via refs
@@ -197,12 +297,19 @@ export const GalleryCard = memo(function GalleryCard() {
   }, [loadThumbnail]); // loadThumbnail is stable (no deps), so this runs once
 
   // Observe image elements - only observe, don't load immediately (avoid duplicate with preload)
-  const imageRefCallback = useCallback((el: HTMLDivElement | null) => {
-    if (el && observerRef.current) {
-      observerRef.current.observe(el);
-      // Note: don't load here, let IntersectionObserver handle visible images
-      // Preload logic is in loadImages via requestAnimationFrame with delay
+  const imageRefCallback = useCallback((imagePath: string, el: HTMLDivElement | null) => {
+    const previousElement = tileRefs.current.get(imagePath);
+    if (previousElement && observerRef.current) {
+      observerRef.current.unobserve(previousElement);
     }
+
+    if (!el) {
+      tileRefs.current.delete(imagePath);
+      return;
+    }
+
+    tileRefs.current.set(imagePath, el);
+    observerRef.current?.observe(el);
   }, []);
 
   const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -231,6 +338,9 @@ export const GalleryCard = memo(function GalleryCard() {
       if (longPressTimerRef.current) {
         clearTimeout(longPressTimerRef.current);
       }
+      if (enteringTimeoutRef.current) {
+        clearTimeout(enteringTimeoutRef.current);
+      }
     };
   }, []);
 
@@ -254,7 +364,8 @@ export const GalleryCard = memo(function GalleryCard() {
     if (permissionBridge.isAvailable()) {
       const permissions = await permissionBridge.checkAll();
       if (permissions && !permissions.storage) {
-        permissionBridge.requestStorage();
+        requestStoragePermission();
+        startPermissionPolling('storage');
         return;
       }
     }
@@ -269,6 +380,7 @@ export const GalleryCard = memo(function GalleryCard() {
 
     try {
       await loadImages();
+      requestLatestPhotoRefresh({ reason: 'manual' });
     } finally {
       // Ensure animation lasts at least 200ms so users can see the refresh effect
       const elapsed = Date.now() - startTime;
@@ -278,7 +390,7 @@ export const GalleryCard = memo(function GalleryCard() {
         setIsRefreshing(false);
       }, remaining);
     }
-  }, [loadImages]);
+  }, [loadImages, requestStoragePermission, startPermissionPolling]);
 
   const handleDelete = useCallback(() => {
     if (selectedIds.size === 0) return;
@@ -301,13 +413,21 @@ export const GalleryCard = memo(function GalleryCard() {
 
       const result: DeleteImagesResult = JSON.parse(resultJson);
       const { deleted, notFound, failed } = result;
+      const failureMessage = buildDeleteFailureMessage(result);
 
       const pathsToAnimate = new Set([...deleted, ...notFound]);
       const failedPaths = new Set(failed);
 
       if (pathsToAnimate.size === 0 && failedPaths.size > 0) {
+        if (failureMessage) {
+          toast.error(failureMessage);
+        }
         setShowDeleteConfirm(false);
         return;
+      }
+
+      if (failedPaths.size > 0) {
+        toast.error(`部分删除失败：${failedPaths.size} 张图片未删除。`);
       }
 
       setDeletingIds(pathsToAnimate);
@@ -325,6 +445,10 @@ export const GalleryCard = memo(function GalleryCard() {
         const next = new Map(prev);
         pathsToAnimate.forEach(path => next.delete(path));
         return next;
+      });
+      pathsToAnimate.forEach((path) => {
+        loadingThumbnailsRef.current.delete(path);
+        loadedThumbnailsRef.current.delete(path);
       });
       setDeletingIds(new Set());
 
@@ -491,16 +615,19 @@ export const GalleryCard = memo(function GalleryCard() {
             <div
               key={image.path}
               data-path={image.path}
-              ref={imageRefCallback}
+              ref={(el) => imageRefCallback(image.path, el)}
               onClick={() => handleImageClick(image)}
               onTouchStart={(e) => handleTouchStart(image, e)}
               onTouchEnd={handleTouchEnd}
               onTouchMove={handleTouchEnd}
               onTouchCancel={handleTouchEnd}
               onContextMenu={(e) => e.preventDefault()}
-              className={`aspect-square bg-gray-100 rounded-lg overflow-hidden cursor-pointer hover:opacity-90 transition-all duration-300 relative select-none ${
+              className={`aspect-square bg-gray-100 rounded-lg overflow-hidden cursor-pointer hover:opacity-90 transition-opacity duration-200 relative select-none ${
                 isSelectionMode && selectedIds.has(image.path) ? 'ring-2 ring-blue-500' : ''
-              } ${isDeleting ? 'scale-0 opacity-0' : 'scale-100 opacity-100'}`}
+              } ${isDeleting ? 'scale-[0.88] opacity-0' : 'scale-100 opacity-100'}`}
+              style={{
+                transitionDuration: isDeleting ? `${GRID_EXIT_DURATION_MS}ms` : undefined,
+              }}
             >
               {thumbnail ? (
                 <img

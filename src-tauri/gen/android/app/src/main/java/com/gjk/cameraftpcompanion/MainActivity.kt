@@ -7,17 +7,24 @@
 package com.gjk.cameraftpcompanion
 
 import android.annotation.SuppressLint
+import android.app.Activity
 import android.content.Intent
+import android.content.IntentSender
 import android.os.Build
 import android.os.Bundle
 import android.util.Log
 import android.webkit.WebView
+import androidx.activity.result.IntentSenderRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.enableEdgeToEdge
 import com.gjk.cameraftpcompanion.bridges.FileUploadBridge
 import com.gjk.cameraftpcompanion.bridges.ServerStateBridge
 import com.gjk.cameraftpcompanion.bridges.GalleryBridge
 import com.gjk.cameraftpcompanion.bridges.MediaStoreBridge
 import com.gjk.cameraftpcompanion.cache.ThumbnailCacheProvider
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicReference
 
 class MainActivity : TauriActivity() {
 
@@ -36,6 +43,15 @@ class MainActivity : TauriActivity() {
     private var permissionBridge: PermissionBridge? = null
     private var galleryBridge: GalleryBridge? = null
     private var mediaStoreBridge: MediaStoreBridge? = null
+    private val pendingDeleteResult = AtomicReference<Pair<CountDownLatch, AtomicReference<Boolean>>?>(null)
+    private val deleteRequestLauncher = registerForActivityResult(
+        ActivityResultContracts.StartIntentSenderForResult()
+    ) { result ->
+        pendingDeleteResult.getAndSet(null)?.let { (latch, approvedRef) ->
+            approvedRef.set(result.resultCode == Activity.RESULT_OK)
+            latch.countDown()
+        }
+    }
 
     /**
      * Helper to add a JavaScript bridge to WebView with logging
@@ -188,6 +204,34 @@ class MainActivity : TauriActivity() {
         runOnUiThread {
             webView.evaluateJavascript(script, null)
         }
+    }
+
+    fun requestDeleteConfirmation(intentSender: IntentSender): Boolean {
+        val latch = CountDownLatch(1)
+        val approvedRef = AtomicReference(false)
+        val pendingResult = latch to approvedRef
+        pendingDeleteResult.set(pendingResult)
+
+        runOnUiThread {
+            try {
+                val request = IntentSenderRequest.Builder(intentSender).build()
+                deleteRequestLauncher.launch(request)
+            } catch (e: Exception) {
+                Log.e(TAG, "requestDeleteConfirmation: failed to launch delete request", e)
+                pendingDeleteResult.getAndSet(null)?.let { (pendingLatch, pendingApprovedRef) ->
+                    pendingApprovedRef.set(false)
+                    pendingLatch.countDown()
+                }
+            }
+        }
+
+        val completed = latch.await(30, TimeUnit.SECONDS)
+        if (!completed) {
+            pendingDeleteResult.compareAndSet(pendingResult, null)
+            Log.w(TAG, "requestDeleteConfirmation: timed out waiting for system dialog result")
+        }
+
+        return completed && approvedRef.get()
     }
     
     /**

@@ -12,7 +12,10 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.ImageDecoder
+import android.app.RecoverableSecurityException
 import android.net.Uri
+import android.os.Build
 import android.provider.MediaStore
 import android.util.Base64
 import android.util.Log
@@ -40,9 +43,9 @@ class GalleryBridge(private val context: Context) : BaseJsBridge(context as andr
 
     companion object {
         private const val TAG = "GalleryBridge"
-        private const val THUMBNAIL_QUALITY = 85
-        private const val THUMBNAIL_WIDTH = 400  // 增大尺寸以获得更好的显示效果
-        private const val THUMBNAIL_HEIGHT = 400
+        private const val THUMBNAIL_QUALITY = 92
+        private const val THUMBNAIL_WIDTH = 720
+        private const val THUMBNAIL_HEIGHT = 720
         private const val THUMBNAIL_SUBDIR = "thumbnails"
         private const val URI_WINDOW_SIZE = 25  // Number of URIs to include on each side of target
 
@@ -50,6 +53,32 @@ class GalleryBridge(private val context: Context) : BaseJsBridge(context as andr
          * Pick the freshest/newest entry based on dateTaken (EXIF capture time), then dateAdded, then id
          * Using id as final tie-breaker (higher id = more recent in MediaStore)
          */
+        @JvmStatic
+        fun shouldRequestDeleteConfirmation(
+            apiLevel: Int,
+            isSecurityException: Boolean,
+            isRecoverableSecurityException: Boolean,
+        ): Boolean {
+            if (!isSecurityException) {
+                return false
+            }
+
+            return when {
+                apiLevel >= Build.VERSION_CODES.R -> true
+                apiLevel == Build.VERSION_CODES.Q -> isRecoverableSecurityException
+                else -> false
+            }
+        }
+
+        @JvmStatic
+        fun shouldRequestDeleteConfirmation(apiLevel: Int, throwable: Throwable): Boolean {
+            return shouldRequestDeleteConfirmation(
+                apiLevel = apiLevel,
+                isSecurityException = throwable is SecurityException,
+                isRecoverableSecurityException = throwable is RecoverableSecurityException,
+            )
+        }
+
         @JvmStatic
         fun pick_newest(a: MediaEntry, b: MediaEntry): MediaEntry {
             // Compare by dateTaken first (actual photo capture time from EXIF)
@@ -321,6 +350,7 @@ class GalleryBridge(private val context: Context) : BaseJsBridge(context as andr
             val deleted = mutableListOf<String>()
             val notFound = mutableListOf<String>()
             val failed = mutableListOf<String>()
+            val pendingConfirmationUris = mutableListOf<Uri>()
 
             uris.forEach { uriString ->
                 try {
@@ -328,28 +358,27 @@ class GalleryBridge(private val context: Context) : BaseJsBridge(context as andr
                     
                     // Delete via MediaStore using URI
                     val rowsDeleted = context.contentResolver.delete(uri, null, null)
-
-                    // Verify deletion by checking if URI still exists
-                    val cursor = context.contentResolver.query(uri, null, null, null, null)
-                    val stillExists = cursor?.use { it.count > 0 } ?: false
-
-                    if (!stillExists) {
-                        if (rowsDeleted > 0) {
-                            deleted.add(uriString)
-                            Log.d(TAG, "Deleted image via MediaStore: uri=$uriString")
-                        } else {
-                            // Was already deleted or never existed
-                            notFound.add(uriString)
-                            Log.d(TAG, "Image not found in MediaStore: uri=$uriString")
-                        }
-                    } else {
-                        // File still exists after delete attempt
-                        failed.add(uriString)
-                        Log.w(TAG, "Failed to delete image (still exists): uri=$uriString")
-                    }
+                    classifyDeleteResult(uriString, rowsDeleted, deleted, notFound, failed)
                 } catch (e: Exception) {
-                    Log.e(TAG, "Error deleting URI: $uriString", e)
-                    failed.add(uriString)
+                    if (Build.VERSION.SDK_INT == Build.VERSION_CODES.Q && e is RecoverableSecurityException) {
+                        val approved = (activity as? MainActivity)
+                            ?.requestDeleteConfirmation(e.userAction.actionIntent.intentSender)
+                            ?: false
+                        classifyDeleteResult(uriString, if (approved) 1 else 0, deleted, notFound, failed)
+                    } else if (shouldRequestDeleteConfirmation(Build.VERSION.SDK_INT, e)) {
+                        pendingConfirmationUris.add(Uri.parse(uriString))
+                        Log.w(TAG, "deleteImages: delete confirmation required for uri=$uriString", e)
+                    } else {
+                        Log.e(TAG, "Error deleting URI: $uriString", e)
+                        failed.add(uriString)
+                    }
+                }
+            }
+
+            if (pendingConfirmationUris.isNotEmpty()) {
+                val deleteConfirmed = requestDeleteConfirmation(pendingConfirmationUris)
+                pendingConfirmationUris.forEach { uri ->
+                    classifyDeleteResult(uri.toString(), if (deleteConfirmed) 1 else 0, deleted, notFound, failed)
                 }
             }
 
@@ -365,6 +394,56 @@ class GalleryBridge(private val context: Context) : BaseJsBridge(context as andr
         } catch (e: Exception) {
             Log.e(TAG, "deleteImages error", e)
             """{"deleted":[],"notFound":[],"failed":[]}"""
+        }
+    }
+
+    private fun requestDeleteConfirmation(uris: List<Uri>): Boolean {
+        val mainActivity = activity as? MainActivity ?: return false
+
+        return try {
+            when {
+                Build.VERSION.SDK_INT >= Build.VERSION_CODES.R -> {
+                    val pendingIntent = MediaStore.createDeleteRequest(context.contentResolver, uris)
+                    mainActivity.requestDeleteConfirmation(pendingIntent.intentSender)
+                }
+
+                Build.VERSION.SDK_INT == Build.VERSION_CODES.Q -> {
+                    false
+                }
+
+                else -> false
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "requestDeleteConfirmation failed", e)
+            false
+        }
+    }
+
+    private fun classifyDeleteResult(
+        uriString: String,
+        rowsDeleted: Int,
+        deleted: MutableList<String>,
+        notFound: MutableList<String>,
+        failed: MutableList<String>,
+    ) {
+        val stillExists = try {
+            val cursor = context.contentResolver.query(Uri.parse(uriString), null, null, null, null)
+            cursor?.use { it.count > 0 } ?: false
+        } catch (_: Exception) {
+            false
+        }
+
+        if (!stillExists) {
+            if (rowsDeleted > 0) {
+                deleted.add(uriString)
+                Log.d(TAG, "Deleted image via MediaStore: uri=$uriString")
+            } else {
+                notFound.add(uriString)
+                Log.d(TAG, "Image not found in MediaStore: uri=$uriString")
+            }
+        } else {
+            failed.add(uriString)
+            Log.w(TAG, "Failed to delete image (still exists): uri=$uriString")
         }
     }
 
@@ -739,25 +818,48 @@ class GalleryBridge(private val context: Context) : BaseJsBridge(context as andr
      */
     private fun load_thumbnail(uri: Uri): Bitmap? {
         return try {
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
-                context.contentResolver.loadThumbnail(
-                    uri,
-                    android.util.Size(THUMBNAIL_WIDTH, THUMBNAIL_HEIGHT),
-                    null
-                )
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+                val source = ImageDecoder.createSource(context.contentResolver, uri)
+                val bitmap = ImageDecoder.decodeBitmap(source) { decoder, info, _ ->
+                    val sourceWidth = info.size.width
+                    val sourceHeight = info.size.height
+                    if (sourceWidth > 0 && sourceHeight > 0) {
+                        val shortestEdge = minOf(sourceWidth, sourceHeight)
+                        val scale = THUMBNAIL_WIDTH.toFloat() / shortestEdge.toFloat()
+                        val targetWidth = maxOf(1, (sourceWidth * scale).toInt())
+                        val targetHeight = maxOf(1, (sourceHeight * scale).toInt())
+                        decoder.setTargetSize(targetWidth, targetHeight)
+                    }
+                    decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
+                    decoder.isMutableRequired = false
+                }
+                centerCropThumbnail(bitmap)
             } else {
                 // Fallback for older versions
                 @Suppress("DEPRECATION")
-                MediaStore.Images.Thumbnails.getThumbnail(
+                val bitmap = MediaStore.Images.Thumbnails.getThumbnail(
                     context.contentResolver,
                     ContentUris.parseId(uri),
                     MediaStore.Images.Thumbnails.MINI_KIND,
                     null
                 )
+                bitmap?.let(::centerCropThumbnail)
             }
         } catch (e: Exception) {
             Log.e(TAG, "load_thumbnail error for uri=$uri", e)
             null
+        }
+    }
+
+    private fun centerCropThumbnail(bitmap: Bitmap): Bitmap {
+        val cropEdge = minOf(bitmap.width, bitmap.height)
+        val offsetX = (bitmap.width - cropEdge) / 2
+        val offsetY = (bitmap.height - cropEdge) / 2
+        val croppedBitmap = Bitmap.createBitmap(bitmap, offsetX, offsetY, cropEdge, cropEdge)
+        return if (croppedBitmap.width == THUMBNAIL_WIDTH && croppedBitmap.height == THUMBNAIL_HEIGHT) {
+            croppedBitmap
+        } else {
+            Bitmap.createScaledBitmap(croppedBitmap, THUMBNAIL_WIDTH, THUMBNAIL_HEIGHT, true)
         }
     }
 }

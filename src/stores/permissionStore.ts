@@ -10,6 +10,7 @@ import { toast } from 'sonner';
 import type { PermissionCheckResult, StorageInfo, PermissionStatus, ServerStartCheckResult } from '../types';
 import { permissionBridge } from '../types';
 import { formatError, silent } from '../utils/error';
+import { requestMediaLibraryRefresh } from '../utils/gallery-refresh';
 
 interface PermissionStoreState {
   // Permission states
@@ -37,7 +38,7 @@ interface PermissionStoreState {
   requestBatteryOptimization: () => void;
   
   // Start/stop polling - controlled by PermissionDialog only
-  startPolling: () => void;
+  startPolling: (mode?: 'all' | 'storage') => void;
   stopPolling: () => void;
   
   // Polling interval ID (stored in state instead of module scope)
@@ -65,6 +66,7 @@ function checkAllGranted(perms: PermissionCheckResult): boolean {
 }
 
 const POLLING_INTERVAL_MS = 200; // Poll every 200ms when active
+const POLLING_TIMEOUT_MS = 30000;
 
 /**
  * Permission Store using Zustand
@@ -160,7 +162,7 @@ export const usePermissionStore = create<PermissionStoreState>()((set, get) => (
     
     // Start polling for permission changes
     // Only PermissionDialog should call this
-    startPolling: () => {
+    startPolling: (mode = 'all') => {
       if (!permissionBridge.isAvailable()) return;
       
       const state = get();
@@ -175,6 +177,7 @@ export const usePermissionStore = create<PermissionStoreState>()((set, get) => (
       // Store previous state to detect changes
       let previousState = { ...state.permissions };
       let stopPollingRequested = false;
+      const pollingStartedAt = Date.now();
       
       // Check immediately
       permissionCheckInternal().then(perms => {
@@ -182,8 +185,11 @@ export const usePermissionStore = create<PermissionStoreState>()((set, get) => (
           previousState = perms;
           get().setPermissions(perms);
           
-          // If all already granted, stop immediately
-          if (perms.storage && perms.notification && perms.batteryOptimization) {
+          const shouldStopImmediately = mode === 'storage'
+            ? perms.storage
+            : perms.storage && perms.notification && perms.batteryOptimization;
+
+          if (shouldStopImmediately) {
             get().stopPolling();
             return;
           }
@@ -194,6 +200,12 @@ export const usePermissionStore = create<PermissionStoreState>()((set, get) => (
       const intervalId = window.setInterval(async () => {
         // Skip if stop was requested
         if (stopPollingRequested) return;
+
+        if (Date.now() - pollingStartedAt > POLLING_TIMEOUT_MS) {
+          stopPollingRequested = true;
+          get().stopPolling();
+          return;
+        }
         
         const perms = await permissionCheckInternal();
         if (perms) {
@@ -204,12 +216,20 @@ export const usePermissionStore = create<PermissionStoreState>()((set, get) => (
             perms.batteryOptimization !== previousState.batteryOptimization;
           
           if (hasChanged) {
+            const storageJustGranted = !previousState.storage && perms.storage;
             previousState = perms;
             get().setPermissions(perms);
+
+            if (storageJustGranted) {
+              requestMediaLibraryRefresh({ reason: 'permission-granted' });
+            }
           }
           
-          // If all granted, request stop (but let this interval finish)
-          if (perms.storage && perms.notification && perms.batteryOptimization) {
+          const shouldStopPolling = mode === 'storage'
+            ? perms.storage
+            : perms.storage && perms.notification && perms.batteryOptimization;
+
+          if (shouldStopPolling) {
             stopPollingRequested = true;
             // Delay stop to ensure state is propagated
             window.setTimeout(() => {

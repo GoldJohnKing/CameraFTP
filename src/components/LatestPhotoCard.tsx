@@ -4,13 +4,15 @@
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
 
-import { memo, useCallback, useState, useEffect } from 'react';
+import { memo, useCallback, useEffect, useState } from 'react';
 import { Image } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { useServerStore } from '../stores/serverStore';
 import { IconContainer } from './ui';
 import type { FileInfo } from '../types';
+import { LATEST_PHOTO_REFRESH_REQUESTED_EVENT } from '../utils/gallery-refresh';
+import type { MediaStoreEntry } from '../utils/media-store-events';
 
 interface FileIndexChangedEvent {
   count: number;
@@ -19,21 +21,50 @@ interface FileIndexChangedEvent {
 
 export const LatestPhotoCard = memo(function LatestPhotoCard() {
   const { stats } = useServerStore();
-  const [scannedLatestFile, setScannedLatestFile] = useState<FileInfo | null>(null);
+  const [scannedLatestFile, setScannedLatestFile] = useState<Pick<FileInfo, 'filename' | 'path'> | null>(null);
+
+  const fetchLatestFile = useCallback(async () => {
+    if (window.GalleryAndroid) {
+      const listJson = await window.GalleryAndroid.listMediaStoreImages();
+      const entries = JSON.parse(listJson ?? '[]') as MediaStoreEntry[];
+      const latestEntry = entries[0] ?? null;
+
+      return latestEntry
+        ? {
+            filename: latestEntry.displayName,
+            path: latestEntry.uri,
+          }
+        : null;
+    }
+
+    return invoke<FileInfo | null>('get_latest_image');
+  }, []);
+
+  const refreshLatestFile = useCallback(async () => {
+    try {
+      const latest = await fetchLatestFile();
+      setScannedLatestFile(latest);
+    } catch (err) {
+      console.error('[LatestPhotoCard] Failed to fetch latest image:', err);
+    }
+  }, [fetchLatestFile]);
 
   // 加载时获取扫描的最新文件
   useEffect(() => {
-    const fetchLatestFile = async () => {
-      try {
-        const latest = await invoke<FileInfo | null>('get_latest_image');
-        setScannedLatestFile(latest);
-      } catch (err) {
-        console.error('[LatestPhotoCard] Failed to fetch latest image:', err);
-      }
+    void refreshLatestFile();
+  }, [refreshLatestFile]);
+
+  useEffect(() => {
+    const handleRefreshRequest = (_event: Event) => {
+      void refreshLatestFile();
     };
 
-    fetchLatestFile();
-  }, []);
+    window.addEventListener(LATEST_PHOTO_REFRESH_REQUESTED_EVENT, handleRefreshRequest);
+
+    return () => {
+      window.removeEventListener(LATEST_PHOTO_REFRESH_REQUESTED_EVENT, handleRefreshRequest);
+    };
+  }, [refreshLatestFile]);
 
   // 监听文件索引变化事件
   useEffect(() => {
@@ -41,20 +72,14 @@ export const LatestPhotoCard = memo(function LatestPhotoCard() {
       if (event.payload.count === 0) {
         setScannedLatestFile(null);
       } else {
-        invoke<FileInfo | null>('get_latest_image')
-          .then((latest) => {
-            setScannedLatestFile(latest);
-          })
-          .catch(() => {
-            // Silently ignore
-          });
+        void refreshLatestFile();
       }
     });
 
     return () => {
       unlistenPromise.then((unlisten) => unlisten()).catch(() => {});
     };
-  }, []);
+  }, [refreshLatestFile]);
 
   // 获取显示用的文件名
   // 优先使用实时扫描的文件（更及时地反映删除操作）
@@ -74,7 +99,7 @@ export const LatestPhotoCard = memo(function LatestPhotoCard() {
 
   const handleOpenPreview = useCallback(async () => {
     try {
-      const latest = await invoke<FileInfo | null>('get_latest_image');
+      const latest = await fetchLatestFile();
       if (latest) {
         setScannedLatestFile(latest);
         // 打开图片
@@ -87,7 +112,7 @@ export const LatestPhotoCard = memo(function LatestPhotoCard() {
     } catch {
       // Silently ignore
     }
-  }, []);
+  }, [fetchLatestFile]);
 
   // 优先使用 scannedLatestFile 判断是否有文件（实时更新）
   const hasFile = scannedLatestFile || stats.lastFile;
