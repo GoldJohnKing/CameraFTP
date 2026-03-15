@@ -14,6 +14,7 @@ import { retryAction, executeAsync } from '../utils/store';
 import { checkAndroidPermissions } from '../types';
 import type { MediaStoreReadyPayload } from '../types/events';
 import { scheduleMediaLibraryRefresh } from '../utils/gallery-refresh';
+import { shouldScheduleUploadRefresh } from '../utils/server-stats-refresh';
 
 // Event payload types
 type ServerStartedPayload = { ip: string; port: number };
@@ -100,8 +101,16 @@ const createEventRegistrations = (
     name: 'stats-update',
     handler: (event: Event<ServerStateSnapshot>) => {
       const stats = event.payload;
+      const previousStats = get().stats;
       set((state) => ({ ...state, stats }));
       updateAndroidServiceState(true, stats, stats.connectedClients || 0);
+
+      if (shouldScheduleUploadRefresh(previousStats.filesReceived, stats.filesReceived)) {
+        scheduleMediaLibraryRefresh({
+          reason: 'upload',
+          timestamp: Date.now(),
+        });
+      }
     },
   },
   {

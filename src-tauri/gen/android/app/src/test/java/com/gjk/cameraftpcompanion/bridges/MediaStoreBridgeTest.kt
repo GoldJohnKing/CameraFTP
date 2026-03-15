@@ -13,6 +13,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import org.json.JSONObject
 import android.provider.MediaStore
+import android.content.Context
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [33], manifest = Config.NONE)
@@ -130,5 +131,18 @@ class MediaStoreBridgeTest {
         val selection = MediaStoreBridge.buildCleanupSelection(nowMinus25h)
         assertTrue(selection.contains("IS_PENDING"))
         assertTrue(selection.contains("DATE_ADDED"))
+    }
+
+    @Test
+    fun should_emit_media_store_ready_for_common_image_mime_types() {
+        assertTrue(MediaStoreBridge.shouldEmitMediaStoreReady("image/jpeg"))
+        assertTrue(MediaStoreBridge.shouldEmitMediaStoreReady("image/png"))
+        assertTrue(MediaStoreBridge.shouldEmitMediaStoreReady("image/webp"))
+    }
+
+    @Test
+    fun finalize_native_bridge_exposes_emit_ready_entrypoint() {
+        val methodRef: (Context, String, Long?) -> Boolean = MediaStoreBridge::finalizeEntryAndEmitReadyNative
+        assertNotNull(methodRef)
     }
 }

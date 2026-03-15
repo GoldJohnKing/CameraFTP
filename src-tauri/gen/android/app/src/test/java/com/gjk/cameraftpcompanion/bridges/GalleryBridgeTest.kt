@@ -83,4 +83,34 @@ class GalleryBridgeTest {
         val selection = GalleryBridge.build_delete_selection("content://media/1")
         assertTrue(selection.contains("content://"))
     }
+
+    @Test
+    fun thumbnail_cleanup_keeps_legacy_and_current_cache_keys() {
+        val legacyKey = "legacymd5"
+        val currentKey = "currentmd5"
+
+        assertFalse(
+            GalleryBridge.shouldRemoveCachedThumbnail(
+                fileName = "thumb_${legacyKey}.jpg",
+                legacyKeys = setOf(legacyKey),
+                activeKeys = emptySet(),
+            )
+        )
+
+        assertFalse(
+            GalleryBridge.shouldRemoveCachedThumbnail(
+                fileName = "thumb_${currentKey}.jpg",
+                legacyKeys = emptySet(),
+                activeKeys = setOf(currentKey),
+            )
+        )
+
+        assertTrue(
+            GalleryBridge.shouldRemoveCachedThumbnail(
+                fileName = "thumb_orphan.jpg",
+                legacyKeys = setOf(legacyKey),
+                activeKeys = setOf(currentKey),
+            )
+        )
+    }
 }

@@ -182,6 +182,16 @@ class GalleryBridge(private val context: Context) : BaseJsBridge(context as andr
             val id = Uri.parse(uri).lastPathSegment ?: return ""
             return "${MediaStore.Images.Media._ID}=?"
         }
+
+        @JvmStatic
+        fun shouldRemoveCachedThumbnail(
+            fileName: String,
+            legacyKeys: Set<String>,
+            activeKeys: Set<String>,
+        ): Boolean {
+            val key = fileName.removePrefix("thumb_").removeSuffix(".jpg")
+            return key !in legacyKeys && key !in activeKeys
+        }
     }
 
     /**
@@ -521,9 +531,18 @@ class GalleryBridge(private val context: Context) : BaseJsBridge(context as andr
                 (0 until json.length()).map { json.getString(it) }
             }
 
-            // 构建存在的路径的 MD5 集合
-            val existingMd5s = existingPaths.map { path ->
+            val cache = ThumbnailCacheProvider.instance
+
+            // Legacy key set (md5(path)) for backward compatibility.
+            val legacyKeys = existingPaths.map { path ->
                 path.toByteArray().md5()
+            }.toSet()
+
+            // Current key set (keyFor(uri, dateModified)).
+            val activeKeys = existingPaths.mapNotNull { path ->
+                val uri = Uri.parse(path)
+                val dateModified = queryDateModifiedFromMediaStore(uri) ?: return@mapNotNull null
+                cache.keyFor(uri, dateModified)
             }.toSet()
 
             val cacheDir = getThumbnailCacheDir()
@@ -531,9 +550,7 @@ class GalleryBridge(private val context: Context) : BaseJsBridge(context as andr
 
             var removedCount = 0
             cacheFiles.forEach { cacheFile ->
-                // 从文件名中提取 MD5
-                val md5 = cacheFile.name.removePrefix("thumb_").removeSuffix(".jpg")
-                if (md5 !in existingMd5s) {
+                if (shouldRemoveCachedThumbnail(cacheFile.name, legacyKeys, activeKeys)) {
                     if (cacheFile.delete()) {
                         removedCount++
                         Log.d(TAG, "Removed orphaned thumbnail: ${cacheFile.name}")

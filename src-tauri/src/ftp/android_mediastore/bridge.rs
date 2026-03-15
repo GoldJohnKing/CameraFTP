@@ -24,8 +24,15 @@ use tracing::debug;
 #[cfg(not(target_os = "android"))]
 use super::types::{mime_type_from_filename, relative_path_from_full_path};
 
-#[cfg(target_os = "android")]
+#[cfg(any(target_os = "android", test))]
 const MEDIASTORE_BRIDGE_CLASS: &str = "com.gjk.cameraftpcompanion.bridges.MediaStoreBridge";
+
+#[cfg(any(target_os = "android", test))]
+const FINALIZE_ENTRY_METHOD_NAME: &str = "finalizeEntryAndEmitReadyNative";
+
+#[cfg(any(target_os = "android", test))]
+const FINALIZE_ENTRY_METHOD_SIGNATURE: &str =
+    "(Landroid/content/Context;Ljava/lang/String;Ljava/lang/Long;)Z";
 
 /// JNI-based MediaStore bridge for Android.
 #[cfg(target_os = "android")]
@@ -111,6 +118,14 @@ impl JniMediaStoreBridge {
             MediaStoreError::BridgeError(format!("Failed to create Java string: {e}"))
         })?;
         Ok(JObject::from(s))
+    }
+
+    fn finalize_entry_method_name() -> &'static str {
+        FINALIZE_ENTRY_METHOD_NAME
+    }
+
+    fn finalize_entry_method_signature() -> &'static str {
+        FINALIZE_ENTRY_METHOD_SIGNATURE
     }
 
     fn optional_long<'a>(
@@ -363,8 +378,8 @@ impl MediaStoreBridgeClient for JniMediaStoreBridge {
 
             let ok = Self::call_static_bool(
                 env,
-                "finalizeEntryNative",
-                "(Landroid/content/Context;Ljava/lang/String;Ljava/lang/Long;)Z",
+                Self::finalize_entry_method_name(),
+                Self::finalize_entry_method_signature(),
                 &[
                     JValue::Object(&context),
                     JValue::Object(&j_uri),
@@ -718,6 +733,11 @@ pub fn create_bridge() -> Arc<dyn MediaStoreBridgeClient> {
 mod tests {
     use super::*;
     use tempfile::TempDir;
+
+    #[test]
+    fn test_finalize_entry_uses_emit_capable_native_method() {
+        assert_eq!(FINALIZE_ENTRY_METHOD_NAME, "finalizeEntryAndEmitReadyNative");
+    }
 
     #[cfg(all(not(target_os = "android"), unix))]
     #[tokio::test]

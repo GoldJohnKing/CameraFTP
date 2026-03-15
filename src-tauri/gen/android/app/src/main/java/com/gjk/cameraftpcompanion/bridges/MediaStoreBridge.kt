@@ -240,7 +240,7 @@ class MediaStoreBridge(activity: MainActivity) : BaseJsBridge(activity) {
         @JvmStatic
         fun shouldEmitMediaStoreReady(mimeType: String?): Boolean {
             val value = mimeType?.lowercase() ?: return false
-            return value == "image/jpeg" || value == "image/heif" || value == "video/mp4" || value == "video/quicktime"
+            return value.startsWith("image/") || value.startsWith("video/")
         }
 
         /**
@@ -331,6 +331,17 @@ class MediaStoreBridge(activity: MainActivity) : BaseJsBridge(activity) {
             val updated = resolver.update(uriObj, values, null, null)
 
             return updated > 0
+        }
+
+        @JvmStatic
+        fun finalizeEntryAndEmitReadyNative(context: Context, uri: String, expectedSize: Long?): Boolean {
+            val finalized = finalizeEntryNative(context, uri, expectedSize)
+            if (!finalized) {
+                return false
+            }
+
+            emitMediaStoreReady(context, uri, expectedSize ?: 0)
+            return true
         }
 
         /**
@@ -451,6 +462,39 @@ class MediaStoreBridge(activity: MainActivity) : BaseJsBridge(activity) {
                 false
             }
         }
+
+        private fun emitMediaStoreReady(context: Context, uri: String, size: Long) {
+            try {
+                val cursor = context.contentResolver.query(
+                    Uri.parse(uri),
+                    arrayOf(
+                        MediaStore.MediaColumns.RELATIVE_PATH,
+                        MediaStore.MediaColumns.DISPLAY_NAME,
+                        MediaStore.MediaColumns.DATE_MODIFIED,
+                        MediaStore.MediaColumns.MIME_TYPE,
+                    ),
+                    null,
+                    null,
+                    null,
+                )
+
+                cursor?.use {
+                    if (it.moveToFirst()) {
+                        val relativePath = it.getString(0) ?: ""
+                        val displayName = it.getString(1) ?: ""
+                        val timestamp = it.getLong(2) * 1000
+                        val mimeType = it.getString(3)
+
+                        if (shouldEmitMediaStoreReady(mimeType)) {
+                            val payload = buildReadyPayload(uri, relativePath, displayName, size, timestamp)
+                            (context as? MainActivity)?.emitTauriEvent("media-store-ready", payload)
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to emit media-store-ready event", e)
+            }
+        }
     }
 
     data class EntryResult(val fd: Int, val uri: String)
@@ -496,12 +540,10 @@ class MediaStoreBridge(activity: MainActivity) : BaseJsBridge(activity) {
 
         return try {
             val result = retryWithBackoff(3) {
-                finalizeEntryNative(activity, uri, expectedSize)
+                finalizeEntryAndEmitReadyNative(activity, uri, expectedSize)
             }
 
             if (result.isSuccess && result.getOrThrow()) {
-                // Emit media-store-ready event
-                emitMediaStoreReady(uri, expectedSize ?: 0)
                 true
             } else {
                 Log.e(TAG, "Failed to finalize MediaStore entry")
@@ -528,40 +570,4 @@ class MediaStoreBridge(activity: MainActivity) : BaseJsBridge(activity) {
         }
     }
 
-    /**
-     * Emit media-store-ready event to WebView
-     */
-    private fun emitMediaStoreReady(uri: String, size: Long) {
-        try {
-            // Get metadata from MediaStore
-            val cursor = activity.contentResolver.query(
-                Uri.parse(uri),
-                arrayOf(
-                    MediaStore.MediaColumns.RELATIVE_PATH,
-                    MediaStore.MediaColumns.DISPLAY_NAME,
-                    MediaStore.MediaColumns.DATE_MODIFIED,
-                    MediaStore.MediaColumns.MIME_TYPE
-                ),
-                null,
-                null,
-                null
-            )
-
-            cursor?.use {
-                if (it.moveToFirst()) {
-                    val relativePath = it.getString(0) ?: ""
-                    val displayName = it.getString(1) ?: ""
-                    val timestamp = it.getLong(2) * 1000 // Convert to milliseconds
-                    val mimeType = it.getString(3)
-
-                    if (shouldEmitMediaStoreReady(mimeType)) {
-                        val payload = buildReadyPayload(uri, relativePath, displayName, size, timestamp)
-                        (activity as? MainActivity)?.emitTauriEvent("media-store-ready", payload)
-                    }
-                }
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to emit media-store-ready event", e)
-        }
-    }
 }
