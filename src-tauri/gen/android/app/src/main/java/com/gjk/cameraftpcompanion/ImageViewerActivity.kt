@@ -10,13 +10,16 @@ import android.content.ContentUris
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ActivityInfo
+import android.database.Cursor
 import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Bundle
 import android.provider.MediaStore
 import android.util.Log
+import android.view.MotionEvent
 import android.view.View
 import android.widget.ImageButton
+import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.enableEdgeToEdge
@@ -28,7 +31,9 @@ import androidx.core.view.WindowInsetsControllerCompat
 import androidx.viewpager2.widget.ViewPager2
 import com.davemorrissey.labs.subscaleview.SubsamplingScaleImageView
 import org.json.JSONArray
-import org.json.JSONObject
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 class ImageViewerActivity : AppCompatActivity() {
 
@@ -48,6 +53,7 @@ class ImageViewerActivity : AppCompatActivity() {
     }
 
     private lateinit var viewPager: ViewPager2
+    private lateinit var bottomBar: LinearLayout
     private lateinit var filenameView: TextView
     private lateinit var exifParams: TextView
     private lateinit var exifDatetime: TextView
@@ -57,6 +63,7 @@ class ImageViewerActivity : AppCompatActivity() {
     private var uris: MutableList<String> = mutableListOf()
     private var currentIndex: Int = 0
     private var isLandscape = false
+    private var isBottomBarVisible = true
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -64,13 +71,13 @@ class ImageViewerActivity : AppCompatActivity() {
         hideSystemBars()
         setContentView(R.layout.activity_image_viewer)
 
-        // Use ARGB_8888 for full color depth (prevents color banding)
         SubsamplingScaleImageView.setPreferredBitmapConfig(Bitmap.Config.ARGB_8888)
 
         uris = parseUrisFromIntent().toMutableList()
         currentIndex = intent.getIntExtra(EXTRA_TARGET_INDEX, 0)
 
         viewPager = findViewById(R.id.view_pager)
+        bottomBar = findViewById(R.id.bottom_bar)
         filenameView = findViewById(R.id.filename)
         exifParams = findViewById(R.id.exif_params)
         exifDatetime = findViewById(R.id.exif_datetime)
@@ -92,6 +99,19 @@ class ImageViewerActivity : AppCompatActivity() {
                 updateUI()
             }
         })
+
+        // Tap to toggle bottom bar
+        viewPager.getChildAt(0)?.setOnTouchListener { _, event ->
+            if (event.action == MotionEvent.ACTION_UP) {
+                toggleBottomBar()
+            }
+            false
+        }
+    }
+
+    private fun toggleBottomBar() {
+        isBottomBarVisible = !isBottomBarVisible
+        bottomBar.visibility = if (isBottomBarVisible) View.VISIBLE else View.GONE
     }
 
     private fun setupButtons() {
@@ -112,85 +132,81 @@ class ImageViewerActivity : AppCompatActivity() {
     }
 
     private fun updateUI() {
-        updateFilename()
+        updateFilenameAndExif()
         updateNavIndicator()
-        loadExifForCurrentImage()
     }
 
-    private fun updateFilename() {
+    private fun updateFilenameAndExif() {
         if (uris.isEmpty() || currentIndex < 0 || currentIndex >= uris.size) {
             filenameView.text = ""
+            exifParams.visibility = View.GONE
+            exifDatetime.visibility = View.GONE
             return
         }
+
         val uri = Uri.parse(uris[currentIndex])
-        filenameView.text = uri.lastPathSegment ?: uris[currentIndex]
+        queryMediaStoreInfo(uri)
     }
 
-    private fun updateNavIndicator() {
-        if (uris.size > 1) {
-            navIndicator.text = "${currentIndex + 1} / ${uris.size}"
-        } else {
-            navIndicator.text = ""
-        }
-    }
+    private fun queryMediaStoreInfo(uri: Uri) {
+        val projection = arrayOf(
+            MediaStore.Images.Media.DISPLAY_NAME,
+            MediaStore.Images.Media.DATE_TAKEN,
+            MediaStore.Images.Media.WIDTH,
+            MediaStore.Images.Media.HEIGHT
+        )
 
-    private fun loadExifForCurrentImage() {
-        if (uris.isEmpty() || currentIndex < 0 || currentIndex >= uris.size) {
-            exifParams.visibility = View.GONE
-            exifDatetime.visibility = View.GONE
-            return
-        }
+        try {
+            val cursor: Cursor? = contentResolver.query(uri, projection, null, null, null)
+            cursor?.use {
+                if (it.moveToFirst()) {
+                    val displayName = it.getString(it.getColumnIndexOrThrow(MediaStore.Images.Media.DISPLAY_NAME))
+                    val dateTaken = it.getLong(it.getColumnIndexOrThrow(MediaStore.Images.Media.DATE_TAKEN))
+                    val width = it.getInt(it.getColumnIndexOrThrow(MediaStore.Images.Media.WIDTH))
+                    val height = it.getInt(it.getColumnIndexOrThrow(MediaStore.Images.Media.HEIGHT))
 
-        val uri = uris[currentIndex]
-        val webView = MainActivity.instance?.getWebView()
+                    // Filename
+                    filenameView.text = displayName ?: uri.lastPathSegment ?: ""
 
-        if (webView == null) {
-            exifParams.visibility = View.GONE
-            exifDatetime.visibility = View.GONE
-            return
-        }
+                    // Date taken
+                    if (dateTaken > 0) {
+                        val sdf = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
+                        exifDatetime.text = sdf.format(Date(dateTaken))
+                        exifDatetime.visibility = View.VISIBLE
+                    } else {
+                        exifDatetime.visibility = View.GONE
+                    }
 
-        val escapedUri = uri.replace("\\", "\\\\").replace("'", "\\'")
-        val script = """
-            (function() {
-                try {
-                    window.__TAURI__.core.invoke('get_image_exif', { filePath: '$escapedUri' })
-                        .then(function(exif) {
-                            window.ImageViewerAndroid.onExifResult(JSON.stringify(exif));
-                        })
-                        .catch(function() {
-                            window.ImageViewerAndroid.onExifResult(null);
-                        });
-                } catch(e) {
-                    window.ImageViewerAndroid.onExifResult(null);
-                }
-            })();
-        """.trimIndent()
+                    // Dimensions as EXIF params fallback
+                    if (width > 0 && height > 0) {
+                        exifParams.text = "${width} × ${height}"
+                        exifParams.visibility = View.VISIBLE
+                    } else {
+                        exifParams.visibility = View.GONE
+                    }
 
-        runOnUiThread {
-            webView.evaluateJavascript(script) { result ->
-                // If evaluateJavascript itself fails, hide EXIF
-                if (result == null) {
-                    exifParams.visibility = View.GONE
-                    exifDatetime.visibility = View.GONE
+                    return
                 }
             }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to query MediaStore for ${uri}", e)
         }
+
+        // Fallback
+        filenameView.text = uri.lastPathSegment ?: ""
+        exifParams.visibility = View.GONE
+        exifDatetime.visibility = View.GONE
     }
 
     /**
-     * Called from JS bridge when EXIF data is available
+     * Called from JS bridge when EXIF data is available (enriches existing info)
      */
     fun onExifResult(exifJson: String?) {
         runOnUiThread {
-            if (exifJson == null || exifJson == "null") {
-                exifParams.visibility = View.GONE
-                exifDatetime.visibility = View.GONE
-                return@runOnUiThread
-            }
+            if (exifJson == null || exifJson == "null") return@runOnUiThread
 
             try {
-                val exif = JSONObject(exifJson)
+                val exif = org.json.JSONObject(exifJson)
                 val parts = mutableListOf<String>()
 
                 exif.optInt("iso", -1).takeIf { it >= 0 }?.let {
@@ -209,22 +225,19 @@ class ImageViewerActivity : AppCompatActivity() {
                 if (parts.isNotEmpty()) {
                     exifParams.text = parts.joinToString("  ·  ")
                     exifParams.visibility = View.VISIBLE
-                } else {
-                    exifParams.visibility = View.GONE
-                }
-
-                val datetime = exif.optString("datetime")
-                if (!datetime.isNullOrEmpty()) {
-                    exifDatetime.text = datetime
-                    exifDatetime.visibility = View.VISIBLE
-                } else {
-                    exifDatetime.visibility = View.GONE
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to parse EXIF result", e)
-                exifParams.visibility = View.GONE
-                exifDatetime.visibility = View.GONE
             }
+        }
+    }
+
+    private fun updateNavIndicator() {
+        if (uris.size > 1) {
+            navIndicator.text = "${currentIndex + 1} / ${uris.size}"
+            navIndicator.visibility = View.VISIBLE
+        } else {
+            navIndicator.visibility = View.GONE
         }
     }
 
