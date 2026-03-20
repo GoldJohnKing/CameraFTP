@@ -1,54 +1,58 @@
 # Android 高性能图片查看器设计文档
 
-**日期**: 2026-03-19
-**版本**: 4.0
+**日期**: 2026-03-20
+**版本**: 5.1
 
 ---
 
 ## 1. 目标
 
-为 Android 平台设计高性能图片查看器：
-- 支持 ≥100MP 图片预览
+为 Android 平台设计内置高性能图片查看器：
+- 支持 ≥100MP 图片流畅预览
 - ≥60FPS 流畅度
 - 高质量无极缩放（1x ~ 5x 任意比例）
+- 作为 `openImageWithChooser` 外部应用方案的补充选项，用户可通过配置切换
 
 ### 1.1 支持的图片格式
 
 | 格式 | 状态 | 说明 |
 |------|------|------|
 | JPEG | ✅ | 相机照片，主要目标格式 |
-| HEIF/HEIC | ❌ | 暂不支持 |
 
 ---
 
 ## 2. 技术方案
 
-### 2.1 动态渲染模式
+### 2.1 核心思路
 
-根据图片尺寸自动选择渲染策略：
+使用 Android 原生 `BitmapRegionDecoder` + `SubsamplingScaleImageView` 实现大图浏览。
 
-| 模式 | 适用范围 | 策略 | 内存示例 |
-|------|----------|------|----------|
-| 直接模式 | < 10MP | 原图上传 GPU，硬件缩放 | 5MP: ~30MB |
-| 轻量模式 | 10-50MP | 保留原图，CPU 按需重采样 | 24MP: ~84MB |
-| 完整模式 | > 50MP | 原图 + 缩略图，高质量无极缩放 | 100MP: ~332MB |
-
-### 2.2 渲染流程
+`SubsamplingScaleImageView` 内部使用 `BitmapRegionDecoder` 实现 tile-based 渲染：
 
 ```
 图片加载
     │
-    ├── < 10MP ──────────────────────────────────────────┐
-    │   直接模式：原图 → GPU 纹理 → 硬件缩放              │
-    │                                                    │
-    ├── 10-50MP ─────────────────────────────────────────┤
-    │   轻量模式：原图 → 视口裁剪 → Lanczos3 → GPU       │
-    │                                                    │
-    └── > 50MP ──────────────────────────────────────────┤
-        完整模式：                                       │
-          scale ≤ 0.5: 缩略图 → 视口裁剪 → Lanczos3 → GPU
-          scale > 0.5: 原图 → 视口裁剪 → Lanczos3 → GPU
+    ▼
+SubsamplingScaleImageView
+    ├─ 生成低分辨率基础层（全图预览）
+    ├─ 根据当前缩放级别 + 视口位置
+    ├─ BitmapRegionDecoder 解码可见区域的高清 tile
+    └─ 叠加渲染，自动管理 tile 生命周期
+    │
+    ▼
+用户缩放/平移
+    ├─ 缩放时：动态切换 tile 分辨率
+    ├─ 平移时：加载新视口 tile，卸载不可见 tile
+    └─ 内存恒定，不随图片尺寸增长
 ```
+
+**关键特性（库内置）：**
+- 捏合缩放 + 双击缩放
+- 平移 + 惯性滑动
+- EXIF Orientation 自动旋转
+- 低分辨率预览 + 高清 tile 叠加
+- 内存自动管理（LRU tile 缓存）
+- 动画过渡（缩放、平移到指定区域）
 
 ---
 
@@ -57,22 +61,23 @@
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │  Frontend (React + TypeScript)                                  │
-│  - ImageViewerOverlay（EXIF、导航指示器、操作按钮）               │
+│  - GalleryCard（点击图片 → 根据配置选择打开方式）                  │
+│  - ConfigCard（新增：图片打开方式切换）                            │
 └───────────────────────────┬─────────────────────────────────────┘
-                            │ Tauri IPC
+                            │ JS Bridge (window.ImageViewerAndroid)
 ┌───────────────────────────┴─────────────────────────────────────┐
-│  Bridge Layer                                                   │
-│  - Commands: open_image_viewer, close_image_viewer              │
-│  - Events: viewer-state-update                                  │
-└───────────────────────────┬─────────────────────────────────────┘
-                            │
+│  Android Native (Kotlin)                                        │
+│  ├─ ImageViewerActivity                                         │
+│  │   ├─ ViewPager2（滑动翻页）                                   │
+│  │   ├─ SubsamplingScaleImageView（渲染 + 手势）                 │
+│  │   ├─ ExifOverlayView（EXIF 信息展示）                         │
+│  │   └─ NavigationIndicator（图片位置指示器）                     │
+│  └─ ImageViewerBridge（JS Bridge，状态回调）                     │
+└─────────────────────────────────────────────────────────────────┘
+                            │ Tauri IPC (仅 EXIF)
 ┌───────────────────────────┴─────────────────────────────────────┐
-│  Backend (Rust)                                                 │
-│  ├─ ImageLoader（图像解码、模式选择、缩略图生成）                  │
-│  ├─ ViewportRenderer（视口裁剪、动态重采样）                      │
-│  ├─ GpuRenderer（wgpu GPU 渲染）                                │
-│  ├─ GestureHandler（手势识别）                                   │
-│  └─ AndroidBridge（JNI 桥接）                                    │
+│  Backend (Rust) — 仅用于 EXIF 解析                               │
+│  └─ commands/exif.rs（已有，直接复用）                            │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -80,131 +85,32 @@
 
 ## 4. 核心接口
 
-### 4.1 数据结构
+### 4.1 Kotlin 数据结构
 
-```rust
-/// 渲染模式
-pub enum RenderMode {
-    Direct,      // < 10MP
-    Lightweight, // 10-50MP
-    Full,        // > 50MP
-}
+```kotlin
+data class ViewerState(
+    val isOpen: Boolean,
+    val currentIndex: Int,
+    val totalCount: Int,
+    val currentUri: String,
+    val scale: Float,
+    val isLoading: Boolean,
+)
+```
 
-impl RenderMode {
-    pub fn from_dimensions(width: u32, height: u32) -> Self {
-        let mp = (width as u64 * height as u64) as f32 / 1_000_000.0;
-        if mp < 10.0 { Direct }
-        else if mp < 50.0 { Lightweight }
-        else { Full }
-    }
-}
+### 4.2 JS Bridge 接口
 
-/// 加载后的图像
-pub struct LoadedImage {
-    pub mode: RenderMode,
-    pub original: Arc<RgbImage>,
-    pub thumbnail: Option<Arc<RgbImage>>,  // 仅完整模式
-    pub exif: Option<ExifData>,
-    pub orientation: ExifOrientation,
-}
+**新增 `ImageViewerBridge`（`window.ImageViewerAndroid`）：**
 
-/// 视口状态
-pub struct Viewport {
-    pub x: f32,      // 视口位置 X
-    pub y: f32,      // 视口位置 Y
-    pub scale: f32,  // 缩放级别 (1.0 = 100%)
-    pub width: u32,  // 屏幕宽度
-    pub height: u32, // 屏幕高度
-}
-
-/// 渲染输出
-pub enum RenderOutput {
-    FullTexture { data: Vec<u8>, width: u32, height: u32 },
-    ViewportTexture { data: Vec<u8>, width: u32, height: u32 },
-}
-
-/// 手势动作
-pub enum GestureAction {
-    Pan { dx: f32, dy: f32 },
-    Zoom { scale: f32, center: (f32, f32) },
-    SwitchImage { direction: i8 },
-    ToggleZoom,
+```typescript
+interface ImageViewerAndroid {
+  openViewer(uri: string, allUrisJson: string): boolean;
+  closeViewer(): boolean;
+  onStateChanged(stateJson: string): void;
 }
 ```
 
-### 4.2 核心模块
-
-| 模块 | 文件 | 职责 |
-|------|------|------|
-| `image_loader` | `loader.rs` | 解码、模式选择、缩略图生成 |
-| `viewport_renderer` | `viewport.rs` | 视口计算、裁剪、重采样 |
-| `gpu_renderer` | `gpu.rs` | GPU 纹理管理、渲染 |
-| `gesture_handler` | `gesture.rs` | 手势识别、视口计算 |
-| `android_surface` | `android.rs` | SurfaceView 生命周期 |
-| `viewer_bridge` | `bridge.rs` | Tauri 命令、事件 |
-
----
-
-## 5. 数据流
-
-### 5.1 打开图片
-
-```
-用户点击图片
-    │
-    ▼
-invoke('open_image_viewer', { path, index, total })
-    │
-    ▼
-ImageLoader::load(path)
-    ├─ 解码图片
-    ├─ 选择渲染模式
-    └─ 生成缩略图（如需要）
-    │
-    ▼
-GpuRenderer 渲染初始视口
-    │
-    ▼
-emit('viewer-state-update', state)
-```
-
-### 5.2 手势处理
-
-```
-用户触摸屏幕
-    │
-    ▼
-GestureDetector 识别手势
-    │
-    ├─ 双指捏合 → Zoom
-    ├─ 单指拖动 (scale > 1) → Pan
-    ├─ 单指滑动 (scale = 1) → SwitchImage
-    └─ 双击 → ToggleZoom
-    │
-    ▼
-ViewportRenderer::render(viewport)
-    │
-    ├─ 选择源图像（原图/缩略图）
-    ├─ 计算裁剪区域
-    └─ Lanczos3 重采样
-    │
-    ▼
-GpuRenderer::render(texture)
-```
-
-### 5.3 手势交互规则
-
-| 手势 | 条件 | 行为 |
-|------|------|------|
-| 双指捏合 | 任意 | 缩放 1x ~ 5x |
-| 单指拖动 | scale > 1 | 平移 |
-| 单指滑动 | scale = 1 | 切换上/下一张 |
-| 双击 | 任意 | 1x ↔ 2x |
-| 返回键 | 任意 | 关闭查看器 |
-
----
-
-## 6. 配置
+### 4.3 配置
 
 ```rust
 pub struct ImageViewerConfig {
@@ -216,26 +122,207 @@ pub struct ImageViewerConfig {
 
 ---
 
+## 5. 数据流
+
+### 5.1 打开图片
+
+```
+用户点击 GalleryCard 中的图片
+    │
+    ▼
+检查配置 open_method
+    ├─ ExternalApp → window.GalleryAndroid.open_external_gallery()（现有逻辑）
+    └─ BuiltInViewer → ↓
+    │
+    ▼
+window.ImageViewerAndroid.openViewer(uri, allUrisJson)
+    │
+    ▼
+ImageViewerActivity 启动
+    ├─ 接收 URI 列表 + 目标索引
+    ├─ SubsamplingScaleImageView 加载 JPEG 图片
+    │   ├─ BitmapRegionDecoder 解码
+    │   ├─ 生成低分辨率基础层
+    │   └─ 按需加载高清 tile
+    ├─ 通过 Tauri IPC 获取 EXIF 信息
+    └─ 渲染 EXIF 浮层
+```
+
+### 5.2 手势处理
+
+手势完全由 `SubsamplingScaleImageView` 内置处理：
+
+| 手势 | 行为 | 实现 |
+|------|------|------|
+| 双指捏合 | 缩放 1x ~ max_zoom | 库内置 |
+| 单指拖动 | 平移（缩放 > 1 时） | 库内置 |
+| 双击 | 1x ↔ 2x 切换 | 库内置 |
+| 滑动翻页 | 左右滑动切换图片 | ViewPager2 |
+| 返回键 | 关闭查看器 | Activity `onBackPressed` |
+
+### 5.3 图片导航
+
+使用 `ViewPager2` 实现滑动翻页：
+
+```
+ViewPager2
+    ├─ 每页一个 SubsamplingScaleImageView
+    ├─ 预加载前后各 1 页（共 3 页内存）
+    ├─ 页面切换时：
+    │   ├─ 更新 currentIndex
+    │   ├─ 加载新图片 EXIF
+    │   └─ emit viewer-state-update
+    └─ 惯性滑动 + 页面吸附
+```
+
+---
+
+## 6. 实现细节
+
+### 6.1 ImageViewerActivity
+
+```kotlin
+class ImageViewerActivity : AppCompatActivity() {
+
+    companion object {
+        private const val TAG = "ImageViewerActivity"
+        const val EXTRA_URIS = "uris"
+        const val EXTRA_TARGET_INDEX = "target_index"
+
+        fun start(context: Context, uris: List<String>, targetIndex: Int) {
+            val intent = Intent(context, ImageViewerActivity::class.java).apply {
+                putExtra(EXTRA_URIS, JSONArray(uris).toString())
+                putExtra(EXTRA_TARGET_INDEX, targetIndex)
+            }
+            context.startActivity(intent)
+        }
+    }
+
+    private lateinit var viewPager: ViewPager2
+    private lateinit var exifOverlay: ExifOverlayView
+    private lateinit var navIndicator: TextView
+    private var uris: List<String> = emptyList()
+    private var currentIndex: Int = 0
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        enableEdgeToEdge()
+        hideSystemBars()
+        setContentView(R.layout.activity_image_viewer)
+
+        uris = parseUrisFromIntent()
+        currentIndex = intent.getIntExtra(EXTRA_TARGET_INDEX, 0)
+
+        viewPager = findViewById(R.id.view_pager)
+        viewPager.adapter = ImageViewerAdapter(uris)
+        viewPager.setCurrentItem(currentIndex, false)
+        viewPager.registerOnPageChangeCallback(object : OnPageChangeCallback() {
+            override fun onPageSelected(position: Int) {
+                currentIndex = position
+                updateNavIndicator()
+                loadExifForImage(uris[position])
+                notifyStateChange()
+            }
+        })
+    }
+
+    private fun hideSystemBars() {
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+        WindowInsetsControllerCompat(window, window.decorView).apply {
+            hide(WindowInsetsCompat.Type.systemBars())
+            systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        }
+    }
+}
+```
+
+### 6.2 ImageViewerAdapter（ViewPager2）
+
+```kotlin
+class ImageViewerAdapter(
+    private val uris: List<String>
+) : RecyclerView.Adapter<ImageViewerAdapter.ViewHolder>() {
+
+    class ViewHolder(val imageView: SubsamplingScaleImageView) : RecyclerView.ViewHolder(imageView)
+
+    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
+        val imageView = SubsamplingScaleImageView(parent.context).apply {
+            layoutParams = ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT
+            )
+            setMinimumScaleType(SubsamplingScaleImageView.SCALE_TYPE_CENTER_INSIDE)
+            setMaxScale(5f)
+            setDoubleTapZoomScale(2f)
+            setOrientation(SubsamplingScaleImageView.ORIENTATION_USE_EXIF)
+            setPanLimit(SubsamplingScaleImageView.PAN_LIMIT_INSIDE)
+        }
+        return ViewHolder(imageView)
+    }
+
+    override fun onBindViewHolder(holder: ViewHolder, position: Int) {
+        val uri = Uri.parse(uris[position])
+        holder.imageView.setImage(ImageSource.uri(uri))
+    }
+
+    override fun getItemCount() = uris.size
+}
+```
+
+### 6.3 前端集成
+
+修改 `GalleryCard.tsx` 中的图片点击逻辑，根据配置选择打开方式：
+
+```typescript
+// 现有代码（约第 355 行附近）：
+} else if (window.PermissionAndroid?.openImageWithChooser) {
+  window.PermissionAndroid.openImageWithChooser(image.path);
+}
+
+// 修改为：
+} else if (config.openMethod === 'BuiltInViewer' && window.ImageViewerAndroid?.openViewer) {
+  const allUris = images.map(img => img.path);
+  window.ImageViewerAndroid.openViewer(image.path, JSON.stringify(allUris));
+} else if (window.GalleryAndroid?.open_external_gallery) {
+  const allUris = images.map(img => img.path);
+  window.GalleryAndroid.open_external_gallery(image.path, JSON.stringify(allUris));
+}
+```
+
+在 `ConfigCard.tsx` 中新增图片打开方式切换：
+
+```tsx
+<ToggleSwitch
+  label="内置图片查看器"
+  description="使用应用内置查看器浏览大图，支持缩放和滑动翻页"
+  checked={config.openMethod === 'BuiltInViewer'}
+  onChange={(checked) => updateConfig({ openMethod: checked ? 'BuiltInViewer' : 'ExternalApp' })}
+/>
+```
+
+---
+
 ## 7. 测试策略
 
-### 7.1 单元测试
+### 7.1 单元测试（Kotlin / Robolectric）
 
 | 模块 | 测试内容 |
 |------|----------|
-| `image_loader` | 模式选择、缩略图生成 |
-| `viewport_renderer` | 裁剪区域计算、重采样质量 |
-| `gesture_handler` | 手势识别、边界处理 |
+| `ImageViewerActivity` | Intent 解析、状态管理、生命周期 |
+| `ImageViewerAdapter` | ViewPager 数据绑定、URI 处理 |
 
 ### 7.2 集成测试
 
 | 场景 | 验证内容 |
 |------|----------|
-| 5MP 图片 | 直接模式，内存 ~30MB |
-| 24MP 图片 | 轻量模式，内存 ~84MB |
-| 100MP 图片 | 完整模式，内存 ~332MB |
-| 快速缩放 | 60 FPS |
-| 无极缩放 | 任意比例保持清晰 |
-| 内存压力 | 连续浏览 50 张，无 OOM |
+| 5MP JPEG | 快速加载，流畅缩放 |
+| 24MP JPEG | 内存 < 80MB，流畅缩放 |
+| 100MP JPEG | 内存 < 80MB（tile 模式），流畅缩放 |
+| 快速缩放 | 60 FPS，无卡顿 |
+| 滑动翻页 | 流畅切换，无白屏 |
+| 连续浏览 50 张 | 无 OOM，内存稳定 |
+| EXIF 旋转 | 自动旋转，方向正确 |
+| 配置切换 | BuiltInViewer ↔ ExternalApp 切换生效 |
 
 ---
 
@@ -243,21 +330,31 @@ pub struct ImageViewerConfig {
 
 | 错误 | 处理方式 |
 |------|----------|
-| 加载失败 | 错误提示 + 重试按钮 |
-| GPU 失败 | 降级到 WebView |
-| 内存不足 | 提示用户 |
-| 格式不支持 | 提示用外部应用 |
+| 图片加载失败 | 显示错误占位图 + 重试按钮 |
+| URI 无效/无权限 | Toast 提示 + 跳过该图片 |
+| EXIF 获取失败 | 隐藏 EXIF 浮层，不影响浏览 |
+| 内存不足 | 系统自动回收 tile，无需特殊处理 |
 
 ---
 
 ## 9. 依赖库
 
-| 用途 | 库 | 说明 |
-|------|-----|------|
-| 图像解码 | `image` 0.25+ | 内部使用 zune-jpeg |
-| 图像缩放 | `fast_image_resize` 5.0+ | SIMD 加速，Lanczos3 |
-| GPU 渲染 | `wgpu` 0.19+ | 跨平台 GPU API |
-| EXIF 解析 | `nom-exif` 2.7+ | 已在项目中使用 |
+| 用途 | 库 | 版本 | 说明 |
+|------|-----|------|------|
+| 大图浏览 | `SubsamplingScaleImageView` | 3.10.0 | AOSP 内置，tile-based 渲染 |
+| 图片容器 | `ViewPager2` | AndroidX | 滑动翻页 |
+| EXIF 解析 | `nom-exif` (Rust) | 2.7+ | 已有，通过 Tauri IPC 复用 |
+
+**Gradle 依赖添加：**
+
+```kotlin
+// app/build.gradle.kts
+dependencies {
+    // 现有依赖...
+    implementation("com.davemorrissey.labs:subsampling-scale-image-view:3.10.0")
+    implementation("androidx.viewpager2:viewpager2:1.1.0")
+}
+```
 
 ---
 
@@ -265,12 +362,12 @@ pub struct ImageViewerConfig {
 
 | Phase | 内容 | 时间 |
 |-------|------|------|
-| 1 | 基础架构：ImageLoader、ViewportRenderer | Week 1 |
-| 2 | Android 原生层：Activity、SurfaceView | Week 2 |
-| 3 | GPU 渲染：wgpu 集成 | Week 3 |
-| 4 | 手势处理：识别、视口联动 | Week 4 |
-| 5 | Frontend：UI 覆盖层 | Week 5 |
-| 6 | 配置与测试 | Week 6 |
+| 1 | ImageViewerActivity + SubsamplingScaleImageView + ViewPager2 | 3-4 天 |
+| 2 | ImageViewerBridge + 前端集成 + EXIF 浮层 | 3-4 天 |
+| 3 | 配置项 + 手势优化 + 错误处理 | 2-3 天 |
+| 4 | 测试 + 性能调优 + 内存验证 | 2-3 天 |
+
+**总计：2-3 周**
 
 ---
 
@@ -278,16 +375,18 @@ pub struct ImageViewerConfig {
 
 | 决策 | 理由 |
 |------|------|
-| 使用 `image` crate | v0.25 内部使用 zune-jpeg，生态成熟 |
-| 动态渲染模式 | 根据图片尺寸优化内存占用 |
-| 保留原图 + Lanczos3 | 实现高质量无极缩放 |
-| 纯 Rust 实现 | 简化 Android 跨平台编译 |
+| SubsamplingScaleImageView | AOSP 内置库，tile-based 渲染，内存恒定 |
+| ViewPager2 实现翻页 | 官方推荐，内置惯性滑动 + 页面吸附 |
+| 复用现有 EXIF 命令 | Rust 端已有完整 EXIF 解析 |
+| JS Bridge 通信 | 复用现有架构模式，与 GalleryBridge 一致 |
+| 保留外部应用选项 | 内置查看器不覆盖所有格式，用户可自由选择 |
+| 仅支持 JPEG | 相机照片为 JPEG，覆盖核心场景，降低复杂度 |
 
 ---
 
 ## 12. 参考
 
-- [image crate](https://docs.rs/image/latest/image/)
-- [fast_image_resize](https://github.com/Cykooz/fast_image_resize)
-- [wgpu](https://wgpu.rs/)
-- [Tauri v2 Mobile](https://tauri.app/start/)
+- [SubsamplingScaleImageView](https://github.com/davemorrissey/subsampling-scale-image-view) - 大图浏览库
+- [BitmapRegionDecoder](https://developer.android.com/reference/android/graphics/BitmapRegionDecoder) - Android 大图解码 API
+- [ViewPager2](https://developer.android.com/jetpack/androidx/releases/viewpager2) - 滑动翻页组件
+- [Tauri v2 Mobile](https://tauri.app/start/) - 移动端集成
