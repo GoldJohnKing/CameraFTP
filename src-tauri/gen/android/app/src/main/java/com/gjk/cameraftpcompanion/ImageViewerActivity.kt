@@ -16,7 +16,6 @@ import android.provider.MediaStore
 import android.util.Log
 import android.view.View
 import android.widget.ImageButton
-import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.enableEdgeToEdge
@@ -47,10 +46,10 @@ class ImageViewerActivity : AppCompatActivity() {
     }
 
     private lateinit var viewPager: ViewPager2
-    private lateinit var navIndicator: TextView
-    private lateinit var exifOverlay: LinearLayout
+    private lateinit var filenameView: TextView
     private lateinit var exifParams: TextView
     private lateinit var exifDatetime: TextView
+    private lateinit var navIndicator: TextView
     private lateinit var btnRotate: ImageButton
     private lateinit var btnDelete: ImageButton
     private var uris: MutableList<String> = mutableListOf()
@@ -67,17 +66,16 @@ class ImageViewerActivity : AppCompatActivity() {
         currentIndex = intent.getIntExtra(EXTRA_TARGET_INDEX, 0)
 
         viewPager = findViewById(R.id.view_pager)
-        navIndicator = findViewById(R.id.nav_indicator)
-        exifOverlay = findViewById(R.id.exif_overlay)
+        filenameView = findViewById(R.id.filename)
         exifParams = findViewById(R.id.exif_params)
         exifDatetime = findViewById(R.id.exif_datetime)
+        navIndicator = findViewById(R.id.nav_indicator)
         btnRotate = findViewById(R.id.btn_rotate)
         btnDelete = findViewById(R.id.btn_delete)
 
         setupViewPager()
-        setupToolbar()
-        updateNavIndicator()
-        loadExifForCurrentImage()
+        setupButtons()
+        updateUI()
     }
 
     private fun setupViewPager() {
@@ -86,13 +84,12 @@ class ImageViewerActivity : AppCompatActivity() {
         viewPager.registerOnPageChangeCallback(object : ViewPager2.OnPageChangeCallback() {
             override fun onPageSelected(position: Int) {
                 currentIndex = position
-                updateNavIndicator()
-                loadExifForCurrentImage()
+                updateUI()
             }
         })
     }
 
-    private fun setupToolbar() {
+    private fun setupButtons() {
         btnRotate.setOnClickListener {
             isLandscape = !isLandscape
             requestedOrientation = if (isLandscape) {
@@ -109,84 +106,70 @@ class ImageViewerActivity : AppCompatActivity() {
         }
     }
 
-    private fun confirmDelete() {
-        AlertDialog.Builder(this)
-            .setTitle("删除图片")
-            .setMessage("确定要删除这张图片吗？")
-            .setPositiveButton("删除") { _, _ ->
-                deleteCurrentImage()
-            }
-            .setNegativeButton("取消", null)
-            .show()
+    private fun updateUI() {
+        updateFilename()
+        updateNavIndicator()
+        loadExifForCurrentImage()
     }
 
-    private fun deleteCurrentImage() {
-        if (uris.isEmpty() || currentIndex < 0 || currentIndex >= uris.size) return
+    private fun updateFilename() {
+        if (uris.isEmpty() || currentIndex < 0 || currentIndex >= uris.size) {
+            filenameView.text = ""
+            return
+        }
+        val uri = Uri.parse(uris[currentIndex])
+        filenameView.text = uri.lastPathSegment ?: uris[currentIndex]
+    }
 
-        val uriString = uris[currentIndex]
-        val uri = Uri.parse(uriString)
-
-        try {
-            val rowsDeleted = contentResolver.delete(uri, null, null)
-            if (rowsDeleted > 0) {
-                Log.d(TAG, "Deleted image: $uriString")
-                uris.removeAt(currentIndex)
-
-                if (uris.isEmpty()) {
-                    Toast.makeText(this, "图片已删除", Toast.LENGTH_SHORT).show()
-                    finish()
-                    return
-                }
-
-                // Adjust index if needed
-                if (currentIndex >= uris.size) {
-                    currentIndex = uris.size - 1
-                }
-
-                viewPager.adapter?.notifyDataSetChanged()
-                viewPager.setCurrentItem(currentIndex, false)
-                updateNavIndicator()
-                loadExifForCurrentImage()
-                Toast.makeText(this, "图片已删除", Toast.LENGTH_SHORT).show()
-            } else {
-                Toast.makeText(this, "删除失败：文件不存在", Toast.LENGTH_SHORT).show()
-            }
-        } catch (e: SecurityException) {
-            Log.e(TAG, "No permission to delete image", e)
-            Toast.makeText(this, "删除失败：无权限", Toast.LENGTH_SHORT).show()
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to delete image", e)
-            Toast.makeText(this, "删除失败", Toast.LENGTH_SHORT).show()
+    private fun updateNavIndicator() {
+        if (uris.size > 1) {
+            navIndicator.text = "${currentIndex + 1} / ${uris.size}"
+        } else {
+            navIndicator.text = ""
         }
     }
 
     private fun loadExifForCurrentImage() {
         if (uris.isEmpty() || currentIndex < 0 || currentIndex >= uris.size) {
-            exifOverlay.visibility = View.GONE
+            exifParams.visibility = View.GONE
+            exifDatetime.visibility = View.GONE
             return
         }
 
         val uri = uris[currentIndex]
-        val webView = MainActivity.instance?.getWebView() ?: run {
-            exifOverlay.visibility = View.GONE
+        val webView = MainActivity.instance?.getWebView()
+
+        if (webView == null) {
+            exifParams.visibility = View.GONE
+            exifDatetime.visibility = View.GONE
             return
         }
 
         val escapedUri = uri.replace("\\", "\\\\").replace("'", "\\'")
         val script = """
             (function() {
-                window.__TAURI__.core.invoke('get_image_exif', { filePath: '$escapedUri' })
-                    .then(function(exif) {
-                        window.ImageViewerAndroid.onExifResult(JSON.stringify(exif));
-                    })
-                    .catch(function() {
-                        window.ImageViewerAndroid.onExifResult(null);
-                    });
+                try {
+                    window.__TAURI__.core.invoke('get_image_exif', { filePath: '$escapedUri' })
+                        .then(function(exif) {
+                            window.ImageViewerAndroid.onExifResult(JSON.stringify(exif));
+                        })
+                        .catch(function() {
+                            window.ImageViewerAndroid.onExifResult(null);
+                        });
+                } catch(e) {
+                    window.ImageViewerAndroid.onExifResult(null);
+                }
             })();
         """.trimIndent()
 
         runOnUiThread {
-            webView.evaluateJavascript(script, null)
+            webView.evaluateJavascript(script) { result ->
+                // If evaluateJavascript itself fails, hide EXIF
+                if (result == null) {
+                    exifParams.visibility = View.GONE
+                    exifDatetime.visibility = View.GONE
+                }
+            }
         }
     }
 
@@ -196,7 +179,8 @@ class ImageViewerActivity : AppCompatActivity() {
     fun onExifResult(exifJson: String?) {
         runOnUiThread {
             if (exifJson == null || exifJson == "null") {
-                exifOverlay.visibility = View.GONE
+                exifParams.visibility = View.GONE
+                exifDatetime.visibility = View.GONE
                 return@runOnUiThread
             }
 
@@ -219,9 +203,9 @@ class ImageViewerActivity : AppCompatActivity() {
 
                 if (parts.isNotEmpty()) {
                     exifParams.text = parts.joinToString("  ·  ")
-                    exifOverlay.visibility = View.VISIBLE
+                    exifParams.visibility = View.VISIBLE
                 } else {
-                    exifOverlay.visibility = View.GONE
+                    exifParams.visibility = View.GONE
                 }
 
                 val datetime = exif.optString("datetime")
@@ -233,8 +217,56 @@ class ImageViewerActivity : AppCompatActivity() {
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to parse EXIF result", e)
-                exifOverlay.visibility = View.GONE
+                exifParams.visibility = View.GONE
+                exifDatetime.visibility = View.GONE
             }
+        }
+    }
+
+    private fun confirmDelete() {
+        AlertDialog.Builder(this)
+            .setTitle("删除图片")
+            .setMessage("确定要删除这张图片吗？")
+            .setPositiveButton("删除") { _, _ -> deleteCurrentImage() }
+            .setNegativeButton("取消", null)
+            .show()
+    }
+
+    private fun deleteCurrentImage() {
+        if (uris.isEmpty() || currentIndex < 0 || currentIndex >= uris.size) return
+
+        val uriString = uris[currentIndex]
+        val uri = Uri.parse(uriString)
+
+        try {
+            val rowsDeleted = contentResolver.delete(uri, null, null)
+            if (rowsDeleted > 0) {
+                Log.d(TAG, "Deleted image: $uriString")
+                uris.removeAt(currentIndex)
+
+                if (uris.isEmpty()) {
+                    Toast.makeText(this, "图片已删除", Toast.LENGTH_SHORT).show()
+                    finish()
+                    return
+                }
+
+                if (currentIndex >= uris.size) {
+                    currentIndex = uris.size - 1
+                }
+
+                viewPager.adapter?.notifyDataSetChanged()
+                viewPager.setCurrentItem(currentIndex, false)
+                updateUI()
+                Toast.makeText(this, "图片已删除", Toast.LENGTH_SHORT).show()
+            } else {
+                Toast.makeText(this, "删除失败：文件不存在", Toast.LENGTH_SHORT).show()
+            }
+        } catch (e: SecurityException) {
+            Log.e(TAG, "No permission to delete image", e)
+            Toast.makeText(this, "删除失败：无权限", Toast.LENGTH_SHORT).show()
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to delete image", e)
+            Toast.makeText(this, "删除失败", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -246,14 +278,6 @@ class ImageViewerActivity : AppCompatActivity() {
         } catch (e: Exception) {
             Log.e(TAG, "Failed to parse URIs from intent", e)
             emptyList()
-        }
-    }
-
-    private fun updateNavIndicator() {
-        if (uris.size > 1) {
-            navIndicator.text = "${currentIndex + 1} / ${uris.size}"
-        } else {
-            navIndicator.text = ""
         }
     }
 

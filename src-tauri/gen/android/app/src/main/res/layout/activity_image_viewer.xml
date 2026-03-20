@@ -9,20 +9,74 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
 
-    <!-- Top toolbar -->
+    <!-- Bottom floating bar (matches Windows PreviewWindow style) -->
     <LinearLayout
-        android:id="@+id/top_toolbar"
+        android:id="@+id/bottom_bar"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_gravity="top"
+        android:layout_gravity="bottom"
+        android:layout_marginStart="12dp"
+        android:layout_marginEnd="12dp"
+        android:layout_marginBottom="12dp"
+        android:background="@drawable/bottom_bar_bg"
         android:orientation="horizontal"
-        android:gravity="end"
-        android:padding="8dp">
+        android:gravity="center_vertical"
+        android:paddingHorizontal="12dp"
+        android:paddingVertical="8dp">
 
+        <!-- Left: filename + EXIF -->
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:minWidth="0dp">
+
+            <TextView
+                android:id="@+id/filename"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:textColor="#E5E7EB"
+                android:textSize="13sp"
+                android:singleLine="true"
+                android:ellipsize="middle" />
+
+            <TextView
+                android:id="@+id/exif_params"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:textColor="#9CA3AF"
+                android:textSize="11sp"
+                android:singleLine="true"
+                android:layout_marginTop="2dp"
+                android:visibility="gone" />
+
+            <TextView
+                android:id="@+id/exif_datetime"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:textColor="#6B7280"
+                android:textSize="10sp"
+                android:singleLine="true"
+                android:layout_marginTop="1dp"
+                android:visibility="gone" />
+
+        </LinearLayout>
+
+        <!-- Navigation indicator -->
+        <TextView
+            android:id="@+id/nav_indicator"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textColor="#9CA3AF"
+            android:textSize="12sp"
+            android:paddingHorizontal="8dp" />
+
+        <!-- Right: action buttons -->
         <ImageButton
             android:id="@+id/btn_rotate"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
+            android:layout_width="36dp"
+            android:layout_height="36dp"
             android:src="@android:drawable/ic_menu_rotate"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="切换横竖屏"
@@ -30,56 +84,13 @@
 
         <ImageButton
             android:id="@+id/btn_delete"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
+            android:layout_width="36dp"
+            android:layout_height="36dp"
             android:src="@android:drawable/ic_menu_delete"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="删除图片"
             android:padding="8dp" />
 
     </LinearLayout>
-
-    <!-- EXIF overlay at bottom -->
-    <LinearLayout
-        android:id="@+id/exif_overlay"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_gravity="bottom"
-        android:orientation="vertical"
-        android:paddingHorizontal="16dp"
-        android:paddingBottom="40dp"
-        android:background="#80000000"
-        android:visibility="gone">
-
-        <TextView
-            android:id="@+id/exif_params"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:textColor="#CCFFFFFF"
-            android:textSize="12sp"
-            android:paddingTop="8dp" />
-
-        <TextView
-            android:id="@+id/exif_datetime"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:textColor="#99FFFFFF"
-            android:textSize="11sp"
-            android:paddingTop="2dp"
-            android:paddingBottom="8dp" />
-
-    </LinearLayout>
-
-    <!-- Navigation indicator -->
-    <TextView
-        android:id="@+id/nav_indicator"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_gravity="bottom|center_horizontal"
-        android:layout_marginBottom="12dp"
-        android:textColor="@android:color/white"
-        android:textSize="14sp"
-        android:paddingHorizontal="12dp"
-        android:paddingVertical="4dp" />
 
 </FrameLayout>
