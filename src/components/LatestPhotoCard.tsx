@@ -106,7 +106,14 @@ export const LatestPhotoCard = memo(function LatestPhotoCard() {
         setScannedLatestFile(latest);
         // 打开图片
         if (draft?.androidImageViewer?.openMethod === 'built-in-viewer' && window.ImageViewerAndroid?.openViewer) {
-          window.ImageViewerAndroid.openViewer(latest.path, JSON.stringify([latest.path]));
+          // Fetch all image URIs for navigation
+          let allUris = [latest.path];
+          if (window.GalleryAndroid) {
+            const listJson = await window.GalleryAndroid.listMediaStoreImages();
+            const entries = JSON.parse(listJson ?? '[]') as MediaStoreEntry[];
+            allUris = entries.map(e => e.uri);
+          }
+          window.ImageViewerAndroid.openViewer(latest.path, JSON.stringify(allUris));
         } else if (window.GalleryAndroid) {
           window.PermissionAndroid?.openImageWithChooser(latest.path);
         } else {

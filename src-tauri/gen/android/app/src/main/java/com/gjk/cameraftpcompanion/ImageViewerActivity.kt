@@ -10,6 +10,7 @@ import android.content.ContentUris
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ActivityInfo
+import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Bundle
 import android.provider.MediaStore
@@ -25,6 +26,7 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.viewpager2.widget.ViewPager2
+import com.davemorrissey.labs.subscaleview.SubsamplingScaleImageView
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -61,6 +63,9 @@ class ImageViewerActivity : AppCompatActivity() {
         enableEdgeToEdge()
         hideSystemBars()
         setContentView(R.layout.activity_image_viewer)
+
+        // Use ARGB_8888 for full color depth (prevents color banding)
+        SubsamplingScaleImageView.setPreferredBitmapConfig(Bitmap.Config.ARGB_8888)
 
         uris = parseUrisFromIntent().toMutableList()
         currentIndex = intent.getIntExtra(EXTRA_TARGET_INDEX, 0)
