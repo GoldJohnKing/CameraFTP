@@ -68,6 +68,13 @@
             android:configChanges="orientation|screenSize|smallestScreenSize|density|keyboard|keyboardHidden|navigation"
             android:exported="false" />
 
+        <!-- Image Viewer Activity -->
+        <activity
+            android:name=".ImageViewerActivity"
+            android:configChanges="orientation|screenSize|smallestScreenSize|density|keyboard|keyboardHidden|navigation"
+            android:exported="false"
+            android:theme="@style/Theme.MaterialComponents.DayNight.NoActionBar" />
+
         <!-- FTP Foreground Service -->
         <service
             android:name=".FtpForegroundService"

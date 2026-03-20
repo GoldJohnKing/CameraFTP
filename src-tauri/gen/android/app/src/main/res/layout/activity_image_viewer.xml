@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@android:color/black">
+
+    <androidx.viewpager2.widget.ViewPager2
+        android:id="@+id/view_pager"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+
+    <!-- Top toolbar -->
+    <LinearLayout
+        android:id="@+id/top_toolbar"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top"
+        android:orientation="horizontal"
+        android:gravity="end"
+        android:padding="8dp">
+
+        <ImageButton
+            android:id="@+id/btn_rotate"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:src="@android:drawable/ic_menu_rotate"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="切换横竖屏"
+            android:padding="8dp" />
+
+        <ImageButton
+            android:id="@+id/btn_delete"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:src="@android:drawable/ic_menu_delete"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="删除图片"
+            android:padding="8dp" />
+
+    </LinearLayout>
+
+    <!-- EXIF overlay at bottom -->
+    <LinearLayout
+        android:id="@+id/exif_overlay"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom"
+        android:orientation="vertical"
+        android:paddingHorizontal="16dp"
+        android:paddingBottom="40dp"
+        android:background="#80000000"
+        android:visibility="gone">
+
+        <TextView
+            android:id="@+id/exif_params"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textColor="#CCFFFFFF"
+            android:textSize="12sp"
+            android:paddingTop="8dp" />
+
+        <TextView
+            android:id="@+id/exif_datetime"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textColor="#99FFFFFF"
+            android:textSize="11sp"
+            android:paddingTop="2dp"
+            android:paddingBottom="8dp" />
+
+    </LinearLayout>
+
+    <!-- Navigation indicator -->
+    <TextView
+        android:id="@+id/nav_indicator"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|center_horizontal"
+        android:layout_marginBottom="12dp"
+        android:textColor="@android:color/white"
+        android:textSize="14sp"
+        android:paddingHorizontal="12dp"
+        android:paddingVertical="4dp" />
+
+</FrameLayout>

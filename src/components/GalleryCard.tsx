@@ -8,7 +8,7 @@ import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from 
 import { RefreshCw, ImageOff, Loader2, Check, X, Trash2, Share2, MoreVertical } from 'lucide-react';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import { toast } from 'sonner';
-import { useConfigStore } from '../stores/configStore';
+import { useConfigStore, useDraftConfig } from '../stores/configStore';
 import { usePermissionStore } from '../stores/permissionStore';
 import { permissionBridge } from '../types';
 import { toGalleryImage, type MediaStoreEntry } from '../utils/media-store-events';
@@ -26,6 +26,7 @@ const GRID_MOVE_EASING = 'cubic-bezier(0.22, 1, 0.36, 1)';
 
 export const GalleryCard = memo(function GalleryCard() {
   const { activeTab } = useConfigStore();
+  const draft = useDraftConfig();
   const requestStoragePermission = usePermissionStore((state) => state.requestStoragePermission);
   const startPermissionPolling = usePermissionStore((state) => state.startPolling);
   const [images, setImages] = useState<GalleryImage[]>([]);
@@ -354,10 +355,13 @@ export const GalleryCard = memo(function GalleryCard() {
         }
         return next;
       });
+    } else if (draft?.androidImageViewer?.openMethod === 'built-in-viewer' && window.ImageViewerAndroid?.openViewer) {
+      const allUris = images.map(img => img.path);
+      window.ImageViewerAndroid.openViewer(image.path, JSON.stringify(allUris));
     } else if (window.PermissionAndroid?.openImageWithChooser) {
       window.PermissionAndroid.openImageWithChooser(image.path);
     }
-  }, [isSelectionMode]);
+  }, [isSelectionMode, draft?.androidImageViewer?.openMethod, images]);
 
   const handleRefresh = useCallback(async () => {
     // Check storage permission first on Android

@@ -208,6 +208,32 @@ interface MediaStoreAndroidBridge {
   // optionally exposed for debug hooks
 }
 
+/**
+ * Android Image Viewer Bridge interface
+ * Provides built-in image viewer with zoom, pan, and swipe navigation
+ */
+interface ImageViewerAndroid {
+  /**
+   * Open the built-in image viewer
+   * @param uri Content URI of the target image
+   * @param allUrisJson JSON array of all image URIs for navigation
+   * @returns true if viewer opened successfully
+   */
+  openViewer(uri: string, allUrisJson: string): boolean;
+
+  /**
+   * Close the image viewer
+   * @returns true if viewer closed successfully
+   */
+  closeViewer(): boolean;
+
+  /**
+   * Callback from Tauri IPC when EXIF data is fetched
+   * @param exifJson JSON string of ExifInfo, or null
+   */
+  onExifResult(exifJson: string | null): void;
+}
+
 // ===== 全局窗口扩展 =====
 
 declare global {
@@ -242,6 +268,11 @@ declare global {
      * Android MediaStore Bridge for debug hooks
      */
     MediaStoreAndroid?: MediaStoreAndroidBridge;
+
+    /**
+     * Android Image Viewer JS Bridge
+     */
+    ImageViewerAndroid?: ImageViewerAndroid;
   }
 }
 

@@ -6,7 +6,7 @@
 
 import { useEffect, useState, useCallback, memo } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { Settings, Wifi, Shield } from 'lucide-react';
+import { Settings, Wifi, Shield, Image } from 'lucide-react';
 import { useConfigStore, useDraftConfig } from '../stores/configStore';
 import { usePermissionStore } from '../stores/permissionStore';
 import { useServerStore } from '../stores/serverStore';
@@ -215,6 +215,32 @@ export const ConfigCard = memo(function ConfigCard() {
 
       {/* 预览配置卡片（Windows 专属） */}
       <PreviewConfigCard platform={platform} />
+
+      {/* 图片查看器配置（Android 专属） */}
+      {isAndroid && draft?.androidImageViewer && (
+        <Card className="overflow-hidden">
+          <CardHeader
+            title="图片查看器"
+            description="使用外部应用打开图片"
+            icon={<Image className="w-5 h-5 text-violet-600" />}
+            action={
+              <ToggleSwitch
+                enabled={draft.androidImageViewer.openMethod === 'built-in-viewer'}
+                onChange={(enabled) => {
+                  updateDraft(d => ({
+                    ...d,
+                    androidImageViewer: {
+                      ...d.androidImageViewer!,
+                      openMethod: enabled ? 'built-in-viewer' : 'external-app',
+                    },
+                  }));
+                }}
+                disabled={isLoading}
+              />
+            }
+          />
+        </Card>
+      )}
 
       {/* 权限状态 - Android 特有，放在最后 */}
       {isAndroid && typeof window !== 'undefined' && window.PermissionAndroid && (

@@ -9,6 +9,7 @@ import { Image } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { useServerStore } from '../stores/serverStore';
+import { useDraftConfig } from '../stores/configStore';
 import { IconContainer } from './ui';
 import type { FileInfo } from '../types';
 import { LATEST_PHOTO_REFRESH_REQUESTED_EVENT } from '../utils/gallery-refresh';
@@ -21,6 +22,7 @@ interface FileIndexChangedEvent {
 
 export const LatestPhotoCard = memo(function LatestPhotoCard() {
   const { stats } = useServerStore();
+  const draft = useDraftConfig();
   const [scannedLatestFile, setScannedLatestFile] = useState<Pick<FileInfo, 'filename' | 'path'> | null>(null);
 
   const fetchLatestFile = useCallback(async () => {
@@ -103,7 +105,9 @@ export const LatestPhotoCard = memo(function LatestPhotoCard() {
       if (latest) {
         setScannedLatestFile(latest);
         // 打开图片
-        if (window.GalleryAndroid) {
+        if (draft?.androidImageViewer?.openMethod === 'built-in-viewer' && window.ImageViewerAndroid?.openViewer) {
+          window.ImageViewerAndroid.openViewer(latest.path, JSON.stringify([latest.path]));
+        } else if (window.GalleryAndroid) {
           window.PermissionAndroid?.openImageWithChooser(latest.path);
         } else {
           await invoke('open_preview_window', { filePath: latest.path });
@@ -112,7 +116,7 @@ export const LatestPhotoCard = memo(function LatestPhotoCard() {
     } catch {
       // Silently ignore
     }
-  }, [fetchLatestFile]);
+  }, [fetchLatestFile, draft?.androidImageViewer?.openMethod]);
 
   // 优先使用 scannedLatestFile 判断是否有文件（实时更新）
   const hasFile = scannedLatestFile || stats.lastFile;

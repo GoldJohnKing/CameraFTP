@@ -97,6 +97,37 @@ impl Default for PreviewWindowConfig {
     }
 }
 
+/// Android 图片打开方式
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+#[serde(rename_all = "kebab-case")]
+pub enum AndroidImageOpenMethod {
+    BuiltInViewer,
+    ExternalApp,
+}
+
+impl Default for AndroidImageOpenMethod {
+    fn default() -> Self {
+        AndroidImageOpenMethod::ExternalApp
+    }
+}
+
+/// Android 图片查看器配置
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+#[serde(rename_all = "camelCase")]
+pub struct AndroidImageViewerConfig {
+    pub open_method: AndroidImageOpenMethod,
+}
+
+impl Default for AndroidImageViewerConfig {
+    fn default() -> Self {
+        Self {
+            open_method: AndroidImageOpenMethod::default(),
+        }
+    }
+}
+
 /// Android 配置路径（在应用初始化时设置，使用 OnceLock 实现高效缓存）
 #[cfg(target_os = "android")]
 static ANDROID_CONFIG_PATH: OnceLock<PathBuf> = OnceLock::new();
@@ -134,6 +165,20 @@ pub struct AppConfig {
     /// 预览窗口配置（仅 Windows 有效，其他平台为 None）
     #[serde(skip_serializing_if = "Option::is_none")]
     pub preview_config: Option<PreviewWindowConfig>,
+    /// Android 图片查看器配置（仅 Android 有效，其他平台为 None）
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        default = "default_android_image_viewer"
+    )]
+    pub android_image_viewer: Option<AndroidImageViewerConfig>,
+}
+
+fn default_android_image_viewer() -> Option<AndroidImageViewerConfig> {
+    if cfg!(target_os = "android") {
+        Some(AndroidImageViewerConfig::default())
+    } else {
+        None
+    }
 }
 
 impl Default for AppConfig {
@@ -152,12 +197,20 @@ impl Default for AppConfig {
             None
         };
 
+        // android_image_viewer 仅在 Android 上启用
+        let android_image_viewer = if cfg!(target_os = "android") {
+            Some(AndroidImageViewerConfig::default())
+        } else {
+            None
+        };
+
         Self {
             save_path: Self::default_pictures_dir(),
             port: default_port,
             auto_select_port: true,
             advanced_connection: AdvancedConnectionConfig::default(),
             preview_config,
+            android_image_viewer,
         }
     }
 }
