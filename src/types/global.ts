@@ -143,14 +143,14 @@ interface GalleryAndroid {
    * @param imagePath The image file path
    * @returns base64 data URL string, or empty string on error
    */
-  getThumbnail(imagePath: string): Promise<string>;
+  getThumbnail(imagePath: string): string | Promise<string>;
 
   /**
    * Delete images by their paths
    * @param pathsJson JSON array of image paths to delete
    * @returns JSON string with deletion results containing deleted, notFound, and failed arrays
    */
-  deleteImages(pathsJson: string): Promise<string>;
+  deleteImages(pathsJson: string): string | Promise<string>;
 
   /**
    * Remove thumbnail cache files for the given paths
@@ -158,21 +158,21 @@ interface GalleryAndroid {
    * @param pathsJson JSON array of image paths to remove thumbnails for
    * @returns true if any thumbnails were removed
    */
-  removeThumbnails(pathsJson: string): Promise<boolean>;
+  removeThumbnails(pathsJson: string): boolean | Promise<boolean>;
 
   /**
    * Clean up thumbnail caches for images that no longer exist
    * @param existingPathsJson JSON array of all existing image paths
    * @returns number of orphaned thumbnails removed
    */
-  cleanupThumbnailsNotInList(existingPathsJson: string): Promise<number>;
+  cleanupThumbnailsNotInList(existingPathsJson: string): number | Promise<number>;
 
   /**
    * Share images by their paths
    * @param pathsJson JSON array of image paths to share
    * @returns true if sharing succeeded, false otherwise
    */
-  shareImages(pathsJson: string): Promise<boolean>;
+  shareImages(pathsJson: string): boolean | Promise<boolean>;
 
   /**
    * Register back press callback to intercept back button
@@ -197,7 +197,7 @@ interface GalleryAndroid {
    * List images from MediaStore
    * @returns JSON array of MediaStore entries
    */
-  listMediaStoreImages(): Promise<string>;
+  listMediaStoreImages(): string | Promise<string>;
 }
 
 /**

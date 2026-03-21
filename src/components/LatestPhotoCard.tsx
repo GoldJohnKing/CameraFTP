@@ -4,91 +4,24 @@
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
 
-import { memo, useCallback, useEffect, useState } from 'react';
+import { memo, useCallback } from 'react';
 import { Image } from 'lucide-react';
-import { invoke } from '@tauri-apps/api/core';
-import { listen } from '@tauri-apps/api/event';
 import { useServerStore } from '../stores/serverStore';
-import { useDraftConfig } from '../stores/configStore';
 import { IconContainer } from './ui';
-import type { FileInfo, ExifInfo } from '../types';
-import { LATEST_PHOTO_REFRESH_REQUESTED_EVENT } from '../utils/gallery-refresh';
-import type { MediaStoreEntry } from '../utils/media-store-events';
-
-interface FileIndexChangedEvent {
-  count: number;
-  latestFilename: string | null;
-}
+import { useImagePreviewOpener } from '../hooks/useImagePreviewOpener';
+import { useLatestPhoto } from '../hooks/useLatestPhoto';
 
 export const LatestPhotoCard = memo(function LatestPhotoCard() {
   const { stats } = useServerStore();
-  const draft = useDraftConfig();
-  const [scannedLatestFile, setScannedLatestFile] = useState<Pick<FileInfo, 'filename' | 'path'> | null>(null);
-
-  const fetchLatestFile = useCallback(async () => {
-    if (window.GalleryAndroid) {
-      const listJson = await window.GalleryAndroid.listMediaStoreImages();
-      const entries = JSON.parse(listJson ?? '[]') as MediaStoreEntry[];
-      const latestEntry = entries[0] ?? null;
-
-      return latestEntry
-        ? {
-            filename: latestEntry.displayName,
-            path: latestEntry.uri,
-          }
-        : null;
-    }
-
-    return invoke<FileInfo | null>('get_latest_image');
-  }, []);
-
-  const refreshLatestFile = useCallback(async () => {
-    try {
-      const latest = await fetchLatestFile();
-      setScannedLatestFile(latest);
-    } catch (err) {
-      console.error('[LatestPhotoCard] Failed to fetch latest image:', err);
-    }
-  }, [fetchLatestFile]);
-
-  // 加载时获取扫描的最新文件
-  useEffect(() => {
-    void refreshLatestFile();
-  }, [refreshLatestFile]);
-
-  useEffect(() => {
-    const handleRefreshRequest = (_event: Event) => {
-      void refreshLatestFile();
-    };
-
-    window.addEventListener(LATEST_PHOTO_REFRESH_REQUESTED_EVENT, handleRefreshRequest);
-
-    return () => {
-      window.removeEventListener(LATEST_PHOTO_REFRESH_REQUESTED_EVENT, handleRefreshRequest);
-    };
-  }, [refreshLatestFile]);
-
-  // 监听文件索引变化事件
-  useEffect(() => {
-    const unlistenPromise = listen<FileIndexChangedEvent>('file-index-changed', (event) => {
-      if (event.payload.count === 0) {
-        setScannedLatestFile(null);
-      } else {
-        void refreshLatestFile();
-      }
-    });
-
-    return () => {
-      unlistenPromise.then((unlisten) => unlisten()).catch(() => {});
-    };
-  }, [refreshLatestFile]);
+  const openPreview = useImagePreviewOpener();
+  const { latestPhoto, refreshLatestPhoto } = useLatestPhoto();
 
   // 获取显示用的文件名
   // 优先使用实时扫描的文件（更及时地反映删除操作）
   const getFilename = () => {
-    if (scannedLatestFile) {
+    if (latestPhoto) {
       // 优先显示扫描到的文件（实时更新）
-      return scannedLatestFile.filename;
+      return latestPhoto.filename;
     } else if (stats.lastFile) {
       // 回退到上传的文件
       const parts = stats.lastFile.split(/[\\/]/);
@@ -101,37 +34,19 @@ export const LatestPhotoCard = memo(function LatestPhotoCard() {
 
   const handleOpenPreview = useCallback(async () => {
     try {
-      const latest = await fetchLatestFile();
-      if (latest) {
-        setScannedLatestFile(latest);
-        // 打开图片
-        if (draft?.androidImageViewer?.openMethod === 'built-in-viewer' && window.ImageViewerAndroid?.openViewer) {
-          // Fetch all image URIs for navigation
-          let allUris = [latest.path];
-          if (window.GalleryAndroid) {
-            const listJson = await window.GalleryAndroid.listMediaStoreImages();
-            const entries = JSON.parse(listJson ?? '[]') as MediaStoreEntry[];
-            allUris = entries.map(e => e.uri);
-          }
-          const viewer = window.ImageViewerAndroid;
-          viewer.openViewer(latest.path, JSON.stringify(allUris));
-          const realPath = viewer.resolveFilePath?.(latest.path) ?? latest.path;
-          invoke<ExifInfo | null>('get_image_exif', { filePath: realPath })
-            .then(exif => viewer.onExifResult(exif ? JSON.stringify(exif) : null))
-            .catch(() => {});
-        } else if (window.GalleryAndroid) {
-          window.PermissionAndroid?.openImageWithChooser(latest.path);
-        } else {
-          await invoke('open_preview_window', { filePath: latest.path });
+        const latest = await refreshLatestPhoto();
+        if (latest) {
+          await openPreview({
+            filePath: latest.path,
+          });
         }
+      } catch {
+        // Silently ignore
       }
-    } catch {
-      // Silently ignore
-    }
-  }, [fetchLatestFile, draft?.androidImageViewer?.openMethod]);
+  }, [openPreview, refreshLatestPhoto]);
 
-  // 优先使用 scannedLatestFile 判断是否有文件（实时更新）
-  const hasFile = scannedLatestFile || stats.lastFile;
+  // 优先使用 latestPhoto 判断是否有文件（实时更新）
+  const hasFile = latestPhoto || stats.lastFile;
 
   return (
     <button

@@ -5,6 +5,7 @@
 pub mod auto_open;
 pub mod commands;
 pub mod config;
+pub mod config_service;
 pub mod constants;
 pub mod crypto;
 pub mod error;
@@ -21,6 +22,7 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use tauri::Manager;
 
 use auto_open::AutoOpenService;
+use config_service::ConfigService;
 use file_index::FileIndexService;
 use commands::{
     check_permission_status,
@@ -34,7 +36,6 @@ use commands::{
     get_image_exif,
     get_latest_file,
     get_platform,
-    get_preview_config,
     get_server_info,
     get_server_status,
     get_storage_info,
@@ -54,7 +55,7 @@ use commands::{
     select_executable_file,
     select_save_directory,
     set_autostart_command,
-    set_preview_config,
+    update_preview_config,
     show_main_window,
     start_server,
     stop_server,
@@ -137,10 +138,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(FtpServerState(Arc::new(Mutex::new(None))))
-        .manage(Arc::new(FileIndexService::new()))
         .setup(move |app| {
-            // 在 setup 中管理 AutoOpenService
-            app.manage(AutoOpenService::new(app.handle().clone()));
             // 统一平台初始化（托盘、权限等）
             if let Err(e) = platform.setup(app.handle()) {
                 eprintln!("Platform setup failed: {}", e);
@@ -151,6 +149,13 @@ pub fn run() {
             {
                 config::init_android_paths(app.handle());
             }
+
+            let config_service = Arc::new(ConfigService::new()?);
+            app.manage(Arc::clone(&config_service));
+            app.manage(Arc::new(FileIndexService::new(Arc::clone(&config_service))));
+
+            // 在 setup 中管理 AutoOpenService
+            app.manage(AutoOpenService::new(app.handle().clone(), config_service));
 
             // 开机自启模式：隐藏窗口
             if is_autostart {
@@ -218,8 +223,7 @@ pub fn run() {
             needs_storage_permission,
 
             // 自动预览配置（Windows）
-            get_preview_config,
-            set_preview_config,
+            update_preview_config,
             open_preview_window,
             select_executable_file,
             open_folder_select_file,

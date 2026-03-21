@@ -33,7 +33,6 @@ pub use exif::ExifInfo;
 
 // Re-export all commands
 pub use config::{
-    get_preview_config,
     get_storage_path,
     load_config,
     open_external_link,
@@ -43,7 +42,7 @@ pub use config::{
     save_config,
     select_executable_file,
     select_save_directory,
-    set_preview_config,
+    update_preview_config,
     validate_save_path,
 };
 

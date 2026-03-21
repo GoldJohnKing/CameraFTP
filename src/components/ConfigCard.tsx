@@ -29,8 +29,6 @@ export const ConfigCard = memo(function ConfigCard() {
     isLoading,
     error,
     platform,
-    loadConfig,
-    loadPlatform,
     setAutostart,
     updateDraft,
   } = useConfigStore();
@@ -56,38 +54,24 @@ export const ConfigCard = memo(function ConfigCard() {
 
   useEffect(() => {
     const isCancelled = { current: false };
-    
-    loadConfig();
-    loadPlatform();
-    loadAutostartStatus(isCancelled);
-    
+
+    const loadAutostartStatus = async () => {
+      try {
+        const status = await invoke<boolean>('get_autostart_status');
+        if (!isCancelled.current) {
+          setAutostartEnabled(status);
+        }
+      } catch {
+        // Silently ignore autostart status load errors
+      }
+    };
+
+    void loadAutostartStatus();
+
     return () => {
       isCancelled.current = true;
     };
-  }, [loadConfig, loadPlatform]);
-
-  // 仅在组件挂载时检查一次权限（用户进入Config界面）
-  // 之后不再自动刷新，依赖用户手动刷新
-  useEffect(() => {
-    if (isAndroid) {
-      checkPermissions();
-    }
-    // 依赖项说明：空数组表示仅在挂载时执行一次
-    // checkPermissions 在 store 中是稳定的引用，但包含 Android 平台检测逻辑
-    // 为避免不必要的重复检查，仅在 isAndroid 变化时（挂载时）执行
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  const loadAutostartStatus = async (isCancelled: { current: boolean }) => {
-    try {
-      const status = await invoke<boolean>('get_autostart_status');
-      if (!isCancelled.current) {
-        setAutostartEnabled(status);
-      }
-    } catch {
-      // Silently ignore autostart status load errors
-    }
-  };
 
   const handleAutostartToggle = async () => {
     const newValue = !autostartEnabled;
