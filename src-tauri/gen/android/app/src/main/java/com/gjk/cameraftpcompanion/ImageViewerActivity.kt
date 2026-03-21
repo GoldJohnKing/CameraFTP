@@ -9,6 +9,7 @@ package com.gjk.cameraftpcompanion
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ActivityInfo
+import android.content.res.Configuration
 import android.database.Cursor
 import android.graphics.Bitmap
 import android.net.Uri
@@ -199,7 +200,7 @@ class ImageViewerActivity : AppCompatActivity() {
                 val parts = mutableListOf<String>()
 
                 exif.getAttributeInt(ExifInterface.TAG_ISO_SPEED_RATINGS, -1).takeIf { it >= 0 }?.let {
-                    parts.add("ISO$it")
+                    parts.add("ISO $it")
                 }
 
                 exif.getAttributeDouble(ExifInterface.TAG_F_NUMBER, 0.0).takeIf { it > 0 }?.let {
@@ -223,7 +224,7 @@ class ImageViewerActivity : AppCompatActivity() {
                 }
 
                 if (parts.isNotEmpty()) {
-                    exifParams.text = parts.joinToString(" | ")
+                    exifParams.text = parts.joinToString(" • ")
                     exifParams.visibility = View.VISIBLE
                 } else {
                     exifParams.visibility = View.GONE
@@ -247,7 +248,7 @@ class ImageViewerActivity : AppCompatActivity() {
                 val parts = mutableListOf<String>()
 
                 exif.optInt("iso", -1).takeIf { it >= 0 }?.let {
-                    parts.add("ISO$it")
+                    parts.add("ISO $it")
                 }
                 exif.optString("aperture").takeIf { !it.isNullOrEmpty() }?.let {
                     parts.add(it)
@@ -260,7 +261,7 @@ class ImageViewerActivity : AppCompatActivity() {
                 }
 
                 if (parts.isNotEmpty()) {
-                    exifParams.text = parts.joinToString(" | ")
+                    exifParams.text = parts.joinToString(" • ")
                     exifParams.visibility = View.VISIBLE
                 }
             } catch (e: Exception) {
@@ -333,6 +334,23 @@ class ImageViewerActivity : AppCompatActivity() {
             hide(WindowInsetsCompat.Type.systemBars())
             systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
         }
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        setContentView(R.layout.activity_image_viewer)
+
+        viewPager = findViewById(R.id.view_pager)
+        bottomBar = findViewById(R.id.bottom_bar)
+        filenameView = findViewById(R.id.filename)
+        exifParams = findViewById(R.id.exif_params)
+        exifDatetime = findViewById(R.id.exif_datetime)
+        btnRotate = findViewById(R.id.btn_rotate)
+        btnDelete = findViewById(R.id.btn_delete)
+
+        setupViewPager()
+        setupButtons()
+        updateUI()
     }
 
     @Deprecated("Deprecated in Java")

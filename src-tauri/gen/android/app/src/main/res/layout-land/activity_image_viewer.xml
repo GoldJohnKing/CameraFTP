@@ -9,7 +9,7 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
 
-    <!-- Bottom floating bar -->
+    <!-- Bottom floating bar - landscape: horizontal layout matching Windows style -->
     <LinearLayout
         android:id="@+id/bottom_bar"
         android:layout_width="match_parent"
@@ -24,7 +24,26 @@
         android:paddingHorizontal="14dp"
         android:paddingVertical="10dp">
 
-        <!-- Left: filename + EXIF info -->
+        <!-- Filename -->
+        <TextView
+            android:id="@+id/filename"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textColor="#E5E7EB"
+            android:textSize="14sp"
+            android:textStyle="bold"
+            android:singleLine="true"
+            android:ellipsize="middle"
+            android:maxWidth="200dp" />
+
+        <!-- Vertical divider spanning two rows -->
+        <View
+            android:layout_width="1dp"
+            android:layout_height="32dp"
+            android:layout_marginHorizontal="12dp"
+            android:background="#4B5563" />
+
+        <!-- EXIF info - two lines -->
         <LinearLayout
             android:layout_width="0dp"
             android:layout_height="wrap_content"
@@ -33,30 +52,19 @@
             android:minWidth="0dp">
 
             <TextView
-                android:id="@+id/filename"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:textColor="#E5E7EB"
-                android:textSize="14sp"
-                android:textStyle="bold"
-                android:singleLine="true"
-                android:ellipsize="middle" />
-
-            <TextView
                 android:id="@+id/exif_params"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:textColor="#9CA3AF"
                 android:textSize="12sp"
                 android:singleLine="true"
-                android:layout_marginTop="3dp"
                 android:visibility="gone" />
 
             <TextView
                 android:id="@+id/exif_datetime"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:textColor="#9CA3AF"
+                android:textColor="#6B7280"
                 android:textSize="12sp"
                 android:singleLine="true"
                 android:layout_marginTop="2dp"

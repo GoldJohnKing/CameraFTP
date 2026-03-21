@@ -68,7 +68,7 @@ pub async fn get_image_exif(file_path: String) -> Result<Option<ExifInfo>, AppEr
             let exposure = ratio.0 as f64 / ratio.1 as f64;
             if exposure < 1.0 && exposure > 0.0 {
                 let denominator = ((1.0 / exposure).round() as u32).to_string();
-                format!("1/{}", denominator)
+                format!("1/{}s", denominator)
             } else {
                 format!("{:.1}s", exposure)
             }

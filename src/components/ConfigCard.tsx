@@ -220,18 +220,18 @@ export const ConfigCard = memo(function ConfigCard() {
       {isAndroid && draft?.androidImageViewer && (
         <Card className="overflow-hidden">
           <CardHeader
-            title="图片查看器"
+            title="使用第三方图片查看器"
             description="使用外部应用打开图片"
             icon={<Image className="w-5 h-5 text-violet-600" />}
             action={
               <ToggleSwitch
-                enabled={draft.androidImageViewer.openMethod === 'built-in-viewer'}
+                enabled={draft.androidImageViewer.openMethod === 'external-app'}
                 onChange={(enabled) => {
                   updateDraft(d => ({
                     ...d,
                     androidImageViewer: {
                       ...d.androidImageViewer!,
-                      openMethod: enabled ? 'built-in-viewer' : 'external-app',
+                      openMethod: enabled ? 'external-app' : 'built-in-viewer',
                     },
                   }));
                 }}
