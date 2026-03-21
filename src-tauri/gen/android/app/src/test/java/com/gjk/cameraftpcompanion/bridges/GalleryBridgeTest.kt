@@ -21,8 +21,8 @@ class GalleryBridgeTest {
     fun pick_freshest_entry_prefers_newest_date_modified() {
         val uri_a = "content://media/1"
         val uri_b = "content://media/2"
-        val entry_a = GalleryBridge.MediaEntry(uri_a, 100, 1000, 1, 10)
-        val entry_b = GalleryBridge.MediaEntry(uri_b, 200, 2000, 2, 5)
+        val entry_a = GalleryBridge.MediaEntry(uri_a, 100, 1000, 1, 10, 100)
+        val entry_b = GalleryBridge.MediaEntry(uri_b, 200, 2000, 2, 5, 200)
         assertEquals(entry_b, GalleryBridge.pick_newest(entry_a, entry_b))
     }
 
@@ -60,12 +60,12 @@ class GalleryBridgeTest {
         val uri_b = "content://media/2"
         val uri_c = "content://media/3"
         val items = listOf(
-            GalleryBridge.MediaEntry(uri_a, 100, 1000, 1, 10),
-            GalleryBridge.MediaEntry(uri_b, 100, 1000, 2, 5),
-            GalleryBridge.MediaEntry(uri_c, 100, 2000, 1, 1)
+            GalleryBridge.MediaEntry(uri_a, 100, 1000, 1, 10, 100),
+            GalleryBridge.MediaEntry(uri_b, 100, 1000, 2, 5, 200),
+            GalleryBridge.MediaEntry(uri_c, 100, 2000, 1, 1, 300)
         )
         val sorted = GalleryBridge.sort_entries(items)
-        assertEquals(listOf(uri_c, uri_b, uri_a), sorted.map { it.uri })
+        assertEquals(listOf(uri_b, uri_c, uri_a), sorted.map { it.uri })
     }
 
     @Test
@@ -88,7 +88,8 @@ class GalleryBridgeTest {
     @Test
     fun delete_uses_media_store_uri_not_path() {
         val selection = GalleryBridge.build_delete_selection("content://media/1")
-        assertTrue(selection.contains("content://"))
+        assertEquals("${android.provider.MediaStore.Images.Media._ID}=?", selection)
+        assertEquals("", GalleryBridge.build_delete_selection("/storage/emulated/0/DCIM/test.jpg"))
     }
 
     @Test

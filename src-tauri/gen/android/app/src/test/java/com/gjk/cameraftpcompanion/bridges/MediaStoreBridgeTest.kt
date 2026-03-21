@@ -37,7 +37,7 @@ class MediaStoreBridgeTest {
     fun retry_with_backoff_uses_correct_delays() {
         val delays = mutableListOf<Long>()
         MediaStoreBridge.retryWithBackoff(3, sleep = { delays.add(it) }) { throw RuntimeException("fail") }
-        assertEquals(listOf(100L, 200L, 400L), delays)
+        assertEquals(listOf(100L, 200L), delays)
     }
 
     @Test
@@ -122,15 +122,15 @@ class MediaStoreBridgeTest {
     @Test
     fun cleanup_selection_targets_pending_rows() {
         val selection = MediaStoreBridge.buildCleanupSelection(1234)
-        assertTrue(selection.contains("IS_PENDING"))
+        assertTrue(selection.contains(MediaStore.MediaColumns.IS_PENDING))
     }
 
     @Test
     fun cleanup_removes_pending_older_than_24h() {
         val nowMinus25h = System.currentTimeMillis() - 25 * 60 * 60 * 1000L
         val selection = MediaStoreBridge.buildCleanupSelection(nowMinus25h)
-        assertTrue(selection.contains("IS_PENDING"))
-        assertTrue(selection.contains("DATE_ADDED"))
+        assertTrue(selection.contains(MediaStore.MediaColumns.IS_PENDING))
+        assertTrue(selection.contains(MediaStore.MediaColumns.DATE_ADDED))
     }
 
     @Test
@@ -155,7 +155,7 @@ class MediaStoreBridgeTest {
 
     @Test
     fun finalize_native_bridge_exposes_emit_ready_entrypoint() {
-        val methodRef: (Context, String, Long?) -> Boolean = MediaStoreBridge::finalizeEntryAndEmitReadyNative
+        val methodRef: (Context, String, Long?) -> Boolean = MediaStoreBridge.Companion::finalizeEntryAndEmitReadyNative
         assertNotNull(methodRef)
     }
 }

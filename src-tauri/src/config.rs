@@ -135,7 +135,7 @@ static ANDROID_CONFIG_PATH: OnceLock<PathBuf> = OnceLock::new();
 /// 设置 Android 配置路径（在应用初始化时调用）
 #[cfg(target_os = "android")]
 pub fn set_android_config_path(config_path: PathBuf) {
-    if let Err(_) = ANDROID_CONFIG_PATH.set(config_path.clone()) {
+    if ANDROID_CONFIG_PATH.set(config_path.clone()).is_err() {
         warn!("Android config path already set, ignoring duplicate initialization");
     } else {
         info!("Android config path set: {:?}", config_path);
@@ -247,6 +247,7 @@ impl AppConfig {
     pub fn load() -> Self {
         let path = Self::config_path();
 
+        #[allow(unused_mut)]
         let mut config = if path.exists() {
             match fs::read_to_string(&path) {
                 Ok(content) => match serde_json::from_str(&content) {

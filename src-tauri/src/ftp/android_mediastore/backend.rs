@@ -415,6 +415,7 @@ impl AndroidMediaStoreBackend {
     }
 
     #[cfg(not(unix))]
+    #[allow(dead_code)]
     async fn write_to_fd<R>(&self, _fd: i32, _reader: R, _start_pos: u64) -> Result<u64, MediaStoreError>
     where
         R: AsyncRead + Send + Sync + Unpin,

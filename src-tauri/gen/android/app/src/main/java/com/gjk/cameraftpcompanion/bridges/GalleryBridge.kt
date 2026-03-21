@@ -178,8 +178,9 @@ class GalleryBridge(private val context: Context) : BaseJsBridge(context as andr
          */
         @JvmStatic
         fun build_delete_selection(uri: String): String {
-            // Extract ID from content URI
-            val id = Uri.parse(uri).lastPathSegment ?: return ""
+            if (!uri.startsWith("content://")) {
+                return ""
+            }
             return "${MediaStore.Images.Media._ID}=?"
         }
 
@@ -209,19 +210,6 @@ class GalleryBridge(private val context: Context) : BaseJsBridge(context as andr
                 Log.e(TAG, "Thumbnail cache directory is not writable: $absolutePath")
             }
         }
-    }
-
-    /**
-     * 获取缩略图缓存文件路径
-     * Uses ThumbnailCache for key generation with dateModified
-     */
-    private fun getThumbnailCacheFile(imagePath: String): File {
-        val file = File(imagePath)
-        val uri = Uri.fromFile(file)
-        val dateModified = file.lastModified()
-        val cache = ThumbnailCacheProvider.instance
-        val key = cache.keyFor(uri, dateModified)
-        return File(getThumbnailCacheDir(), "thumb_$key.jpg")
     }
 
     /**
@@ -319,29 +307,6 @@ class GalleryBridge(private val context: Context) : BaseJsBridge(context as andr
             null
         }
     }
-
-    /**
-     * 获取缩略图 Bitmap - supports both file paths and MediaStore URIs
-     */
-    private fun getThumbnailBitmap(imagePath: String): Bitmap? {
-        val uri = if (imagePath.startsWith("content://")) {
-            Uri.parse(imagePath)
-        } else {
-            val file = File(imagePath)
-            if (!file.exists()) return null
-            Uri.fromFile(file)
-        }
-        return load_thumbnail(uri)
-    }
-
-    /**
-     * Deletion result for a single file
-     */
-    data class FileDeletionResult(
-        val path: String,
-        val success: Boolean,
-        val existed: Boolean
-    )
 
     @android.webkit.JavascriptInterface
     fun deleteImages(urisJson: String): String {
@@ -501,23 +466,6 @@ class GalleryBridge(private val context: Context) : BaseJsBridge(context as andr
     }
 
     /**
-     * 删除单个图片的缩略图缓存
-     * @param imagePath 原始图片路径
-     * Uses ThumbnailCache.evictIfPresent for proper cache management
-     */
-    private fun removeThumbnailForPath(imagePath: String) {
-        try {
-            val file = File(imagePath)
-            val uri = Uri.fromFile(file)
-            val cache = ThumbnailCacheProvider.instance
-            cache.evictIfPresent(uri)
-            Log.d(TAG, "Removed thumbnail cache for path=$imagePath")
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to remove thumbnail for path=$imagePath", e)
-        }
-    }
-
-    /**
      * 清理不在给定路径列表中的缩略图缓存
      * @param existingPathsJson JSON 数组，包含所有存在的图片路径
      * @return 清理的缓存文件数量
@@ -579,9 +527,6 @@ class GalleryBridge(private val context: Context) : BaseJsBridge(context as andr
                 Log.w(TAG, "shareImages: no URIs provided")
                 return false
             }
-
-            // Parse URIs (already MediaStore content URIs)
-            val parsedUris = uris.map { Uri.parse(it) }
 
             val intent = build_share_intent(uris)
             
@@ -700,7 +645,6 @@ class GalleryBridge(private val context: Context) : BaseJsBridge(context as andr
                 "${MediaStore.Images.Media.DATE_TAKEN} DESC"
             )
 
-            val entries = mutableListOf<MediaEntry>()
             // Use LinkedHashMap to preserve insertion order from MediaStore query
             val uriMap = LinkedHashMap<String, MediaEntry>()
 

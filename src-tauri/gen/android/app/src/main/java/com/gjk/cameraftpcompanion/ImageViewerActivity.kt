@@ -231,7 +231,7 @@ class ImageViewerActivity : AppCompatActivity() {
                 val exif = ExifInterface(stream)
                 val parts = mutableListOf<String>()
 
-                exif.getAttributeInt(ExifInterface.TAG_ISO_SPEED_RATINGS, -1).takeIf { it >= 0 }?.let {
+                exif.getAttributeInt(ExifInterface.TAG_PHOTOGRAPHIC_SENSITIVITY, -1).takeIf { it >= 0 }?.let {
                     parts.add("ISO $it")
                 }
 
