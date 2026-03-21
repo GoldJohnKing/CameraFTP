@@ -1,4 +1,14 @@
+import java.io.File
 import java.util.Properties
+
+fun resolveKeystoreFile(rootProjectFile: File, storeFilePath: String): File {
+    val configuredFile = File(storeFilePath)
+    if (configuredFile.isAbsolute) {
+        return configuredFile
+    }
+
+    return rootProjectFile.parentFile.resolve(storeFilePath)
+}
 
 plugins {
     id("com.android.application")
@@ -33,7 +43,10 @@ android {
             if (keystorePropertiesFile.exists()) {
                 val keystoreProperties = Properties()
                 keystorePropertiesFile.inputStream().use { keystoreProperties.load(it) }
-                storeFile = file(keystoreProperties.getProperty("storeFile"))
+                storeFile = resolveKeystoreFile(
+                    keystorePropertiesFile,
+                    keystoreProperties.getProperty("storeFile"),
+                )
                 storePassword = keystoreProperties.getProperty("storePassword")
                 keyAlias = keystoreProperties.getProperty("keyAlias")
                 keyPassword = keystoreProperties.getProperty("keyPassword")

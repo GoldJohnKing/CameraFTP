@@ -5,12 +5,12 @@
  */
 
 import { useState, useMemo } from 'react';
-import { invoke } from '@tauri-apps/api/core';
 import { Loader2, Eye, EyeOff, AlertCircle } from 'lucide-react';
 import { ToggleSwitch } from './ui';
 import type { AdvancedConnectionConfig, AppConfig } from '../types';
 import { validatePort as validatePortBasic } from '../utils/validation';
 import { usePortCheck } from '../hooks/usePortCheck';
+import { useConfigStore } from '../stores/configStore';
 
 const PASSWORD_PLACEHOLDER = '••••••••';
 
@@ -46,6 +46,7 @@ export function AdvancedConnectionConfigPanel({
   
   // ========== Port checking hook ==========
   const { checkPort, isChecking: isCheckingPort } = usePortCheck();
+  const saveAuthConfig = useConfigStore(state => state.saveAuthConfig);
   const [usernameInput, setUsernameInput] = useState(() => config.auth.username);
   
   // ========== 密码状态（派生 + 编辑隔离）==========
@@ -196,7 +197,7 @@ export function AdvancedConnectionConfigPanel({
 
     try {
       // 传输明文密码，后端进行 Argon2id 哈希
-      await invoke('save_auth_config', {
+      await saveAuthConfig({
         anonymous: config.auth.anonymous,
         username: usernameInput,
         password: editPasswordValue,

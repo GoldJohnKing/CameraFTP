@@ -6,18 +6,10 @@
 
 import { create } from 'zustand';
 import { invoke } from '@tauri-apps/api/core';
-import type { Event } from '@tauri-apps/api/event';
 import type { ServerInfo, ServerStateSnapshot } from '../types';
-import { serverStateBridge, storageSettingsBridge } from '../types/global';
-import { createEventManager, type EventRegistration } from '../utils/events';
-import { retryAction, executeAsync } from '../utils/store';
+import { executeAsync } from '../utils/store';
 import { checkAndroidPermissions } from '../types';
-import type { MediaStoreReadyPayload } from '../types/events';
-import { scheduleMediaLibraryRefresh } from '../utils/gallery-refresh';
-import { shouldScheduleUploadRefresh } from '../utils/server-stats-refresh';
-
-// Event payload types
-type ServerStartedPayload = { ip: string; port: number };
+import { syncAndroidServerState } from '../services/android-server-state-sync';
 
 interface ServerState {
   // 状态
@@ -34,9 +26,6 @@ interface ServerState {
   stopServer: () => Promise<void>;
   closePermissionDialog: () => void;
   continueAfterPermissionsGranted: () => Promise<void>;
-  
-  // 初始化
-  initializeListeners: () => Promise<() => void>;
 }
 
 const defaultStats: ServerStateSnapshot = {
@@ -47,154 +36,12 @@ const defaultStats: ServerStateSnapshot = {
   lastFile: null,
 };
 
-const updateAndroidServiceState = (isRunning: boolean, stats: ServerStateSnapshot | null, connectedClients: number, immediate = false) => {
-  retryAction(
-    () => {
-      if (!serverStateBridge.isAvailable()) return false;
-      const statsJson = stats ? JSON.stringify({
-        files_transferred: stats.filesReceived || 0,
-        bytes_transferred: stats.bytesReceived || 0,
-      }) : null;
-      return serverStateBridge.updateState(isRunning, statsJson, connectedClients);
-    },
-    { maxRetries: immediate ? 30 : 5, delayMs: immediate ? 50 : 200 }
-  );
-};
-
-const createEventRegistrations = (
-  get: () => ServerState,
-  set: (fn: (state: ServerState) => ServerState) => void
-): EventRegistration<any>[] => [
-  {
-    name: 'server-started',
-    handler: (event: Event<ServerStartedPayload>) => {
-      const { ip, port } = event.payload;
-      set((state) => ({
-        ...state,
-        isRunning: true,
-        serverInfo: {
-          isRunning: true,
-          ip,
-          port,
-          url: `ftp://${ip}:${port}`,
-          username: 'anonymous',
-          passwordInfo: '(任意密码)',
-        },
-        stats: { ...state.stats, isRunning: true }
-      }));
-      updateAndroidServiceState(true, get().stats, 0);
-    },
-  },
-  {
-    name: 'server-stopped',
-    handler: () => {
-      set((state) => ({
-        ...state,
-        isRunning: false,
-        serverInfo: null,
-        stats: defaultStats
-      }));
-      updateAndroidServiceState(false, null, 0);
-    },
-  },
-  {
-    name: 'stats-update',
-    handler: (event: Event<ServerStateSnapshot>) => {
-      const stats = event.payload;
-      const previousStats = get().stats;
-      set((state) => ({ ...state, stats }));
-      updateAndroidServiceState(true, stats, stats.connectedClients || 0);
-
-      if (shouldScheduleUploadRefresh(previousStats.filesReceived, stats.filesReceived)) {
-        scheduleMediaLibraryRefresh({
-          reason: 'upload',
-          timestamp: Date.now(),
-        });
-      }
-    },
-  },
-  {
-    name: 'media-store-ready',
-    handler: (event: Event<MediaStoreReadyPayload>) => {
-      scheduleMediaLibraryRefresh({
-        reason: 'upload',
-        uri: event.payload.uri,
-        displayName: event.payload.displayName,
-        timestamp: event.payload.timestamp,
-      });
-    },
-  },
-  {
-    name: 'media-library-refresh-requested',
-    handler: () => {
-      scheduleMediaLibraryRefresh({
-        reason: 'delete',
-        timestamp: Date.now(),
-      });
-    },
-  },
-  {
-    name: 'tray-start-server',
-    handler: async () => {
-      try {
-        await get().startServer();
-      } catch (err) {
-        console.warn('[serverStore] Tray start server failed:', err);
-      }
-    },
-  },
-  {
-    name: 'tray-stop-server',
-    handler: async () => {
-      try {
-        await get().stopServer();
-      } catch (err) {
-        console.warn('[serverStore] Tray stop server failed:', err);
-      }
-    },
-  },
-  {
-    name: 'window-close-requested',
-    handler: async () => {
-      try {
-        await invoke('show_main_window');
-      } catch {
-        // Ignore window display errors
-      }
-      window.dispatchEvent(new CustomEvent('app-quit-requested'));
-    },
-  },
-  {
-    name: 'android-open-manage-storage-settings',
-    handler: () => {
-      storageSettingsBridge.openAllFilesAccessSettings();
-    },
-  },
-];
-
-const syncInitialState = async (set: (fn: (state: ServerState) => ServerState) => void): Promise<void> => {
-  try {
-    const info = await invoke<ServerInfo | null>('get_server_info');
-    if (info?.isRunning) {
-      const status = await invoke<ServerStateSnapshot | null>('get_server_status');
-      set((state) => ({
-        ...state,
-        isRunning: true,
-        serverInfo: info,
-        stats: status || { ...defaultStats, isRunning: true },
-      }));
-    }
-  } catch (err) {
-    console.warn('[serverStore] Initial state sync failed:', err);
-  }
-};
-
 const doStartServer = async (set: (fn: (state: ServerState) => ServerState) => void, get: () => ServerState): Promise<void> => {
   await executeAsync({
     operation: () => invoke<ServerInfo>('start_server'),
     onSuccess: (info, set) => {
       const initialStats = { ...get().stats, isRunning: true };
-      updateAndroidServiceState(true, initialStats, 0, true);
+      syncAndroidServerState(true, initialStats, 0, true);
       set((state) => ({
         ...state,
         isRunning: true,
@@ -243,7 +90,7 @@ export const useServerStore = create<ServerState>((set, get) => ({
           serverInfo: null,
           stats: defaultStats
         }));
-        updateAndroidServiceState(false, null, 0);
+        syncAndroidServerState(false, null, 0);
       },
       errorPrefix: 'Failed to stop server',
       rethrow: true,
@@ -256,17 +103,5 @@ export const useServerStore = create<ServerState>((set, get) => ({
     set({ showPermissionDialog: false, pendingServerStart: false });
     // Now actually start the server
     await doStartServer(set, get);
-  },
-
-  initializeListeners: async () => {
-    const eventManager = createEventManager();
-
-    await eventManager.registerAll(createEventRegistrations(get, set));
-
-    await syncInitialState(set);
-
-    return () => {
-      eventManager.cleanup();
-    };
   },
 }));

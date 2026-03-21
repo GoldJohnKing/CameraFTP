@@ -9,77 +9,15 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import type { FileInfo, ExifInfo } from '../types';
+import type { ExifInfo } from '../types';
 import type { ConfigChangedEvent } from '../types/events';
-
-interface PreviewEvent {
-  file_path: string;
-  bring_to_front: boolean;
-}
-
-interface PreviewWindowState {
-  isOpen: boolean;
-  currentImage: string | null;
-  autoBringToFront: boolean;
-}
+import { useConfigStore } from '../stores/configStore';
+import { PREVIEW_NAVIGATE_EVENT } from '../hooks/preview-window-events';
+import { usePreviewWindowLifecycle } from '../hooks/usePreviewWindowLifecycle';
+import { usePreviewNavigation } from '../hooks/usePreviewNavigation';
 
 export function PreviewWindow() {
-  const [state, setState] = useState<PreviewWindowState>({
-    isOpen: false,
-    currentImage: null,
-    autoBringToFront: false,
-  });
-
-  // 加载平台信息并设置 html class（用于平台自适应样式）
-  useEffect(() => {
-    const loadPlatform = async () => {
-      try {
-        const platformValue = await invoke<string>('get_platform');
-        document.documentElement.className = `platform-${platformValue}`;
-      } catch {
-        // Silently ignore
-      }
-    };
-    loadPlatform();
-  }, []);
-
-  // 监听 Rust 发来的预览事件
-  useEffect(() => {
-    let unlisten: (() => void) | null = null;
-
-    const setupListener = async () => {
-      unlisten = await listen<PreviewEvent>('preview-image', (event) => {
-        const { file_path, bring_to_front } = event.payload;
-
-        setState(prev => ({
-          ...prev,
-          isOpen: true,
-          currentImage: file_path,
-          autoBringToFront: bring_to_front,
-        }));
-      });
-    };
-
-    setupListener();
-
-    return () => {
-      if (unlisten) unlisten();
-    };
-  }, []);
-
-  // 监听内部导航事件
-  useEffect(() => {
-    const handleNavigate = (e: Event) => {
-      const customEvent = e as CustomEvent<string>;
-      setState(prev => ({
-        ...prev,
-        currentImage: customEvent.detail,
-      }));
-    };
-
-    window.addEventListener('navigate-image', handleNavigate);
-    return () => window.removeEventListener('navigate-image', handleNavigate);
-  }, []);
+  const state = usePreviewWindowLifecycle();
 
   // 实际预览窗口内容组件
   if (!state.isOpen) {
@@ -106,17 +44,13 @@ const PreviewWindowContent = memo(function PreviewWindowContent({
   imagePath: string | null;
   autoBringToFront: boolean;
 }) {
+  const updatePreviewConfig = useConfigStore(state => state.updatePreviewConfig);
   const [showToolbar, setShowToolbar] = useState(true);
   const [isToolbarHovered, setIsToolbarHovered] = useState(false);
   const [imageError, setImageError] = useState(false);
   const [localAutoBringToFront, setLocalAutoBringToFront] = useState(autoBringToFront);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const toolbarTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const configLoadedRef = useRef(false);
-
-  // 导航状态
-  const [currentIndex, setCurrentIndex] = useState(0);
-  const [totalFiles, setTotalFiles] = useState(0);
 
   // EXIF 信息
   const [exifInfo, setExifInfo] = useState<ExifInfo | null>(null);
@@ -148,179 +82,28 @@ const PreviewWindowContent = memo(function PreviewWindowContent({
     setPanY(0);
   }, []);
 
-  // 加载文件列表和当前索引
-  useEffect(() => {
-    const loadFileInfo = async () => {
-      try {
-        const files = await invoke<FileInfo[]>('get_file_list');
-        setTotalFiles(files.length);
-
-        const index = await invoke<number | null>('get_current_file_index');
-        setCurrentIndex(index ?? 0);
-      } catch {
-        // Silently ignore - file info is non-critical
-      }
-    };
-
-    loadFileInfo();
-  }, [imagePath]);
-
-  // 监听文件索引变化事件（文件添加/删除时更新）
-  useEffect(() => {
-    const unlistenPromise = listen<{ count: number; latestFilename: string | null }>(
-      'file-index-changed',
-      (event) => {
-        setTotalFiles(event.payload.count);
-        // 如果当前索引超出范围，调整到有效范围
-        setCurrentIndex((prev) => {
-          if (event.payload.count === 0) return 0;
-          return Math.min(prev, event.payload.count - 1);
-        });
-      }
-    );
-
-    return () => {
-      unlistenPromise.then((unlisten) => unlisten()).catch(() => {});
-    };
-  }, []);
-
-  // 导航方法
-  const navigateTo = useCallback(async (targetIndex: number) => {
-    if (targetIndex < 0 || targetIndex >= totalFiles) return;
-
-    try {
-      const file = await invoke<FileInfo>('navigate_to_file', { index: targetIndex });
-      setCurrentIndex(targetIndex);
+  const {
+    currentIndex,
+    totalFiles,
+    goToPrevious,
+    goToNext,
+    goToOldest,
+    goToLatest,
+  } = usePreviewNavigation({
+    imagePath,
+    onImagePathChange: (path) => {
+      window.dispatchEvent(new CustomEvent(PREVIEW_NAVIGATE_EVENT, { detail: path }));
+    },
+    onBeforeNavigation: () => {
       setImageError(false);
-      // 触发父组件更新图片路径
-      window.dispatchEvent(new CustomEvent('navigate-image', { detail: file.path }));
-      resetZoom();
-    } catch (err) {
-      // 导航失败（文件可能已被删除），刷新文件列表并尝试切换到有效文件
-      try {
-        const files = await invoke<FileInfo[]>('get_file_list');
-        setTotalFiles(files.length);
-
-        if (files.length === 0) {
-          // 没有文件了
-          setCurrentIndex(0);
-          window.dispatchEvent(new CustomEvent('navigate-image', { detail: null }));
-          return;
-        }
-
-        // 尝试切换到目标索引或最近的可用文件
-        const newIndex = Math.min(targetIndex, files.length - 1);
-        setCurrentIndex(newIndex);
-
-        // 始终尝试导航到新索引（即使索引相同，文件列表已更新）
-        try {
-          const file = await invoke<FileInfo>('navigate_to_file', { index: newIndex });
-          window.dispatchEvent(new CustomEvent('navigate-image', { detail: file.path }));
-          setImageError(false);
-          resetZoom();
-        } catch {
-          // 如果还是失败，可能是文件仍不存在，尝试下一张
-          if (newIndex < files.length - 1) {
-            navigateTo(newIndex + 1);
-          } else if (newIndex > 0) {
-            navigateTo(newIndex - 1);
-          }
-        }
-      } catch {
-        // 静默处理刷新失败
-      }
-    }
-  }, [totalFiles, resetZoom]);
-
-  const goToPrevious = useCallback(() => {
-    if (totalFiles === 0) return;
-    navigateTo(currentIndex + 1); // 更旧
-  }, [currentIndex, navigateTo, totalFiles]);
-
-  const goToNext = useCallback(() => {
-    if (totalFiles === 0) return;
-    navigateTo(currentIndex - 1); // 更新
-  }, [currentIndex, navigateTo, totalFiles]);
-
-  const goToOldest = useCallback(() => {
-    if (totalFiles === 0) return;
-    navigateTo(totalFiles - 1);
-  }, [totalFiles, navigateTo]);
-
-  const goToLatest = useCallback(async () => {
-    if (totalFiles === 0) return;
-    
-    try {
-      // 尝试获取当前最新的文件（索引0）
-      const file = await invoke<FileInfo>('navigate_to_file', { index: 0 });
-      setCurrentIndex(0);
-      setImageError(false);
-      setTotalFiles(prev => Math.max(prev, 1));
-      window.dispatchEvent(new CustomEvent('navigate-image', { detail: file.path }));
-      resetZoom();
-    } catch {
-      // 导航失败，刷新文件列表并尝试显示最新文件
-      try {
-        const files = await invoke<FileInfo[]>('get_file_list');
-        setTotalFiles(files.length);
-        
-        if (files.length === 0) {
-          setCurrentIndex(0);
-          window.dispatchEvent(new CustomEvent('navigate-image', { detail: null }));
-          return;
-        }
-        
-        // 尝试显示当前最新的文件（索引0）
-        if (files.length > 0) {
-          try {
-            const file = await invoke<FileInfo>('navigate_to_file', { index: 0 });
-            setCurrentIndex(0);
-            setImageError(false);
-            window.dispatchEvent(new CustomEvent('navigate-image', { detail: file.path }));
-            resetZoom();
-          } catch {
-            // 如果还是失败，尝试顺序查找第一个存在的文件
-            for (let i = 0; i < files.length; i++) {
-              try {
-                const file = await invoke<FileInfo>('navigate_to_file', { index: i });
-                setCurrentIndex(i);
-                setImageError(false);
-                window.dispatchEvent(new CustomEvent('navigate-image', { detail: file.path }));
-                resetZoom();
-                break;
-              } catch {
-                continue;
-              }
-            }
-          }
-        }
-      } catch {
-        // 静默处理
-      }
-    }
-  }, [totalFiles, resetZoom]);
+    },
+    onNavigationSettled: resetZoom,
+  });
 
   // 同步外部状态
   useEffect(() => {
     setLocalAutoBringToFront(autoBringToFront);
   }, [autoBringToFront]);
-
-  // 启动时加载配置
-  useEffect(() => {
-    if (configLoadedRef.current) return;
-
-    const loadInitialConfig = async () => {
-      try {
-        const config = await invoke<{ autoBringToFront: boolean }>('get_preview_config');
-        setLocalAutoBringToFront(config.autoBringToFront);
-        configLoadedRef.current = true;
-      } catch {
-        // Silently ignore - will use default value
-      }
-    };
-
-    loadInitialConfig();
-  }, []);
 
   // 监听全局配置变化事件
   useEffect(() => {
@@ -541,19 +324,11 @@ const PreviewWindowContent = memo(function PreviewWindowContent({
 
   const handleToggleAutoFront = async () => {
     try {
-      const config = await invoke<{
-        enabled: boolean;
-        method: string;
-        autoBringToFront: boolean;
-      }>('get_preview_config');
-
       const newValue = !localAutoBringToFront;
-      const newConfig = {
-        ...config,
-        autoBringToFront: newValue,
-      };
-      await invoke('set_preview_config', { config: newConfig });
-      setLocalAutoBringToFront(newValue);
+      const savedConfig = await updatePreviewConfig({ autoBringToFront: newValue });
+      if (savedConfig) {
+        setLocalAutoBringToFront(savedConfig.autoBringToFront);
+      }
     } catch {
       // Silently ignore - config change is not critical
     }

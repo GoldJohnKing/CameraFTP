@@ -4,7 +4,7 @@
 
 //! 服务器工厂 - 统一服务器启动逻辑
 
-use crate::config::AppConfig;
+use crate::config_service::ConfigService;
 use crate::constants::{
     DEFAULT_FTP_PORT_WINDOWS, DEFAULT_FTP_PORT_ANDROID, DEFAULT_FTP_PORT_OTHER,
     MIN_PORT, IDLE_TIMEOUT_SECONDS,
@@ -15,7 +15,7 @@ use crate::ftp::{
 };
 use crate::network::NetworkManager;
 use std::sync::Arc;
-use tauri::AppHandle;
+use tauri::{AppHandle, Manager};
 use tokio::sync::{Mutex, oneshot};
 use tracing::{error, info, warn};
 
@@ -43,7 +43,7 @@ impl Default for ServerStartupOptions {
 pub async fn start_ftp_server(
     state: &Arc<Mutex<Option<FtpServerHandle>>>,
     options: ServerStartupOptions,
-    app_handle: Option<AppHandle>,
+    app_handle: AppHandle,
 ) -> Result<ServerStartupContext, AppError> {
     // 检查是否已在运行
     {
@@ -53,12 +53,15 @@ pub async fn start_ftp_server(
         }
     }
 
-    let config = AppConfig::load();
+    let config_service = app_handle.state::<Arc<ConfigService>>();
+    let config = config_service
+        .get()
+        .map_err(|e| AppError::Other(format!("Failed to read config from service: {}", e)))?;
 
     // 统一通过 PlatformService 验证存储路径
     // 这会处理平台特定的权限检查和目录创建
     let save_path = crate::platform::get_platform()
-        .ensure_storage_ready()
+        .ensure_storage_ready(&app_handle)
         .map_err(|e| {
             error!(error = %e, "Storage not ready");
             AppError::StoragePermissionError(e)
@@ -119,7 +122,7 @@ pub async fn start_ftp_server(
     };
 
     // 创建FTP服务器Actor
-    let (server_handle, server_actor, stats_worker, event_bus) = create_ftp_server(app_handle);
+    let (server_handle, server_actor, stats_worker, event_bus) = create_ftp_server(Some(app_handle));
 
     // 运行统计Actor Worker（必须在后台运行，否则统计不会更新）
     tokio::spawn(async move {

@@ -6,14 +6,18 @@
 
 package com.gjk.cameraftpcompanion
 
+import android.app.Activity
+import android.app.RecoverableSecurityException
 import android.content.Context
 import android.content.Intent
+import android.content.IntentSender
 import android.content.pm.ActivityInfo
 import android.content.res.Configuration
 import android.database.Cursor
 import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Bundle
+import android.os.Build
 import android.provider.MediaStore
 import android.util.Log
 import android.view.View
@@ -21,6 +25,8 @@ import android.widget.ImageButton
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
+import androidx.activity.result.IntentSenderRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
@@ -28,6 +34,7 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.exifinterface.media.ExifInterface
+import com.gjk.cameraftpcompanion.bridges.GalleryBridge
 import androidx.viewpager2.widget.ViewPager2
 import com.davemorrissey.labs.subscaleview.SubsamplingScaleImageView
 import org.json.JSONArray
@@ -46,6 +53,19 @@ class ImageViewerActivity : AppCompatActivity() {
         /** Active instance, set by onResume/cleared by onDestroy for bridge access */
         var instance: ImageViewerActivity? = null
             private set
+
+        @JvmStatic
+        fun shouldRequestDeleteConfirmation(
+            apiLevel: Int,
+            isSecurityException: Boolean,
+            isRecoverableSecurityException: Boolean,
+        ): Boolean {
+            return GalleryBridge.shouldRequestDeleteConfirmation(
+                apiLevel = apiLevel,
+                isSecurityException = isSecurityException,
+                isRecoverableSecurityException = isRecoverableSecurityException,
+            )
+        }
 
         fun start(context: Context, uris: List<String>, targetIndex: Int) {
             val intent = Intent(context, ImageViewerActivity::class.java).apply {
@@ -68,6 +88,18 @@ class ImageViewerActivity : AppCompatActivity() {
     private var currentIndex: Int = 0
     private var isLandscape = false
     private var isBottomBarVisible = true
+    private var pendingDeleteUri: String? = null
+
+    private val deleteRequestLauncher = registerForActivityResult(
+        ActivityResultContracts.StartIntentSenderForResult(),
+    ) { result ->
+        val uriString = pendingDeleteUri ?: return@registerForActivityResult
+        pendingDeleteUri = null
+
+        if (result.resultCode == Activity.RESULT_OK) {
+            deleteCurrentImage(uriString = uriString, allowDeleteConfirmation = false)
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -282,7 +314,12 @@ class ImageViewerActivity : AppCompatActivity() {
     private fun deleteCurrentImage() {
         if (uris.isEmpty() || currentIndex < 0 || currentIndex >= uris.size) return
 
-        val uriString = uris[currentIndex]
+        deleteCurrentImage(uris[currentIndex], allowDeleteConfirmation = true)
+    }
+
+    private fun deleteCurrentImage(uriString: String, allowDeleteConfirmation: Boolean) {
+        if (uris.isEmpty() || currentIndex < 0 || currentIndex >= uris.size) return
+
         val uri = Uri.parse(uriString)
 
         try {
@@ -301,6 +338,7 @@ class ImageViewerActivity : AppCompatActivity() {
                     currentIndex = uris.size - 1
                 }
 
+                notifyMediaLibraryDeleted()
                 viewPager.adapter?.notifyDataSetChanged()
                 viewPager.setCurrentItem(currentIndex, false)
                 updateUI()
@@ -308,13 +346,54 @@ class ImageViewerActivity : AppCompatActivity() {
             } else {
                 Toast.makeText(this, "删除失败：文件不存在", Toast.LENGTH_SHORT).show()
             }
-        } catch (e: SecurityException) {
-            Log.e(TAG, "No permission to delete image", e)
-            Toast.makeText(this, "删除失败：无权限", Toast.LENGTH_SHORT).show()
         } catch (e: Exception) {
+            if (allowDeleteConfirmation) {
+                when {
+                    Build.VERSION.SDK_INT == Build.VERSION_CODES.Q && e is RecoverableSecurityException -> {
+                        requestDeleteConfirmation(uriString, e.userAction.actionIntent.intentSender)
+                        return
+                    }
+
+                    shouldRequestDeleteConfirmation(
+                        apiLevel = Build.VERSION.SDK_INT,
+                        isSecurityException = e is SecurityException,
+                        isRecoverableSecurityException = e is RecoverableSecurityException,
+                    ) -> {
+                        val pendingIntent = MediaStore.createDeleteRequest(contentResolver, listOf(uri))
+                        requestDeleteConfirmation(uriString, pendingIntent.intentSender)
+                        return
+                    }
+                }
+            }
+
+            if (e is SecurityException) {
+                Log.e(TAG, "No permission to delete image", e)
+                Toast.makeText(this, "删除失败：无权限", Toast.LENGTH_SHORT).show()
+                return
+            }
+
             Log.e(TAG, "Failed to delete image", e)
             Toast.makeText(this, "删除失败", Toast.LENGTH_SHORT).show()
         }
+    }
+
+    private fun requestDeleteConfirmation(uriString: String, intentSender: IntentSender) {
+        pendingDeleteUri = uriString
+
+        try {
+            val request = IntentSenderRequest.Builder(intentSender).build()
+            deleteRequestLauncher.launch(request)
+        } catch (e: Exception) {
+            pendingDeleteUri = null
+            Log.e(TAG, "Failed to launch delete confirmation", e)
+            Toast.makeText(this, "删除失败", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun notifyMediaLibraryDeleted() {
+        MainActivity.instance?.emitTauriEvent("file-index-changed", "{\"count\":1,\"latestFilename\":null}")
+        MainActivity.instance?.emitTauriEvent("gallery-refresh-requested", "{\"reason\":\"delete\"}")
+        MainActivity.instance?.emitTauriEvent("latest-photo-refresh-requested", "{\"reason\":\"delete\"}")
     }
 
     private fun parseUrisFromIntent(): List<String> {

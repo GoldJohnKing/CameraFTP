@@ -27,10 +27,10 @@ pub trait PlatformService: Send + Sync {
     fn check_permission_status(&self) -> PermissionStatus;
 
     /// 确保存储就绪
-    fn ensure_storage_ready(&self) -> Result<String, String>;
+    fn ensure_storage_ready(&self, app: &AppHandle) -> Result<String, String>;
 
     /// 获取存储路径
-    fn get_storage_path(&self) -> Result<String, String>;
+    fn get_storage_path(&self, app: &AppHandle) -> Result<String, String>;
 
     /// 请求所有文件访问权限（仅 Android 有效）
     /// 返回 true 表示已授予权限，false 表示需要用户操作

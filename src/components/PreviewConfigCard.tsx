@@ -4,15 +4,14 @@
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
 
-import { useState, useEffect } from 'react';
+import { useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-// Note: Using direct `listen` from Tauri API for simplicity in this single-event case.
-// The centralized event manager (events.ts) is better suited for multi-event scenarios.
 import { listen } from '@tauri-apps/api/event';
 import type { PreviewWindowConfig } from '../types';
 import type { ConfigChangedEvent } from '../types/events';
 import { ImagePlay } from 'lucide-react';
 import { Card, CardHeader, ToggleSwitch } from './ui';
+import { useConfigStore } from '../stores/configStore';
 
 interface PreviewConfigCardProps {
   platform: string;
@@ -20,55 +19,29 @@ interface PreviewConfigCardProps {
 
 export function PreviewConfigCard({ platform }: PreviewConfigCardProps) {
   const isWindows = platform === 'windows';
-  const [config, setConfig] = useState<PreviewWindowConfig | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [customPath, setCustomPath] = useState('');
-
-  useEffect(() => {
-    if (isWindows) {
-      loadConfig();
-    }
-  }, [isWindows]);
+  const updatePreviewConfig = useConfigStore(state => state.updatePreviewConfig);
+  const applyPreviewConfig = useConfigStore(state => state.applyPreviewConfig);
+  const config = useConfigStore(state => state.draft?.previewConfig ?? null);
+  const isLoading = useConfigStore(state => state.isLoading || state.draft == null);
 
   // 监听全局配置变化事件
   useEffect(() => {
     if (!isWindows) return;
 
     const unlistenPromise = listen<ConfigChangedEvent>('preview-config-changed', (event) => {
-      setConfig(event.payload.config);
-      if (event.payload.config.customPath) {
-        setCustomPath(event.payload.config.customPath);
-      }
+      applyPreviewConfig(event.payload.config);
     });
 
     return () => {
       void unlistenPromise.then(fn => fn()).catch(() => {});
     };
-  }, [isWindows]);
-
-  const loadConfig = async () => {
-    try {
-      const loaded = await invoke<PreviewWindowConfig>('get_preview_config');
-      setConfig(loaded);
-      // 恢复自定义路径显示
-      if (loaded.customPath) {
-        setCustomPath(loaded.customPath);
-      }
-    } catch {
-      // Silently ignore - config will use defaults
-    } finally {
-      setIsLoading(false);
-    }
-  };
+  }, [isWindows, applyPreviewConfig]);
 
   const updateConfig = async (updates: Partial<PreviewWindowConfig>) => {
     if (!config) return;
 
-    const newConfig = { ...config, ...updates };
-    setConfig(newConfig);
-
     try {
-      await invoke('set_preview_config', { config: newConfig });
+      await updatePreviewConfig(updates);
     } catch {
       // Silently ignore - config change is not critical
     }
@@ -78,9 +51,7 @@ export function PreviewConfigCard({ platform }: PreviewConfigCardProps) {
     try {
       const selected = await invoke<string | null>('select_executable_file');
       if (selected) {
-        setCustomPath(selected);
-        // 同时更新 method 和 customPath
-        updateConfig({ method: 'custom', customPath: selected });
+        await updateConfig({ method: 'custom', customPath: selected });
       }
     } catch {
       // Silently ignore - user can try again
@@ -172,7 +143,7 @@ export function PreviewConfigCard({ platform }: PreviewConfigCardProps) {
                 }
               >
                 <p className={`text-xs truncate ${config.method === 'custom' ? 'text-gray-500' : 'text-gray-400'}`}>
-                  {customPath || '未设置'}
+                  {config.customPath || '未设置'}
                 </p>
               </RadioOption>
             </div>
@@ -241,5 +212,3 @@ function RadioOption({
     </label>
   );
 }
-
-

@@ -6,7 +6,7 @@ use tauri::{command, AppHandle, Manager, State};
 use tracing::{error, info, instrument};
 
 use crate::commands::FtpServerState;
-use crate::config::AppConfig;
+use crate::config_service::ConfigService;
 use crate::error::AppError;
 use crate::file_index::FileIndexService;
 use crate::ftp::types::{ServerInfo, ServerStateSnapshot};
@@ -37,7 +37,7 @@ pub async fn start_server(
     let ctx = crate::ftp::server_factory::start_ftp_server(
         &state.0,
         Default::default(),
-        Some(app.clone())
+        app.clone()
     ).await?;
 
     // 设置 FileIndexService 的 EventBus，使其能够发射文件索引变化事件
@@ -59,7 +59,10 @@ pub async fn start_server(
     platform.on_server_started(&app);
 
     // 加载配置获取认证信息
-    let app_config = AppConfig::load();
+    let config_service = app.state::<Arc<ConfigService>>();
+    let app_config = config_service
+        .get()
+        .map_err(|e| AppError::Other(format!("Failed to read config from service: {}", e)))?;
     let (username, password_info) = if app_config.advanced_connection.enabled {
         if app_config.advanced_connection.auth.anonymous {
             (None, None)

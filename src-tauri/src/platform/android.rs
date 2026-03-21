@@ -146,7 +146,7 @@ impl PlatformService for AndroidPlatform {
         check_permission_status()
     }
 
-    fn ensure_storage_ready(&self) -> Result<String, String> {
+    fn ensure_storage_ready(&self, _app: &AppHandle) -> Result<String, String> {
         ensure_storage_ready()
     }
 
@@ -175,7 +175,7 @@ impl PlatformService for AndroidPlatform {
         );
     }
 
-    fn get_storage_path(&self) -> Result<String, String> {
+    fn get_storage_path(&self, _app: &AppHandle) -> Result<String, String> {
         Ok(DEFAULT_STORAGE_PATH.to_string())
     }
 
