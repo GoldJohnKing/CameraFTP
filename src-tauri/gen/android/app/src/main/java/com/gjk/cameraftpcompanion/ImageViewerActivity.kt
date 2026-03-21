@@ -15,7 +15,6 @@ import android.net.Uri
 import android.os.Bundle
 import android.provider.MediaStore
 import android.util.Log
-import android.view.MotionEvent
 import android.view.View
 import android.widget.ImageButton
 import android.widget.LinearLayout
@@ -94,7 +93,7 @@ class ImageViewerActivity : AppCompatActivity() {
     }
 
     private fun setupViewPager() {
-        viewPager.adapter = ImageViewerAdapter(uris)
+        viewPager.adapter = ImageViewerAdapter(uris) { toggleBottomBar() }
         viewPager.setCurrentItem(currentIndex, false)
         viewPager.registerOnPageChangeCallback(object : ViewPager2.OnPageChangeCallback() {
             override fun onPageSelected(position: Int) {
@@ -102,19 +101,21 @@ class ImageViewerActivity : AppCompatActivity() {
                 updateUI()
             }
         })
-
-        // Tap to toggle bottom bar
-        viewPager.getChildAt(0)?.setOnTouchListener { _, event ->
-            if (event.action == MotionEvent.ACTION_UP) {
-                toggleBottomBar()
-            }
-            false
-        }
     }
 
     private fun toggleBottomBar() {
         isBottomBarVisible = !isBottomBarVisible
-        bottomBar.visibility = if (isBottomBarVisible) View.VISIBLE else View.GONE
+        if (isBottomBarVisible) {
+            bottomBar.alpha = 0f
+            bottomBar.visibility = View.VISIBLE
+            bottomBar.animate().alpha(1f).setDuration(100).start()
+        } else {
+            bottomBar.animate()
+                .alpha(0f)
+                .setDuration(100)
+                .withEndAction { bottomBar.visibility = View.GONE }
+                .start()
+        }
     }
 
     private fun setupButtons() {

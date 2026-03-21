@@ -7,13 +7,16 @@
 package com.gjk.cameraftpcompanion
 
 import android.net.Uri
+import android.view.GestureDetector
+import android.view.MotionEvent
 import android.view.ViewGroup
 import androidx.recyclerview.widget.RecyclerView
 import com.davemorrissey.labs.subscaleview.ImageSource
 import com.davemorrissey.labs.subscaleview.SubsamplingScaleImageView
 
 class ImageViewerAdapter(
-    private val uris: List<String>
+    private val uris: List<String>,
+    private val onTap: (() -> Unit)? = null
 ) : RecyclerView.Adapter<ImageViewerAdapter.ViewHolder>() {
 
     class ViewHolder(val imageView: SubsamplingScaleImageView) : RecyclerView.ViewHolder(imageView)
@@ -30,6 +33,17 @@ class ImageViewerAdapter(
             setOrientation(SubsamplingScaleImageView.ORIENTATION_USE_EXIF)
             setPanLimit(SubsamplingScaleImageView.PAN_LIMIT_INSIDE)
         }
+
+        onTap?.let { callback ->
+            val gestureDetector = GestureDetector(parent.context, object : GestureDetector.SimpleOnGestureListener() {
+                override fun onSingleTapConfirmed(e: MotionEvent): Boolean {
+                    callback()
+                    return true
+                }
+            })
+            imageView.setOnTouchListener { _, event -> gestureDetector.onTouchEvent(event) }
+        }
+
         return ViewHolder(imageView)
     }
 
