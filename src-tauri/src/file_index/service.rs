@@ -177,6 +177,10 @@ impl FileIndexService {
         index.current_index = index.files.first().map(|_| 0);
         
         info!("Directory scan complete: {} files found", index.files.len());
+
+        drop(index);
+        self.emit_file_index_changed().await;
+
         Ok(())
     }
 
