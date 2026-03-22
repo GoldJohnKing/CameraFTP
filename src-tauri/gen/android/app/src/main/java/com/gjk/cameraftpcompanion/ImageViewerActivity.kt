@@ -48,6 +48,7 @@ class ImageViewerActivity : AppCompatActivity() {
         private const val TAG = "ImageViewerActivity"
         const val EXTRA_URIS = "uris"
         const val EXTRA_TARGET_INDEX = "target_index"
+        const val MEDIA_LIBRARY_REFRESH_REQUESTED_EVENT = "media-library-refresh-requested"
 
         /** Active instance, set by onResume/cleared by onDestroy for bridge access */
         var instance: ImageViewerActivity? = null
@@ -64,6 +65,11 @@ class ImageViewerActivity : AppCompatActivity() {
                 isSecurityException = isSecurityException,
                 isRecoverableSecurityException = isRecoverableSecurityException,
             )
+        }
+
+        @JvmStatic
+        fun shouldTreatDeleteAsSuccess(rowsDeleted: Int, stillExists: Boolean): Boolean {
+            return rowsDeleted > 0 || !stillExists
         }
 
         fun start(context: Context, uris: List<String>, targetIndex: Int) {
@@ -96,7 +102,7 @@ class ImageViewerActivity : AppCompatActivity() {
         pendingDeleteUri = null
 
         if (result.resultCode == Activity.RESULT_OK) {
-            deleteCurrentImage(uriString = uriString, allowDeleteConfirmation = false)
+            finalizeDeleteAfterConfirmation(uriString)
         }
     }
 
@@ -314,25 +320,9 @@ class ImageViewerActivity : AppCompatActivity() {
 
         try {
             val rowsDeleted = contentResolver.delete(uri, null, null)
-            if (rowsDeleted > 0) {
-                Log.d(TAG, "Deleted image: $uriString")
-                uris.removeAt(currentIndex)
-
-                if (uris.isEmpty()) {
-                    Toast.makeText(this, "图片已删除", Toast.LENGTH_SHORT).show()
-                    finish()
-                    return
-                }
-
-                if (currentIndex >= uris.size) {
-                    currentIndex = uris.size - 1
-                }
-
-                notifyMediaLibraryDeleted()
-                viewPager.adapter?.notifyDataSetChanged()
-                viewPager.setCurrentItem(currentIndex, false)
-                updateUI()
-                Toast.makeText(this, "图片已删除", Toast.LENGTH_SHORT).show()
+            val stillExists = uriStillExists(uri)
+            if (shouldTreatDeleteAsSuccess(rowsDeleted, stillExists)) {
+                applyDeleteSuccess(uriString)
             } else {
                 Toast.makeText(this, "删除失败：文件不存在", Toast.LENGTH_SHORT).show()
             }
@@ -357,6 +347,11 @@ class ImageViewerActivity : AppCompatActivity() {
             }
 
             if (e is SecurityException) {
+                if (!uriStillExists(uri)) {
+                    applyDeleteSuccess(uriString)
+                    return
+                }
+
                 Log.e(TAG, "No permission to delete image", e)
                 Toast.makeText(this, "删除失败：无权限", Toast.LENGTH_SHORT).show()
                 return
@@ -364,6 +359,70 @@ class ImageViewerActivity : AppCompatActivity() {
 
             Log.e(TAG, "Failed to delete image", e)
             Toast.makeText(this, "删除失败", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun finalizeDeleteAfterConfirmation(uriString: String) {
+        val uri = Uri.parse(uriString)
+
+        try {
+            val rowsDeleted = contentResolver.delete(uri, null, null)
+            val stillExists = uriStillExists(uri)
+            if (shouldTreatDeleteAsSuccess(rowsDeleted, stillExists)) {
+                applyDeleteSuccess(uriString)
+                return
+            }
+        } catch (e: SecurityException) {
+            if (!uriStillExists(uri)) {
+                applyDeleteSuccess(uriString)
+                return
+            }
+
+            Log.e(TAG, "Delete still blocked after confirmation", e)
+            Toast.makeText(this, "删除失败：无权限", Toast.LENGTH_SHORT).show()
+            return
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to finalize delete after confirmation", e)
+            Toast.makeText(this, "删除失败", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        Toast.makeText(this, "删除失败", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun applyDeleteSuccess(uriString: String) {
+        val removedIndex = uris.indexOf(uriString)
+
+        if (removedIndex >= 0) {
+            uris.removeAt(removedIndex)
+
+            if (removedIndex < currentIndex) {
+                currentIndex -= 1
+            } else if (currentIndex >= uris.size && uris.isNotEmpty()) {
+                currentIndex = uris.size - 1
+            }
+        }
+
+        notifyMediaLibraryDeleted()
+
+        if (uris.isEmpty()) {
+            Toast.makeText(this, "图片已删除", Toast.LENGTH_SHORT).show()
+            finish()
+            return
+        }
+
+        viewPager.adapter?.notifyDataSetChanged()
+        viewPager.setCurrentItem(currentIndex, false)
+        updateUI()
+        Toast.makeText(this, "图片已删除", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun uriStillExists(uri: Uri): Boolean {
+        return try {
+            val cursor = contentResolver.query(uri, arrayOf(MediaStore.Images.Media._ID), null, null, null)
+            cursor?.use { it.moveToFirst() } ?: false
+        } catch (_: Exception) {
+            false
         }
     }
 
@@ -381,9 +440,13 @@ class ImageViewerActivity : AppCompatActivity() {
     }
 
     private fun notifyMediaLibraryDeleted() {
-        MainActivity.instance?.emitTauriEvent("file-index-changed", "{\"count\":1,\"latestFilename\":null}")
-        MainActivity.instance?.emitTauriEvent("gallery-refresh-requested", "{\"reason\":\"delete\"}")
-        MainActivity.instance?.emitTauriEvent("latest-photo-refresh-requested", "{\"reason\":\"delete\"}")
+        val mainActivity = MainActivity.instance ?: return
+        val refreshPayload = "{\"reason\":\"delete\",\"timestamp\":${System.currentTimeMillis()}}"
+
+        mainActivity.emitTauriEvent("file-index-changed", "{\"count\":1,\"latestFilename\":null}")
+        mainActivity.emitTauriEvent(MEDIA_LIBRARY_REFRESH_REQUESTED_EVENT, "{}")
+        mainActivity.emitWindowEvent("gallery-refresh-requested", refreshPayload)
+        mainActivity.emitWindowEvent("latest-photo-refresh-requested", refreshPayload)
     }
 
     private fun parseUrisFromIntent(): List<String> {

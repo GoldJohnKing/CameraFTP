@@ -27,13 +27,20 @@ type HarnessProps = {
   images: Array<{ path: string; filename: string; sortTime: number }>;
   isLoading?: boolean;
   enteringIds?: Set<string>;
+  suppressGridAnimations?: boolean;
 };
 
-function GalleryGridHarness({ images, isLoading = false, enteringIds = new Set<string>() }: HarnessProps) {
+function GalleryGridHarness({
+  images,
+  isLoading = false,
+  enteringIds = new Set<string>(),
+  suppressGridAnimations = false,
+}: HarnessProps) {
   const { thumbnails, loadingThumbnails, imageRefCallback, removeThumbnailEntries, cleanupDeletedThumbnails } = useGalleryGrid({
     images,
     isLoading,
     enteringIds,
+    suppressGridAnimations,
   });
 
   return (

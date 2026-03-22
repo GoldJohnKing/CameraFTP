@@ -58,7 +58,16 @@ vi.mock('../../utils/gallery-refresh', async () => {
 });
 
 function GalleryLibraryHarness() {
-  const { images, isLoading, isRefreshing, error, enteringIds, refresh, removeImages } = useGalleryLibrary();
+  const {
+    images,
+    isLoading,
+    isRefreshing,
+    error,
+    enteringIds,
+    suppressGridAnimations,
+    refresh,
+    removeImages,
+  } = useGalleryLibrary();
 
   return (
     <div>
@@ -67,6 +76,7 @@ function GalleryLibraryHarness() {
       <span data-testid="refreshing">{isRefreshing ? 'yes' : 'no'}</span>
       <span data-testid="error">{error ?? ''}</span>
       <span data-testid="entering-count">{enteringIds.size}</span>
+      <span data-testid="suppress-grid-animations">{suppressGridAnimations ? 'yes' : 'no'}</span>
       <button onClick={() => void refresh()} data-testid="refresh">refresh</button>
       <button onClick={() => removeImages(new Set(['content://2']))} data-testid="remove-content-2">remove-content-2</button>
       <button
@@ -85,6 +95,14 @@ function GalleryLibraryHarness() {
 async function flush(): Promise<void> {
   await Promise.resolve();
   await Promise.resolve();
+}
+
+function createDeferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  const promise = new Promise<T>((res) => {
+    resolve = res;
+  });
+  return { promise, resolve };
 }
 
 describe('useGalleryLibrary', () => {
@@ -147,6 +165,61 @@ describe('useGalleryLibrary', () => {
     });
 
     expect(listGalleryMediaMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('reloads gallery when window regains focus', async () => {
+    await act(async () => {
+      root.render(<GalleryLibraryHarness />);
+      await flush();
+    });
+
+    await act(async () => {
+      window.dispatchEvent(new Event('focus'));
+      await flush();
+    });
+
+    expect(listGalleryMediaMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps loading indicator hidden for focus-triggered background refresh', async () => {
+    await act(async () => {
+      root.render(<GalleryLibraryHarness />);
+      await flush();
+    });
+
+    const deferred = createDeferred<Array<{ path: string; filename: string; sortTime: number }>>();
+    listGalleryMediaMock.mockReturnValueOnce(deferred.promise);
+
+    await act(async () => {
+      window.dispatchEvent(new Event('focus'));
+      await flush();
+    });
+
+    expect(container.querySelector('[data-testid="loading"]')?.textContent).toBe('no');
+    expect(container.querySelector('[data-testid="suppress-grid-animations"]')?.textContent).toBe('yes');
+
+    deferred.resolve([
+      { path: 'content://1', filename: '1.jpg', sortTime: 1 },
+      { path: 'content://2', filename: '2.jpg', sortTime: 2 },
+    ]);
+
+    await act(async () => {
+      await flush();
+    });
+  });
+
+  it('keeps grid animations enabled for manual refresh', async () => {
+    await act(async () => {
+      root.render(<GalleryLibraryHarness />);
+      await flush();
+    });
+
+    await act(async () => {
+      container.querySelector('[data-testid="refresh"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(container.querySelector('[data-testid="suppress-grid-animations"]')?.textContent).toBe('no');
   });
 
   it('gates manual refresh when storage permission is missing', async () => {

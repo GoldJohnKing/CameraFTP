@@ -16,6 +16,7 @@ type UseGalleryGridOptions = {
   images: GalleryImage[];
   isLoading: boolean;
   enteringIds: Set<string>;
+  suppressGridAnimations: boolean;
 };
 
 type UseGalleryGridResult = {
@@ -26,7 +27,12 @@ type UseGalleryGridResult = {
   cleanupDeletedThumbnails: (imagePaths: Set<string>) => Promise<void>;
 };
 
-export function useGalleryGrid({ images, isLoading, enteringIds }: UseGalleryGridOptions): UseGalleryGridResult {
+export function useGalleryGrid({
+  images,
+  isLoading,
+  enteringIds,
+  suppressGridAnimations,
+}: UseGalleryGridOptions): UseGalleryGridResult {
   const [thumbnails, setThumbnails] = useState<Map<string, string>>(new Map());
   const [loadingThumbnails, setLoadingThumbnails] = useState<Set<string>>(new Set());
   const observerRef = useRef<IntersectionObserver | null>(null);
@@ -182,6 +188,10 @@ export function useGalleryGrid({ images, isLoading, enteringIds }: UseGalleryGri
       const newRect = element.getBoundingClientRect();
       currentPositions.set(image.path, newRect);
 
+      if (suppressGridAnimations) {
+        return;
+      }
+
       const previousRect = previousPositionsRef.current.get(image.path);
       if (previousRect) {
         animateGridMovement(element, previousRect, newRect);
@@ -191,7 +201,7 @@ export function useGalleryGrid({ images, isLoading, enteringIds }: UseGalleryGri
     });
 
     previousPositionsRef.current = currentPositions;
-  }, [images, enteringIds, animateGridEntry, animateGridMovement]);
+  }, [images, enteringIds, suppressGridAnimations, animateGridEntry, animateGridMovement]);
 
   useEffect(() => {
     const pendingLoads = new Set<string>();

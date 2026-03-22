@@ -21,6 +21,11 @@ type RefreshOptions = {
   onStart?: () => void;
 };
 
+type LoadImagesOptions = {
+  showLoading?: boolean;
+  suppressGridAnimations?: boolean;
+};
+
 export function useGalleryLibrary() {
   const requestStoragePermission = usePermissionStore((state) => state.requestStoragePermission);
   const startPermissionPolling = usePermissionStore((state) => state.startPolling);
@@ -29,15 +34,22 @@ export function useGalleryLibrary() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [enteringIds, setEnteringIds] = useState<Set<string>>(new Set());
+  const [suppressGridAnimations, setSuppressGridAnimations] = useState(false);
   const previousImagePathsRef = useRef<Set<string>>(new Set());
   const enteringTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const loadImages = useCallback(async () => {
+  const loadImages = useCallback(async (options?: LoadImagesOptions) => {
     if (!window.GalleryAndroid) {
       return;
     }
 
-    setIsLoading(true);
+    const showLoading = options?.showLoading ?? true;
+    const shouldSuppressGridAnimations = options?.suppressGridAnimations ?? false;
+
+    if (showLoading) {
+      setIsLoading(true);
+    }
+    setSuppressGridAnimations(shouldSuppressGridAnimations);
     setError(null);
 
     try {
@@ -68,15 +80,17 @@ export function useGalleryLibrary() {
       setError(err instanceof Error ? err.message : 'Failed to load images');
       setImages([]);
     } finally {
-      setIsLoading(false);
+      if (showLoading) {
+        setIsLoading(false);
+      }
     }
   }, []);
 
   useEffect(() => {
-    void loadImages();
+    void loadImages({ showLoading: true, suppressGridAnimations: false });
 
     const handler = () => {
-      void loadImages();
+      void loadImages({ showLoading: false, suppressGridAnimations: true });
     };
 
     window.addEventListener(GALLERY_REFRESH_REQUESTED_EVENT, handler);
@@ -85,6 +99,24 @@ export function useGalleryLibrary() {
       if (enteringTimeoutRef.current) {
         clearTimeout(enteringTimeoutRef.current);
       }
+    };
+  }, [loadImages]);
+
+  useEffect(() => {
+    const reloadWhenVisible = () => {
+      if (document.visibilityState !== 'visible') {
+        return;
+      }
+
+      void loadImages({ showLoading: false, suppressGridAnimations: true });
+    };
+
+    window.addEventListener('focus', reloadWhenVisible);
+    document.addEventListener('visibilitychange', reloadWhenVisible);
+
+    return () => {
+      window.removeEventListener('focus', reloadWhenVisible);
+      document.removeEventListener('visibilitychange', reloadWhenVisible);
     };
   }, [loadImages]);
 
@@ -103,7 +135,7 @@ export function useGalleryLibrary() {
     const startTime = Date.now();
 
     try {
-      await loadImages();
+      await loadImages({ showLoading: true, suppressGridAnimations: false });
       requestLatestPhotoRefresh({ reason: 'manual' });
     } finally {
       const elapsed = Date.now() - startTime;
@@ -132,6 +164,7 @@ export function useGalleryLibrary() {
     isRefreshing,
     error,
     enteringIds,
+    suppressGridAnimations,
     refresh,
     removeImages,
   };

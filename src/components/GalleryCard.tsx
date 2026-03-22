@@ -19,11 +19,21 @@ const GRID_EXIT_DURATION_MS = 180;
 export const GalleryCard = memo(function GalleryCard() {
   const { activeTab } = useConfigStore();
   const openPreview = useImagePreviewOpener();
-  const { images, isLoading, isRefreshing, error, enteringIds, refresh, removeImages } = useGalleryLibrary();
+  const {
+    images,
+    isLoading,
+    isRefreshing,
+    error,
+    enteringIds,
+    suppressGridAnimations,
+    refresh,
+    removeImages,
+  } = useGalleryLibrary();
   const { thumbnails, loadingThumbnails, imageRefCallback, cleanupDeletedThumbnails } = useGalleryGrid({
     images,
     isLoading,
     enteringIds,
+    suppressGridAnimations,
   });
 
   const {

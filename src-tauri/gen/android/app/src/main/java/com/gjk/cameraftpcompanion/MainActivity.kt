@@ -219,6 +219,19 @@ class MainActivity : TauriActivity() {
         }
     }
 
+    /**
+     * Dispatch a browser CustomEvent to the main window WebView.
+     * @param name Event name
+     * @param detailJson JSON detail object as string
+     */
+    fun emitWindowEvent(name: String, detailJson: String) {
+        val webView = webViewRef ?: return
+        val script = "window.dispatchEvent(new CustomEvent('$name', { detail: $detailJson }))"
+        runOnUiThread {
+            webView.evaluateJavascript(script, null)
+        }
+    }
+
     fun requestDeleteConfirmation(intentSender: IntentSender): Boolean {
         val latch = CountDownLatch(1)
         val approvedRef = AtomicReference(false)
