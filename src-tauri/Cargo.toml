@@ -29,7 +29,7 @@ unftp-sbe-fs = "0.4.0"
 unftp-core = "0.1.0"
 dashmap = "6.0"
 # 类型生成
-ts-rs = "10.1"
+ts-rs = { version = "10.1", features = ["no-serde-warnings"] }
 thiserror = "2.0"
 # 网络检测
 local-ip-address = "0.6"
