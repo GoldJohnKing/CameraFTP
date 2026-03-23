@@ -59,22 +59,29 @@ vi.mock('../../hooks/useThumbnailScheduler', () => ({
   }),
 }));
 
+let mockGallerySelectionOverrides: Record<string, unknown> = {};
+let capturedOnDeleteApplied: ((ids: string[]) => Promise<void>) | null = null;
+
 vi.mock('../../hooks/useGallerySelection', () => ({
-  useGallerySelection: () => ({
-    isSelectionMode: false,
-    selectedIds: new Set<string>(),
-    showMenu: false,
-    deletingIds: new Set<string>(),
-    menuRef: { current: null },
-    handleTouchStart: vi.fn(),
-    handleTouchEnd: vi.fn(),
-    handleSelectionClick: vi.fn(() => false),
-    handleRefreshStart: vi.fn(),
-    handleDelete: vi.fn(),
-    handleShare: vi.fn(),
-    handleCancelSelection: vi.fn(),
-    toggleMenu: vi.fn(),
-  }),
+  useGallerySelection: (args: { onDeleteApplied?: (ids: string[]) => Promise<void> }) => {
+    capturedOnDeleteApplied = args?.onDeleteApplied ?? null;
+    return {
+      isSelectionMode: false,
+      selectedIds: new Set<string>(),
+      showMenu: false,
+      deletingIds: new Set<string>(),
+      menuRef: { current: null },
+      handleTouchStart: vi.fn(),
+      handleTouchEnd: vi.fn(),
+      handleSelectionClick: vi.fn(() => false),
+      handleRefreshStart: vi.fn(),
+      handleDelete: vi.fn(),
+      handleShare: vi.fn(),
+      handleCancelSelection: vi.fn(),
+      toggleMenu: vi.fn(),
+      ...mockGallerySelectionOverrides,
+    };
+  },
 }));
 
 vi.mock('../../hooks/useImagePreviewOpener', () => ({
@@ -159,6 +166,8 @@ describe('GalleryCard (virtualized)', () => {
     mockRegisterMedia.mockClear();
     mockIsLoading = false;
     mockError = null;
+    mockGallerySelectionOverrides = {};
+    capturedOnDeleteApplied = null;
   });
 
   afterEach(() => {
@@ -264,5 +273,55 @@ describe('GalleryCard (virtualized)', () => {
     const call = mockUpdateViewport.mock.calls[mockUpdateViewport.mock.calls.length - 1];
     expect(call[0].length).toBeGreaterThan(0);
     expect(Array.isArray(call[1])).toBe(true);
+  });
+
+  it('calls reload and cleanup on refresh', async () => {
+    await act(async () => {
+      root.render(<GalleryCard />);
+      await flush();
+    });
+
+    const refreshButton = container.querySelector('button');
+    expect(refreshButton).toBeTruthy();
+
+    await act(async () => {
+      refreshButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(mockReload).toHaveBeenCalledTimes(1);
+    expect(mockCleanup).toHaveBeenCalledTimes(1);
+  });
+
+  it('calls removeItems and removeThumbs on delete', async () => {
+    const deletedIds = ['id1'];
+    mockGallerySelectionOverrides = {
+      isSelectionMode: true,
+      selectedIds: new Set(deletedIds),
+      showMenu: true,
+      handleDelete: vi.fn(async () => {
+        if (capturedOnDeleteApplied) {
+          await capturedOnDeleteApplied(deletedIds);
+        }
+      }),
+    };
+
+    await act(async () => {
+      root.render(<GalleryCard />);
+      await flush();
+    });
+
+    const deleteButton = Array.from(container.querySelectorAll('button')).find((btn) =>
+      btn.textContent?.includes('删除'),
+    );
+    expect(deleteButton).toBeTruthy();
+
+    await act(async () => {
+      deleteButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(mockRemoveItems).toHaveBeenCalledWith(deletedIds);
+    expect(mockRemoveThumbs).toHaveBeenCalledWith(deletedIds);
   });
 });
