@@ -28,6 +28,30 @@
 2. 首屏可见缩略图到位率：打开后 `1s 内 >= 95%`
 3. 滚动停止后视口补齐时间 `P95 <= 300ms`
 
+### 2.3 SLO 计量契约（Measurement Contract）
+
+为保证验收可复现，统一以下口径：
+
+1. **TTI 计量**
+   - start: `gallery_open_start`（用户触发进入图库）
+   - end: `gallery_first_interactive`（主线程完成首帧可交互渲染，且滚动容器可响应）
+
+2. **首屏 1s 到位率**
+   - 采样时刻：`gallery_first_interactive` 后第一个稳定布局帧
+   - 分母：该帧内所有可见 tile 数（不含 overscan）
+   - 分子：在 `gallery_open_start + 1000ms` 前变为 `ready` 的 tile 数
+
+3. **停滚补齐 300ms**
+   - start: `scroll_stop`
+   - end: `viewport_fully_filled`
+   - 分母：`scroll_stop` 时刻可见 tile 数
+   - 判定：300ms 内全部可见 tile 为 `ready`
+
+4. **统计分桶**
+   - 冷缓存与热缓存分开统计
+   - 低/中/高端机分开统计（不允许仅用混合平均）
+   - 每个设备档位 `N >= 200` 样本才可判定通过
+
 ### 2.2 守护指标
 
 - 视口漏图率（停留 >1s 仍占位）`< 0.5%`
@@ -103,6 +127,15 @@ interface MediaPageResponse {
 }
 ```
 
+`revisionToken` 契约：
+
+- 表示一次可枚举数据快照版本（来源于本地索引快照版本号）
+- 任何分页请求若 token 不一致，返回 `stale_cursor` 错误
+- 客户端收到 `stale_cursor` 后必须：
+  1) 清空分页 cursor；
+  2) 保留已加载项的 `mediaId` 去重集；
+  3) 重新从第一页拉取并按 `mediaId` 幂等合并
+
 方法：
 
 - `listMediaPage(req: MediaPageRequest): Promise<MediaPageResponse>`
@@ -128,6 +161,12 @@ interface ThumbResult {
   errorCode?: string;
 }
 ```
+
+回调契约：
+
+- 回调在主线程派发，但以 16ms 分帧批量投递，避免回调风暴。
+- 结果顺序不保证；客户端必须按 `requestId`/`wantedKey` 幂等处理。
+- 对已取消请求，允许收到迟到结果；客户端必须可安全忽略。
 
 方法：
 
@@ -186,6 +225,14 @@ interface ThumbResult {
 - 停滚 120ms 后触发“补齐模式”
 - 300ms 补齐窗口内若不足，暂停 prefetch
 
+硬约束：
+
+- 全局 `pending` 上限：600
+- 分级配额：`visible 50% / nearby 35% / prefetch 15%`
+- `visible` 保底并发槽位：至少 1 个 worker
+- `cancelled-before-run` 目标：P95 < 20ms
+- `cancel-latency`（发起取消到不再占用 worker）目标：P95 < 100ms
+
 ### 7.4 防漏图机制
 
 - 每个 tile 保存 `wantedKey = mediaId@dateModified@sizeBucket`
@@ -215,6 +262,19 @@ interface ThumbResult {
 - running 任务支持软取消（不可中断阶段完成后丢弃）
 - 失败分级（可重试/不可重试），有限退避
 
+错误码与重试策略：
+
+- `io_transient`: 可重试，最多 2 次，退避 100ms / 300ms
+- `decode_corrupt`: 不可重试，直接 failed
+- `permission_denied`: 不可重试，直接 failed
+- `oom_guard`: 不重试，触发降级模式
+- `cancelled`: 不重试
+
+规则：
+
+- `prefetch` 默认不重试
+- `visible` 允许一次短重试
+
 ### 8.3 解码策略
 
 - 尺寸桶：`s`（约 180~220）/ `m`（约 320~380）
@@ -226,15 +286,37 @@ interface ThumbResult {
 
 - L1：`LruCache`（按字节上限）
 - L2：磁盘缓存目录 `thumb/v2/<bucket>/<hash>.jpg`
-- key：`sha1(mediaId:dateModifiedSec:sizeBucket)`
+- key：`sha1(mediaId:dateModifiedMs:sizeBucket:orientation:byteSize)`
 - 清理触发：启动延迟后台清理 + 阈值触发 LRU 淘汰
 - 不在列表加载主路径执行全盘扫描清理
+
+容量与低存储策略：
+
+- L1 默认上限：`min(32MB, heapClass * 0.08)`
+- L2 默认上限：256MB（低端机 128MB）
+- 可用存储 < 1GB 时，L2 进入紧缩模式（上限减半）
+- 清理批次预算：每批次 <= 50ms，后台分段执行
 
 ### 8.5 分页查询
 
 - 排序：`dateModified desc, mediaId desc`
 - 游标带上条记录双键，保证稳定翻页
 - 不按 displayName 去重，避免误丢有效项
+
+一致性与去重：
+
+- 客户端维护 `seenMediaIds`，分页合并时强制去重。
+- 若 `stale_cursor`，执行整流重建：重拉第一页并保持选择状态按 `mediaId` 恢复。
+
+### 8.6 本地调优参数配置（离线）
+
+引入 `LocalTuningProfile`（本地静态配置，可在开发期调整）：
+
+- `low-end`：并发 2，L2 128MB，prefetch 弱化
+- `mid-end`：并发 3，L2 256MB
+- `high-end`：并发 4，L2 384MB
+
+每次启动记录生效参数快照到日志，便于回归比对。
 
 ---
 
@@ -267,10 +349,21 @@ Android：
 4. 前后台切换恢复
 5. 上传/删除后的增量刷新
 6. 低端机内存压力场景
+7. Activity 重建（旋转/系统回收）
+8. WebView 重建后旧 `viewId` 任务回收
+9. 运行中权限撤销
+10. 缓存目录不可写与存储空间不足
 
 ### 9.3 门禁
 
 每次重构提交后执行统一压测脚本，产出 P50/P95/P99 与漏图率报告。核心 SLO 任一不达标则失败。
+
+压测协议固定：
+
+- 数据集：5k/10k/20k，按近 30 天高密度分布 + 历史长尾混合
+- 滚动脚本：固定轨迹（上/下 fling + 停顿），每轮 180s
+- 每机型每场景 5 轮，去除首次预热后统计
+- 冷/热缓存分别出报告
 
 ---
 
@@ -334,3 +427,14 @@ Android：
 ## 13. 结论
 
 本方案通过“分页元数据 + 虚拟化渲染 + 异步缩略图队列 + 两级缓存”重构整个链路，直接对准当前卡死、补图慢、漏图三类故障根因。该方案改动面较大，但能以最短总路径达到严格性能目标，并为后续图库能力扩展提供稳定基础。
+
+---
+
+## 14. 实施就绪检查（Ready for Planning）
+
+- [x] 严格 SLO 与计量口径明确
+- [x] 分页一致性与 `revisionToken` 失效恢复定义
+- [x] 队列上限、背压和取消 SLA 明确
+- [x] 错误码与重试策略明确
+- [x] 缓存容量、低存储/OOM 降级策略明确
+- [x] 生命周期与异常场景测试覆盖
