@@ -350,6 +350,12 @@ declare global {
      * Android Image Viewer JS Bridge
      */
     ImageViewerAndroid?: ImageViewerAndroid;
+
+    /**
+     * Global dispatch callback for V2 thumbnail results.
+     * Called by the Android bridge: window.__galleryThumbDispatch(listenerId, resultJson)
+     */
+    __galleryThumbDispatch?: (listenerId: string, resultJson: string) => void;
   }
 }
 

@@ -139,3 +139,42 @@ export function dispatchThumbnailResult(listenerId: string, resultJson: string):
     }
   }
 }
+
+// ===== V2 Adapter Functions =====
+// Thin wrappers that match the spec contract for useThumbnailScheduler.
+
+/**
+ * Enqueue thumbnail generation requests (V2 API).
+ * Delegates to the bridge's enqueueThumbnails method.
+ */
+export async function enqueueThumbnailsV2(reqs: ThumbRequest[]): Promise<void> {
+  return enqueueThumbnails(reqs);
+}
+
+/**
+ * Cancel specific thumbnail requests by request ID (V2 API).
+ * Delegates to the bridge's cancelThumbnailRequests method.
+ */
+export async function cancelThumbnailRequestsV2(requestIds: string[]): Promise<void> {
+  return cancelThumbnailRequests(requestIds);
+}
+
+/**
+ * Register a thumbnail result listener (V2 API).
+ * Sets up the global dispatch callback so the Android bridge can deliver results.
+ */
+export async function registerThumbnailListenerV2(
+  viewId: string,
+  listenerId: string,
+  listener: ThumbResultListener,
+): Promise<void> {
+  await registerThumbnailListener(viewId, listenerId, listener);
+  window.__galleryThumbDispatch = dispatchThumbnailResult;
+}
+
+/**
+ * Unregister a thumbnail result listener (V2 API).
+ */
+export async function unregisterThumbnailListenerV2(listenerId: string): Promise<void> {
+  await unregisterThumbnailListener(listenerId);
+}
