@@ -38,6 +38,7 @@
 
 2. **首屏 1s 到位率**
    - 采样时刻：`gallery_first_interactive` 后第一个稳定布局帧
+   - 稳定布局帧定义：连续 2 帧（>=16ms 间隔）可见索引范围一致
    - 分母：该帧内所有可见 tile 数（不含 overscan）
    - 分子：在 `gallery_open_start + 1000ms` 前变为 `ready` 的 tile 数
 
@@ -50,6 +51,7 @@
 4. **统计分桶**
    - 冷缓存与热缓存分开统计
    - 低/中/高端机分开统计（不允许仅用混合平均）
+   - 分档规则：低端（RAM<=4GB）、中端（4GB<RAM<=8GB）、高端（RAM>8GB）
    - 每个设备档位 `N >= 200` 样本才可判定通过
 
 ### 2.2 守护指标
@@ -114,7 +116,7 @@ interface MediaPageRequest {
 interface MediaItemDto {
   mediaId: string;
   uri: string;
-  dateModifiedSec: number;
+  dateModifiedMs: number;
   width: number | null;
   height: number | null;
   mimeType: string | null;
@@ -147,7 +149,7 @@ interface ThumbRequest {
   requestId: string;
   mediaId: string;
   uri: string;
-  dateModifiedSec: number;
+  dateModifiedMs: number;
   sizeBucket: 's' | 'm';
   priority: 'visible' | 'nearby' | 'prefetch';
   viewId: string;
@@ -168,12 +170,21 @@ interface ThumbResult {
 - 结果顺序不保证；客户端必须按 `requestId`/`wantedKey` 幂等处理。
 - 对已取消请求，允许收到迟到结果；客户端必须可安全忽略。
 
+事件通道契约：
+
+- 使用事件通道代替闭包订阅，避免 WebView JS Bridge 兼容性风险。
+- Native 分发入口：`window.__galleryThumbDispatch(listenerId, batchJson)`。
+- `batchJson` 为 `ThumbResult[]`，单批上限 64 条，超量分帧投递。
+- WebView/Activity 重建后，旧 `listenerId` 全部失效，前端必须重新注册。
+- backlog 超阈值时优先丢弃 prefetch 回调并上报 `queue_overflow`。
+
 方法：
 
 - `enqueueThumbnails(reqs: ThumbRequest[]): Promise<void>`
 - `cancelThumbnailRequests(requestIds: string[]): Promise<void>`
 - `cancelByView(viewId: string): Promise<void>`
-- `subscribeThumbnailResults(viewId: string, cb: (r: ThumbResult) => void): () => void`
+- `registerThumbnailListener(viewId: string, listenerId: string): Promise<void>`
+- `unregisterThumbnailListener(listenerId: string): Promise<void>`
 - `invalidateMediaIds(mediaIds: string[]): Promise<void>`
 - `getQueueStats(): Promise<{ pending: number; running: number; cacheHitRate: number }>`
 
@@ -233,6 +244,12 @@ interface ThumbResult {
 - `cancelled-before-run` 目标：P95 < 20ms
 - `cancel-latency`（发起取消到不再占用 worker）目标：P95 < 100ms
 
+Native 强制背压：
+
+- `maxQueued = 600`
+- `maxInFlight = workerCount`
+- 溢出时优先丢弃 `prefetch` queued 请求并上报 `queue_overflow`
+
 ### 7.4 防漏图机制
 
 - 每个 tile 保存 `wantedKey = mediaId@dateModified@sizeBucket`
@@ -264,16 +281,21 @@ interface ThumbResult {
 
 错误码与重试策略：
 
-- `io_transient`: 可重试，最多 2 次，退避 100ms / 300ms
+- `io_transient`: 可重试
 - `decode_corrupt`: 不可重试，直接 failed
 - `permission_denied`: 不可重试，直接 failed
 - `oom_guard`: 不重试，触发降级模式
 - `cancelled`: 不重试
 
-规则：
+重试矩阵（errorCode × priority）：
 
-- `prefetch` 默认不重试
-- `visible` 允许一次短重试
+| errorCode | visible | nearby | prefetch |
+|---|---:|---:|---:|
+| io_transient | totalAttempts=2，退避 100ms | totalAttempts=2，退避 200ms | totalAttempts=1（不重试） |
+| decode_corrupt | totalAttempts=1 | totalAttempts=1 | totalAttempts=1 |
+| permission_denied | totalAttempts=1 | totalAttempts=1 | totalAttempts=1 |
+| oom_guard | totalAttempts=1（触发降级） | totalAttempts=1（触发降级） | totalAttempts=1（触发降级） |
+| cancelled | totalAttempts=1 | totalAttempts=1 | totalAttempts=1 |
 
 ### 8.3 解码策略
 
@@ -296,6 +318,11 @@ interface ThumbResult {
 - L2 默认上限：256MB（低端机 128MB）
 - 可用存储 < 1GB 时，L2 进入紧缩模式（上限减半）
 - 清理批次预算：每批次 <= 50ms，后台分段执行
+
+优先级规则：
+
+- 存在 `LocalTuningProfile` 时，profile 参数覆盖默认容量与并发。
+- 仅在 profile 缺失时使用默认值。
 
 ### 8.5 分页查询
 
