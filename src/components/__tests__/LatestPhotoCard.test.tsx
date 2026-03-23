@@ -29,11 +29,11 @@ vi.mock('../ui', () => ({
   IconContainer: ({ children }: { children: ReactNode }) => <div>{children}</div>,
 }));
 
-const listMediaStoreImagesMock = vi.fn();
+const listMediaPageMock = vi.fn();
 
-const galleryAndroid = {
-  listMediaStoreImages: listMediaStoreImagesMock,
-} as Pick<NonNullable<Window['GalleryAndroid']>, 'listMediaStoreImages'>;
+const galleryAndroidV2 = {
+  listMediaPage: listMediaPageMock,
+} as Pick<NonNullable<Window['GalleryAndroidV2']>, 'listMediaPage'>;
 
 async function flush(): Promise<void> {
   await Promise.resolve();
@@ -49,15 +49,22 @@ describe('LatestPhotoCard', () => {
     container = document.createElement('div');
     document.body.appendChild(container);
     root = createRoot(container);
-    window.GalleryAndroid = galleryAndroid as Window['GalleryAndroid'];
-    listMediaStoreImagesMock.mockReset();
-    listMediaStoreImagesMock.mockResolvedValue(JSON.stringify([
-      {
-        uri: 'content://media/2',
-        displayName: 'fresh.jpg',
-        dateModified: 200,
-      },
-    ]));
+    window.GalleryAndroidV2 = galleryAndroidV2 as Window['GalleryAndroidV2'];
+    listMediaPageMock.mockReset();
+    listMediaPageMock.mockResolvedValue(JSON.stringify({
+      items: [
+        {
+          mediaId: '2',
+          uri: 'content://media/2/fresh.jpg',
+          dateModifiedMs: 200,
+          width: 1920,
+          height: 1080,
+          mimeType: 'image/jpeg',
+        },
+      ],
+      nextCursor: null,
+      revisionToken: 'tok',
+    }));
   });
 
   afterEach(() => {
@@ -65,7 +72,7 @@ describe('LatestPhotoCard', () => {
       root.unmount();
     });
     container.remove();
-    delete window.GalleryAndroid;
+    delete window.GalleryAndroidV2;
     vi.unstubAllGlobals();
   });
 
@@ -82,7 +89,7 @@ describe('LatestPhotoCard', () => {
       await flush();
     });
 
-    expect(listMediaStoreImagesMock).toHaveBeenCalled();
+    expect(listMediaPageMock).toHaveBeenCalled();
     expect(container.textContent).toContain('fresh.jpg');
   });
 });

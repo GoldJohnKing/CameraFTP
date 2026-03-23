@@ -140,6 +140,15 @@ export function dispatchThumbnailResult(listenerId: string, resultJson: string):
   }
 }
 
+/**
+ * List a page of media items using V2 bridge (simplified API).
+ * Returns empty response if bridge is unavailable.
+ */
+export async function listMediaPageV2(req: MediaPageRequest): Promise<MediaPageResponse> {
+  const raw = await window.GalleryAndroidV2?.listMediaPage(JSON.stringify(req));
+  return JSON.parse(raw ?? '{"items":[],"nextCursor":null,"revisionToken":""}') as MediaPageResponse;
+}
+
 // ===== V2 Adapter Functions =====
 // Thin wrappers that match the spec contract for useThumbnailScheduler.
 

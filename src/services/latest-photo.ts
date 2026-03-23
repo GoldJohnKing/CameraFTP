@@ -6,18 +6,18 @@
 
 import { invoke } from '@tauri-apps/api/core';
 import type { FileInfo } from '../types';
-import { isGalleryMediaAvailable, listGalleryMedia } from './gallery-media';
+import { isGalleryV2Available, listMediaPageV2 } from './gallery-media-v2';
 
 export type LatestPhotoFile = Pick<FileInfo, 'filename' | 'path'>;
 
 export async function fetchLatestPhotoFile(): Promise<LatestPhotoFile | null> {
-  if (isGalleryMediaAvailable()) {
-    const images = await listGalleryMedia();
-    const latestImage = images[0] ?? null;
-    return latestImage
+  if (isGalleryV2Available()) {
+    const page = await listMediaPageV2({ cursor: null, pageSize: 1, sort: 'dateDesc' });
+    const latest = page.items[0] ?? null;
+    return latest
       ? {
-          filename: latestImage.filename,
-          path: latestImage.path,
+          filename: latest.uri.split('/').pop() ?? latest.mediaId,
+          path: latest.uri,
         }
       : null;
   }
