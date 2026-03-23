@@ -151,6 +151,8 @@ class ThumbnailPipelineManager(poolSize: Int = 3) {
      * cancelled.  Set this before submitting jobs.
      */
     var onResult: ((ThumbResult) -> Unit)? = null
+    var decoder: ThumbnailDecoder? = null
+    var cacheDir: java.io.File? = null
 
     /**
      * Callback invoked when a prefetch job is dropped due to queue overflow.
@@ -368,20 +370,22 @@ class ThumbnailPipelineManager(poolSize: Int = 3) {
      * Execute a single job.  Runs on a worker thread.
      */
     private fun executeJob(job: ThumbJob) {
-        // Check if already cancelled before doing work
-        val cancelled = lock.withLock {
-            runningMap[job.requestId]?.cancelled == true
-        }
-        if (cancelled) {
-            finishJob(job, "cancelled", null, "cancelled")
-            return
-        }
+        val cancelled = lock.withLock { runningMap[job.requestId]?.cancelled == true }
+        if (cancelled) { finishJob(job, "cancelled", null, "cancelled"); return }
 
-        // Simulate work — the actual thumbnail generation will be
-        // provided by the caller via onResult or a future worker interface.
-        // For now we deliver a placeholder "ready" result.
-        // Real implementation will call into the native thumbnail generator.
-        finishJob(job, "ready", null, null)
+        val dec = decoder
+        val dir = cacheDir
+        if (dec == null || dir == null) { finishJob(job, "failed", null, "decoder_not_configured"); return }
+
+        try {
+            val uri = android.net.Uri.parse(job.uri)
+            val key = ThumbnailKeyV2.of(job.mediaId, job.dateModifiedMs, job.sizeBucket, 0, 0)
+            val path = dec.decodeAndSave(uri, job.sizeBucket, dir, key)
+            if (path != null) finishJob(job, "ready", path, null)
+            else finishJob(job, "failed", null, "decode_corrupt")
+        } catch (e: Exception) {
+            finishJob(job, "failed", null, "io_transient")
+        }
     }
 
     /**

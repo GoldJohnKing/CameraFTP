@@ -13,6 +13,7 @@ import com.gjk.cameraftpcompanion.galleryv2.MediaPageProvider
 import com.gjk.cameraftpcompanion.galleryv2.ThumbJob
 import com.gjk.cameraftpcompanion.galleryv2.ThumbResult
 import com.gjk.cameraftpcompanion.galleryv2.ThumbnailCacheV2
+import com.gjk.cameraftpcompanion.galleryv2.ThumbnailDecoder
 import com.gjk.cameraftpcompanion.galleryv2.ThumbnailKeyV2
 import com.gjk.cameraftpcompanion.galleryv2.ThumbnailPipelineManager
 import org.json.JSONArray
@@ -47,6 +48,8 @@ class GalleryBridgeV2(
 
     init {
         cache.initialize(activity)
+        pipelineManager.decoder = ThumbnailDecoder(activity)
+        pipelineManager.cacheDir = java.io.File(activity.cacheDir, "thumb/v2")
         pipelineManager.onResult = { result -> dispatchResult(result) }
     }
 
