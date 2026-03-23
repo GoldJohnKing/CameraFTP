@@ -209,6 +209,70 @@ interface MediaStoreAndroidBridge {
 }
 
 /**
+ * Android Gallery V2 Bridge interface
+ * Async batched thumbnail pipeline with priority queues.
+ * Injected by Android WebView as "GalleryAndroidV2".
+ * All methods return JSON strings that must be parsed by the adapter layer.
+ */
+interface GalleryAndroidV2 {
+  /**
+   * List a page of media items from MediaStore
+   * @param reqJson JSON string of MediaPageRequest
+   * @returns JSON string of MediaPageResponse
+   */
+  listMediaPage(reqJson: string): Promise<string>;
+
+  /**
+   * Enqueue thumbnail generation requests
+   * @param reqsJson JSON array of ThumbRequest
+   * @returns JSON string (empty on success)
+   */
+  enqueueThumbnails(reqsJson: string): Promise<string>;
+
+  /**
+   * Cancel specific thumbnail requests by request ID
+   * @param requestIdsJson JSON array of request ID strings
+   * @returns JSON string (empty on success)
+   */
+  cancelThumbnailRequests(requestIdsJson: string): Promise<string>;
+
+  /**
+   * Cancel all thumbnail requests associated with a view
+   * @param viewId The view identifier
+   * @returns JSON string (empty on success)
+   */
+  cancelByView(viewId: string): Promise<string>;
+
+  /**
+   * Register a listener for thumbnail results
+   * @param viewId The view identifier to scope results
+   * @param listenerId Unique listener identifier
+   * @returns JSON string (empty on success)
+   */
+  registerThumbnailListener(viewId: string, listenerId: string): Promise<string>;
+
+  /**
+   * Unregister a thumbnail result listener
+   * @param listenerId The listener identifier to remove
+   * @returns JSON string (empty on success)
+   */
+  unregisterThumbnailListener(listenerId: string): Promise<string>;
+
+  /**
+   * Invalidate cached thumbnails for specific media IDs
+   * @param mediaIdsJson JSON array of media ID strings
+   * @returns JSON string (empty on success)
+   */
+  invalidateMediaIds(mediaIdsJson: string): Promise<string>;
+
+  /**
+   * Get current thumbnail queue statistics
+   * @returns JSON string of QueueStats
+   */
+  getQueueStats(): Promise<string>;
+}
+
+/**
  * Android Image Viewer Bridge interface
  * Provides built-in image viewer with zoom, pan, and swipe navigation
  */
@@ -267,9 +331,15 @@ declare global {
     PermissionAndroid?: PermissionAndroid;
     
     /**
-     * Android Gallery JS Bridge
+     * Android Gallery JS Bridge (legacy, will be removed in Task 12)
      */
     GalleryAndroid?: GalleryAndroid;
+    
+    /**
+     * Android Gallery V2 JS Bridge
+     * Async batched thumbnail pipeline
+     */
+    GalleryAndroidV2?: GalleryAndroidV2;
     
     /**
      * Android MediaStore Bridge for debug hooks

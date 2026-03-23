@@ -33,3 +33,19 @@ export * from './global';
 
 // ===== Re-export from events.ts =====
 export type { ConfigChangedEvent } from './events';
+
+// ===== Re-export from gallery-v2.ts =====
+export type {
+  MediaCursor,
+  MediaPageRequest,
+  MediaItemDto,
+  MediaPageResponse,
+  ThumbSizeBucket,
+  ThumbPriority,
+  ThumbRequest,
+  ThumbStatus,
+  ThumbResult,
+  ThumbErrorCode,
+  QueueStats,
+  ThumbResultListener,
+} from './gallery-v2';
