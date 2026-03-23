@@ -4,10 +4,10 @@
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
 
-import { act, type ReactNode } from 'react';
+import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { VirtualGalleryGrid, type VirtualGalleryGridProps } from '../VirtualGalleryGrid';
+import { VirtualGalleryGrid } from '../VirtualGalleryGrid';
 import type { MediaItemDto } from '../../types/gallery-v2';
 
 function makeItems(count: number): MediaItemDto[] {

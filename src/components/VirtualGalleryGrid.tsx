@@ -4,8 +4,8 @@
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Loader2 } from 'lucide-react';
+import { type TouchEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Check, Loader2 } from 'lucide-react';
 import type { MediaItemDto } from '../types/gallery-v2';
 
 const COLUMNS = 3;
@@ -20,6 +20,12 @@ export interface VirtualGalleryGridProps {
   onRangeChange?: (visibleIds: string[], nearbyIds: string[]) => void;
   rowHeight?: number;
   overscanRows?: number;
+  /** Selection mode overlay support */
+  isSelectionMode?: boolean;
+  selectedIds?: Set<string>;
+  deletingIds?: Set<string>;
+  onTouchStart?: (mediaId: string, event: TouchEvent) => void;
+  onTouchEnd?: () => void;
 }
 
 export function VirtualGalleryGrid({
@@ -30,6 +36,11 @@ export function VirtualGalleryGrid({
   onRangeChange,
   rowHeight = DEFAULT_ROW_HEIGHT,
   overscanRows = DEFAULT_OVERSCAN_ROWS,
+  isSelectionMode = false,
+  selectedIds,
+  deletingIds,
+  onTouchStart,
+  onTouchEnd,
 }: VirtualGalleryGridProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [scrollTop, setScrollTop] = useState(0);
@@ -124,6 +135,8 @@ export function VirtualGalleryGrid({
             const globalIdx = startRow * COLUMNS + idx;
             const thumbnail = thumbnails.get(item.mediaId);
             const isLoadingThumb = loadingThumbs.has(item.mediaId);
+            const isSelected = selectedIds?.has(item.mediaId) ?? false;
+            const isDeleting = deletingIds?.has(item.mediaId) ?? false;
 
             return (
               <div
@@ -131,7 +144,17 @@ export function VirtualGalleryGrid({
                 data-media-id={item.mediaId}
                 data-grid-index={globalIdx}
                 onClick={() => onItemClick(item)}
-                className="aspect-square bg-gray-100 rounded-lg overflow-hidden cursor-pointer hover:opacity-90 transition-opacity duration-200 relative select-none"
+                onTouchStart={onTouchStart ? (e) => onTouchStart(item.mediaId, e) : undefined}
+                onTouchEnd={onTouchEnd}
+                onTouchMove={onTouchEnd}
+                onTouchCancel={onTouchEnd}
+                onContextMenu={(e) => e.preventDefault()}
+                className={`aspect-square bg-gray-100 rounded-lg overflow-hidden cursor-pointer hover:opacity-90 transition-opacity duration-200 relative select-none ${
+                  isSelectionMode && isSelected ? 'ring-2 ring-blue-500' : ''
+                } ${isDeleting ? 'scale-[0.88] opacity-0' : 'scale-100 opacity-100'}`}
+                style={{
+                  transitionDuration: isDeleting ? '180ms' : undefined,
+                }}
               >
                 {thumbnail ? (
                   <img
@@ -148,6 +171,18 @@ export function VirtualGalleryGrid({
                 ) : (
                   <div className="w-full h-full flex items-center justify-center">
                     <div className="w-8 h-8 bg-gray-200 rounded animate-pulse" />
+                  </div>
+                )}
+
+                {isSelectionMode && (
+                  <div className={`absolute top-2 left-2 w-6 h-6 rounded-full flex items-center justify-center ${
+                    isSelected
+                      ? 'bg-blue-500'
+                      : 'bg-black/30 border-2 border-white/70'
+                  }`}>
+                    {isSelected && (
+                      <Check className="w-4 h-4 text-white" />
+                    )}
                   </div>
                 )}
               </div>

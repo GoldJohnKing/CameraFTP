@@ -4,37 +4,22 @@
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
 
-import { memo, useCallback } from 'react';
-import { RefreshCw, ImageOff, Loader2, Check, X, Trash2, Share2, MoreVertical } from 'lucide-react';
+import { memo, useCallback, useEffect } from 'react';
+import { RefreshCw, ImageOff, X, Trash2, Share2, MoreVertical } from 'lucide-react';
 import { useConfigStore } from '../stores/configStore';
-import type { GalleryImage } from '../types';
+import type { MediaItemDto } from '../types/gallery-v2';
 import { isGalleryMediaAvailable } from '../services/gallery-media';
-import { useGalleryLibrary } from '../hooks/useGalleryLibrary';
-import { useGalleryGrid } from '../hooks/useGalleryGrid';
+import { useGalleryPager } from '../hooks/useGalleryPager';
+import { useThumbnailScheduler } from '../hooks/useThumbnailScheduler';
 import { useGallerySelection } from '../hooks/useGallerySelection';
 import { useImagePreviewOpener } from '../hooks/useImagePreviewOpener';
-
-const GRID_EXIT_DURATION_MS = 180;
+import { VirtualGalleryGrid } from './VirtualGalleryGrid';
 
 export const GalleryCard = memo(function GalleryCard() {
   const { activeTab } = useConfigStore();
   const openPreview = useImagePreviewOpener();
-  const {
-    images,
-    isLoading,
-    isRefreshing,
-    error,
-    enteringIds,
-    suppressGridAnimations,
-    refresh,
-    removeImages,
-  } = useGalleryLibrary();
-  const { thumbnails, loadingThumbnails, imageRefCallback, cleanupDeletedThumbnails } = useGalleryGrid({
-    images,
-    isLoading,
-    enteringIds,
-    suppressGridAnimations,
-  });
+  const pager = useGalleryPager();
+  const scheduler = useThumbnailScheduler();
 
   const {
     isSelectionMode,
@@ -52,31 +37,51 @@ export const GalleryCard = memo(function GalleryCard() {
     toggleMenu,
   } = useGallerySelection({
     activeTab,
-    onDeleteApplied: async (pathsToAnimate) => {
-      removeImages(pathsToAnimate);
-      await cleanupDeletedThumbnails(pathsToAnimate);
+    onDeleteApplied: async (idsToDelete) => {
+      pager.removeItems(idsToDelete);
+      scheduler.removeThumbs(idsToDelete);
     },
   });
 
-  const handleImageClick = useCallback((image: GalleryImage) => {
-    if (handleSelectionClick(image.path)) {
-      return;
-    }
+  // Load first page on mount
+  useEffect(() => {
+    void pager.loadNextPage();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-    void openPreview({
-      filePath: image.path,
-      allUris: images.map((img) => img.path),
-    });
-  }, [handleSelectionClick, images, openPreview]);
+  // Register media metadata with scheduler when items change
+  useEffect(() => {
+    if (pager.items.length > 0) {
+      scheduler.registerMedia(pager.items);
+    }
+  }, [pager.items, scheduler]);
+
+  const handleRangeChange = useCallback(
+    (visibleIds: string[], nearbyIds: string[]) => {
+      scheduler.updateViewport(visibleIds, nearbyIds);
+    },
+    [scheduler],
+  );
+
+  const handleItemClick = useCallback(
+    (item: MediaItemDto) => {
+      if (handleSelectionClick(item.mediaId)) {
+        return;
+      }
+
+      void openPreview({
+        filePath: item.uri,
+        allUris: pager.items.map((i) => i.uri),
+      });
+    },
+    [handleSelectionClick, openPreview, pager.items],
+  );
 
   const handleRefresh = useCallback(async () => {
-    // Cancel selection mode when refreshing
-    await refresh({
-      onStart: () => {
-        handleRefreshStart();
-      },
-    });
-  }, [handleRefreshStart, refresh]);
+    handleRefreshStart();
+    scheduler.cleanup();
+    await pager.reload();
+  }, [handleRefreshStart, pager, scheduler]);
 
   // Not on Android
   if (!isGalleryMediaAvailable()) {
@@ -84,35 +89,35 @@ export const GalleryCard = memo(function GalleryCard() {
   }
 
   // Error state
-  if (error) {
+  if (pager.error) {
     return (
       <div className="flex flex-col items-center justify-center py-20">
-        <p className="text-red-500">{error}</p>
+        <p className="text-red-500">{pager.error}</p>
         <button
           onClick={handleRefresh}
-          disabled={isRefreshing}
+          disabled={pager.isLoading}
           className="mt-4 flex items-center gap-2 px-4 py-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors disabled:opacity-50"
         >
-          <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
-          <span>{isRefreshing ? '刷新中...' : '重试'}</span>
+          <RefreshCw className={`w-4 h-4 ${pager.isLoading ? 'animate-spin' : ''}`} />
+          <span>{pager.isLoading ? '刷新中...' : '重试'}</span>
         </button>
       </div>
     );
   }
 
-  // Empty state (remains visible during refresh, only button changes)
-  if (images.length === 0) {
+  // Empty state
+  if (pager.items.length === 0 && !pager.isLoading) {
     return (
       <div className="flex flex-col items-center justify-center py-20">
         <ImageOff className="w-12 h-12 text-gray-300" />
         <p className="mt-3 text-gray-500">暂无图片</p>
         <button
           onClick={handleRefresh}
-          disabled={isLoading || isRefreshing}
+          disabled={pager.isLoading}
           className="mt-4 flex items-center gap-2 px-4 py-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors disabled:opacity-50"
         >
-          <RefreshCw className={`w-4 h-4 ${isLoading || isRefreshing ? 'animate-spin' : ''}`} />
-          <span>{isLoading || isRefreshing ? '刷新中...' : '刷新'}</span>
+          <RefreshCw className={`w-4 h-4 ${pager.isLoading ? 'animate-spin' : ''}`} />
+          <span>{pager.isLoading ? '刷新中...' : '刷新'}</span>
         </button>
       </div>
     );
@@ -123,76 +128,31 @@ export const GalleryCard = memo(function GalleryCard() {
       {/* Header with refresh button */}
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-semibold text-gray-900">
-          图库 ({images.length})
+          图库 ({pager.items.length})
         </h2>
         <button
           onClick={handleRefresh}
-          disabled={isRefreshing}
+          disabled={pager.isLoading}
           className="text-sm text-blue-500 hover:text-blue-600 flex items-center gap-1.5 disabled:opacity-50 transition-colors"
         >
-          <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
-          <span>{isRefreshing ? '刷新中...' : '刷新'}</span>
+          <RefreshCw className={`w-4 h-4 ${pager.isLoading ? 'animate-spin' : ''}`} />
+          <span>{pager.isLoading ? '刷新中...' : '刷新'}</span>
         </button>
       </div>
 
-      {/* Image grid */}
-      <div className="grid grid-cols-3 gap-1.5">
-        {images.map((image) => {
-          const thumbnail = thumbnails.get(image.path);
-          const isLoadingThumb = loadingThumbnails.has(image.path);
-          const isDeleting = deletingIds.has(image.path);
-
-          return (
-            <div
-              key={image.path}
-              data-path={image.path}
-              ref={(el) => imageRefCallback(image.path, el)}
-              onClick={() => handleImageClick(image)}
-              onTouchStart={(e) => handleTouchStart(image.path, e)}
-              onTouchEnd={handleTouchEnd}
-              onTouchMove={handleTouchEnd}
-              onTouchCancel={handleTouchEnd}
-              onContextMenu={(e) => e.preventDefault()}
-              className={`aspect-square bg-gray-100 rounded-lg overflow-hidden cursor-pointer hover:opacity-90 transition-opacity duration-200 relative select-none ${
-                isSelectionMode && selectedIds.has(image.path) ? 'ring-2 ring-blue-500' : ''
-              } ${isDeleting ? 'scale-[0.88] opacity-0' : 'scale-100 opacity-100'}`}
-              style={{
-                transitionDuration: isDeleting ? `${GRID_EXIT_DURATION_MS}ms` : undefined,
-              }}
-            >
-              {thumbnail ? (
-                <img
-                  src={thumbnail}
-                  alt={image.filename}
-                  className="w-full h-full object-cover pointer-events-none"
-                  loading="lazy"
-                  draggable={false}
-                />
-              ) : isLoadingThumb ? (
-                <div className="w-full h-full flex items-center justify-center bg-gray-200">
-                  <Loader2 className="w-6 h-6 text-gray-400 animate-spin" />
-                </div>
-              ) : (
-                <div className="w-full h-full flex items-center justify-center">
-                  <div className="w-8 h-8 bg-gray-200 rounded animate-pulse" />
-                </div>
-              )}
-
-              {isSelectionMode && (
-                <div className={`absolute top-2 left-2 w-6 h-6 rounded-full flex items-center justify-center ${
-                  selectedIds.has(image.path)
-                    ? 'bg-blue-500'
-                    : 'bg-black/30 border-2 border-white/70'
-                }`}>
-                  {selectedIds.has(image.path) && (
-                    <Check className="w-4 h-4 text-white" />
-                  )}
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
+      {/* Virtualized image grid */}
+      <VirtualGalleryGrid
+        items={pager.items}
+        thumbnails={scheduler.thumbnails}
+        loadingThumbs={scheduler.loadingThumbs}
+        onItemClick={handleItemClick}
+        onRangeChange={handleRangeChange}
+        isSelectionMode={isSelectionMode}
+        selectedIds={selectedIds}
+        deletingIds={deletingIds}
+        onTouchStart={handleTouchStart}
+        onTouchEnd={handleTouchEnd}
+      />
 
       {/* FAB and Menu for selection mode */}
       {isSelectionMode && (
@@ -225,7 +185,7 @@ export const GalleryCard = memo(function GalleryCard() {
               </button>
             </div>
           )}
-          
+
           {/* FAB */}
           <button
             onClick={toggleMenu}
@@ -233,7 +193,7 @@ export const GalleryCard = memo(function GalleryCard() {
           >
             <MoreVertical className="w-6 h-6" />
           </button>
-          
+
           {/* Badge */}
           {selectedIds.size > 0 && (
             <div className="absolute -top-1 -right-1 w-6 h-6 rounded-full bg-red-500 text-white text-xs flex items-center justify-center font-medium">
