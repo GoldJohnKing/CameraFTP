@@ -71,6 +71,8 @@ private data class RunningJob(
  */
 class ThumbnailPipelineManager(poolSize: Int = 3) {
 
+    private val poolSize: Int = poolSize.coerceIn(2, 4)
+
     companion object {
         const val MAX_QUEUED = 600
         const val VISIBLE_QUOTA = 0.50
@@ -91,7 +93,7 @@ class ThumbnailPipelineManager(poolSize: Int = 3) {
 
     @Volatile
     private var workerPool: ExecutorService =
-        Executors.newFixedThreadPool(poolSize.coerceIn(2, 4))
+        Executors.newFixedThreadPool(poolSize)
 
     // ── Lock ────────────────────────────────────────────────────────────
 
@@ -116,6 +118,9 @@ class ThumbnailPipelineManager(poolSize: Int = 3) {
 
     /** Map of requestIds currently being processed by a worker. */
     private val runningMap = HashMap<String, RunningJob>()
+
+    /** Number of currently running jobs whose priority is "visible". */
+    private var visibleRunningCount: Int = 0
 
     // ── Retry matrix ────────────────────────────────────────────────────
 
@@ -174,6 +179,17 @@ class ThumbnailPipelineManager(poolSize: Int = 3) {
         if (totalPending >= MAX_QUEUED && job.priority == "prefetch") {
             onQueueOverflow?.invoke(job)
             return@withLock false
+        }
+
+        // Evict oldest prefetch jobs to make room for higher-priority jobs
+        if (totalPending >= MAX_QUEUED && job.priority != "prefetch") {
+            while (pendingCountLocked() >= MAX_QUEUED && prefetchQueue.isNotEmpty()) {
+                val evicted = prefetchQueue.removeFirst()
+                val evictKey = compositeKey(evicted.mediaId, evicted.dateModifiedMs, evicted.sizeBucket)
+                dedupMap.remove(evictKey)
+                retryCount.remove(evicted.requestId)
+                onQueueOverflow?.invoke(evicted)
+            }
         }
 
         // Per-priority quota check
@@ -236,12 +252,25 @@ class ThumbnailPipelineManager(poolSize: Int = 3) {
      */
     fun processNext() {
         val job = lock.withLock {
-            val next = visibleQueue.removeFirstOrNull()
-                ?: nearbyQueue.removeFirstOrNull()
-                ?: prefetchQueue.removeFirstOrNull()
+            // Reserve 1 slot for visible jobs: if non-visible running jobs
+            // have consumed (poolSize - 1) slots, only dispatch visible.
+            val nonVisibleRunning = runningCountLocked() - visibleRunningCount
+            val reservedSlots = poolSize - 1  // 1 slot reserved for visible
+
+            val next = if (nonVisibleRunning >= reservedSlots) {
+                // Only dispatch visible jobs when shared slots are full
+                visibleQueue.removeFirstOrNull()
+            } else {
+                visibleQueue.removeFirstOrNull()
+                    ?: nearbyQueue.removeFirstOrNull()
+                    ?: prefetchQueue.removeFirstOrNull()
+            }
 
             if (next != null) {
                 runningMap[next.requestId] = RunningJob(next)
+                if (next.priority == "visible") {
+                    visibleRunningCount++
+                }
             }
             next
         } ?: return
@@ -267,6 +296,7 @@ class ThumbnailPipelineManager(poolSize: Int = 3) {
         val running = runningMap[requestId]
         if (running != null) {
             running.cancelled = true
+            deliverResult(ThumbResult(requestId, running.job.mediaId, "cancelled", null, "cancelled"))
             return@withLock true
         }
 
@@ -301,6 +331,7 @@ class ThumbnailPipelineManager(poolSize: Int = 3) {
         for ((_, running) in runningMap) {
             if (running.job.viewId == viewId && !running.cancelled) {
                 running.cancelled = true
+                deliverResult(ThumbResult(running.job.requestId, running.job.mediaId, "cancelled", null, "cancelled"))
                 count++
             }
         }
@@ -364,7 +395,11 @@ class ThumbnailPipelineManager(poolSize: Int = 3) {
         errorCode: String?
     ) {
         lock.withLock {
-            val wasCancelled = runningMap[job.requestId]?.cancelled == true
+            val runningJob = runningMap[job.requestId]
+            val wasCancelled = runningJob?.cancelled == true
+            if (runningJob != null && runningJob.job.priority == "visible") {
+                visibleRunningCount--
+            }
             runningMap.remove(job.requestId)
 
             if (wasCancelled || status == "cancelled") {
@@ -467,6 +502,8 @@ class ThumbnailPipelineManager(poolSize: Int = 3) {
 
     private fun pendingCountLocked(): Int =
         visibleQueue.size + nearbyQueue.size + prefetchQueue.size
+
+    private fun runningCountLocked(): Int = runningMap.size
 
     private fun compositeKey(mediaId: String, dateModifiedMs: Long, sizeBucket: String): String =
         "$mediaId:$dateModifiedMs:$sizeBucket"
