@@ -96,6 +96,7 @@ export function VirtualGalleryGrid({
   // Report range changes
   useEffect(() => {
     if (!onRangeChange) return;
+    if (items.length === 0) return;
 
     const visibleStartIdx = visibleStartRow * COLUMNS;
     const visibleEndIdx = Math.min(items.length, (visibleEndRow + 1) * COLUMNS);
@@ -108,8 +109,9 @@ export function VirtualGalleryGrid({
       .map((item) => item.mediaId)
       .filter((id) => !visibleIds.includes(id));
 
+    console.log(`[VGrid] onRangeChange: visible=${visibleIds.length} nearby=${nearbyIds.length} containerH=${containerHeight} totalRows=${totalRows}`);
     onRangeChange(visibleIds, nearbyIds);
-  }, [items, visibleStartRow, visibleEndRow, startRow, endRow, onRangeChange]);
+  }, [items, visibleStartRow, visibleEndRow, startRow, endRow, onRangeChange, containerHeight, totalRows]);
 
   const offsetY = startRow * rowHeight;
 

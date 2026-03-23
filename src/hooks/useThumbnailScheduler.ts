@@ -80,6 +80,7 @@ export function useThumbnailScheduler(opts?: UseThumbnailSchedulerOptions) {
    * Called internally when media items are loaded.
    */
   const registerMedia = useCallback((items: ThumbnailSchedulerMedia[]) => {
+    console.log(`[ThumbSched] registerMedia: ${items.length} items`);
     for (const item of items) {
       mediaMapRef.current.set(item.mediaId, item);
     }
@@ -88,8 +89,12 @@ export function useThumbnailScheduler(opts?: UseThumbnailSchedulerOptions) {
   // ---- dispatch handler ----
   useEffect(() => {
     const handleResult = (result: ThumbResult) => {
+      console.log(`[ThumbSched] handleResult: mediaId=${result.mediaId} status=${result.status} path=${result.localPath ?? 'null'}`);
       const active = activeRequestsRef.current.get(result.requestId);
-      if (!active) return;
+      if (!active) {
+        console.log(`[ThumbSched] handleResult: no active request for ${result.requestId}`);
+        return;
+      }
 
       const media = mediaMapRef.current.get(result.mediaId);
       if (!media) return;
@@ -206,7 +211,10 @@ export function useThumbnailScheduler(opts?: UseThumbnailSchedulerOptions) {
       }
 
       if (newReqs.length > 0) {
-        void enqueueThumbnailsV2(newReqs);
+        console.log(`[ThumbSched] enqueueing ${newReqs.length} thumbnail requests`);
+        void enqueueThumbnailsV2(newReqs).catch((e) => console.error('[ThumbSched] enqueueThumbnailsV2 error:', e));
+      } else {
+        console.log('[ThumbSched] no new requests to enqueue');
       }
     },
     [thumbnails],

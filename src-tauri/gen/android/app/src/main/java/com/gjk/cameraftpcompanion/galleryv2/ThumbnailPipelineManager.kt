@@ -8,6 +8,7 @@ package com.gjk.cameraftpcompanion.galleryv2
 
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.locks.ReentrantLock
@@ -375,15 +376,26 @@ class ThumbnailPipelineManager(poolSize: Int = 3) {
 
         val dec = decoder
         val dir = cacheDir
-        if (dec == null || dir == null) { finishJob(job, "failed", null, "decoder_not_configured"); return }
+        if (dec == null || dir == null) {
+            Log.e("ThumbPipeline", "executeJob: decoder=${dec != null} cacheDir=${dir != null}")
+            finishJob(job, "failed", null, "decoder_not_configured")
+            return
+        }
 
         try {
             val uri = android.net.Uri.parse(job.uri)
             val key = ThumbnailKeyV2.of(job.mediaId, job.dateModifiedMs, job.sizeBucket, 0, 0)
+            Log.d("ThumbPipeline", "executeJob: mediaId=${job.mediaId} uri=$uri bucket=${job.sizeBucket}")
             val path = dec.decodeAndSave(uri, job.sizeBucket, dir, key)
-            if (path != null) finishJob(job, "ready", path, null)
-            else finishJob(job, "failed", null, "decode_corrupt")
+            if (path != null) {
+                Log.d("ThumbPipeline", "executeJob: ready path=$path")
+                finishJob(job, "ready", path, null)
+            } else {
+                Log.e("ThumbPipeline", "executeJob: decode failed for ${job.uri}")
+                finishJob(job, "failed", null, "decode_corrupt")
+            }
         } catch (e: Exception) {
+            Log.e("ThumbPipeline", "executeJob: exception", e)
             finishJob(job, "failed", null, "io_transient")
         }
     }

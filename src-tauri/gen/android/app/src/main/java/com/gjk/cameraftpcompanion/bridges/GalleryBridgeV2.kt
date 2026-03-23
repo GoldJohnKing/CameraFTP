@@ -92,9 +92,10 @@ class GalleryBridgeV2(
 
     @android.webkit.JavascriptInterface
     fun enqueueThumbnails(requestsJson: String) {
-        Log.d(TAG, "enqueueThumbnails")
         try {
             val requests = JSONArray(requestsJson)
+            Log.d(TAG, "enqueueThumbnails: ${requests.length()} requests")
+            var accepted = 0
             for (i in 0 until requests.length()) {
                 val req = requests.getJSONObject(i)
                 val job = ThumbJob(
@@ -108,8 +109,12 @@ class GalleryBridgeV2(
                 )
                 if (pipelineManager.enqueue(job)) {
                     requestViewMap[job.requestId] = job.viewId
+                    accepted++
+                } else {
+                    Log.w(TAG, "enqueueThumbnails: rejected job ${job.requestId} mediaId=${job.mediaId}")
                 }
             }
+            Log.d(TAG, "enqueueThumbnails: accepted=$accepted/${requests.length()}, pending=${pipelineManager.pendingCount()}")
             // Kick off processing for accepted jobs
             repeat(requests.length()) { pipelineManager.processNext() }
         } catch (e: Exception) {
@@ -219,8 +224,16 @@ class GalleryBridgeV2(
     // ── Internal dispatch ─────────────────────────────────────────────
 
     private fun dispatchResult(result: ThumbResult) {
-        val viewId = requestViewMap.remove(result.requestId) ?: return
-        val listenerIds = viewListeners[viewId] ?: return
+        val viewId = requestViewMap.remove(result.requestId)
+        if (viewId == null) {
+            Log.w(TAG, "dispatchResult: no viewId for requestId=${result.requestId}")
+            return
+        }
+        val listenerIds = viewListeners[viewId]
+        if (listenerIds == null || listenerIds.isEmpty()) {
+            Log.w(TAG, "dispatchResult: no listeners for viewId=$viewId")
+            return
+        }
 
         val payload = JSONObject().apply {
             put("requestId", result.requestId)
@@ -230,6 +243,7 @@ class GalleryBridgeV2(
             put("errorCode", result.errorCode ?: JSONObject.NULL)
         }.toString()
 
+        Log.d(TAG, "dispatchResult: mediaId=${result.mediaId} status=${result.status} path=${result.localPath} listeners=${listenerIds.size}")
         for (listenerId in listenerIds) {
             dispatchThumbBatch(listenerId, payload)
         }
