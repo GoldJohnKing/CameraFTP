@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
 
-import { memo, useCallback, useEffect } from 'react';
+import { memo, useCallback, useEffect, useState } from 'react';
 import { RefreshCw, ImageOff, X, Trash2, Share2, MoreVertical } from 'lucide-react';
 import { useConfigStore } from '../stores/configStore';
 import { usePermissionStore } from '../stores/permissionStore';
@@ -82,6 +82,7 @@ export const GalleryCard = memo(function GalleryCard() {
 
   const requestStoragePermission = usePermissionStore((state) => state.requestStoragePermission);
   const startPermissionPolling = usePermissionStore((state) => state.startPolling);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   const handleRefresh = useCallback(async () => {
     // Check permissions before loading — request if not granted
@@ -94,9 +95,19 @@ export const GalleryCard = memo(function GalleryCard() {
       }
     }
 
-    handleRefreshStart();
-    scheduler.cleanup();
-    await pager.reload();
+    setIsRefreshing(true);
+    const startTime = Date.now();
+
+    try {
+      handleRefreshStart();
+      scheduler.cleanup();
+      await pager.reload();
+    } finally {
+      // Ensure animation shows for at least 200ms
+      const elapsed = Date.now() - startTime;
+      const remaining = Math.max(0, 200 - elapsed);
+      setTimeout(() => setIsRefreshing(false), remaining);
+    }
   }, [handleRefreshStart, pager, scheduler, requestStoragePermission, startPermissionPolling]);
 
   // Not on Android
@@ -111,11 +122,11 @@ export const GalleryCard = memo(function GalleryCard() {
         <p className="text-red-500">{pager.error}</p>
         <button
           onClick={handleRefresh}
-          disabled={pager.isLoading}
+          disabled={isRefreshing}
           className="mt-4 flex items-center gap-2 px-4 py-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors disabled:opacity-50"
         >
-          <RefreshCw className={`w-4 h-4 ${pager.isLoading ? 'animate-spin' : ''}`} />
-          <span>{pager.isLoading ? '刷新中...' : '重试'}</span>
+          <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+          <span>{isRefreshing ? '刷新中...' : '重试'}</span>
         </button>
       </div>
     );
@@ -129,35 +140,36 @@ export const GalleryCard = memo(function GalleryCard() {
         <p className="mt-3 text-gray-500">暂无图片</p>
         <button
           onClick={handleRefresh}
-          disabled={pager.isLoading}
+          disabled={isRefreshing}
           className="mt-4 flex items-center gap-2 px-4 py-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors disabled:opacity-50"
         >
-          <RefreshCw className={`w-4 h-4 ${pager.isLoading ? 'animate-spin' : ''}`} />
-          <span>{pager.isLoading ? '刷新中...' : '刷新'}</span>
+          <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+          <span>{isRefreshing ? '刷新中...' : '刷新'}</span>
         </button>
       </div>
     );
   }
 
   return (
-    <div className="space-y-3 pt-6 select-none">
+    <div className="h-full flex flex-col px-4 pt-6 pb-[68px] select-none">
       {/* Header with refresh button */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between shrink-0">
         <h2 className="text-lg font-semibold text-gray-900">
           图库 ({pager.items.length})
         </h2>
         <button
           onClick={handleRefresh}
-          disabled={pager.isLoading}
+          disabled={isRefreshing}
           className="text-sm text-blue-500 hover:text-blue-600 flex items-center gap-1.5 disabled:opacity-50 transition-colors"
         >
-          <RefreshCw className={`w-4 h-4 ${pager.isLoading ? 'animate-spin' : ''}`} />
-          <span>{pager.isLoading ? '刷新中...' : '刷新'}</span>
+          <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+          <span>{isRefreshing ? '刷新中...' : '刷新'}</span>
         </button>
       </div>
 
       {/* Virtualized image grid */}
-      <VirtualGalleryGrid
+      <div className="flex-1 min-h-0 mt-2">
+        <VirtualGalleryGrid
         items={pager.items}
         thumbnails={scheduler.thumbnails}
         loadingThumbs={scheduler.loadingThumbs}
@@ -169,7 +181,8 @@ export const GalleryCard = memo(function GalleryCard() {
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
-      />
+        />
+      </div>
 
       {/* FAB and Menu for selection mode */}
       {isSelectionMode && (

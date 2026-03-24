@@ -122,13 +122,13 @@ export function VirtualGalleryGrid({
   return (
     <div
       ref={containerRef}
-      className="w-full overflow-auto flex-1"
+      className="w-full h-full overflow-auto"
       data-testid="virtual-grid-container"
       onScroll={handleScroll}
     >
       <div style={{ height: totalHeight, position: 'relative' }}>
         <div
-          className="grid grid-cols-3 gap-1.5"
+          className="grid grid-cols-3 gap-1.5 px-0.5 pb-1.5"
           style={{
             position: 'absolute',
             top: offsetY,

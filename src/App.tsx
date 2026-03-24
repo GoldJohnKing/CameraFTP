@@ -106,8 +106,11 @@ function App() {
           </div>
 
           {/* 图库 - 使用 CSS 隐藏代替条件渲染，保持状态和滚动位置 */}
-          <div className={activeTab === 'gallery' ? '' : 'hidden'}>
-            <GalleryCard />
+          {/* 使用 fixed 定位让图库高度匹配屏幕高度 */}
+          <div className={activeTab === 'gallery' ? 'fixed inset-0 bg-gray-50 z-0' : 'hidden'}>
+            <div className="h-full max-w-md mx-auto">
+              <GalleryCard />
+            </div>
           </div>
 
           {/* 配置 */}
