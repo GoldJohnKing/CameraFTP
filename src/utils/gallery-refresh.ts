@@ -12,7 +12,8 @@ export type MediaLibraryRefreshReason =
   | 'upload'
   | 'delete'
   | 'permission-granted'
-  | 'media-store-ready';
+  | 'media-store-ready'
+  | 'activity-resume';
 
 export interface MediaLibraryRefreshDetail {
   reason: MediaLibraryRefreshReason;

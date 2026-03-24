@@ -119,6 +119,17 @@ export const GalleryCard = memo(function GalleryCard() {
     }
   }, [handleRefreshStart, pager, scheduler, requestStoragePermission, startPermissionPolling]);
 
+  // Listen for gallery refresh events (from MainActivity.onResume or ImageViewerActivity post-deletion)
+  useEffect(() => {
+    const handleGalleryRefresh = () => {
+      void handleRefresh();
+    };
+    window.addEventListener('gallery-refresh-requested', handleGalleryRefresh);
+    return () => {
+      window.removeEventListener('gallery-refresh-requested', handleGalleryRefresh);
+    };
+  }, [handleRefresh]);
+
   // Not on Android
   if (!isGalleryMediaAvailable()) {
     return null;
