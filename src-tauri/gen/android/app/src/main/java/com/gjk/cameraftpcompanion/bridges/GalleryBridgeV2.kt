@@ -50,6 +50,7 @@ class GalleryBridgeV2(
         cache.initialize(activity)
         pipelineManager.decoder = ThumbnailDecoder(activity)
         pipelineManager.cacheDir = java.io.File(activity.cacheDir, "thumb/v2")
+        pipelineManager.cache = cache
         pipelineManager.onResult = { result -> dispatchResult(result) }
     }
 
@@ -97,16 +98,43 @@ class GalleryBridgeV2(
             val requests = JSONArray(requestsJson)
             Log.d(TAG, "enqueueThumbnails: ${requests.length()} requests")
             var accepted = 0
+            var cacheHits = 0
             for (i in 0 until requests.length()) {
                 val req = requests.getJSONObject(i)
+                val requestId = req.getString("requestId")
+                val mediaId = req.getString("mediaId")
+                val dateModifiedMs = req.getLong("dateModifiedMs")
+                val sizeBucket = req.getString("sizeBucket")
+                val viewId = req.getString("viewId")
+
+                // Check L2 cache first
+                val key = ThumbnailKeyV2.of(mediaId, dateModifiedMs, sizeBucket, 0, 0)
+                val cachedFile = cache.get(key, sizeBucket)
+                if (cachedFile != null) {
+                    // Cache hit - deliver result immediately without enqueueing
+                    cacheHits++
+                    pipelineManager.recordCacheHit()
+                    val result = ThumbResult(
+                        requestId = requestId,
+                        mediaId = mediaId,
+                        status = "ready",
+                        localPath = cachedFile.absolutePath,
+                        errorCode = null
+                    )
+                    requestViewMap[requestId] = viewId
+                    dispatchResult(result)
+                    continue
+                }
+
+                // Cache miss - enqueue for decoding
                 val job = ThumbJob(
-                    requestId = req.getString("requestId"),
-                    mediaId = req.getString("mediaId"),
+                    requestId = requestId,
+                    mediaId = mediaId,
                     uri = req.getString("uri"),
-                    dateModifiedMs = req.getLong("dateModifiedMs"),
-                    sizeBucket = req.getString("sizeBucket"),
+                    dateModifiedMs = dateModifiedMs,
+                    sizeBucket = sizeBucket,
                     priority = req.getString("priority"),
-                    viewId = req.getString("viewId")
+                    viewId = viewId
                 )
                 if (pipelineManager.enqueue(job)) {
                     requestViewMap[job.requestId] = job.viewId
@@ -115,9 +143,9 @@ class GalleryBridgeV2(
                     Log.w(TAG, "enqueueThumbnails: rejected job ${job.requestId} mediaId=${job.mediaId}")
                 }
             }
-            Log.d(TAG, "enqueueThumbnails: accepted=$accepted/${requests.length()}, pending=${pipelineManager.pendingCount()}")
+            Log.d(TAG, "enqueueThumbnails: accepted=$accepted cacheHits=$cacheHits/${requests.length()}, pending=${pipelineManager.pendingCount()}")
             // Kick off processing for accepted jobs
-            repeat(requests.length()) { pipelineManager.processNext() }
+            repeat(accepted) { pipelineManager.processNext() }
         } catch (e: Exception) {
             Log.e(TAG, "enqueueThumbnails error", e)
         }

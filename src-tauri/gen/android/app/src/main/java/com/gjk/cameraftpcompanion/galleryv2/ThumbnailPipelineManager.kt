@@ -154,6 +154,7 @@ class ThumbnailPipelineManager(poolSize: Int = 3) {
     var onResult: ((ThumbResult) -> Unit)? = null
     var decoder: ThumbnailDecoder? = null
     var cacheDir: java.io.File? = null
+    var cache: ThumbnailCacheV2? = null
 
     /**
      * Callback invoked when a prefetch job is dropped due to queue overflow.
@@ -390,12 +391,19 @@ class ThumbnailPipelineManager(poolSize: Int = 3) {
             return
         }
 
+        recordCacheMiss()
+
         try {
             val uri = android.net.Uri.parse(job.uri)
             val key = ThumbnailKeyV2.of(job.mediaId, job.dateModifiedMs, job.sizeBucket, 0, 0)
             Log.d("ThumbPipeline", "executeJob: mediaId=${job.mediaId} uri=$uri bucket=${job.sizeBucket}")
             val path = dec.decodeAndSave(uri, job.sizeBucket, dir, key)
             if (path != null) {
+                // Update L1 cache with the decoded file
+                val file = java.io.File(path)
+                if (file.exists()) {
+                    cache?.put(key, job.sizeBucket, file.readBytes())
+                }
                 Log.d("ThumbPipeline", "executeJob: ready path=$path")
                 finishJob(job, "ready", path, null)
             } else {
