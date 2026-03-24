@@ -209,12 +209,21 @@ export function useGallerySelection({ activeTab, onDeleteApplied, getUriForId }:
     }
 
     try {
-      await window.GalleryAndroid?.shareImages(JSON.stringify([...selectedIds]));
+      // Convert mediaIds to URIs (same pattern as handleDelete)
+      const urisToShare = [...selectedIds]
+        .map((mediaId) => getUriForId(mediaId))
+        .filter((uri): uri is string => uri !== undefined);
+
+      if (urisToShare.length === 0) {
+        return;
+      }
+
+      await window.GalleryAndroid?.shareImages(JSON.stringify(urisToShare));
       setShowMenu(false);
     } catch (err) {
       console.error('Share failed:', err);
     }
-  }, [selectedIds]);
+  }, [selectedIds, getUriForId]);
 
   const toggleMenu = useCallback(() => {
     setShowMenu((prev) => !prev);
