@@ -30,6 +30,7 @@ export const GalleryCard = memo(function GalleryCard() {
     deletingIds,
     menuRef,
     handleTouchStart,
+    handleTouchMove,
     handleTouchEnd,
     handleSelectionClick,
     handleRefreshStart,
@@ -166,6 +167,7 @@ export const GalleryCard = memo(function GalleryCard() {
         selectedIds={selectedIds}
         deletingIds={deletingIds}
         onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
       />
 

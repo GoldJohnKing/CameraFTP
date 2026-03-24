@@ -25,6 +25,7 @@ export interface VirtualGalleryGridProps {
   selectedIds?: Set<string>;
   deletingIds?: Set<string>;
   onTouchStart?: (mediaId: string, event: TouchEvent) => void;
+  onTouchMove?: (event: TouchEvent) => void;
   onTouchEnd?: () => void;
 }
 
@@ -40,6 +41,7 @@ export function VirtualGalleryGrid({
   selectedIds,
   deletingIds,
   onTouchStart,
+  onTouchMove,
   onTouchEnd,
 }: VirtualGalleryGridProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -149,8 +151,8 @@ export function VirtualGalleryGrid({
                 data-grid-index={globalIdx}
                 onClick={() => onItemClick(item)}
                 onTouchStart={onTouchStart ? (e) => onTouchStart(item.mediaId, e) : undefined}
+                onTouchMove={onTouchMove}
                 onTouchEnd={onTouchEnd}
-                onTouchMove={onTouchEnd}
                 onTouchCancel={onTouchEnd}
                 onContextMenu={(e) => e.preventDefault()}
                 className={`aspect-square bg-gray-100 rounded-lg overflow-hidden cursor-pointer hover:opacity-90 transition-opacity duration-200 relative select-none ${

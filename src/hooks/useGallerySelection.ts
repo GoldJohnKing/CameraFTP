@@ -23,6 +23,7 @@ type UseGallerySelectionResult = {
   deletingIds: Set<string>;
   menuRef: RefObject<HTMLDivElement>;
   handleTouchStart: (imagePath: string, event: TouchEvent) => void;
+  handleTouchMove: (event: TouchEvent) => void;
   handleTouchEnd: () => void;
   handleSelectionClick: (imagePath: string) => boolean;
   handleRefreshStart: () => void;
@@ -40,6 +41,7 @@ export function useGallerySelection({ activeTab, onDeleteApplied }: UseGallerySe
   const menuRef = useRef<HTMLDivElement>(null);
   const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isSelectionModeRef = useRef(false);
+  const touchStartPosRef = useRef<{ x: number; y: number } | null>(null);
 
   const clearTransientSelectionUiState = useCallback(() => {
     setShowMenu(false);
@@ -70,7 +72,8 @@ export function useGallerySelection({ activeTab, onDeleteApplied }: UseGallerySe
   }, [clearTransientSelectionUiState, isSelectionMode]);
 
   const handleTouchStart = useCallback((imagePath: string, event: React.TouchEvent) => {
-    event.preventDefault();
+    const touch = event.touches[0];
+    touchStartPosRef.current = { x: touch.clientX, y: touch.clientY };
 
     longPressTimerRef.current = setTimeout(() => {
       setIsSelectionMode(true);
@@ -78,11 +81,29 @@ export function useGallerySelection({ activeTab, onDeleteApplied }: UseGallerySe
     }, LONG_PRESS_DURATION);
   }, []);
 
+  const handleTouchMove = useCallback((event: React.TouchEvent) => {
+    if (!touchStartPosRef.current || !longPressTimerRef.current) {
+      return;
+    }
+
+    const touch = event.touches[0];
+    const dx = touch.clientX - touchStartPosRef.current.x;
+    const dy = touch.clientY - touchStartPosRef.current.y;
+    const distance = Math.sqrt(dx * dx + dy * dy);
+
+    if (distance > 10) {
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+      touchStartPosRef.current = null;
+    }
+  }, []);
+
   const handleTouchEnd = useCallback(() => {
     if (longPressTimerRef.current) {
       clearTimeout(longPressTimerRef.current);
       longPressTimerRef.current = null;
     }
+    touchStartPosRef.current = null;
   }, []);
 
   const handleRefreshStart = useCallback(() => {
@@ -225,6 +246,7 @@ export function useGallerySelection({ activeTab, onDeleteApplied }: UseGallerySe
     deletingIds,
     menuRef,
     handleTouchStart,
+    handleTouchMove,
     handleTouchEnd,
     handleSelectionClick,
     handleRefreshStart,
