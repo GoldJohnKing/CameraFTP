@@ -44,9 +44,9 @@ pub async fn request_all_files_permission(app: AppHandle) -> Result<(), AppError
 
 /// 确保存储目录存在且可写
 #[command]
-pub async fn ensure_storage_ready() -> Result<String, AppError> {
+pub async fn ensure_storage_ready(app: AppHandle) -> Result<String, AppError> {
     get_platform_service()
-        .ensure_storage_ready()
+        .ensure_storage_ready(&app)
         .map_err(AppError::StoragePermissionError)
 }
 

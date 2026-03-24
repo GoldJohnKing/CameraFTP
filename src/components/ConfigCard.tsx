@@ -6,7 +6,7 @@
 
 import { useEffect, useState, useCallback, memo } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { Settings, Wifi, Shield } from 'lucide-react';
+import { Settings, Wifi, Shield, Image } from 'lucide-react';
 import { useConfigStore, useDraftConfig } from '../stores/configStore';
 import { usePermissionStore } from '../stores/permissionStore';
 import { useServerStore } from '../stores/serverStore';
@@ -29,8 +29,6 @@ export const ConfigCard = memo(function ConfigCard() {
     isLoading,
     error,
     platform,
-    loadConfig,
-    loadPlatform,
     setAutostart,
     updateDraft,
   } = useConfigStore();
@@ -56,38 +54,24 @@ export const ConfigCard = memo(function ConfigCard() {
 
   useEffect(() => {
     const isCancelled = { current: false };
-    
-    loadConfig();
-    loadPlatform();
-    loadAutostartStatus(isCancelled);
-    
+
+    const loadAutostartStatus = async () => {
+      try {
+        const status = await invoke<boolean>('get_autostart_status');
+        if (!isCancelled.current) {
+          setAutostartEnabled(status);
+        }
+      } catch {
+        // Silently ignore autostart status load errors
+      }
+    };
+
+    void loadAutostartStatus();
+
     return () => {
       isCancelled.current = true;
     };
-  }, [loadConfig, loadPlatform]);
-
-  // 仅在组件挂载时检查一次权限（用户进入Config界面）
-  // 之后不再自动刷新，依赖用户手动刷新
-  useEffect(() => {
-    if (isAndroid) {
-      checkPermissions();
-    }
-    // 依赖项说明：空数组表示仅在挂载时执行一次
-    // checkPermissions 在 store 中是稳定的引用，但包含 Android 平台检测逻辑
-    // 为避免不必要的重复检查，仅在 isAndroid 变化时（挂载时）执行
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  const loadAutostartStatus = async (isCancelled: { current: boolean }) => {
-    try {
-      const status = await invoke<boolean>('get_autostart_status');
-      if (!isCancelled.current) {
-        setAutostartEnabled(status);
-      }
-    } catch {
-      // Silently ignore autostart status load errors
-    }
-  };
 
   const handleAutostartToggle = async () => {
     const newValue = !autostartEnabled;
@@ -215,6 +199,32 @@ export const ConfigCard = memo(function ConfigCard() {
 
       {/* 预览配置卡片（Windows 专属） */}
       <PreviewConfigCard platform={platform} />
+
+      {/* 图片查看器配置（Android 专属） */}
+      {isAndroid && draft?.androidImageViewer && (
+        <Card className="overflow-hidden">
+          <CardHeader
+            title="使用第三方图片查看器"
+            description="使用外部应用打开图片"
+            icon={<Image className="w-5 h-5 text-violet-600" />}
+            action={
+              <ToggleSwitch
+                enabled={draft.androidImageViewer.openMethod === 'external-app'}
+                onChange={(enabled) => {
+                  updateDraft(d => ({
+                    ...d,
+                    androidImageViewer: {
+                      ...d.androidImageViewer!,
+                      openMethod: enabled ? 'external-app' : 'built-in-viewer',
+                    },
+                  }));
+                }}
+                disabled={isLoading}
+              />
+            }
+          />
+        </Card>
+      )}
 
       {/* 权限状态 - Android 特有，放在最后 */}
       {isAndroid && typeof window !== 'undefined' && window.PermissionAndroid && (

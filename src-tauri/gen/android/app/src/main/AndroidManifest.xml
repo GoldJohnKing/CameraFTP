@@ -11,8 +11,10 @@
         android:maxSdkVersion="32" />
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
         android:maxSdkVersion="32" />
-    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
-        tools:ignore="ScopedStorage" />
+    <!-- READ_MEDIA_IMAGES for Android 13+ (API 33+) -->
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+    <!-- READ_MEDIA_VISUAL_USER_SELECTED for Android 14+ partial photo access handling -->
+    <uses-permission android:name="android.permission.READ_MEDIA_VISUAL_USER_SELECTED" />
     
     <!-- Foreground service permissions -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
@@ -46,7 +48,6 @@
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:theme="@style/Theme.MaterialComponents.DayNight.NoActionBar"
-        android:extractNativeLibs="true"
         android:requestLegacyExternalStorage="true">
         
         <activity
@@ -65,6 +66,13 @@
             android:name="app.tauri.activity.TauriActivity"
             android:configChanges="orientation|screenSize|smallestScreenSize|density|keyboard|keyboardHidden|navigation"
             android:exported="false" />
+
+        <!-- Image Viewer Activity -->
+        <activity
+            android:name=".ImageViewerActivity"
+            android:configChanges="orientation|screenSize|smallestScreenSize|density|keyboard|keyboardHidden|navigation"
+            android:exported="false"
+            android:theme="@style/Theme.MaterialComponents.DayNight.NoActionBar" />
 
         <!-- FTP Foreground Service -->
         <service

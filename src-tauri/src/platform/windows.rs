@@ -11,6 +11,7 @@ use tauri::tray::{MouseButton, MouseButtonState, TrayIconEvent};
 use winreg::enums::*;
 use winreg::RegKey;
 
+use crate::config_service::ConfigService;
 use crate::constants::{
     SERVER_READY_TIMEOUT_SECS, AUTOSTART_DELAY_MS,
 };
@@ -208,6 +209,13 @@ pub fn is_autostart_mode() -> bool {
 /// Windows 平台实现
 pub struct WindowsPlatform;
 
+fn load_config_from_service(app: &AppHandle) -> Result<crate::config::AppConfig, String> {
+    let config_service = app.state::<Arc<ConfigService>>();
+    config_service
+        .get()
+        .map_err(|e| format!("读取配置失败: {}", e))
+}
+
 impl PlatformService for WindowsPlatform {
     fn name(&self) -> &'static str {
         "windows"
@@ -236,8 +244,8 @@ impl PlatformService for WindowsPlatform {
         }
     }
     
-    fn ensure_storage_ready(&self) -> Result<String, String> {
-        let config = crate::config::AppConfig::load();
+    fn ensure_storage_ready(&self, app: &AppHandle) -> Result<String, String> {
+        let config = load_config_from_service(app)?;
         let save_path = config.save_path.clone();
 
         // 确保目录存在
@@ -314,8 +322,8 @@ impl PlatformService for WindowsPlatform {
         }
     }
 
-    fn get_storage_path(&self) -> Result<String, String> {
-        let config = crate::config::AppConfig::load();
+    fn get_storage_path(&self, app: &AppHandle) -> Result<String, String> {
+        let config = load_config_from_service(app)?;
         Ok(config.save_path.to_string_lossy().to_string())
     }
 
@@ -349,7 +357,7 @@ impl PlatformService for WindowsPlatform {
             // 短暂延迟，让应用完全初始化（而非等待服务器启动的1秒）
             tokio::time::sleep(tokio::time::Duration::from_millis(AUTOSTART_DELAY_MS)).await;
 
-            match crate::ftp::server_factory::start_ftp_server(&state_clone, Default::default(), Some(app_handle.clone())).await {
+            match crate::ftp::server_factory::start_ftp_server(&state_clone, Default::default(), app_handle.clone()).await {
                 Ok(ctx) => {
                     tracing::info!("FTP server auto-started on {}:{}", ctx.ip, ctx.port);
 

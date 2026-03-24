@@ -29,7 +29,7 @@ unftp-sbe-fs = "0.4.0"
 unftp-core = "0.1.0"
 dashmap = "6.0"
 # 类型生成
-ts-rs = "10.1"
+ts-rs = { version = "10.1", features = ["no-serde-warnings"] }
 thiserror = "2.0"
 # 网络检测
 local-ip-address = "0.6"
@@ -53,6 +53,10 @@ rustls-pemfile = "2.0"
 # 文件系统监听（仅 Windows 使用）
 notify = { version = "8.0", default-features = false, features = [] }
 
+[target.'cfg(target_os = "android")'.dependencies]
+jni = "0.21"
+ndk-context = "0.1"
+
 [target.'cfg(windows)'.dependencies]
 winreg = "0.52"
 windows = { version = "0.58", features = [
@@ -61,3 +65,6 @@ windows = { version = "0.58", features = [
     "Win32_UI_Shell_Common",
     "Win32_UI_WindowsAndMessaging",
 ] }
+
+[dev-dependencies]
+tempfile = "3.12"

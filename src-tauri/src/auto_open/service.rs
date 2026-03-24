@@ -3,10 +3,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 use std::path::PathBuf;
-#[cfg(target_os = "windows")]
 use std::sync::Arc;
-#[cfg(target_os = "windows")]
-use tokio::sync::Mutex;
 #[cfg(target_os = "windows")]
 use tauri::{Emitter, Manager};
 use tauri::AppHandle;
@@ -16,6 +13,7 @@ use tracing::error;
 #[cfg(target_os = "windows")]
 use crate::config::{AppConfig, ImageOpenMethod};
 use crate::config::PreviewWindowConfig;
+use crate::config_service::ConfigService;
 use crate::error::AppError;
 #[cfg(target_os = "windows")]
 use crate::constants::{
@@ -35,21 +33,21 @@ pub struct AutoOpenService {
     #[allow(dead_code)]
     app_handle: AppHandle,
     #[cfg(target_os = "windows")]
-    config: Arc<Mutex<PreviewWindowConfig>>,
+    config_service: Arc<ConfigService>,
 }
 
 impl AutoOpenService {
-    pub fn new(app_handle: AppHandle) -> Self {
+    pub fn new(app_handle: AppHandle, config_service: Arc<ConfigService>) -> Self {
         #[cfg(target_os = "windows")]
         {
-            let config = AppConfig::load().preview_config.unwrap_or_default();
             Self {
                 app_handle,
-                config: Arc::new(Mutex::new(config)),
+                config_service,
             }
         }
         #[cfg(target_os = "android")]
         {
+            let _ = config_service;
             Self { app_handle }
         }
     }
@@ -59,7 +57,7 @@ impl AutoOpenService {
         #[cfg(target_os = "windows")]
         {
             // 检查是否启用自动预览
-            let config = self.config.lock().await.clone();
+            let config = self.current_config();
             if !config.enabled {
                 return Ok(());
             }
@@ -91,7 +89,7 @@ impl AutoOpenService {
     pub async fn open_image(&self, _file_path: &PathBuf) -> Result<(), AppError> {
         #[cfg(target_os = "windows")]
         {
-            let config = self.config.lock().await.clone();
+            let config = self.current_config();
             
             match &config.method {
                 ImageOpenMethod::BuiltInPreview => {
@@ -212,44 +210,34 @@ impl AutoOpenService {
         Ok(())
     }
 
-    /// 更新配置（仅 Windows）
+    /// 广播配置变化事件给所有窗口（仅 Windows）
     #[cfg(target_os = "windows")]
-    pub async fn update_config(&self, new_config: PreviewWindowConfig) {
-        let mut config = self.config.lock().await;
-        *config = new_config.clone();
-        
-        // 持久化到配置文件
-        let mut app_config = AppConfig::load();
-        app_config.preview_config = Some(new_config.clone());
-        if let Err(e) = app_config.save() {
-            error!("Failed to save preview config: {}", e);
-        }
-        
+    pub async fn broadcast_config_changed(&self, config: PreviewWindowConfig) {
         // 广播配置变化事件给所有窗口
         let event = ConfigChangedEvent {
-            config: new_config,
+            config,
         };
         if let Err(e) = self.app_handle.emit("preview-config-changed", event) {
             error!("Failed to emit config changed event: {}", e);
         }
     }
 
-    /// 更新配置（Android 空实现）
+    /// 广播配置变化事件（Android 空实现）
     #[cfg(target_os = "android")]
-    pub async fn update_config(&self, _new_config: PreviewWindowConfig) {
+    pub async fn broadcast_config_changed(&self, _config: PreviewWindowConfig) {
         // Android 上暂时不支持
     }
 
-    /// 获取当前配置（仅 Windows）
-    #[cfg(target_os = "windows")]
-    pub async fn get_config(&self) -> PreviewWindowConfig {
-        self.config.lock().await.clone()
-    }
+}
 
-    /// 获取当前配置（Android 返回默认）
-    #[cfg(target_os = "android")]
-    pub async fn get_config(&self) -> PreviewWindowConfig {
-        PreviewWindowConfig::default()
+#[cfg(target_os = "windows")]
+impl AutoOpenService {
+    fn current_config(&self) -> PreviewWindowConfig {
+        self.config_service
+            .get()
+            .unwrap_or_else(|_| AppConfig::default())
+            .preview_config
+            .unwrap_or_default()
     }
 }
 

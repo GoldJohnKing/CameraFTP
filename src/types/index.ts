@@ -24,6 +24,8 @@ export type { ExifInfo } from '../../src-tauri/bindings/ExifInfo';
 export type { FileInfo } from '../../src-tauri/bindings/FileInfo';
 export type { ImageOpenMethod } from '../../src-tauri/bindings/ImageOpenMethod';
 export type { PreviewWindowConfig } from '../../src-tauri/bindings/PreviewWindowConfig';
+export type { AndroidImageOpenMethod } from '../../src-tauri/bindings/AndroidImageOpenMethod';
+export type { AndroidImageViewerConfig } from '../../src-tauri/bindings/AndroidImageViewerConfig';
 
 // ===== Re-export from global.ts =====
 export type { PermissionCheckResult } from './global';
@@ -31,3 +33,19 @@ export * from './global';
 
 // ===== Re-export from events.ts =====
 export type { ConfigChangedEvent } from './events';
+
+// ===== Re-export from gallery-v2.ts =====
+export type {
+  MediaCursor,
+  MediaPageRequest,
+  MediaItemDto,
+  MediaPageResponse,
+  ThumbSizeBucket,
+  ThumbPriority,
+  ThumbRequest,
+  ThumbStatus,
+  ThumbResult,
+  ThumbErrorCode,
+  QueueStats,
+  ThumbResultListener,
+} from './gallery-v2';

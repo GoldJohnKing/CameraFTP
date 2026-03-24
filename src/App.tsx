@@ -4,8 +4,6 @@
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
 
-import { useEffect, useState } from 'react';
-import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { Camera, X } from 'lucide-react';
 import { ServerCard } from './components/ServerCard';
@@ -17,97 +15,18 @@ import { GalleryCard } from './components/GalleryCard';
 import { BottomNav } from './components/BottomNav';
 import { PermissionDialog } from './components/PermissionDialog';
 import { PreviewWindow } from './components/PreviewWindow';
+import { useAppBootstrap } from './bootstrap/useAppBootstrap';
+import { useQuitFlow } from './hooks/useQuitFlow';
 import { useServerStore } from './stores/serverStore';
 import { useConfigStore } from './stores/configStore';
-import { usePermissionStore } from './stores/permissionStore';
 
 function App() {
-  const { initializeListeners, showPermissionDialog, closePermissionDialog, continueAfterPermissionsGranted } = useServerStore();
-  const { activeTab, loadConfig, loadPlatform, platform } = useConfigStore();
-  const initializePermissions = usePermissionStore((state) => state.initialize);
-  const [showQuitDialog, setShowQuitDialog] = useState(false);
-  const [isPreviewWindow, setIsPreviewWindow] = useState(false);
+  const { showPermissionDialog, closePermissionDialog, continueAfterPermissionsGranted } = useServerStore();
+  const { activeTab } = useConfigStore();
+  const isPreviewWindow = getCurrentWindow().label === 'preview';
+  const { showQuitDialog, closeQuitDialog, handleQuitConfirm } = useQuitFlow({ enabled: !isPreviewWindow });
 
-  // 检测当前是否是预览窗口
-  useEffect(() => {
-    const window = getCurrentWindow();
-    setIsPreviewWindow(window.label === 'preview');
-  }, []);
-
-  // 加载平台信息并设置 html class（用于平台自适应样式）
-  useEffect(() => {
-    loadPlatform();
-  }, [loadPlatform]);
-
-  // Initialize permission store (Android only, safe to call on all platforms)
-  useEffect(() => {
-    initializePermissions();
-  }, [initializePermissions]);
-
-  // 根据平台设置 html 元素的 class
-  useEffect(() => {
-    if (platform && platform !== 'unknown') {
-      document.documentElement.className = `platform-${platform}`;
-    }
-  }, [platform]);
-
-  // 初始化 store 的监听器
-  useEffect(() => {
-    let cleanupFn: (() => void) | undefined;
-    let isCancelled = false;
-
-    const setup = async () => {
-      try {
-        const cleanup = await initializeListeners();
-        if (!isCancelled) {
-          cleanupFn = cleanup;
-        } else {
-          cleanup();
-        }
-      } catch (err) {
-        console.warn('[App] Listener initialization failed:', err);
-      }
-    };
-
-    setup();
-
-    return () => {
-      isCancelled = true;
-      cleanupFn?.();
-    };
-  }, [initializeListeners]);
-
-  // 监听退出请求自定义事件（由 serverStore 中的 window-close-requested 触发）
-  useEffect(() => {
-    const handleQuitRequest = () => {
-      setShowQuitDialog(true);
-    };
-    window.addEventListener('app-quit-requested', handleQuitRequest);
-    return () => {
-      window.removeEventListener('app-quit-requested', handleQuitRequest);
-    };
-  }, []);
-
-  // 加载配置
-  useEffect(() => {
-    loadConfig();
-  }, [loadConfig]);
-
-  const handleQuitConfirm = async (quit: boolean) => {
-    if (quit) {
-      // 通过Rust命令退出程序
-      await invoke('quit_application');
-    } else {
-      // 先关闭弹窗
-      setShowQuitDialog(false);
-      // 通过Rust命令隐藏窗口
-      try {
-        await invoke('hide_main_window');
-      } catch (err) {
-        console.warn('[App] Failed to hide window:', err);
-      }
-    }
-  };
+  useAppBootstrap({ isMainWindow: !isPreviewWindow });
 
   // 如果是预览窗口，直接渲染预览组件
   if (isPreviewWindow) {
@@ -121,7 +40,7 @@ function App() {
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[100]">
           <div className="bg-white rounded-lg p-6 max-w-sm mx-4 shadow-xl relative">
             <button
-              onClick={() => setShowQuitDialog(false)}
+              onClick={closeQuitDialog}
               className="absolute top-3 right-3 p-1 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-full transition-colors"
               aria-label="关闭"
             >
@@ -187,8 +106,11 @@ function App() {
           </div>
 
           {/* 图库 - 使用 CSS 隐藏代替条件渲染，保持状态和滚动位置 */}
-          <div className={activeTab === 'gallery' ? '' : 'hidden'}>
-            <GalleryCard />
+          {/* 使用 fixed 定位让图库高度匹配屏幕高度 */}
+          <div className={activeTab === 'gallery' ? 'fixed inset-0 bg-gray-50 z-0' : 'hidden'}>
+            <div className="h-full max-w-md mx-auto">
+              <GalleryCard />
+            </div>
           </div>
 
           {/* 配置 */}

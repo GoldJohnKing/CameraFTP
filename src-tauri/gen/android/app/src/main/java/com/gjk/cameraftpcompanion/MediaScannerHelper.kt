@@ -10,6 +10,7 @@ import android.app.Activity
 import android.media.MediaScannerConnection
 import android.net.Uri
 import android.util.Log
+import android.provider.MediaStore
 import java.io.File
 
 /**
@@ -44,6 +45,25 @@ object MediaScannerHelper {
                 Log.w(TAG, "Media scan failed for: $path")
             }
         }
+    }
+
+    fun scanFileWithReset(activity: Activity, filePath: String) {
+        val rowsDeleted = try {
+            activity.contentResolver.delete(
+                MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+                "${MediaStore.Images.Media.DATA}=?",
+                arrayOf(filePath)
+            )
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to clear MediaStore entry for: $filePath", e)
+            0
+        }
+
+        if (rowsDeleted > 0) {
+            Log.d(TAG, "Cleared $rowsDeleted stale MediaStore rows for: $filePath")
+        }
+
+        scanFile(activity, filePath)
     }
 
     /**

@@ -110,7 +110,6 @@ interface PermissionAndroid {
 /**
  * Gallery image data returned by Android file scanner
  * Uses file path as unique identifier (not MediaStore ID)
- * Thumbnail is loaded separately via getThumbnail() for lazy loading
  */
 export interface GalleryImage {
   path: string; // 完整文件路径（作为主键）
@@ -139,18 +138,11 @@ export interface DeleteImagesResult {
  */
 interface GalleryAndroid {
   /**
-   * Get thumbnail for a single image (for lazy loading)
-   * @param imagePath The image file path
-   * @returns base64 data URL string, or empty string on error
-   */
-  getThumbnail(imagePath: string): Promise<string>;
-
-  /**
    * Delete images by their paths
    * @param pathsJson JSON array of image paths to delete
    * @returns JSON string with deletion results containing deleted, notFound, and failed arrays
    */
-  deleteImages(pathsJson: string): Promise<string>;
+  deleteImages(pathsJson: string): string | Promise<string>;
 
   /**
    * Remove thumbnail cache files for the given paths
@@ -158,21 +150,14 @@ interface GalleryAndroid {
    * @param pathsJson JSON array of image paths to remove thumbnails for
    * @returns true if any thumbnails were removed
    */
-  removeThumbnails(pathsJson: string): Promise<boolean>;
-
-  /**
-   * Clean up thumbnail caches for images that no longer exist
-   * @param existingPathsJson JSON array of all existing image paths
-   * @returns number of orphaned thumbnails removed
-   */
-  cleanupThumbnailsNotInList(existingPathsJson: string): Promise<number>;
+  removeThumbnails(pathsJson: string): boolean | Promise<boolean>;
 
   /**
    * Share images by their paths
    * @param pathsJson JSON array of image paths to share
    * @returns true if sharing succeeded, false otherwise
    */
-  shareImages(pathsJson: string): Promise<boolean>;
+  shareImages(pathsJson: string): boolean | Promise<boolean>;
 
   /**
    * Register back press callback to intercept back button
@@ -192,6 +177,117 @@ interface GalleryAndroid {
    * Callback for back button press (set by JS, called by Android)
    */
   onBackPressed?(): void;
+
+  /**
+   * List images from MediaStore
+   * @returns JSON array of MediaStore entries
+   */
+  listMediaStoreImages(): string | Promise<string>;
+}
+
+/**
+ * Android MediaStore Bridge interface
+ * Optionally exposed for debug hooks
+ */
+interface MediaStoreAndroidBridge {
+  // optionally exposed for debug hooks
+}
+
+/**
+ * Android Gallery V2 Bridge interface
+ * Async batched thumbnail pipeline with priority queues.
+ * Injected by Android WebView as "GalleryAndroidV2".
+ * All methods return JSON strings that must be parsed by the adapter layer.
+ */
+interface GalleryAndroidV2 {
+  /**
+   * List a page of media items from MediaStore
+   * @param reqJson JSON string of MediaPageRequest
+   * @returns JSON string of MediaPageResponse
+   */
+  listMediaPage(reqJson: string): Promise<string>;
+
+  /**
+   * Enqueue thumbnail generation requests
+   * @param reqsJson JSON array of ThumbRequest
+   * @returns JSON string (empty on success)
+   */
+  enqueueThumbnails(reqsJson: string): Promise<string>;
+
+  /**
+   * Cancel specific thumbnail requests by request ID
+   * @param requestIdsJson JSON array of request ID strings
+   * @returns JSON string (empty on success)
+   */
+  cancelThumbnailRequests(requestIdsJson: string): Promise<string>;
+
+  /**
+   * Cancel all thumbnail requests associated with a view
+   * @param viewId The view identifier
+   * @returns JSON string (empty on success)
+   */
+  cancelByView(viewId: string): Promise<string>;
+
+  /**
+   * Register a listener for thumbnail results
+   * @param viewId The view identifier to scope results
+   * @param listenerId Unique listener identifier
+   * @returns JSON string (empty on success)
+   */
+  registerThumbnailListener(viewId: string, listenerId: string): Promise<string>;
+
+  /**
+   * Unregister a thumbnail result listener
+   * @param listenerId The listener identifier to remove
+   * @returns JSON string (empty on success)
+   */
+  unregisterThumbnailListener(listenerId: string): Promise<string>;
+
+  /**
+   * Invalidate cached thumbnails for specific media IDs
+   * @param mediaIdsJson JSON array of media ID strings
+   * @returns JSON string (empty on success)
+   */
+  invalidateMediaIds(mediaIdsJson: string): Promise<string>;
+
+  /**
+   * Get current thumbnail queue statistics
+   * @returns JSON string of QueueStats
+   */
+  getQueueStats(): Promise<string>;
+}
+
+/**
+ * Android Image Viewer Bridge interface
+ * Provides built-in image viewer with zoom, pan, and swipe navigation
+ */
+interface ImageViewerAndroid {
+  /**
+   * Open the built-in image viewer
+   * @param uri Content URI of the target image
+   * @param allUrisJson JSON array of all image URIs for navigation
+   * @returns true if viewer opened successfully
+   */
+  openViewer(uri: string, allUrisJson: string): boolean;
+
+  /**
+   * Close the image viewer
+   * @returns true if viewer closed successfully
+   */
+  closeViewer(): boolean;
+
+  /**
+   * Callback from Tauri IPC when EXIF data is fetched
+   * @param exifJson JSON string of ExifInfo, or null
+   */
+  onExifResult(exifJson: string | null): void;
+
+  /**
+   * Resolve a content:// URI to a real file system path
+   * @param uri Content URI or file path
+   * @returns real file path, or null if resolution fails
+   */
+  resolveFilePath(uri: string): string | null;
 }
 
 // ===== 全局窗口扩展 =====
@@ -220,9 +316,31 @@ declare global {
     PermissionAndroid?: PermissionAndroid;
     
     /**
-     * Android Gallery JS Bridge
+     * Android Gallery JS Bridge (legacy, will be removed in Task 12)
      */
     GalleryAndroid?: GalleryAndroid;
+    
+    /**
+     * Android Gallery V2 JS Bridge
+     * Async batched thumbnail pipeline
+     */
+    GalleryAndroidV2?: GalleryAndroidV2;
+    
+    /**
+     * Android MediaStore Bridge for debug hooks
+     */
+    MediaStoreAndroid?: MediaStoreAndroidBridge;
+
+    /**
+     * Android Image Viewer JS Bridge
+     */
+    ImageViewerAndroid?: ImageViewerAndroid;
+
+    /**
+     * Global dispatch callback for V2 thumbnail results.
+     * Called by the Android bridge: window.__galleryThumbDispatch(listenerId, resultJson)
+     */
+    __galleryThumbDispatch?: (listenerId: string, resultJson: string) => void;
   }
 }
 

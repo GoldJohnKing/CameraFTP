@@ -1,0 +1,133 @@
+/**
+ * CameraFTP - A Cross-platform FTP companion for camera photo transfer
+ * Copyright (C) 2026 GoldJohnKing <GoldJohnKing@Live.cn>
+ * SPDX-License-Identifier: AGPL-3.0-or-later
+ */
+
+import { useCallback, useRef, useState } from 'react';
+import type { MediaItemDto, MediaCursor } from '../types/gallery-v2';
+import { listMediaPage } from '../services/gallery-media-v2';
+
+const PAGE_SIZE = 120;
+
+export interface UseGalleryPagerResult {
+  items: MediaItemDto[];
+  cursor: MediaCursor;
+  revisionToken: string;
+  isLoading: boolean;
+  error: string | null;
+  loadNextPage: () => Promise<void>;
+  reload: () => Promise<void>;
+  removeItems: (mediaIds: Set<string>) => void;
+}
+
+function isStaleCursorError(err: unknown): boolean {
+  return err instanceof Error && err.message.includes('stale_cursor');
+}
+
+export function useGalleryPager(): UseGalleryPagerResult {
+  const [items, setItems] = useState<MediaItemDto[]>([]);
+  const [cursor, setCursor] = useState<MediaCursor>(null);
+  const [revisionToken, setRevisionToken] = useState<string>('');
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const seenMediaIdsRef = useRef<Set<string>>(new Set());
+  const inflightRef = useRef(false);
+
+  const fetchPage = useCallback(async (pageCursor: MediaCursor): Promise<void> => {
+    const response = await listMediaPage({
+      cursor: pageCursor,
+      pageSize: PAGE_SIZE,
+      sort: 'dateDesc',
+    });
+
+    setCursor(response.nextCursor);
+    setRevisionToken(response.revisionToken);
+
+    const seen = seenMediaIdsRef.current;
+    const newItems = response.items.filter((item) => {
+      if (seen.has(item.mediaId)) {
+        return false;
+      }
+      seen.add(item.mediaId);
+      return true;
+    });
+
+    setItems((prev) => [...prev, ...newItems]);
+  }, []);
+
+  const loadNextPage = useCallback(async () => {
+    if (isLoading || inflightRef.current) {
+      return;
+    }
+
+    inflightRef.current = true;
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      await fetchPage(cursor);
+    } catch (err) {
+      if (isStaleCursorError(err)) {
+        setCursor(null);
+        setItems([]);
+
+        try {
+          await fetchPage(null);
+        } catch (innerErr) {
+          setError(innerErr instanceof Error ? innerErr.message : 'Failed to reload after stale cursor');
+        }
+      } else {
+        setError(err instanceof Error ? err.message : 'Failed to load page');
+      }
+    } finally {
+      inflightRef.current = false;
+      setIsLoading(false);
+    }
+  }, [cursor, isLoading, fetchPage]);
+
+  const reload = useCallback(async () => {
+    if (inflightRef.current) {
+      return;
+    }
+
+    inflightRef.current = true;
+    setIsLoading(true);
+    setError(null);
+    setItems([]);
+    setCursor(null);
+    setRevisionToken('');
+    seenMediaIdsRef.current = new Set();
+
+    try {
+      await fetchPage(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load page');
+    } finally {
+      inflightRef.current = false;
+      setIsLoading(false);
+    }
+  }, [fetchPage]);
+
+  const removeItems = useCallback((mediaIds: Set<string>) => {
+    if (mediaIds.size === 0) {
+      return;
+    }
+
+    setItems((prev) => prev.filter((item) => !mediaIds.has(item.mediaId)));
+    const seen = seenMediaIdsRef.current;
+    mediaIds.forEach((id) => seen.delete(id));
+  }, []);
+
+  return {
+    items,
+    cursor,
+    revisionToken,
+    isLoading,
+    error,
+    loadNextPage,
+    reload,
+    removeItems,
+  };
+}

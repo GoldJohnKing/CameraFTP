@@ -13,6 +13,7 @@ use crate::ftp::stats::{StatsActor, StatsActorWorker};
 use crate::ftp::types::{
     ServerConfig, ServerInfo, ServerStateSnapshot, ServerStatus, FtpAuthConfig,
 };
+use crate::ftp::FtpStorageBackend;
 use dashmap::DashSet;
 use libunftp::options::Shutdown;
 use libunftp::ServerBuilder;
@@ -23,6 +24,9 @@ use tauri::AppHandle;
 use tokio::sync::{mpsc, oneshot, RwLock};
 use tracing::{error, info, instrument, warn};
 use unftp_core::auth::{Authenticator, Credentials, AuthenticationError, Principal};
+
+#[cfg(target_os = "android")]
+use crate::ftp::android_mediastore::AndroidMediaStoreBackend;
 
 /// 自定义 FTP 认证器
 #[derive(Debug)]
@@ -292,12 +296,22 @@ impl FtpServerActor {
 
     /// 验证文件系统可以创建
     async fn validate_filesystem(&self, root_path: &std::path::Path) -> AppResult<()> {
-        if let Err(e) = unftp_sbe_fs::Filesystem::new(root_path) {
-            error!(error = %e, "Failed to create filesystem");
-            self.set_status(ServerStatus::Stopped).await;
-            return Err(AppError::Io(e.to_string()));
+        #[cfg(target_os = "android")]
+        {
+            // On Android, we use MediaStore which doesn't require filesystem validation
+            let _ = root_path;
+            return Ok(());
         }
-        Ok(())
+
+        #[cfg(not(target_os = "android"))]
+        {
+            if let Err(e) = unftp_sbe_fs::Filesystem::new(root_path) {
+                error!(error = %e, "Failed to create filesystem");
+                self.set_status(ServerStatus::Stopped).await;
+                return Err(AppError::Io(e.to_string()));
+            }
+            Ok(())
+        }
     }
 
     /// 构建并启动FTP服务器
@@ -409,17 +423,17 @@ impl FtpServerActor {
     /// 
     /// 仅在文件系统创建失败时 panic，这种情况在正常流程中不应发生，
     /// 因为路径已在 `validate_filesystem` 中验证过。
-    fn create_filesystem(root_path: &std::path::Path) -> unftp_sbe_fs::Filesystem {
-        match unftp_sbe_fs::Filesystem::new(root_path.to_path_buf()) {
-            Ok(fs) => fs,
-            Err(e) => {
-                error!(
-                    error = %e,
-                    root_path = %root_path.display(),
-                    "CRITICAL: Filesystem creation failed despite validation"
-                );
-                panic!("Filesystem creation failed after successful validation: {}", e)
-            }
+    fn create_filesystem(root_path: &std::path::Path) -> FtpStorageBackend {
+        #[cfg(target_os = "android")]
+        {
+            let _ = root_path; // Suppress unused parameter warning
+            return AndroidMediaStoreBackend::new();
+        }
+
+        #[cfg(not(target_os = "android"))]
+        {
+            return unftp_sbe_fs::Filesystem::new(root_path.to_path_buf())
+                .unwrap_or_else(|e| panic!("Filesystem creation failed: {e}"));
         }
     }
 
@@ -544,4 +558,26 @@ pub fn create_ftp_server(app_handle: Option<AppHandle>) -> (
         FtpServerActor::new(stats_handle, event_bus.clone(), app_handle);
 
     (server_handle, server_actor, stats_worker, event_bus)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn storage_backend_name() -> &'static str {
+        if cfg!(target_os = "android") {
+            "AndroidMediaStoreBackend"
+        } else {
+            "Filesystem"
+        }
+    }
+
+    #[test]
+    fn selects_android_backend_type() {
+        #[cfg(target_os = "android")]
+        assert_eq!(storage_backend_name(), "AndroidMediaStoreBackend");
+
+        #[cfg(not(target_os = "android"))]
+        assert_eq!(storage_backend_name(), "Filesystem");
+    }
 }

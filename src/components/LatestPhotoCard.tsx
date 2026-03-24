@@ -4,64 +4,24 @@
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
 
-import { memo, useCallback, useState, useEffect } from 'react';
+import { memo, useCallback } from 'react';
 import { Image } from 'lucide-react';
-import { invoke } from '@tauri-apps/api/core';
-import { listen } from '@tauri-apps/api/event';
 import { useServerStore } from '../stores/serverStore';
 import { IconContainer } from './ui';
-import type { FileInfo } from '../types';
-
-interface FileIndexChangedEvent {
-  count: number;
-  latestFilename: string | null;
-}
+import { useImagePreviewOpener } from '../hooks/useImagePreviewOpener';
+import { useLatestPhoto } from '../hooks/useLatestPhoto';
 
 export const LatestPhotoCard = memo(function LatestPhotoCard() {
   const { stats } = useServerStore();
-  const [scannedLatestFile, setScannedLatestFile] = useState<FileInfo | null>(null);
-
-  // 加载时获取扫描的最新文件
-  useEffect(() => {
-    const fetchLatestFile = async () => {
-      try {
-        const latest = await invoke<FileInfo | null>('get_latest_image');
-        setScannedLatestFile(latest);
-      } catch (err) {
-        console.error('[LatestPhotoCard] Failed to fetch latest image:', err);
-      }
-    };
-
-    fetchLatestFile();
-  }, []);
-
-  // 监听文件索引变化事件
-  useEffect(() => {
-    const unlistenPromise = listen<FileIndexChangedEvent>('file-index-changed', (event) => {
-      if (event.payload.count === 0) {
-        setScannedLatestFile(null);
-      } else {
-        invoke<FileInfo | null>('get_latest_image')
-          .then((latest) => {
-            setScannedLatestFile(latest);
-          })
-          .catch(() => {
-            // Silently ignore
-          });
-      }
-    });
-
-    return () => {
-      unlistenPromise.then((unlisten) => unlisten()).catch(() => {});
-    };
-  }, []);
+  const openPreview = useImagePreviewOpener();
+  const { latestPhoto, refreshLatestPhoto } = useLatestPhoto();
 
   // 获取显示用的文件名
   // 优先使用实时扫描的文件（更及时地反映删除操作）
   const getFilename = () => {
-    if (scannedLatestFile) {
+    if (latestPhoto) {
       // 优先显示扫描到的文件（实时更新）
-      return scannedLatestFile.filename;
+      return latestPhoto.filename;
     } else if (stats.lastFile) {
       // 回退到上传的文件
       const parts = stats.lastFile.split(/[\\/]/);
@@ -74,23 +34,19 @@ export const LatestPhotoCard = memo(function LatestPhotoCard() {
 
   const handleOpenPreview = useCallback(async () => {
     try {
-      const latest = await invoke<FileInfo | null>('get_latest_image');
-      if (latest) {
-        setScannedLatestFile(latest);
-        // 打开图片
-        if (window.GalleryAndroid) {
-          window.PermissionAndroid?.openImageWithChooser(latest.path);
-        } else {
-          await invoke('open_preview_window', { filePath: latest.path });
+        const latest = await refreshLatestPhoto();
+        if (latest) {
+          await openPreview({
+            filePath: latest.path,
+          });
         }
+      } catch {
+        // Silently ignore
       }
-    } catch {
-      // Silently ignore
-    }
-  }, []);
+  }, [openPreview, refreshLatestPhoto]);
 
-  // 优先使用 scannedLatestFile 判断是否有文件（实时更新）
-  const hasFile = scannedLatestFile || stats.lastFile;
+  // 优先使用 latestPhoto 判断是否有文件（实时更新）
+  const hasFile = latestPhoto || stats.lastFile;
 
   return (
     <button

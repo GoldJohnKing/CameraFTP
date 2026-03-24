@@ -11,7 +11,7 @@ use dashmap::DashSet;
 use libunftp::notification::{DataEvent, DataListener, EventMeta, PresenceEvent, PresenceListener};
 use std::sync::Arc;
 use std::time::Duration;
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Emitter, Manager};
 use tracing::{info, warn};
 
 /// 数据事件监听器（上传、下载等）
@@ -106,6 +106,8 @@ impl DataListener for FtpDataListener {
                     stats.record_delete(path.clone()).await;
                     info!(file = %path, "File deleted");
 
+                    let is_image = FileIndexService::is_supported_image(std::path::Path::new(&path));
+
                     // 从文件索引中移除
                     if let Some(handle) = app_handle.as_ref() {
                         let full_path = save_path.join(&path);
@@ -117,6 +119,12 @@ impl DataListener for FtpDataListener {
                                 }
                             }
                         });
+
+                        if is_image {
+                            if let Err(err) = handle.emit("media-library-refresh-requested", ()) {
+                                warn!(error = %err, file = %path, "Failed to emit media refresh event after delete");
+                            }
+                        }
                     }
                 }
                 DataEvent::MadeDir { path } => {

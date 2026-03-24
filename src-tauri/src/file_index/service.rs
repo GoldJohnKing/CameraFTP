@@ -15,6 +15,7 @@ use tracing::{info, trace, warn};
 use tracing::error;
 
 use crate::config::AppConfig;
+use crate::config_service::ConfigService;
 use crate::error::AppError;
 use crate::ftp::EventBus;
 use super::types::{FileIndex, FileInfo};
@@ -45,8 +46,11 @@ impl Clone for FileIndexService {
 }
 
 impl FileIndexService {
-    pub fn new() -> Self {
-        let config = AppConfig::load();
+    pub fn new(config_service: Arc<ConfigService>) -> Self {
+        let config = config_service.get().unwrap_or_else(|e| {
+            warn!(error = %e, "Failed to read config from ConfigService, using defaults");
+            AppConfig::default()
+        });
         Self {
             index: RwLock::new(FileIndex::new()),
             save_path: RwLock::new(config.save_path.clone()),
@@ -177,6 +181,10 @@ impl FileIndexService {
         index.current_index = index.files.first().map(|_| 0);
         
         info!("Directory scan complete: {} files found", index.files.len());
+
+        drop(index);
+        self.emit_file_index_changed().await;
+
         Ok(())
     }
 
@@ -526,11 +534,5 @@ impl FileIndexService {
     #[cfg(target_os = "android")]
     async fn restart_watcher(&self, _path: PathBuf) {
         // Android 不使用文件系统监听
-    }
-}
-
-impl Default for FileIndexService {
-    fn default() -> Self {
-        Self::new()
     }
 }

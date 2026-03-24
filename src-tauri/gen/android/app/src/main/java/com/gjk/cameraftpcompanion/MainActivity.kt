@@ -7,15 +7,26 @@
 package com.gjk.cameraftpcompanion
 
 import android.annotation.SuppressLint
+import android.app.Activity
 import android.content.Intent
+import android.content.IntentSender
 import android.os.Build
 import android.os.Bundle
 import android.util.Log
 import android.webkit.WebView
+import androidx.activity.result.IntentSenderRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.enableEdgeToEdge
 import com.gjk.cameraftpcompanion.bridges.FileUploadBridge
 import com.gjk.cameraftpcompanion.bridges.ServerStateBridge
 import com.gjk.cameraftpcompanion.bridges.GalleryBridge
+import com.gjk.cameraftpcompanion.bridges.GalleryBridgeV2
+import com.gjk.cameraftpcompanion.bridges.MediaStoreBridge
+import com.gjk.cameraftpcompanion.bridges.ImageViewerBridge
+import com.gjk.cameraftpcompanion.cache.ThumbnailCacheProvider
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicReference
 
 class MainActivity : TauriActivity() {
 
@@ -26,6 +37,12 @@ class MainActivity : TauriActivity() {
         // Rust 侧: TAURI_LISTENER_RETRY_DELAY_MS = 50L
         private const val TAURI_LISTENER_MAX_RETRIES = 50
         private const val TAURI_LISTENER_RETRY_DELAY_MS = 50L
+
+        /**
+         * Static WebView reference for cross-Activity Tauri IPC access
+         */
+        var instance: MainActivity? = null
+            private set
     }
 
     private var webViewRef: WebView? = null
@@ -33,6 +50,18 @@ class MainActivity : TauriActivity() {
     private var serverStateBridge: ServerStateBridge? = null
     private var permissionBridge: PermissionBridge? = null
     private var galleryBridge: GalleryBridge? = null
+    private var galleryBridgeV2: GalleryBridgeV2? = null
+    private var mediaStoreBridge: MediaStoreBridge? = null
+    private var imageViewerBridge: ImageViewerBridge? = null
+    private val pendingDeleteResult = AtomicReference<Pair<CountDownLatch, AtomicReference<Boolean>>?>(null)
+    private val deleteRequestLauncher = registerForActivityResult(
+        ActivityResultContracts.StartIntentSenderForResult()
+    ) { result ->
+        pendingDeleteResult.getAndSet(null)?.let { (latch, approvedRef) ->
+            approvedRef.set(result.resultCode == Activity.RESULT_OK)
+            latch.countDown()
+        }
+    }
 
     /**
      * Helper to add a JavaScript bridge to WebView with logging
@@ -47,12 +76,23 @@ class MainActivity : TauriActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
+        instance = this
         
         Log.d(TAG, "onCreate: initializing bridges")
         fileUploadBridge = FileUploadBridge(this)
         serverStateBridge = ServerStateBridge(this)
         permissionBridge = PermissionBridge(this)
         galleryBridge = GalleryBridge(this)
+        galleryBridgeV2 = GalleryBridgeV2(this)
+        mediaStoreBridge = MediaStoreBridge(this)
+        imageViewerBridge = ImageViewerBridge(this)
+
+        // Initialize thumbnail cache
+        ThumbnailCacheProvider.initialize(this)
+        
+        // Cleanup stale pending entries (older than 24 hours)
+        val cutoffMillis = System.currentTimeMillis() - 24 * 60 * 60 * 1000L
+        MediaStoreBridge.cleanupStalePendingEntries(contentResolver, cutoffMillis)
     }
 
     /**
@@ -70,9 +110,12 @@ class MainActivity : TauriActivity() {
         addJsBridge(webView, serverStateBridge, "ServerStateAndroid")
         addJsBridge(webView, permissionBridge, "PermissionAndroid")
         addJsBridge(webView, galleryBridge, "GalleryAndroid")
+        addJsBridge(webView, galleryBridgeV2, "GalleryAndroidV2")
+        addJsBridge(webView, mediaStoreBridge, "MediaStoreAndroid")
+        addJsBridge(webView, imageViewerBridge, "ImageViewerAndroid")
 
-        // 注册Tauri事件监听 - 监听file-uploaded事件
-        registerFileUploadEventListener()
+        // 注册Tauri事件监听
+        registerTauriEventListeners()
     }
     
     /**
@@ -81,7 +124,7 @@ class MainActivity : TauriActivity() {
      * 使用轮询重试机制确保Tauri环境就绪
      */
     @SuppressLint("SetJavaScriptEnabled")
-    private fun registerFileUploadEventListener() {
+    private fun registerTauriEventListeners() {
         webViewRef?.let { webView ->
             EventListenerRegistration(webView).start()
         } ?: Log.e(TAG, "WebView is null, cannot register event listeners")
@@ -131,10 +174,6 @@ class MainActivity : TauriActivity() {
             if (window.__TAURI__?.event) {
                 window.__tauriEventListenerRegistered = true;
                 
-                window.__TAURI__.event.listen('file-uploaded', (event) => {
-                    window.FileUploadAndroid?.onFileUploaded(event.payload?.path || '');
-                });
-                
                 window.__TAURI__.event.listen('android-service-state-update', (event) => {
                     const p = event.payload;
                     window.ServerStateAndroid?.onServerStateChanged(
@@ -153,12 +192,16 @@ class MainActivity : TauriActivity() {
     override fun onDestroy() {
         Log.d(TAG, "onDestroy: cleaning up bridge references")
         super.onDestroy()
+        instance = null
         // Clear all bridge references to prevent memory leaks
         webViewRef = null
         fileUploadBridge = null
         serverStateBridge = null
         permissionBridge = null
         galleryBridge = null
+        galleryBridgeV2 = null
+        mediaStoreBridge = null
+        imageViewerBridge = null
     }
 
     /**
@@ -166,6 +209,60 @@ class MainActivity : TauriActivity() {
      */
     fun getWebView(): WebView? {
         return webViewRef
+    }
+
+    /**
+     * Emit a Tauri event to the WebView
+     * @param name Event name
+     * @param payloadJson JSON payload as string
+     */
+    fun emitTauriEvent(name: String, payloadJson: String) {
+        val webView = webViewRef ?: return
+        val script = "window.__TAURI__?.event?.emit('$name', $payloadJson)"
+        runOnUiThread {
+            webView.evaluateJavascript(script, null)
+        }
+    }
+
+    /**
+     * Dispatch a browser CustomEvent to the main window WebView.
+     * @param name Event name
+     * @param detailJson JSON detail object as string
+     */
+    fun emitWindowEvent(name: String, detailJson: String) {
+        val webView = webViewRef ?: return
+        val script = "window.dispatchEvent(new CustomEvent('$name', { detail: $detailJson }))"
+        runOnUiThread {
+            webView.evaluateJavascript(script, null)
+        }
+    }
+
+    fun requestDeleteConfirmation(intentSender: IntentSender): Boolean {
+        val latch = CountDownLatch(1)
+        val approvedRef = AtomicReference(false)
+        val pendingResult = latch to approvedRef
+        pendingDeleteResult.set(pendingResult)
+
+        runOnUiThread {
+            try {
+                val request = IntentSenderRequest.Builder(intentSender).build()
+                deleteRequestLauncher.launch(request)
+            } catch (e: Exception) {
+                Log.e(TAG, "requestDeleteConfirmation: failed to launch delete request", e)
+                pendingDeleteResult.getAndSet(null)?.let { (pendingLatch, pendingApprovedRef) ->
+                    pendingApprovedRef.set(false)
+                    pendingLatch.countDown()
+                }
+            }
+        }
+
+        val completed = latch.await(30, TimeUnit.SECONDS)
+        if (!completed) {
+            pendingDeleteResult.compareAndSet(pendingResult, null)
+            Log.w(TAG, "requestDeleteConfirmation: timed out waiting for system dialog result")
+        }
+
+        return completed && approvedRef.get()
     }
     
     /**
