@@ -201,7 +201,7 @@ pub fn mime_type_from_filename(filename: &str) -> &'static str {
     let lower = filename.to_lowercase();
     if lower.ends_with(".jpg") || lower.ends_with(".jpeg") {
         MIME_TYPE_JPEG
-    } else if lower.ends_with(".heif") || lower.ends_with(".heic") {
+    } else if lower.ends_with(".heif") || lower.ends_with(".heic") || lower.ends_with(".hif") {
         MIME_TYPE_HEIF
     } else if lower.ends_with(".mp4") {
         MIME_TYPE_MP4
@@ -218,7 +218,11 @@ pub fn mime_type_from_filename(filename: &str) -> &'static str {
 /// while all other files (including RAW formats) go to downloads.
 pub fn collection_from_filename(filename: &str) -> MediaStoreCollection {
     let lower = filename.to_lowercase();
-    if lower.ends_with(".jpg") || lower.ends_with(".jpeg") || lower.ends_with(".heif") || lower.ends_with(".heic") {
+    if lower.ends_with(".jpg") 
+        || lower.ends_with(".jpeg") 
+        || lower.ends_with(".heif") 
+        || lower.ends_with(".heic")
+        || lower.ends_with(".hif") {
         MediaStoreCollection::Images
     } else if lower.ends_with(".mp4") || lower.ends_with(".mov") {
         MediaStoreCollection::Videos
@@ -258,6 +262,8 @@ mod tests {
         assert_eq!(mime_type_from_filename("photo.jpg"), MIME_TYPE_JPEG);
         assert_eq!(mime_type_from_filename("photo.JPEG"), MIME_TYPE_JPEG);
         assert_eq!(mime_type_from_filename("photo.heif"), MIME_TYPE_HEIF);
+        assert_eq!(mime_type_from_filename("photo.heic"), MIME_TYPE_HEIF);
+        assert_eq!(mime_type_from_filename("photo.hif"), MIME_TYPE_HEIF);
         assert_eq!(mime_type_from_filename("video.mp4"), MIME_TYPE_MP4);
         assert_eq!(mime_type_from_filename("video.mov"), MIME_TYPE_MOV);
         assert_eq!(mime_type_from_filename("photo.dng"), MIME_TYPE_DEFAULT);
@@ -268,7 +274,15 @@ mod tests {
     #[test]
     fn test_collection_from_filename() {
         assert_eq!(collection_from_filename("a.jpg"), MediaStoreCollection::Images);
+        assert_eq!(collection_from_filename("a.jpeg"), MediaStoreCollection::Images);
+        assert_eq!(collection_from_filename("a.JPG"), MediaStoreCollection::Images);
+        assert_eq!(collection_from_filename("a.JPEG"), MediaStoreCollection::Images);
         assert_eq!(collection_from_filename("a.heif"), MediaStoreCollection::Images);
+        assert_eq!(collection_from_filename("a.HEIF"), MediaStoreCollection::Images);
+        assert_eq!(collection_from_filename("a.heic"), MediaStoreCollection::Images);
+        assert_eq!(collection_from_filename("a.HEIC"), MediaStoreCollection::Images);
+        assert_eq!(collection_from_filename("a.hif"), MediaStoreCollection::Images);
+        assert_eq!(collection_from_filename("a.HIF"), MediaStoreCollection::Images);
         assert_eq!(collection_from_filename("a.mp4"), MediaStoreCollection::Videos);
         assert_eq!(collection_from_filename("a.mov"), MediaStoreCollection::Videos);
         assert_eq!(collection_from_filename("a.dng"), MediaStoreCollection::Downloads);
