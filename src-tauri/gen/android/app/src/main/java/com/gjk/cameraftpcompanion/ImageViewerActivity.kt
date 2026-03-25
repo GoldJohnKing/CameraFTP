@@ -131,11 +131,16 @@ class ImageViewerActivity : AppCompatActivity() {
     }
 
     private fun setupViewPager() {
-        viewPager.adapter = ImageViewerAdapter(uris) { toggleBottomBar() }
+        val adapter = ImageViewerAdapter(uris) { toggleBottomBar() }
+        viewPager.adapter = adapter
         viewPager.setCurrentItem(currentIndex, false)
+        // Prefetch 1 adjacent page on each side (2 images total: previous + next)
+        viewPager.offscreenPageLimit = 1
         viewPager.registerOnPageChangeCallback(object : ViewPager2.OnPageChangeCallback() {
             override fun onPageSelected(position: Int) {
                 currentIndex = position
+                // Update adapter's current position for smart recycle logic
+                (viewPager.adapter as? ImageViewerAdapter)?.currentPosition = position
                 updateUI()
             }
         })
