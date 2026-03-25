@@ -10,6 +10,7 @@ import { useConfigStore } from '../stores/configStore';
 import { usePermissionStore } from '../stores/permissionStore';
 import type { MediaItemDto } from '../types/gallery-v2';
 import { isGalleryMediaAvailable } from '../services/gallery-media';
+import { invalidateMediaIds } from '../services/gallery-media-v2';
 import { permissionBridge } from '../types';
 import { useGalleryPager } from '../hooks/useGalleryPager';
 import { useThumbnailScheduler } from '../hooks/useThumbnailScheduler';
@@ -22,6 +23,11 @@ export const GalleryCard = memo(function GalleryCard() {
   const openPreview = useImagePreviewOpener();
   const pager = useGalleryPager();
   const scheduler = useThumbnailScheduler();
+
+  const getUriForId = useCallback(
+    (mediaId: string) => pager.items.find((item) => item.mediaId === mediaId)?.uri,
+    [pager.items]
+  );
 
   const {
     isSelectionMode,
@@ -43,7 +49,10 @@ export const GalleryCard = memo(function GalleryCard() {
     onDeleteApplied: async (idsToDelete) => {
       pager.removeItems(idsToDelete);
       scheduler.removeThumbs(idsToDelete);
+      // Invalidate disk cache for deleted media IDs
+      await invalidateMediaIds([...idsToDelete]);
     },
+    getUriForId,
   });
 
   // Load first page on mount
@@ -109,6 +118,17 @@ export const GalleryCard = memo(function GalleryCard() {
       setTimeout(() => setIsRefreshing(false), remaining);
     }
   }, [handleRefreshStart, pager, scheduler, requestStoragePermission, startPermissionPolling]);
+
+  // Listen for gallery refresh events (from MainActivity.onResume or ImageViewerActivity post-deletion)
+  useEffect(() => {
+    const handleGalleryRefresh = () => {
+      void handleRefresh();
+    };
+    window.addEventListener('gallery-refresh-requested', handleGalleryRefresh);
+    return () => {
+      window.removeEventListener('gallery-refresh-requested', handleGalleryRefresh);
+    };
+  }, [handleRefresh]);
 
   // Not on Android
   if (!isGalleryMediaAvailable()) {

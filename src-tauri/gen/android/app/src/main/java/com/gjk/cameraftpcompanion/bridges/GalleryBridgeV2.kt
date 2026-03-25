@@ -48,6 +48,7 @@ class GalleryBridgeV2(
 
     init {
         cache.initialize(activity)
+        cache.cleanup() // Cleanup stale cache entries on startup
         pipelineManager.decoder = ThumbnailDecoder(activity)
         pipelineManager.cacheDir = java.io.File(activity.cacheDir, "thumb/v2")
         pipelineManager.cache = cache
@@ -109,7 +110,7 @@ class GalleryBridgeV2(
 
                 // Check L2 cache first
                 val key = ThumbnailKeyV2.of(mediaId, dateModifiedMs, sizeBucket, 0, 0)
-                val cachedFile = cache.get(key, sizeBucket)
+                val cachedFile = cache.get(mediaId, key, sizeBucket)
                 if (cachedFile != null) {
                     // Cache hit - deliver result immediately without enqueueing
                     cacheHits++
@@ -217,17 +218,14 @@ class GalleryBridgeV2(
 
     @android.webkit.JavascriptInterface
     fun invalidateMediaIds(mediaIdsJson: String) {
-        Log.d(TAG, "invalidateMediaIds")
+        Log.d(TAG, "invalidateMediaIds: $mediaIdsJson")
         try {
             val ids = JSONArray(mediaIdsJson)
-            val keys = mutableSetOf<String>()
+            val mediaIds = mutableSetOf<String>()
             for (i in 0 until ids.length()) {
-                val mediaId = ids.getString(i)
-                for (bucket in listOf("s", "m")) {
-                    keys.add(ThumbnailKeyV2.of(mediaId, 0, bucket, 0, 0))
-                }
+                mediaIds.add(ids.getString(i))
             }
-            cache.invalidate(keys)
+            cache.invalidateByMediaId(mediaIds)
         } catch (e: Exception) {
             Log.e(TAG, "invalidateMediaIds error", e)
         }

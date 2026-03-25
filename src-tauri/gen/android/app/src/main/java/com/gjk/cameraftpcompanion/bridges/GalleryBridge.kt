@@ -154,21 +154,34 @@ class GalleryBridge(private val context: Context) : BaseJsBridge(context as andr
 
         /**
          * Build share intent using MediaStore URIs
+         * Follows Android 10+ best practices:
+         * - Sets ClipData for permission propagation
+         * - Sets FLAG_GRANT_READ_URI_PERMISSION on the intent itself
          */
         @JvmStatic
         fun build_share_intent(uris: List<String>): Intent {
+            val uriObjects = uris.map { Uri.parse(it) }
+
             return if (uris.size == 1) {
                 Intent(Intent.ACTION_SEND).apply {
                     type = "image/*"
-                    putExtra(Intent.EXTRA_STREAM, Uri.parse(uris[0]))
+                    putExtra(Intent.EXTRA_STREAM, uriObjects[0])
+                    clipData = ClipData.newRawUri(null, uriObjects[0])
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                 }
             } else {
                 Intent(Intent.ACTION_SEND_MULTIPLE).apply {
                     type = "image/*"
                     putParcelableArrayListExtra(
                         Intent.EXTRA_STREAM,
-                        ArrayList(uris.map { Uri.parse(it) })
+                        ArrayList(uriObjects)
                     )
+                    val data = ClipData.newRawUri(null, uriObjects[0])
+                    for (i in 1 until uriObjects.size) {
+                        data.addItem(ClipData.Item(uriObjects[i]))
+                    }
+                    setClipData(data)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                 }
             }
         }

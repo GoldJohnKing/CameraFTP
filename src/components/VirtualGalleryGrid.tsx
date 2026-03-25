@@ -153,7 +153,7 @@ export function VirtualGalleryGrid({
     >
       <div style={{ height: totalHeight, position: 'relative' }}>
         <div
-          className="grid grid-cols-3 gap-1.5 px-0.5 pb-1.5"
+          className="grid grid-cols-3 gap-1.5 px-0.5 pt-1 pb-1.5"
           style={{
             position: 'absolute',
             top: offsetY,

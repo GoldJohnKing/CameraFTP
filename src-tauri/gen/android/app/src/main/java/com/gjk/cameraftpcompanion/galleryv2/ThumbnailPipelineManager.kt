@@ -397,12 +397,12 @@ class ThumbnailPipelineManager(poolSize: Int = 3) {
             val uri = android.net.Uri.parse(job.uri)
             val key = ThumbnailKeyV2.of(job.mediaId, job.dateModifiedMs, job.sizeBucket, 0, 0)
             Log.d("ThumbPipeline", "executeJob: mediaId=${job.mediaId} uri=$uri bucket=${job.sizeBucket}")
-            val path = dec.decodeAndSave(uri, job.sizeBucket, dir, key)
+            val path = dec.decodeAndSave(uri, job.sizeBucket, dir, job.mediaId, key)
             if (path != null) {
                 // Update L1 cache with the decoded file
                 val file = java.io.File(path)
                 if (file.exists()) {
-                    cache?.put(key, job.sizeBucket, file.readBytes())
+                    cache?.put(job.mediaId, key, job.sizeBucket, file.readBytes())
                 }
                 Log.d("ThumbPipeline", "executeJob: ready path=$path")
                 finishJob(job, "ready", path, null)

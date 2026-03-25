@@ -15,10 +15,13 @@ import java.io.File
  * Two-tier thumbnail cache for the V2 gallery.
  *
  * - **L1**: In-memory [LruCache] sized by byte count.
- * - **L2**: Disk cache under `thumb/v2/<bucket>/<hash>.jpg`.
+ * - **L2**: Disk cache under `thumb/v2/<bucket>/<mediaId>_<hash>.jpg`.
  *
  * L1 default capacity is `min(32 MB, heapClass * 0.08)`.
  * L2 default capacity is 256 MB.
+ *
+ * File naming convention: `{mediaId}_{hash}.jpg` allows efficient prefix-based
+ * deletion when invalidating cache entries by mediaId.
  */
 class ThumbnailCacheV2(
     private val l1MaxBytes: Int = defaultL1Bytes(),
@@ -68,19 +71,22 @@ class ThumbnailCacheV2(
      *
      * Checks L1 first, then falls back to L2 disk. Promotes L2 hits to L1.
      *
+     * @param mediaId The media identifier for L2 file lookup
+     * @param key The cache key (hash) for L1 lookup
+     * @param sizeBucket The size bucket ("s" or "m")
      * @return The cache [File] on disk, or `null` if not cached.
      */
-    fun get(key: String, sizeBucket: String): File? {
+    fun get(mediaId: String, key: String, sizeBucket: String): File? {
         // L1 hit → ensure the file still exists on disk
         if (l1.get(key) != null) {
-            val file = diskFile(key, sizeBucket)
+            val file = diskFile(mediaId, key, sizeBucket)
             if (file.exists()) return file
             // Stale L1 entry; remove it
             l1.remove(key)
         }
 
         // L2 hit
-        val file = diskFile(key, sizeBucket)
+        val file = diskFile(mediaId, key, sizeBucket)
         if (file.exists()) {
             val data = file.readBytes()
             l1.put(key, data)
@@ -92,13 +98,18 @@ class ThumbnailCacheV2(
 
     /**
      * Store thumbnail data in both L1 and L2.
+     *
+     * @param mediaId The media identifier for L2 file naming
+     * @param key The cache key (hash) for L1 storage
+     * @param sizeBucket The size bucket ("s" or "m")
+     * @param data The thumbnail JPEG data
      */
-    fun put(key: String, sizeBucket: String, data: ByteArray) {
+    fun put(mediaId: String, key: String, sizeBucket: String, data: ByteArray) {
         // L1
         l1.put(key, data)
 
         // L2
-        val file = diskFile(key, sizeBucket)
+        val file = diskFile(mediaId, key, sizeBucket)
         file.parentFile?.mkdirs()
         file.writeBytes(data)
 
@@ -107,10 +118,36 @@ class ThumbnailCacheV2(
     }
 
     /**
-     * Remove all cached entries whose key was derived from any of the given media IDs.
+     * Remove all cached entries for the given media IDs.
      *
-     * Because we don't store the original mediaId in the key, callers must supply
-     * the set of keys to remove. A higher-level index should map mediaId → keys.
+     * Uses file name prefix matching to delete all cache files for each mediaId,
+     * regardless of the hash key (which varies with dateModifiedMs, etc.).
+     *
+     * @param mediaIds Set of media IDs to invalidate
+     */
+    fun invalidateByMediaId(mediaIds: Set<String>) {
+        // Clear L1 entries (we need to clear all since we can't match by mediaId)
+        // This is safe because L1 will be repopulated on next access
+        l1.evictAll()
+
+        // Delete L2 files by mediaId prefix
+        val root = cacheRoot ?: return
+        for (mediaId in mediaIds) {
+            val prefix = "$mediaId" + "_"
+            root.walkTopDown()
+                .filter { it.isFile && it.name.startsWith(prefix) && it.extension == "jpg" }
+                .forEach {
+                    if (it.delete()) {
+                        Log.d(TAG, "Invalidated by mediaId: ${it.name}")
+                    }
+                }
+        }
+    }
+
+    /**
+     * Remove all cached entries whose key matches exactly.
+     *
+     * @param keys Set of cache keys to invalidate
      */
     fun invalidate(keys: Set<String>) {
         for (key in keys) {
@@ -149,15 +186,15 @@ class ThumbnailCacheV2(
 
     // ── Internals ─────────────────────────────────────────────────────
 
-    private fun diskFile(key: String, sizeBucket: String): File {
+    private fun diskFile(mediaId: String, key: String, sizeBucket: String): File {
         val root = cacheRoot ?: throw IllegalStateException("ThumbnailCacheV2 not initialized")
-        return File(root, "$sizeBucket/$key.jpg")
+        return File(root, "$sizeBucket/${mediaId}_$key.jpg")
     }
 
     private fun deleteDiskEntries(key: String) {
         val root = cacheRoot ?: return
         root.walkTopDown()
-            .filter { it.isFile && it.nameWithoutExtension == key }
+            .filter { it.isFile && it.nameWithoutExtension.endsWith("_$key") }
             .forEach {
                 if (it.delete()) {
                     Log.d(TAG, "Invalidated disk entry: ${it.name}")

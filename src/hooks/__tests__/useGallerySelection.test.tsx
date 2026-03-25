@@ -22,9 +22,10 @@ vi.mock('sonner', () => ({
 type HarnessProps = {
   activeTab?: string;
   onDeleteApplied?: (pathsToAnimate: Set<string>) => void | Promise<void>;
+  getUriForId?: (mediaId: string) => string | undefined;
 };
 
-function GallerySelectionHarness({ activeTab = 'gallery', onDeleteApplied }: HarnessProps) {
+function GallerySelectionHarness({ activeTab = 'gallery', onDeleteApplied, getUriForId }: HarnessProps) {
   const {
     isSelectionMode,
     selectedIds,
@@ -41,6 +42,7 @@ function GallerySelectionHarness({ activeTab = 'gallery', onDeleteApplied }: Har
   } = useGallerySelection({
     activeTab,
     onDeleteApplied: onDeleteApplied ?? (() => {}),
+    getUriForId: getUriForId ?? ((mediaId) => `content://media/${mediaId}`),
   });
 
   return (

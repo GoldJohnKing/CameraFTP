@@ -15,6 +15,7 @@ const TOUCH_MOVE_THRESHOLD = 15; // Movement threshold to cancel long press (px)
 type UseGallerySelectionOptions = {
   activeTab: string;
   onDeleteApplied: (pathsToAnimate: Set<string>) => void | Promise<void>;
+  getUriForId: (mediaId: string) => string | undefined;
 };
 
 type UseGallerySelectionResult = {
@@ -34,7 +35,7 @@ type UseGallerySelectionResult = {
   toggleMenu: () => void;
 };
 
-export function useGallerySelection({ activeTab, onDeleteApplied }: UseGallerySelectionOptions): UseGallerySelectionResult {
+export function useGallerySelection({ activeTab, onDeleteApplied, getUriForId }: UseGallerySelectionOptions): UseGallerySelectionResult {
   const [isSelectionMode, setIsSelectionMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [showMenu, setShowMenu] = useState(false);
@@ -140,8 +141,17 @@ export function useGallerySelection({ activeTab, onDeleteApplied }: UseGallerySe
 
     const selectedAtDeleteStart = new Set(selectedIds);
 
+    // Convert mediaIds to URIs for the delete call
+    const urisToDelete = [...selectedAtDeleteStart]
+      .map((mediaId) => getUriForId(mediaId))
+      .filter((uri): uri is string => uri !== undefined);
+
+    if (urisToDelete.length === 0) {
+      return;
+    }
+
     try {
-      const resultJson = await window.GalleryAndroid?.deleteImages(JSON.stringify([...selectedAtDeleteStart]));
+      const resultJson = await window.GalleryAndroid?.deleteImages(JSON.stringify(urisToDelete));
       if (!resultJson) {
         setShowMenu(false);
         return;
@@ -165,15 +175,25 @@ export function useGallerySelection({ activeTab, onDeleteApplied }: UseGallerySe
         toast.error(`部分删除失败：${failedPaths.size} 张图片未删除。`);
       }
 
-      setDeletingIds(pathsToAnimate);
+      // Map URIs back to mediaIds for animation and removal
+      const mediaIdsToAnimate = new Set<string>();
+      const uriToMediaId = new Map([...selectedAtDeleteStart].map((id) => [getUriForId(id), id]));
+      for (const uri of pathsToAnimate) {
+        const mediaId = uriToMediaId.get(uri);
+        if (mediaId) {
+          mediaIdsToAnimate.add(mediaId);
+        }
+      }
+
+      setDeletingIds(mediaIdsToAnimate);
       setShowMenu(false);
 
       await new Promise((resolve) => setTimeout(resolve, 300));
 
-      await onDeleteApplied(pathsToAnimate);
+      await onDeleteApplied(mediaIdsToAnimate);
       setDeletingIds(new Set());
 
-      const remainingSelected = new Set([...selectedAtDeleteStart].filter((id) => !pathsToAnimate.has(id)));
+      const remainingSelected = new Set([...selectedAtDeleteStart].filter((id) => !mediaIdsToAnimate.has(id)));
       setSelectedIds(remainingSelected);
       if (remainingSelected.size === 0) {
         setIsSelectionMode(false);
@@ -181,7 +201,7 @@ export function useGallerySelection({ activeTab, onDeleteApplied }: UseGallerySe
     } catch (err) {
       console.error('Delete failed:', err);
     }
-  }, [onDeleteApplied, selectedIds]);
+  }, [onDeleteApplied, selectedIds, getUriForId]);
 
   const handleShare = useCallback(async () => {
     if (selectedIds.size === 0) {
@@ -189,12 +209,21 @@ export function useGallerySelection({ activeTab, onDeleteApplied }: UseGallerySe
     }
 
     try {
-      await window.GalleryAndroid?.shareImages(JSON.stringify([...selectedIds]));
+      // Convert mediaIds to URIs (same pattern as handleDelete)
+      const urisToShare = [...selectedIds]
+        .map((mediaId) => getUriForId(mediaId))
+        .filter((uri): uri is string => uri !== undefined);
+
+      if (urisToShare.length === 0) {
+        return;
+      }
+
+      await window.GalleryAndroid?.shareImages(JSON.stringify(urisToShare));
       setShowMenu(false);
     } catch (err) {
       console.error('Share failed:', err);
     }
-  }, [selectedIds]);
+  }, [selectedIds, getUriForId]);
 
   const toggleMenu = useCallback(() => {
     setShowMenu((prev) => !prev);

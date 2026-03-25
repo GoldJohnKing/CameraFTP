@@ -1,3 +1,9 @@
+/**
+ * CameraFTP - A Cross-platform FTP companion for camera photo transfer
+ * Copyright (C) 2026 GoldJohnKing <GoldJohnKing@Live.cn>
+ * SPDX-License-Identifier: AGPL-3.0-or-later
+ */
+
 package com.gjk.cameraftpcompanion.galleryv2
 
 import android.content.ContentUris
@@ -16,13 +22,24 @@ class ThumbnailDecoder(private val context: Context) {
         private const val QUALITY = 92
     }
 
-    fun decodeAndSave(uri: Uri, sizeBucket: String, cacheDir: File, key: String): String? {
+    /**
+     * Decode and save a thumbnail.
+     *
+     * @param uri The media content URI
+     * @param sizeBucket The size bucket ("s" for small, "m" for medium)
+     * @param cacheDir The cache directory root
+     * @param mediaId The media identifier for file naming
+     * @param key The cache key (hash) for file naming
+     * @return The absolute path to the saved file, or null on failure
+     */
+    fun decodeAndSave(uri: Uri, sizeBucket: String, cacheDir: File, mediaId: String, key: String): String? {
         return try {
             val bitmap = loadBitmap(uri) ?: return null
             val target = if (sizeBucket == "s") 200 else 360
             val scaled = centerCrop(bitmap, target)
             val dir = File(cacheDir, sizeBucket).apply { mkdirs() }
-            val file = File(dir, "$key.jpg")
+            // File naming: {mediaId}_{key}.jpg - allows prefix-based deletion by mediaId
+            val file = File(dir, "${mediaId}_$key.jpg")
             file.outputStream().use { scaled.compress(Bitmap.CompressFormat.JPEG, QUALITY, it) }
             file.absolutePath
         } catch (e: Exception) {
