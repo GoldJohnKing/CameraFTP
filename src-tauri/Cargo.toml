@@ -47,7 +47,6 @@ rand = "0.8"  # 提供 rand_core/getrandom feature，argon2 依赖需要
 zeroize = "1.8"  # 内存安全：密码使用后自动清零
 # FTPS 证书生成
 rcgen = "0.13"
-rustls-pemfile = "2.0"
 
 [target.'cfg(target_os = "windows")'.dependencies]
 # 文件系统监听（仅 Windows 使用）
