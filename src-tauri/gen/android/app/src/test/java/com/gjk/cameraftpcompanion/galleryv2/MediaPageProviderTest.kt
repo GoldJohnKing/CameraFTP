@@ -104,7 +104,8 @@ class MediaPageProviderTest {
         val result = MediaPageResult(
             items = emptyList(),
             nextCursor = null,
-            revisionToken = "count:0"
+            revisionToken = "count:0",
+            totalCount = 0
         )
         assertTrue(result.items.isEmpty())
         assertNull(result.nextCursor)
@@ -118,7 +119,7 @@ class MediaPageProviderTest {
             MediaPageItem("2", "content://media/2", 900L, null, null, null, null)
         )
         val cursor = MediaPageProvider.encodeCursor(MediaPageCursor(900L, 2))
-        val result = MediaPageResult(items, cursor, "count:10")
+        val result = MediaPageResult(items, cursor, "count:10", 10)
 
         assertEquals(2, result.items.size)
         assertNotNull(result.nextCursor)

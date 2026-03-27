@@ -20,6 +20,7 @@ import org.junit.runner.RunWith
 import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import java.util.concurrent.ConcurrentHashMap
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [33], manifest = Config.NONE)
@@ -78,6 +79,21 @@ class GalleryBridgeV2Test {
 
         // view2 listener should still be valid — verify no exception
         bridge.unregisterThumbnailListener("listener3")
+    }
+
+    @Test
+    fun destroy_clears_listener_and_request_tracking_state() {
+        bridge.registerThumbnailListener("view1", "listener1")
+        bridge.registerThumbnailListener("view1", "listener2")
+
+        val requestViewMap = readConcurrentMap<String, String>("requestViewMap")
+        requestViewMap["req-1"] = "view1"
+
+        bridge.destroy()
+
+        assertTrue(readConcurrentMap<String, String>("listenerMap").isEmpty())
+        assertTrue(readConcurrentMap<String, MutableSet<String>>("viewListeners").isEmpty())
+        assertTrue(readConcurrentMap<String, String>("requestViewMap").isEmpty())
     }
 
     // ── cancelByView ──────────────────────────────────────────────────
@@ -285,5 +301,12 @@ class GalleryBridgeV2Test {
 
         assertEquals("error", json.getString("revisionToken"))
         assertEquals(0, json.getJSONArray("items").length())
+    }
+
+    private fun <K, V> readConcurrentMap(fieldName: String): ConcurrentHashMap<K, V> {
+        val field = bridge.javaClass.getDeclaredField(fieldName)
+        field.isAccessible = true
+        @Suppress("UNCHECKED_CAST")
+        return field.get(bridge) as ConcurrentHashMap<K, V>
     }
 }

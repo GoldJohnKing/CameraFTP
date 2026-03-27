@@ -53,6 +53,9 @@ class MainActivity : TauriActivity() {
     private var galleryBridgeV2: GalleryBridgeV2? = null
     private var mediaStoreBridge: MediaStoreBridge? = null
     private var imageViewerBridge: ImageViewerBridge? = null
+    @Volatile
+    private var isWebViewActive = false
+    private var eventListenerRegistration: EventListenerRegistration? = null
     private val pendingDeleteResult = AtomicReference<Pair<CountDownLatch, AtomicReference<Boolean>>?>(null)
     private val deleteRequestLauncher = registerForActivityResult(
         ActivityResultContracts.StartIntentSenderForResult()
@@ -104,6 +107,7 @@ class MainActivity : TauriActivity() {
         
         // 保存WebView引用
         webViewRef = webView
+        isWebViewActive = true
         
         Log.d(TAG, "onWebViewCreate: adding JavaScript bridges")
         addJsBridge(webView, fileUploadBridge, "FileUploadAndroid")
@@ -126,7 +130,8 @@ class MainActivity : TauriActivity() {
     @SuppressLint("SetJavaScriptEnabled")
     private fun registerTauriEventListeners() {
         webViewRef?.let { webView ->
-            EventListenerRegistration(webView).start()
+            eventListenerRegistration?.cancel()
+            eventListenerRegistration = EventListenerRegistration(webView).also { it.start() }
         } ?: Log.e(TAG, "WebView is null, cannot register event listeners")
     }
 
@@ -136,12 +141,23 @@ class MainActivity : TauriActivity() {
      */
     private inner class EventListenerRegistration(private val webView: WebView) {
         private var retryCount = 0
+        private var cancelled = false
+        private val retryRunnable = Runnable { attemptRegister() }
 
         fun start() {
             attemptRegister()
         }
 
+        fun cancel() {
+            cancelled = true
+            webView.removeCallbacks(retryRunnable)
+        }
+
         private fun attemptRegister() {
+            if (cancelled || !isWebViewActive || webViewRef !== webView) {
+                return
+            }
+
             if (retryCount >= TAURI_LISTENER_MAX_RETRIES) {
                 Log.w(TAG, "Max retries reached, Tauri event listener registration failed")
                 return
@@ -153,12 +169,16 @@ class MainActivity : TauriActivity() {
         }
 
         private fun handleResult(result: String?) {
+            if (cancelled || !isWebViewActive || webViewRef !== webView) {
+                return
+            }
+
             when (result) {
                 "success" -> Log.d(TAG, "Tauri event listeners registered successfully")
                 "already_registered" -> Log.d(TAG, "Event listeners already registered")
                 else -> {
                     retryCount++
-                    webView.postDelayed({ attemptRegister() }, TAURI_LISTENER_RETRY_DELAY_MS)
+                    webView.postDelayed(retryRunnable, TAURI_LISTENER_RETRY_DELAY_MS)
                 }
             }
         }
@@ -191,6 +211,10 @@ class MainActivity : TauriActivity() {
 
     override fun onDestroy() {
         Log.d(TAG, "onDestroy: cleaning up bridge references")
+        isWebViewActive = false
+        eventListenerRegistration?.cancel()
+        eventListenerRegistration = null
+        galleryBridgeV2?.destroy()
         super.onDestroy()
         instance = null
         // Clear all bridge references to prevent memory leaks
@@ -208,6 +232,10 @@ class MainActivity : TauriActivity() {
      * 获取 WebView 引用（供 Bridge 使用）
      */
     fun getWebView(): WebView? {
+        if (!isWebViewActive || isDestroyed) {
+            return null
+        }
+
         return webViewRef
     }
 
@@ -217,10 +245,10 @@ class MainActivity : TauriActivity() {
      * @param payloadJson JSON payload as string
      */
     fun emitTauriEvent(name: String, payloadJson: String) {
-        val webView = webViewRef ?: return
+        getWebView() ?: return
         val script = "window.__TAURI__?.event?.emit('$name', $payloadJson)"
         runOnUiThread {
-            webView.evaluateJavascript(script, null)
+            getWebView()?.evaluateJavascript(script, null)
         }
     }
 
@@ -230,10 +258,10 @@ class MainActivity : TauriActivity() {
      * @param detailJson JSON detail object as string
      */
     fun emitWindowEvent(name: String, detailJson: String) {
-        val webView = webViewRef ?: return
+        getWebView() ?: return
         val script = "window.dispatchEvent(new CustomEvent('$name', { detail: $detailJson }))"
         runOnUiThread {
-            webView.evaluateJavascript(script, null)
+            getWebView()?.evaluateJavascript(script, null)
         }
     }
 
@@ -376,7 +404,7 @@ class MainActivity : TauriActivity() {
         if (isInSelectionMode) {
             // Notify JS to cancel selection
             try {
-                webViewRef?.evaluateJavascript(
+                getWebView()?.evaluateJavascript(
                     "if (window.__galleryOnBackPressed) { window.__galleryOnBackPressed(); }",
                     null
                 )
