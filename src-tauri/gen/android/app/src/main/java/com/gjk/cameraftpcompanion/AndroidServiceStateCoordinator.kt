@@ -1,0 +1,101 @@
+/**
+ * CameraFTP - A Cross-platform FTP companion for camera photo transfer
+ * Copyright (C) 2026 GoldJohnKing <GoldJohnKing@Live.cn>
+ * SPDX-License-Identifier: AGPL-3.0-or-later
+ */
+
+package com.gjk.cameraftpcompanion
+
+import android.content.Context
+import android.content.Intent
+import android.os.Build
+
+data class AndroidServiceStateSnapshot(
+    val isRunning: Boolean = false,
+    val statsJson: String? = null,
+    val connectedClients: Int = 0,
+)
+
+object AndroidServiceStateCoordinator {
+    @Volatile
+    private var latestState = AndroidServiceStateSnapshot()
+
+    @Synchronized
+    private fun storeSnapshot(
+        isRunning: Boolean,
+        statsJson: String?,
+        connectedClients: Int,
+    ): AndroidServiceStateSnapshot {
+        latestState = if (isRunning) {
+            AndroidServiceStateSnapshot(true, statsJson, connectedClients)
+        } else {
+            AndroidServiceStateSnapshot()
+        }
+
+        return latestState
+    }
+
+    fun updateServiceState(
+        callerContext: Context,
+        isRunning: Boolean,
+        statsJson: String?,
+        connectedClients: Int,
+    ) {
+        if (isRunning) {
+            updateRunningState(callerContext, statsJson, connectedClients)
+        } else {
+            stopService(callerContext)
+        }
+    }
+
+    fun startService(callerContext: Context) {
+        updateRunningState(callerContext, latestState.statsJson, latestState.connectedClients)
+    }
+
+    fun updateRunningState(callerContext: Context, statsJson: String?, connectedClients: Int) {
+        val appContext = callerContext.applicationContext
+        val previousState = latestState
+        val nextState = storeSnapshot(true, statsJson, connectedClients)
+
+        if (!previousState.isRunning || FtpForegroundService.getInstance() == null) {
+            startForegroundService(appContext)
+        }
+
+        FtpForegroundService.getInstance()?.updateServerState(
+            nextState.statsJson,
+            nextState.connectedClients,
+            syncCoordinator = false,
+        )
+    }
+
+    fun stopService(callerContext: Context) {
+        val appContext = callerContext.applicationContext
+        storeSnapshot(false, null, 0)
+        stopForegroundService(appContext)
+    }
+
+    fun getLatestState(): AndroidServiceStateSnapshot = latestState
+
+    fun clearState() {
+        latestState = AndroidServiceStateSnapshot()
+    }
+
+    private fun startForegroundService(appContext: Context) {
+        val serviceIntent = Intent(appContext, FtpForegroundService::class.java).apply {
+            action = FtpForegroundService.ACTION_START
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            appContext.startForegroundService(serviceIntent)
+        } else {
+            appContext.startService(serviceIntent)
+        }
+    }
+
+    private fun stopForegroundService(appContext: Context) {
+        val serviceIntent = Intent(appContext, FtpForegroundService::class.java).apply {
+            action = FtpForegroundService.ACTION_STOP
+        }
+        appContext.stopService(serviceIntent)
+    }
+}

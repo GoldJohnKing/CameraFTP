@@ -6,14 +6,15 @@
 
 package com.gjk.cameraftpcompanion.bridges
 
+import android.content.Context
 import android.webkit.JavascriptInterface
-import com.gjk.cameraftpcompanion.MainActivity
+import com.gjk.cameraftpcompanion.AndroidServiceStateCoordinator
 
 /**
  * Server State JavaScript Bridge
  * Forwards server state changes to the foreground service
  */
-class ServerStateBridge(private val mainActivity: MainActivity) : BaseJsBridge(mainActivity) {
+class ServerStateBridge(private val context: Context) {
 
     /**
      * Called from JavaScript when server state changes
@@ -23,6 +24,11 @@ class ServerStateBridge(private val mainActivity: MainActivity) : BaseJsBridge(m
      */
     @JavascriptInterface
     fun onServerStateChanged(isRunning: Boolean, statsJson: String?, connectedClients: Int) {
-        mainActivity.updateServiceState(isRunning, statsJson, connectedClients)
+        AndroidServiceStateCoordinator.updateServiceState(
+            context,
+            isRunning,
+            statsJson,
+            connectedClients,
+        )
     }
 }

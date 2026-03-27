@@ -14,8 +14,6 @@ import { createEventManager, type EventRegistration } from '../utils/events';
 // FTP uploads and deletions are handled incrementally to preserve scroll position
 
 import { useServerStore } from '../stores/serverStore';
-import { syncAndroidServerState } from './android-server-state-sync';
-
 type ServerStartedPayload = { ip: string; port: number };
 
 const defaultStats: ServerStateSnapshot = {
@@ -32,40 +30,26 @@ function createEventRegistrations(): EventRegistration<any>[] {
       name: 'server-started',
       handler: (event: Event<ServerStartedPayload>) => {
         const { ip, port } = event.payload;
-        useServerStore.setState((state) => ({
-          ...state,
+        useServerStore.getState().setServerRunning({
           isRunning: true,
-          serverInfo: {
-            isRunning: true,
-            ip,
-            port,
-            url: `ftp://${ip}:${port}`,
-            username: 'anonymous',
-            passwordInfo: '(任意密码)',
-          },
-          stats: { ...state.stats, isRunning: true },
-        }));
-        syncAndroidServerState(true, useServerStore.getState().stats, 0);
+          ip,
+          port,
+          url: `ftp://${ip}:${port}`,
+          username: 'anonymous',
+          passwordInfo: '(任意密码)',
+        });
       },
     },
     {
       name: 'server-stopped',
       handler: () => {
-        useServerStore.setState((state) => ({
-          ...state,
-          isRunning: false,
-          serverInfo: null,
-          stats: defaultStats,
-        }));
-        syncAndroidServerState(false, null, 0);
+        useServerStore.getState().setServerStopped();
       },
     },
     {
       name: 'stats-update',
       handler: (event: Event<ServerStateSnapshot>) => {
-        const stats = event.payload;
-        useServerStore.setState((state) => ({ ...state, stats }));
-        syncAndroidServerState(true, stats, stats.connectedClients || 0);
+        useServerStore.getState().setServerStats(event.payload);
 
         // Note: FTP upload refresh is handled incrementally via gallery-items-added event
         // to preserve scroll position. Full refresh is no longer needed here.
@@ -109,14 +93,14 @@ async function syncInitialServerState(): Promise<void> {
     if (info?.isRunning) {
       const status = await invoke<ServerStateSnapshot | null>('get_server_status');
       const syncedStats = status || { ...defaultStats, isRunning: true };
-      useServerStore.setState((state) => ({
-        ...state,
-        isRunning: true,
-        serverInfo: info,
+      useServerStore.getState().setServerRunning(info, {
         stats: syncedStats,
-      }));
-      syncAndroidServerState(true, syncedStats, syncedStats.connectedClients || 0, true);
+        immediate: true,
+      });
+      return;
     }
+
+    useServerStore.getState().setServerStopped({ immediate: true });
   } catch (err) {
     console.warn('[server-events] Initial state sync failed:', err);
   }

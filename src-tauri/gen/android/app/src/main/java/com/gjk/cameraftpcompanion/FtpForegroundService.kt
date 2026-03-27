@@ -18,6 +18,7 @@ import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
 import android.util.Log
+import androidx.annotation.StringRes
 import androidx.core.app.NotificationCompat
 import org.json.JSONObject
 
@@ -57,6 +58,7 @@ class FtpForegroundService : Service() {
         Log.d(TAG, "onCreate: initializing service")
         super.onCreate()
         instance = this
+        restoreStateFromCoordinator()
         createNotificationChannel()
         acquireLocks()
 
@@ -73,6 +75,15 @@ class FtpForegroundService : Service() {
             stopSelf()
             return START_NOT_STICKY
         }
+
+        val snapshot = AndroidServiceStateCoordinator.getLatestState()
+        if (!snapshot.isRunning) {
+            Log.d(TAG, "onStartCommand: ignoring start because coordinator is stopped")
+            stopSelf()
+            return START_NOT_STICKY
+        }
+
+        restoreStateFromSnapshot(snapshot)
 
         // CRITICAL: Must call startForeground() within 5 seconds of startForegroundService()
         // Otherwise, Android will throw ForegroundServiceDidNotStartInTimeException and crash the app
@@ -97,10 +108,13 @@ class FtpForegroundService : Service() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 CHANNEL_ID,
-                getString(R.string.ftp_service_channel_name),
+                getStringOrFallback(R.string.ftp_service_channel_name, "FTP service"),
                 NotificationManager.IMPORTANCE_LOW
             ).apply {
-                description = getString(R.string.ftp_service_channel_description)
+                description = getStringOrFallback(
+                    R.string.ftp_service_channel_description,
+                    "Keeps FTP transfers running in the foreground",
+                )
                 setShowBadge(false)
                 lockscreenVisibility = Notification.VISIBILITY_PUBLIC
             }
@@ -167,7 +181,7 @@ class FtpForegroundService : Service() {
         // Single state: server running (green icon)
         val iconRes = R.drawable.tray_active
 
-        val title = getString(R.string.notification_title_running)
+        val title = getStringOrFallback(R.string.notification_title_running, "FTP server running")
         val content = buildStatusContent()
 
         // Intent to open MainActivity when tapped
@@ -209,13 +223,17 @@ class FtpForegroundService : Service() {
 
         // Connection status
         val connectionStatus = if (clients > 0) {
-            getString(R.string.status_connected)
+            getStringOrFallback(R.string.status_connected, "Connected")
         } else {
-            getString(R.string.status_disconnected)
+            getStringOrFallback(R.string.status_disconnected, "Disconnected")
         }
 
         // Format: connection status | received files count | total size
-        return getString(R.string.status_format, connectionStatus, files, formatBytes(bytes))
+        return try {
+            getString(R.string.status_format, connectionStatus, files, formatBytes(bytes))
+        } catch (_: Exception) {
+            "$connectionStatus | $files | ${formatBytes(bytes)}"
+        }
     }
 
     /**
@@ -235,10 +253,56 @@ class FtpForegroundService : Service() {
      * Called when server is running to update stats display.
      * Thread-safe: can be called from any thread (e.g., JS bridge).
      */
-    fun updateServerState(statsJson: String?, connectedClients: Int) {
+    fun updateServerState(
+        statsJson: String?,
+        connectedClients: Int,
+        syncCoordinator: Boolean = true,
+    ) {
         Log.d(TAG, "updateServerState: connectedClients=$connectedClients")
 
+        if (syncCoordinator) {
+            AndroidServiceStateCoordinator.updateServiceState(
+                applicationContext,
+                true,
+                statsJson,
+                connectedClients,
+            )
+            return
+        }
+
+        val statsChanged = applyServerState(statsJson, connectedClients)
+        if (!statsChanged) {
+            return
+        }
+
+        // Update notification with new stats
+        updateNotification()
+    }
+
+    private fun restoreStateFromCoordinator() {
+        restoreStateFromSnapshot(AndroidServiceStateCoordinator.getLatestState())
+    }
+
+    private fun restoreStateFromSnapshot(snapshot: AndroidServiceStateSnapshot) {
+        if (!snapshot.isRunning) {
+            return
+        }
+
+        applyServerState(snapshot.statsJson, snapshot.connectedClients)
+    }
+
+    private fun getStringOrFallback(@StringRes resId: Int, fallback: String): String {
+        return try {
+            getString(resId)
+        } catch (_: Exception) {
+            fallback
+        }
+    }
+
+    private fun applyServerState(statsJson: String?, connectedClients: Int): Boolean {
         synchronized(stateLock) {
+            val previousStatsJson = serverStats?.toString()
+            val statsChanged = previousStatsJson != statsJson || this.connectedClients != connectedClients
             this.connectedClients = connectedClients
 
             if (statsJson != null) {
@@ -251,10 +315,9 @@ class FtpForegroundService : Service() {
             } else {
                 serverStats = null
             }
-        }
 
-        // Update notification with new stats
-        updateNotification()
+            return statsChanged
+        }
     }
 
     /**

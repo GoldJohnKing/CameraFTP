@@ -8,9 +8,7 @@ package com.gjk.cameraftpcompanion
 
 import android.annotation.SuppressLint
 import android.app.Activity
-import android.content.Intent
 import android.content.IntentSender
-import android.os.Build
 import android.os.Bundle
 import android.util.Log
 import android.webkit.WebView
@@ -37,6 +35,18 @@ class MainActivity : TauriActivity() {
         // Rust 侧: TAURI_LISTENER_RETRY_DELAY_MS = 50L
         private const val TAURI_LISTENER_MAX_RETRIES = 50
         private const val TAURI_LISTENER_RETRY_DELAY_MS = 50L
+        private val JS_REGISTRATION_CODE = """
+            (function() {
+                if (window.__tauriEventListenerRegistered) return 'already_registered';
+                
+                if (window.__TAURI__?.event) {
+                    window.__tauriEventListenerRegistered = true;
+
+                    return 'success';
+                }
+                return 'not_ready';
+            })();
+        """.trimIndent()
 
         /**
          * Static WebView reference for cross-Activity Tauri IPC access
@@ -163,7 +173,7 @@ class MainActivity : TauriActivity() {
                 return
             }
 
-            webView.evaluateJavascript(jsRegistrationCode) { result ->
+            webView.evaluateJavascript(JS_REGISTRATION_CODE) { result ->
                 handleResult(result?.trim()?.removeSurrounding("\""))
             }
         }
@@ -183,31 +193,6 @@ class MainActivity : TauriActivity() {
             }
         }
     }
-
-    /**
-     * 用于注册Tauri事件监听器的JavaScript代码
-     */
-    private val jsRegistrationCode = """
-        (function() {
-            if (window.__tauriEventListenerRegistered) return 'already_registered';
-            
-            if (window.__TAURI__?.event) {
-                window.__tauriEventListenerRegistered = true;
-                
-                window.__TAURI__.event.listen('android-service-state-update', (event) => {
-                    const p = event.payload;
-                    window.ServerStateAndroid?.onServerStateChanged(
-                        p?.is_running || false,
-                        p?.stats ? JSON.stringify(p.stats) : null,
-                        p?.connected_clients || 0
-                    );
-                });
-                
-                return 'success';
-            }
-            return 'not_ready';
-        })();
-    """.trimIndent()
 
     override fun onDestroy() {
         Log.d(TAG, "onDestroy: cleaning up bridge references")
@@ -294,22 +279,6 @@ class MainActivity : TauriActivity() {
     }
     
     /**
-     * Start the FTP foreground service
-     */
-    private fun startFtpForegroundService() {
-        Log.d(TAG, "startFtpForegroundService: starting FTP service")
-        val serviceIntent = Intent(this, FtpForegroundService::class.java).apply {
-            action = FtpForegroundService.ACTION_START
-        }
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            startForegroundService(serviceIntent)
-        } else {
-            startService(serviceIntent)
-        }
-    }
-    
-    /**
      * Handle permission request results
      */
     override fun onRequestPermissionsResult(
@@ -318,50 +287,6 @@ class MainActivity : TauriActivity() {
         grantResults: IntArray
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        // Service is started by updateServiceState() when server actually starts
-    }
-    
-    /**
-     * Update service state (called from JS bridge)
-     * This also handles starting/stopping the foreground service based on server state
-     */
-    fun updateServiceState(isRunning: Boolean, statsJson: String?, connectedClients: Int) {
-        Log.d(TAG, "updateServiceState: isRunning=$isRunning, connectedClients=$connectedClients")
-
-        when {
-            isRunning -> startOrUpdateService(statsJson, connectedClients)
-            else -> stopServiceIfRunning()
-        }
-    }
-
-    private fun startOrUpdateService(statsJson: String?, connectedClients: Int) {
-        val service = getOrCreateService()
-        service?.updateServerState(statsJson, connectedClients)
-            ?: Log.w(TAG, "Failed to start foreground service")
-    }
-
-    private fun getOrCreateService(): FtpForegroundService? {
-        return FtpForegroundService.getInstance() ?: run {
-            startFtpForegroundService()
-            FtpForegroundService.getInstance()
-        }
-    }
-
-    private fun stopServiceIfRunning() {
-        FtpForegroundService.getInstance()?.let {
-            stopFtpForegroundService()
-        }
-    }
-    
-    /**
-     * Stop the foreground service
-     */
-    private fun stopFtpForegroundService() {
-        Log.d(TAG, "stopFtpForegroundService: stopping FTP service")
-        val intent = Intent(this, FtpForegroundService::class.java).apply {
-            action = FtpForegroundService.ACTION_STOP
-        }
-        stopService(intent)
     }
 
   /**

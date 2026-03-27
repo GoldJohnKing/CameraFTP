@@ -162,18 +162,8 @@ impl PlatformService for AndroidPlatform {
         }
     }
 
-    // Note: on_server_started/on_server_stopped use default empty implementation
-    // Notification is managed via update_server_state() which is called from frontend
-
-    fn update_server_state(&self, app: &AppHandle, connected_clients: u32) {
-        // Emit event to Android for notification update
-        let _ = app.emit(
-            "android-service-state-update",
-            serde_json::json!({
-                "connected_clients": connected_clients,
-            }),
-        );
-    }
+    // Note: on_server_started/on_server_stopped use default empty implementation.
+    // Direction 1 routes Android foreground-service updates through the frontend bridge.
 
     fn get_storage_path(&self, _app: &AppHandle) -> Result<String, String> {
         Ok(DEFAULT_STORAGE_PATH.to_string())
@@ -213,5 +203,16 @@ impl PlatformService for AndroidPlatform {
     fn open_all_files_access_settings(&self, app: &AppHandle) -> Result<(), String> {
         open_storage_permission_settings(app);
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn android_platform_no_longer_emits_service_state_update_event() {
+        let source = include_str!("android.rs");
+        let stale_event = ["android-service", "-state-update"].concat();
+
+        assert!(!source.contains(&stale_event));
     }
 }

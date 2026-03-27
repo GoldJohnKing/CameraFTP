@@ -26,6 +26,9 @@ interface ServerState {
   stopServer: () => Promise<void>;
   closePermissionDialog: () => void;
   continueAfterPermissionsGranted: () => Promise<void>;
+  setServerRunning: (serverInfo: ServerInfo, options?: { stats?: ServerStateSnapshot; immediate?: boolean }) => void;
+  setServerStopped: (options?: { immediate?: boolean }) => void;
+  setServerStats: (stats: ServerStateSnapshot) => void;
 }
 
 const defaultStats: ServerStateSnapshot = {
@@ -36,18 +39,31 @@ const defaultStats: ServerStateSnapshot = {
   lastFile: null,
 };
 
+function createRunningStats(stats?: ServerStateSnapshot): ServerStateSnapshot {
+  return {
+    ...defaultStats,
+    ...stats,
+    isRunning: true,
+    connectedClients: stats?.connectedClients ?? 0,
+    filesReceived: stats?.filesReceived ?? 0,
+    bytesReceived: stats?.bytesReceived ?? 0,
+    lastFile: stats?.lastFile ?? null,
+  };
+}
+
+function createStoppedStats(): ServerStateSnapshot {
+  return { ...defaultStats };
+}
+
 const doStartServer = async (set: (fn: (state: ServerState) => ServerState) => void, get: () => ServerState): Promise<void> => {
   await executeAsync({
     operation: () => invoke<ServerInfo>('start_server'),
-    onSuccess: (info, set) => {
-      const initialStats = { ...get().stats, isRunning: true };
-      syncAndroidServerState(true, initialStats, 0, true);
-      set((state) => ({
-        ...state,
-        isRunning: true,
-        serverInfo: info,
-        stats: initialStats
-      }));
+    onSuccess: (info) => {
+      const currentState = get();
+      get().setServerRunning(info, {
+        stats: currentState.isRunning ? currentState.stats : undefined,
+        immediate: true,
+      });
     },
     errorPrefix: 'Failed to start server',
     rethrow: true,
@@ -83,14 +99,8 @@ export const useServerStore = create<ServerState>((set, get) => ({
   stopServer: async () => {
     await executeAsync({
       operation: () => invoke('stop_server'),
-      onSuccess: (_, set) => {
-        set((state) => ({
-          ...state,
-          isRunning: false,
-          serverInfo: null,
-          stats: defaultStats
-        }));
-        syncAndroidServerState(false, null, 0);
+      onSuccess: () => {
+        get().setServerStopped();
       },
       errorPrefix: 'Failed to stop server',
       rethrow: true,
@@ -103,5 +113,38 @@ export const useServerStore = create<ServerState>((set, get) => ({
     set({ showPermissionDialog: false, pendingServerStart: false });
     // Now actually start the server
     await doStartServer(set, get);
+  },
+
+  setServerRunning: (serverInfo, options) => {
+    const stats = createRunningStats(options?.stats);
+    set((state) => ({
+      ...state,
+      isRunning: true,
+      serverInfo,
+      stats,
+    }));
+    syncAndroidServerState(true, stats, stats.connectedClients, options?.immediate ?? false);
+  },
+
+  setServerStopped: (options) => {
+    const stats = createStoppedStats();
+    set((state) => ({
+      ...state,
+      isRunning: false,
+      serverInfo: null,
+      stats,
+    }));
+    syncAndroidServerState(false, null, 0, options?.immediate ?? false);
+  },
+
+  setServerStats: (stats) => {
+    const nextStats = stats.isRunning ? createRunningStats(stats) : createStoppedStats();
+    set((state) => ({ ...state, stats: nextStats, isRunning: nextStats.isRunning }));
+    syncAndroidServerState(
+      nextStats.isRunning,
+      nextStats.isRunning ? nextStats : null,
+      nextStats.connectedClients || 0,
+      false,
+    );
   },
 }));

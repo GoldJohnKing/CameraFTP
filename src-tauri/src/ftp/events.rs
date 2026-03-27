@@ -289,8 +289,6 @@ impl EventHandler for TrayUpdateHandler {
 
                 // 仅在客户端数量变化时更新托盘图标状态
                 if client_count != last_count {
-                    crate::platform::get_platform()
-                        .update_server_state(&self.app_handle, client_count);
                     self.last_client_count.store(client_count, std::sync::atomic::Ordering::Relaxed);
                 }
             }
@@ -303,5 +301,16 @@ impl EventHandler for TrayUpdateHandler {
 
     fn interested_types(&self) -> Option<Vec<&'static str>> {
         Some(vec!["ServerStarted", "ServerStopped", "StatsUpdated"])
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn tray_update_handler_no_longer_calls_platform_update_server_state() {
+        let source = include_str!("events.rs");
+        let stale_call = ["update_server_state", "(&self.app_handle"].concat();
+
+        assert!(!source.contains(&stale_call));
     }
 }

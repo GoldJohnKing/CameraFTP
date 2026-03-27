@@ -134,6 +134,17 @@ describe('server event lifecycle service', () => {
   });
 
   it('registers listeners, syncs initial state, and applies start/stop updates', async () => {
+    useServerStore.setState((state) => ({
+      ...state,
+      stats: {
+        isRunning: false,
+        connectedClients: 3,
+        filesReceived: 9,
+        bytesReceived: 4096,
+        lastFile: '/stale.jpg',
+      },
+    }));
+
     const cleanup = await initializeServerEvents();
 
     expect(invokeMock).toHaveBeenCalledWith('get_server_info');
@@ -145,16 +156,37 @@ describe('server event lifecycle service', () => {
     await eventHandlers.get('server-started')?.({ payload: { ip: '192.168.1.8', port: 2121 } });
     expect(useServerStore.getState().isRunning).toBe(true);
     expect(useServerStore.getState().serverInfo?.url).toBe('ftp://192.168.1.8:2121');
+    expect(useServerStore.getState().stats).toEqual({
+      isRunning: true,
+      connectedClients: 0,
+      filesReceived: 0,
+      bytesReceived: 0,
+      lastFile: null,
+    });
     expect(syncAndroidServerStateMock).toHaveBeenCalledWith(
       true,
-      expect.objectContaining({ isRunning: true }),
+      {
+        isRunning: true,
+        connectedClients: 0,
+        filesReceived: 0,
+        bytesReceived: 0,
+        lastFile: null,
+      },
       0,
+      false,
     );
 
     await eventHandlers.get('server-stopped')?.({ payload: undefined });
     expect(useServerStore.getState().isRunning).toBe(false);
     expect(useServerStore.getState().serverInfo).toBeNull();
-    expect(syncAndroidServerStateMock).toHaveBeenCalledWith(false, null, 0);
+    expect(useServerStore.getState().stats).toEqual({
+      isRunning: false,
+      connectedClients: 0,
+      filesReceived: 0,
+      bytesReceived: 0,
+      lastFile: null,
+    });
+    expect(syncAndroidServerStateMock).toHaveBeenLastCalledWith(false, null, 0, false);
 
     cleanup();
   });
@@ -194,6 +226,79 @@ describe('server event lifecycle service', () => {
     );
   });
 
+  it('reconciles stopped backend state during initial sync', async () => {
+    useServerStore.setState({
+      isRunning: true,
+      serverInfo: {
+        isRunning: true,
+        ip: '192.168.1.10',
+        port: 2121,
+        url: 'ftp://192.168.1.10:2121',
+        username: 'anonymous',
+        passwordInfo: '(任意密码)',
+      },
+      stats: {
+        isRunning: true,
+        connectedClients: 2,
+        filesReceived: 5,
+        bytesReceived: 2048,
+        lastFile: '/stale.jpg',
+      },
+    });
+
+    await initializeServerEvents();
+
+    expect(useServerStore.getState().isRunning).toBe(false);
+    expect(useServerStore.getState().serverInfo).toBeNull();
+    expect(useServerStore.getState().stats).toEqual({
+      isRunning: false,
+      connectedClients: 0,
+      filesReceived: 0,
+      bytesReceived: 0,
+      lastFile: null,
+    });
+    expect(syncAndroidServerStateMock).toHaveBeenCalledWith(false, null, 0, true);
+  });
+
+  it('delegates Android sync ownership to store setters without extra event-layer calls', async () => {
+    await initializeServerEvents();
+    syncAndroidServerStateMock.mockClear();
+
+    const originalState = useServerStore.getState();
+    const setServerRunning = vi.fn();
+    const setServerStopped = vi.fn();
+    const setServerStats = vi.fn();
+
+    useServerStore.setState({
+      setServerRunning,
+      setServerStopped,
+      setServerStats,
+    });
+
+    await eventHandlers.get('server-started')?.({ payload: { ip: '192.168.1.8', port: 2121 } });
+    await eventHandlers.get('stats-update')?.({
+      payload: {
+        isRunning: true,
+        connectedClients: 1,
+        filesReceived: 1,
+        bytesReceived: 100,
+        lastFile: null,
+      },
+    });
+    await eventHandlers.get('server-stopped')?.({ payload: undefined });
+
+    expect(setServerRunning).toHaveBeenCalledTimes(1);
+    expect(setServerStats).toHaveBeenCalledTimes(1);
+    expect(setServerStopped).toHaveBeenCalledTimes(1);
+    expect(syncAndroidServerStateMock).not.toHaveBeenCalled();
+
+    useServerStore.setState({
+      setServerRunning: originalState.setServerRunning,
+      setServerStopped: originalState.setServerStopped,
+      setServerStats: originalState.setServerStats,
+    });
+  });
+
   it('handles tray start, stats refresh, and storage settings bridge events', async () => {
     await initializeServerEvents();
 
@@ -210,7 +315,20 @@ describe('server event lifecycle service', () => {
         lastFile: null,
       },
     });
-    expect(scheduleMediaLibraryRefreshMock).toHaveBeenCalled();
+    expect(useServerStore.getState().stats).toEqual({
+      isRunning: true,
+      connectedClients: 1,
+      filesReceived: 1,
+      bytesReceived: 100,
+      lastFile: null,
+    });
+    expect(syncAndroidServerStateMock).toHaveBeenLastCalledWith(true, {
+      isRunning: true,
+      connectedClients: 1,
+      filesReceived: 1,
+      bytesReceived: 100,
+      lastFile: null,
+    }, 1, false);
 
     await eventHandlers.get('android-open-manage-storage-settings')?.({ payload: undefined });
     expect(openStorageSettingsMock).toHaveBeenCalledTimes(1);
