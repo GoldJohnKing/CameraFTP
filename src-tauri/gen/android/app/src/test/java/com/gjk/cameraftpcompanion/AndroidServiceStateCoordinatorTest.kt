@@ -12,6 +12,8 @@ import android.content.Context
 import android.content.Intent
 import androidx.test.core.app.ApplicationProvider.getApplicationContext
 import androidx.test.core.app.ApplicationProvider
+import java.nio.file.Files
+import java.nio.file.Paths
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -27,6 +29,13 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [33], manifest = Config.NONE)
 class AndroidServiceStateCoordinatorTest {
+
+    @Test
+    fun legacy_server_state_bridge_source_is_removed() {
+        val sourcePath = Paths.get("src/main/java/com/gjk/cameraftpcompanion/bridges/ServerStateBridge.kt")
+
+        assertFalse(Files.exists(sourcePath))
+    }
 
     @Test
     fun update_service_state_persists_snapshot_before_service_instance_exists() {
