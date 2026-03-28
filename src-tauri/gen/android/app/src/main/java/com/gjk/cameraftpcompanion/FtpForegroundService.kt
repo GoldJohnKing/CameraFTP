@@ -13,13 +13,14 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ServiceInfo
 import android.net.wifi.WifiManager
-import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
 import android.util.Log
 import androidx.annotation.StringRes
 import androidx.core.app.NotificationCompat
+import androidx.core.app.ServiceCompat
 import org.json.JSONObject
 
 class FtpForegroundService : Service() {
@@ -81,7 +82,7 @@ class FtpForegroundService : Service() {
         // Otherwise, Android will throw ForegroundServiceDidNotStartInTimeException and crash the app
         // Service is only started when server is running, so always show running notification
         val notification = buildNotification()
-        startForeground(NOTIFICATION_ID, notification)
+        startForegroundWithType(notification)
 
         return START_STICKY
     }
@@ -94,27 +95,39 @@ class FtpForegroundService : Service() {
     }
 
     /**
-     * Create notification channel for Android O+
+     * Start foreground service with dataSync type.
+     * Required for MIUI and other OEM ROMs to recognize service type.
+     */
+    private fun startForegroundWithType(notification: Notification) {
+        ServiceCompat.startForeground(
+            this,
+            NOTIFICATION_ID,
+            notification,
+            ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+        )
+        Log.d(TAG, "startForegroundWithType: started with FOREGROUND_SERVICE_TYPE_DATA_SYNC")
+    }
+
+    /**
+     * Create notification channel for foreground service notification.
      */
     private fun createNotificationChannel() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(
-                CHANNEL_ID,
-                getStringOrFallback(R.string.ftp_service_channel_name, "FTP service"),
-                NotificationManager.IMPORTANCE_LOW
-            ).apply {
-                description = getStringOrFallback(
-                    R.string.ftp_service_channel_description,
-                    "Keeps FTP transfers running in the foreground",
-                )
-                setShowBadge(false)
-                lockscreenVisibility = Notification.VISIBILITY_PUBLIC
-            }
-
-            val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            notificationManager.createNotificationChannel(channel)
-            Log.d(TAG, "createNotificationChannel: created notification channel")
+        val channel = NotificationChannel(
+            CHANNEL_ID,
+            getStringOrFallback(R.string.ftp_service_channel_name, "FTP service"),
+            NotificationManager.IMPORTANCE_LOW
+        ).apply {
+            description = getStringOrFallback(
+                R.string.ftp_service_channel_description,
+                "Keeps FTP transfers running in the foreground",
+            )
+            setShowBadge(false)
+            lockscreenVisibility = Notification.VISIBILITY_PUBLIC
         }
+
+        val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        notificationManager.createNotificationChannel(channel)
+        Log.d(TAG, "createNotificationChannel: created notification channel")
     }
 
     /**
