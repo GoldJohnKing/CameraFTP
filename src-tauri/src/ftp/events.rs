@@ -2,32 +2,19 @@
 // Copyright (C) 2026 GoldJohnKing <GoldJohnKing@Live.cn>
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-use crate::ftp::types::{DomainEvent, ServerStateSnapshot, ServerStats};
+use crate::ftp::types::{
+    DomainEvent, ServerRuntimeSnapshot, ServerRuntimeState, ServerStateSnapshot, ServerStats,
+};
 use serde::Serialize;
-use std::collections::VecDeque;
-use std::sync::{Arc, Mutex, Weak};
-use tokio::sync::broadcast;
+use tokio::sync::{broadcast, watch};
 use tracing::{trace, warn};
 use tauri::Emitter;
-
-#[derive(Debug, Clone, Default, PartialEq)]
-struct EventBusReplayState {
-    bind_addr: Option<String>,
-    stats: Option<ServerStats>,
-    deferred_stats: Option<ServerStats>,
-    queued_events: VecDeque<DomainEvent>,
-}
-
-#[derive(Debug)]
-struct EventBusInner {
-    tx: broadcast::Sender<DomainEvent>,
-    replay_state: EventBusReplayState,
-}
 
 /// 事件总线 - 中心化的领域事件分发
 #[derive(Debug, Clone)]
 pub struct EventBus {
-    inner: Arc<Mutex<EventBusInner>>,
+    tx: broadcast::Sender<DomainEvent>,
+    runtime_state: ServerRuntimeState,
 }
 
 impl EventBus {
@@ -35,64 +22,32 @@ impl EventBus {
     pub fn new() -> Self {
         let (tx, _) = broadcast::channel(100);
         Self {
-            inner: Arc::new(Mutex::new(EventBusInner {
-                tx,
-                replay_state: EventBusReplayState::default(),
-            })),
+            tx,
+            runtime_state: ServerRuntimeState::default(),
         }
+    }
+
+    pub fn runtime_state(&self) -> ServerRuntimeState {
+        self.runtime_state.clone()
     }
 
     /// 订阅事件
     pub fn subscribe(&self) -> broadcast::Receiver<DomainEvent> {
-        self.inner
-            .lock()
-            .expect("event bus mutex poisoned")
-            .tx
-            .subscribe()
-    }
-
-    /// 发布事件
-    pub fn emit(&self, event: DomainEvent) {
-        let send_result = self
-            .inner
-            .lock()
-            .expect("event bus mutex poisoned")
-            .tx
-            .send(event);
-
-        if let Err(broadcast::error::SendError(_)) = send_result {
-            warn!("Event dropped: no active subscribers");
-        }
+        self.tx.subscribe()
     }
 
     /// 发布服务器启动事件
     pub async fn emit_server_started(&self, bind_addr: impl Into<String>) {
         let bind_addr = bind_addr.into();
-        let send_result = {
-            let mut inner = self.inner.lock().expect("event bus mutex poisoned");
-            inner.replay_state.bind_addr = Some(bind_addr.clone());
-            if inner.replay_state.stats.is_none() {
-                inner.replay_state.stats = inner.replay_state.deferred_stats.take();
-            }
-            inner.tx.send(DomainEvent::ServerStarted { bind_addr })
-        };
-
-        if let Err(broadcast::error::SendError(_)) = send_result {
-            warn!("Event dropped: no active subscribers");
-        }
+        self.runtime_state()
+            .record_server_started(bind_addr.clone())
+            .await;
+        trace!(bind_addr = %bind_addr, "Runtime state recorded for server start");
     }
 
     /// 发布服务器停止事件
     pub async fn emit_server_stopped(&self) {
-        let send_result = {
-            let mut inner = self.inner.lock().expect("event bus mutex poisoned");
-            inner.replay_state = EventBusReplayState::default();
-            inner.tx.send(DomainEvent::ServerStopped)
-        };
-
-        if let Err(broadcast::error::SendError(_)) = send_result {
-            warn!("Event dropped: no active subscribers");
-        }
+        self.runtime_state().record_server_stopped().await;
     }
 
     /// 发布文件上传事件
@@ -113,45 +68,13 @@ impl EventBus {
         self.emit_non_state_event(event);
     }
 
-    /// 发布统计更新（带增量检查）
+    /// 发布统计更新
     pub async fn emit_stats_updated(&self, stats: ServerStats) {
-        let send_result = {
-            let mut inner = self.inner.lock().expect("event bus mutex poisoned");
-            if inner.replay_state.bind_addr.is_none() {
-                if inner.tx.receiver_count() == 0 {
-                    inner.replay_state.deferred_stats = Some(stats);
-                }
-                return;
-            }
-
-            match inner.replay_state.stats.as_ref() {
-                None => {
-                    inner.replay_state.stats = Some(stats.clone());
-                    Some(inner.tx.send(DomainEvent::StatsUpdated(stats)))
-                }
-                Some(last_stats) if last_stats.has_changed(&stats) => {
-                    inner.replay_state.stats = Some(stats.clone());
-                    Some(inner.tx.send(DomainEvent::StatsUpdated(stats)))
-                }
-                Some(_) => None,
-            }
-        };
-
-        if let Some(Err(broadcast::error::SendError(_))) = send_result {
-            warn!("Event dropped: no active subscribers");
-        } else if send_result.is_some() {
-            trace!("Stats updated event emitted");
-        } else {
-            trace!("Stats unchanged, skipping event");
-        }
+        self.runtime_state().record_stats(stats).await;
     }
 
     fn emit_non_state_event(&self, event: DomainEvent) {
-        let mut inner = self.inner.lock().expect("event bus mutex poisoned");
-        if inner.tx.receiver_count() == 0 {
-            inner.replay_state.queued_events.push_back(event.clone());
-        }
-        if let Err(broadcast::error::SendError(_)) = inner.tx.send(event) {
+        if let Err(broadcast::error::SendError(_)) = self.tx.send(event) {
             warn!("Event dropped: no active subscribers");
         }
     }
@@ -176,27 +99,39 @@ pub trait EventHandler: Send + Sync {
     }
 }
 
+#[async_trait::async_trait]
+pub trait RuntimeStateHandler: Send + Sync {
+    async fn handle_runtime_state(&mut self, snapshot: &ServerRuntimeSnapshot);
+}
+
 /// 事件处理器管理器
 pub struct EventProcessor {
-    bus_inner: Weak<Mutex<EventBusInner>>,
-    caught_up: bool,
-    pending_events: VecDeque<DomainEvent>,
     rx: broadcast::Receiver<DomainEvent>,
-    handlers: Vec<Box<dyn EventHandler>>,
+    state_rx: watch::Receiver<ServerRuntimeSnapshot>,
+    runtime_state_handlers: Vec<Box<dyn RuntimeStateHandler>>,
+    event_handlers: Vec<Box<dyn EventHandler>>,
 }
 
 impl EventProcessor {
     /// 创建事件处理器
     pub fn new(bus: &EventBus) -> Self {
         let rx = bus.subscribe();
+        let state_rx = bus.runtime_state().subscribe();
 
         Self {
-            bus_inner: Arc::downgrade(&bus.inner),
-            caught_up: false,
-            pending_events: VecDeque::new(),
             rx,
-            handlers: Vec::new(),
+            state_rx,
+            runtime_state_handlers: Vec::new(),
+            event_handlers: Vec::new(),
         }
+    }
+
+    pub fn register_runtime_state_handler<H: RuntimeStateHandler + 'static>(
+        mut self,
+        handler: H,
+    ) -> Self {
+        self.runtime_state_handlers.push(Box::new(handler));
+        self
     }
 
     /// 注册处理器
@@ -204,143 +139,62 @@ impl EventProcessor {
         mut self,
         handler: H,
     ) -> Self {
-        self.handlers.push(Box::new(handler));
+        self.event_handlers.push(Box::new(handler));
         self
-    }
-
-    pub async fn catch_up(&mut self) {
-        if self.caught_up {
-            return;
-        }
-        let Some(bus_inner) = self.bus_inner.upgrade() else {
-            self.caught_up = true;
-            return;
-        };
-        let mut replay_state = {
-            let mut inner = bus_inner.lock().expect("event bus mutex poisoned");
-            let replay_state = inner.replay_state.clone();
-            inner.replay_state.queued_events.clear();
-            replay_state
-        };
-        let replayed_non_state_events = replay_state.queued_events.clone();
-
-        while let Ok(event) = self.rx.try_recv() {
-            apply_replay_event(&mut replay_state, &event);
-            self.pending_events.push_back(event);
-        }
-
-        self.replay_state_to_handlers(replay_state).await;
-        self.flush_pending_events_after_catch_up(replayed_non_state_events)
-            .await;
-        self.caught_up = true;
     }
 
     /// 运行处理器循环
     pub async fn run(mut self) {
-        if !self.caught_up {
-            self.catch_up().await;
-        }
+        self.emit_current_runtime_state().await;
         self.run_loop().await;
     }
 
     async fn run_loop(&mut self) {
         loop {
-            match self.rx.recv().await {
-                Ok(event) => {
-                    self.dispatch_event(&event).await;
+            tokio::select! {
+                state_changed = self.state_rx.changed() => {
+                    match state_changed {
+                        Ok(()) => {
+                            let snapshot = self.state_rx.borrow_and_update().clone();
+                            self.replay_state_to_handlers(&snapshot).await;
+                        }
+                        Err(_) => break,
+                    }
                 }
-                Err(broadcast::error::RecvError::Lagged(n)) => {
-                    warn!(dropped = n, "Event processor lagged, some events dropped");
-                }
-                Err(broadcast::error::RecvError::Closed) => {
-                    break;
-                }
-            }
-        }
-    }
-
-    async fn replay_state_to_handlers(&mut self, replay_state: EventBusReplayState) {
-        if let Some(bind_addr) = replay_state.bind_addr {
-            let event = DomainEvent::ServerStarted { bind_addr };
-            for handler in self.handlers.iter_mut() {
-                if should_handle(handler.as_ref(), &event) {
-                    handler.handle(&event).await;
-                }
-            }
-        }
-
-        if let Some(stats) = replay_state.stats {
-            let event = DomainEvent::StatsUpdated(stats);
-            for handler in self.handlers.iter_mut() {
-                if should_handle(handler.as_ref(), &event) {
-                    handler.handle(&event).await;
+                event_result = self.rx.recv() => {
+                    match event_result {
+                        Ok(event) => {
+                            self.dispatch_event(&event).await;
+                        }
+                        Err(broadcast::error::RecvError::Lagged(n)) => {
+                            warn!(dropped = n, "Event processor lagged, some events dropped");
+                        }
+                        Err(broadcast::error::RecvError::Closed) => {
+                            break;
+                        }
+                    }
                 }
             }
         }
     }
 
-    async fn flush_pending_events_after_catch_up(
-        &mut self,
-        mut replayed_non_state_events: VecDeque<DomainEvent>,
-    ) {
-        while let Some(event) = replayed_non_state_events.pop_front() {
-            self.dispatch_event(&event).await;
+    async fn replay_state_to_handlers(&mut self, runtime_state: &ServerRuntimeSnapshot) {
+        for handler in self.runtime_state_handlers.iter_mut() {
+            handler.handle_runtime_state(runtime_state).await;
         }
+    }
 
-        let should_emit_server_stopped = self
-            .pending_events
-            .iter()
-            .rev()
-            .find_map(|event| match event {
-                DomainEvent::ServerStopped => Some(true),
-                DomainEvent::ServerStarted { .. } => Some(false),
-                _ => None,
-            })
-            .unwrap_or(false);
-
-        while let Some(event) = self.pending_events.pop_front() {
-            match event {
-                DomainEvent::FileUploaded { .. } | DomainEvent::FileIndexChanged { .. } => {
-                    self.dispatch_event(&event).await;
-                }
-                DomainEvent::ServerStopped if should_emit_server_stopped => {
-                    self.dispatch_event(&event).await;
-                }
-                DomainEvent::ServerStarted { .. }
-                | DomainEvent::ServerStopped
-                | DomainEvent::StatsUpdated { .. } => {}
-            }
-        }
+    async fn emit_current_runtime_state(&mut self) {
+        let snapshot = self.state_rx.borrow_and_update().clone();
+        self.replay_state_to_handlers(&snapshot).await;
     }
 
     async fn dispatch_event(&mut self, event: &DomainEvent) {
-        for handler in self.handlers.iter_mut() {
+        for handler in self.event_handlers.iter_mut() {
             if should_handle(handler.as_ref(), event) {
                 handler.handle(event).await;
             }
         }
-    }
-}
-
-fn apply_replay_event(replay_state: &mut EventBusReplayState, event: &DomainEvent) {
-    match event {
-        DomainEvent::ServerStarted { bind_addr } => {
-            replay_state.bind_addr = Some(bind_addr.clone());
-            if replay_state.stats.is_none() {
-                replay_state.stats = replay_state.deferred_stats.take();
-            }
-        }
-        DomainEvent::ServerStopped => {
-            *replay_state = EventBusReplayState::default();
-        }
-        DomainEvent::StatsUpdated(stats) => {
-            if replay_state.bind_addr.is_some() {
-                replay_state.stats = Some(stats.clone());
-            } else {
-                replay_state.deferred_stats = Some(stats.clone());
-            }
-        }
-        DomainEvent::FileUploaded { .. } | DomainEvent::FileIndexChanged { .. } => {}
     }
 }
 
@@ -355,23 +209,23 @@ fn should_handle(handler: &dyn EventHandler, event: &DomainEvent) -> bool {
 /// 获取事件类型名称
 fn event_type_name(event: &DomainEvent) -> &'static str {
     match event {
-        DomainEvent::ServerStarted { .. } => "ServerStarted",
-        DomainEvent::ServerStopped { .. } => "ServerStopped",
         DomainEvent::FileUploaded { .. } => "FileUploaded",
-        DomainEvent::StatsUpdated { .. } => "StatsUpdated",
         DomainEvent::FileIndexChanged { .. } => "FileIndexChanged",
     }
 }
 
-/// 统计事件处理器 - 将事件转换为前端推送
-/// 注意：EventBus.emit_stats_updated() 已做增量检查，这里直接推送即可
+/// 统计事件处理器 - 将运行时状态转换为前端推送
 pub struct StatsEventHandler {
     app_handle: tauri::AppHandle,
+    last_state: Option<RuntimeStateView>,
 }
 
 impl StatsEventHandler {
     pub fn new(app_handle: tauri::AppHandle) -> Self {
-        Self { app_handle }
+        Self {
+            app_handle,
+            last_state: None,
+        }
     }
 
     /// 向前端发送事件，失败时记录警告日志
@@ -395,6 +249,12 @@ trait ServerEventFanout {
     fn sync_android_service_state(&mut self, snapshot: &ServerStateSnapshot);
 }
 
+#[derive(Debug, Clone, PartialEq)]
+struct RuntimeStateView {
+    bind_addr: Option<String>,
+    snapshot: ServerStateSnapshot,
+}
+
 impl ServerEventFanout for StatsEventHandler {
     fn emit_frontend_json(&mut self, event_name: &str, payload: serde_json::Value) {
         StatsEventHandler::emit_frontend_json(self, event_name, payload);
@@ -405,18 +265,21 @@ impl ServerEventFanout for StatsEventHandler {
     }
 }
 
-fn fan_out_server_event(target: &mut dyn ServerEventFanout, event: &DomainEvent) {
-    match event {
-        DomainEvent::StatsUpdated(stats) => {
-            let snapshot = ServerStateSnapshot::from(stats);
-            target.emit_frontend_json(
-                "stats-update",
-                serde_json::to_value(snapshot.clone())
-                    .expect("server snapshot should serialize for frontend events"),
-            );
-            target.sync_android_service_state(&snapshot);
-        }
-        DomainEvent::ServerStarted { bind_addr } => {
+fn fan_out_runtime_state(
+    target: &mut dyn ServerEventFanout,
+    previous_state: Option<&RuntimeStateView>,
+    runtime_state: &ServerRuntimeSnapshot,
+) {
+    let snapshot = runtime_state_to_snapshot(runtime_state);
+    let current_state = RuntimeStateView {
+        bind_addr: runtime_state.bind_addr.clone(),
+        snapshot: snapshot.clone(),
+    };
+
+    if current_state.snapshot.is_running
+        && previous_state.is_none_or(|previous| !previous.snapshot.is_running)
+    {
+        if let Some(bind_addr) = current_state.bind_addr.as_deref() {
             let (ip, port) = parse_bind_addr(bind_addr);
             target.emit_frontend_json(
                 "server-started",
@@ -425,47 +288,89 @@ fn fan_out_server_event(target: &mut dyn ServerEventFanout, event: &DomainEvent)
                     "port": port
                 }),
             );
-            target.sync_android_service_state(&ServerStateSnapshot {
-                is_running: true,
-                ..ServerStateSnapshot::default()
-            });
         }
-        DomainEvent::ServerStopped => {
-            target.emit_frontend_json("server-stopped", serde_json::Value::Null);
-            target.sync_android_service_state(&ServerStateSnapshot::default());
-        }
-        DomainEvent::FileUploaded { path, size } => {
+    }
+
+    if current_state.snapshot.is_running {
+        let should_emit_stats = previous_state
+            .is_none_or(|previous| previous.snapshot != current_state.snapshot);
+        if should_emit_stats {
             target.emit_frontend_json(
-                "file-uploaded",
-                serde_json::json!({ "path": path, "size": size }),
+                "stats-update",
+                serde_json::to_value(snapshot.clone())
+                    .expect("server snapshot should serialize for frontend events"),
             );
         }
-        DomainEvent::FileIndexChanged { count, latest_filename } => {
-            target.emit_frontend_json(
-                "file-index-changed",
-                serde_json::json!({
-                    "count": count,
-                    "latestFilename": latest_filename
-                }),
-            );
-        }
+    } else if previous_state.is_some_and(|previous| previous.snapshot.is_running) {
+        target.emit_frontend_json("server-stopped", serde_json::Value::Null);
+    }
+
+    if previous_state.is_none_or(|previous| previous.snapshot != current_state.snapshot) {
+        target.sync_android_service_state(&snapshot);
+    }
+}
+
+fn runtime_state_to_snapshot(runtime_state: &ServerRuntimeSnapshot) -> ServerStateSnapshot {
+    let stats = runtime_state.stats.as_ref();
+    ServerStateSnapshot {
+        is_running: runtime_state.is_running,
+        connected_clients: stats.map_or(0, |stats| stats.active_connections as usize),
+        files_received: stats.map_or(0, |stats| stats.total_uploads),
+        bytes_received: stats.map_or(0, |stats| stats.total_bytes_received),
+        last_file: stats.and_then(|stats| stats.last_uploaded_file.clone()),
     }
 }
 
 #[async_trait::async_trait]
-impl EventHandler for StatsEventHandler {
+impl RuntimeStateHandler for StatsEventHandler {
+    async fn handle_runtime_state(&mut self, runtime_state: &ServerRuntimeSnapshot) {
+        let previous_state = self.last_state.clone();
+        fan_out_runtime_state(self, previous_state.as_ref(), runtime_state);
+        self.last_state = Some(RuntimeStateView {
+            bind_addr: runtime_state.bind_addr.clone(),
+            snapshot: runtime_state_to_snapshot(runtime_state),
+        });
+    }
+}
+
+pub struct FrontendTransientEventHandler {
+    app_handle: tauri::AppHandle,
+}
+
+impl FrontendTransientEventHandler {
+    pub fn new(app_handle: tauri::AppHandle) -> Self {
+        Self { app_handle }
+    }
+}
+
+#[async_trait::async_trait]
+impl EventHandler for FrontendTransientEventHandler {
     async fn handle(&mut self, event: &DomainEvent) {
-        fan_out_server_event(self, event);
+        match event {
+            DomainEvent::FileUploaded { path, size } => {
+                if let Err(e) = self.app_handle.emit(
+                    "file-uploaded",
+                    serde_json::json!({ "path": path, "size": size }),
+                ) {
+                    warn!(event = "file-uploaded", error = %e, "Failed to emit frontend event");
+                }
+            }
+            DomainEvent::FileIndexChanged { count, latest_filename } => {
+                if let Err(e) = self.app_handle.emit(
+                    "file-index-changed",
+                    serde_json::json!({
+                        "count": count,
+                        "latestFilename": latest_filename
+                    }),
+                ) {
+                    warn!(event = "file-index-changed", error = %e, "Failed to emit frontend event");
+                }
+            }
+        }
     }
 
     fn interested_types(&self) -> Option<Vec<&'static str>> {
-        Some(vec![
-            "StatsUpdated",
-            "ServerStarted",
-            "ServerStopped",
-            "FileUploaded",
-            "FileIndexChanged",
-        ])
+        Some(vec!["FileUploaded", "FileIndexChanged"])
     }
 }
 
@@ -485,63 +390,58 @@ fn parse_bind_addr(bind_addr: &str) -> (String, u16) {
 /// 替代原有的轮询机制，使用事件驱动更新
 pub struct TrayUpdateHandler {
     app_handle: tauri::AppHandle,
-    last_client_count: std::sync::atomic::AtomicU32,
+    last_state: Option<ServerStateSnapshot>,
 }
 
 impl TrayUpdateHandler {
     pub fn new(app_handle: tauri::AppHandle) -> Self {
         Self {
             app_handle,
-            last_client_count: std::sync::atomic::AtomicU32::new(0),
+            last_state: None,
         }
     }
 }
 
 #[async_trait::async_trait]
-impl EventHandler for TrayUpdateHandler {
-    async fn handle(&mut self, event: &DomainEvent) {
-        match event {
-            DomainEvent::ServerStarted { .. } => {
-                // 服务器启动时更新托盘为运行状态
-                crate::platform::get_platform().on_server_started(&self.app_handle);
-            }
-            DomainEvent::ServerStopped => {
-                // 服务器停止时更新托盘为停止状态
-                crate::platform::get_platform().on_server_stopped(&self.app_handle);
-                self.last_client_count.store(0, std::sync::atomic::Ordering::Relaxed);
-            }
-            DomainEvent::StatsUpdated(stats) => {
-                let client_count = stats.active_connections as u32;
-                let last_count = self.last_client_count.load(std::sync::atomic::Ordering::Relaxed);
+impl RuntimeStateHandler for TrayUpdateHandler {
+    async fn handle_runtime_state(&mut self, runtime_state: &ServerRuntimeSnapshot) {
+        let snapshot = runtime_state_to_snapshot(runtime_state);
+        let previous_state = self.last_state.clone();
 
-                // 仅在客户端数量变化时更新托盘图标状态
-                if client_count != last_count {
-                    crate::platform::get_platform()
-                        .update_server_state(&self.app_handle, client_count);
-                    self.last_client_count.store(client_count, std::sync::atomic::Ordering::Relaxed);
-                }
-            }
-            // 文件索引变化事件不需要处理托盘状态
-            DomainEvent::FileIndexChanged { .. } => {}
-            // 文件上传事件不需要处理托盘状态
-            DomainEvent::FileUploaded { .. } => {}
+        if snapshot.is_running && previous_state.as_ref().is_none_or(|previous| !previous.is_running) {
+            crate::platform::get_platform().on_server_started(&self.app_handle);
         }
-    }
 
-    fn interested_types(&self) -> Option<Vec<&'static str>> {
-        Some(vec!["ServerStarted", "ServerStopped", "StatsUpdated"])
+        if !snapshot.is_running && previous_state.as_ref().is_some_and(|previous| previous.is_running) {
+            crate::platform::get_platform().on_server_stopped(&self.app_handle);
+        } else if snapshot.is_running
+            && previous_state.as_ref().is_none_or(|previous| {
+                !previous.is_running || previous.connected_clients != snapshot.connected_clients
+            })
+        {
+            crate::platform::get_platform()
+                .update_server_state(&self.app_handle, snapshot.connected_clients as u32);
+        }
+
+        self.last_state = Some(snapshot);
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ftp::types::ServerStats;
     use std::sync::Arc;
     use tokio::sync::Mutex;
 
     #[derive(Clone, Default)]
     struct RecordingHandler {
         events: Arc<Mutex<Vec<DomainEvent>>>,
+    }
+
+    #[derive(Clone, Default)]
+    struct RecordingRuntimeStateHandler {
+        snapshots: Arc<Mutex<Vec<ServerRuntimeSnapshot>>>,
     }
 
     #[derive(Default)]
@@ -568,12 +468,16 @@ mod tests {
 
         fn interested_types(&self) -> Option<Vec<&'static str>> {
             Some(vec![
-                "ServerStarted",
-                "ServerStopped",
-                "StatsUpdated",
                 "FileUploaded",
                 "FileIndexChanged",
             ])
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl RuntimeStateHandler for RecordingRuntimeStateHandler {
+        async fn handle_runtime_state(&mut self, snapshot: &ServerRuntimeSnapshot) {
+            self.snapshots.lock().await.push(snapshot.clone());
         }
     }
 
@@ -581,12 +485,13 @@ mod tests {
     fn tray_update_handler_calls_platform_update_server_state_for_active_clients() {
         let source = include_str!("events.rs");
 
-        assert!(source.contains("update_server_state(&self.app_handle, client_count);"));
+        assert!(source.contains("update_server_state(&self.app_handle, snapshot.connected_clients as u32);"));
     }
 
     #[tokio::test]
-    async fn late_event_processor_replays_running_state_to_handlers() {
+    async fn state_event_emitters_maintain_runtime_state_for_consumers() {
         let bus = EventBus::new();
+
         bus.emit_server_started("127.0.0.1:2121").await;
         bus.emit_stats_updated(ServerStats {
             active_connections: 2,
@@ -596,9 +501,39 @@ mod tests {
         })
         .await;
 
-        let handler = RecordingHandler::default();
-        let events = handler.events.clone();
-        let processor = EventProcessor::new(&bus).register(handler);
+        assert_eq!(
+            bus.runtime_state().current_runtime_snapshot().await,
+            ServerRuntimeSnapshot {
+                bind_addr: Some("127.0.0.1:2121".to_string()),
+                is_running: true,
+                stats: Some(ServerStats {
+                    active_connections: 2,
+                    total_uploads: 4,
+                    total_bytes_received: 1024,
+                    last_uploaded_file: Some("latest.jpg".to_string()),
+                }),
+            }
+        );
+    }
+
+    #[tokio::test]
+    async fn late_event_processor_replays_running_state_to_handlers() {
+        let bus = EventBus::new();
+        let runtime_state = bus.runtime_state();
+        runtime_state
+            .record_server_started("127.0.0.1:2121".to_string())
+            .await;
+        runtime_state.record_stats(ServerStats {
+            active_connections: 2,
+            total_uploads: 4,
+            total_bytes_received: 1024,
+            last_uploaded_file: Some("latest.jpg".to_string()),
+        })
+        .await;
+
+        let handler = RecordingRuntimeStateHandler::default();
+        let snapshots = handler.snapshots.clone();
+        let processor = EventProcessor::new(&bus).register_runtime_state_handler(handler);
 
         let run_handle = tokio::spawn(async move {
             processor.run().await;
@@ -608,19 +543,20 @@ mod tests {
         drop(bus);
         run_handle.await.expect("event processor should exit cleanly");
 
-        let recorded = events.lock().await.clone();
+        let recorded = snapshots.lock().await.clone();
         assert_eq!(
             recorded,
             vec![
-                DomainEvent::ServerStarted {
-                    bind_addr: "127.0.0.1:2121".to_string(),
+                ServerRuntimeSnapshot {
+                    bind_addr: Some("127.0.0.1:2121".to_string()),
+                    is_running: true,
+                    stats: Some(ServerStats {
+                        active_connections: 2,
+                        total_uploads: 4,
+                        total_bytes_received: 1024,
+                        last_uploaded_file: Some("latest.jpg".to_string()),
+                    }),
                 },
-                DomainEvent::StatsUpdated(ServerStats {
-                    active_connections: 2,
-                    total_uploads: 4,
-                    total_bytes_received: 1024,
-                    last_uploaded_file: Some("latest.jpg".to_string()),
-                }),
             ]
         );
     }
@@ -631,9 +567,9 @@ mod tests {
         bus.emit_server_started("127.0.0.1:2121").await;
         bus.emit_server_stopped().await;
 
-        let handler = RecordingHandler::default();
-        let events = handler.events.clone();
-        let processor = EventProcessor::new(&bus).register(handler);
+        let handler = RecordingRuntimeStateHandler::default();
+        let snapshots = handler.snapshots.clone();
+        let processor = EventProcessor::new(&bus).register_runtime_state_handler(handler);
 
         let run_handle = tokio::spawn(async move {
             processor.run().await;
@@ -643,14 +579,17 @@ mod tests {
         drop(bus);
         run_handle.await.expect("event processor should exit cleanly");
 
-        assert!(events.lock().await.is_empty());
+        assert_eq!(snapshots.lock().await.as_slice(), &[ServerRuntimeSnapshot::default()]);
     }
 
     #[tokio::test]
     async fn stop_before_run_prevents_stale_replay() {
         let bus = EventBus::new();
-        bus.emit_server_started("127.0.0.1:2121").await;
-        bus.emit_stats_updated(ServerStats {
+        let runtime_state = bus.runtime_state();
+        runtime_state
+            .record_server_started("127.0.0.1:2121".to_string())
+            .await;
+        runtime_state.record_stats(ServerStats {
             active_connections: 2,
             total_uploads: 1,
             total_bytes_received: 32,
@@ -658,11 +597,11 @@ mod tests {
         })
         .await;
 
-        let handler = RecordingHandler::default();
-        let events = handler.events.clone();
-        let processor = EventProcessor::new(&bus).register(handler);
+        let handler = RecordingRuntimeStateHandler::default();
+        let snapshots = handler.snapshots.clone();
+        let processor = EventProcessor::new(&bus).register_runtime_state_handler(handler);
 
-        bus.emit_server_stopped().await;
+        runtime_state.record_server_stopped().await;
 
         let run_handle = tokio::spawn(async move {
             processor.run().await;
@@ -672,15 +611,15 @@ mod tests {
         drop(bus);
         run_handle.await.expect("event processor should exit cleanly");
 
-        assert!(events.lock().await.is_empty());
+        assert_eq!(snapshots.lock().await.as_slice(), &[ServerRuntimeSnapshot::default()]);
     }
 
     #[tokio::test]
     async fn queued_start_then_stop_before_run_does_not_replay_stale_state() {
         let bus = EventBus::new();
-        let handler = RecordingHandler::default();
-        let events = handler.events.clone();
-        let processor = EventProcessor::new(&bus).register(handler);
+        let handler = RecordingRuntimeStateHandler::default();
+        let snapshots = handler.snapshots.clone();
+        let processor = EventProcessor::new(&bus).register_runtime_state_handler(handler);
 
         bus.emit_server_started("127.0.0.1:2121").await;
         bus.emit_stats_updated(ServerStats {
@@ -700,23 +639,24 @@ mod tests {
         drop(bus);
         run_handle.await.expect("event processor should exit cleanly");
 
-        assert_eq!(events.lock().await.as_slice(), &[DomainEvent::ServerStopped]);
+        assert_eq!(snapshots.lock().await.as_slice(), &[ServerRuntimeSnapshot::default()]);
     }
 
     #[tokio::test]
-    async fn catch_up_preserves_queued_non_state_events() {
+    async fn transient_processor_receives_post_subscription_non_state_events() {
         let bus = EventBus::new();
         let handler = RecordingHandler::default();
         let events = handler.events.clone();
         let processor = EventProcessor::new(&bus).register(handler);
 
-        bus.emit_server_started("127.0.0.1:2121").await;
-        bus.emit_file_uploaded("queued.jpg", 42);
-        bus.emit_file_index_changed(3, Some("queued.jpg".to_string()));
-
         let run_handle = tokio::spawn(async move {
             processor.run().await;
         });
+
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        bus.emit_server_started("127.0.0.1:2121").await;
+        bus.emit_file_uploaded("queued.jpg", 42);
+        bus.emit_file_index_changed(3, Some("queued.jpg".to_string()));
 
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         drop(bus);
@@ -725,9 +665,6 @@ mod tests {
         assert_eq!(
             events.lock().await.as_slice(),
             &[
-                DomainEvent::ServerStarted {
-                    bind_addr: "127.0.0.1:2121".to_string(),
-                },
                 DomainEvent::FileUploaded {
                     path: "queued.jpg".to_string(),
                     size: 42,
@@ -741,7 +678,103 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn non_state_events_emitted_before_processor_creation_are_replayed() {
+    async fn late_state_subscriber_reads_current_snapshot_without_event_replay() {
+        let runtime_state = crate::ftp::types::ServerRuntimeState::default();
+        runtime_state.update_running_snapshot(ServerStateSnapshot {
+            is_running: true,
+            connected_clients: 2,
+            files_received: 7,
+            bytes_received: 2048,
+            last_file: None,
+        }).await;
+
+        let snapshot = runtime_state.current_snapshot().await;
+
+        assert!(snapshot.is_running);
+        assert_eq!(snapshot.connected_clients, 2);
+    }
+
+    #[tokio::test]
+    async fn transient_subscriber_does_not_receive_pre_subscription_file_events() {
+        let transient_bus = crate::ftp::types::TransientEventBus::new();
+        transient_bus.emit(DomainEvent::FileUploaded {
+            path: "/before.jpg".into(),
+            size: 512,
+        });
+
+        let mut rx = transient_bus.subscribe();
+
+        assert!(matches!(
+            rx.try_recv(),
+            Err(broadcast::error::TryRecvError::Empty)
+        ));
+    }
+
+    #[tokio::test]
+    async fn runtime_state_remains_coherent_across_start_stats_stop() {
+        let runtime_state = crate::ftp::types::ServerRuntimeState::default();
+
+        runtime_state
+            .record_server_started("192.168.1.8:2121".into())
+            .await;
+        runtime_state
+            .record_stats(ServerStats::default().with_connected_clients(3))
+            .await;
+        runtime_state.record_server_stopped().await;
+
+        let snapshot = runtime_state.current_snapshot().await;
+        assert!(!snapshot.is_running);
+        assert_eq!(snapshot.connected_clients, 0);
+    }
+
+    #[tokio::test]
+    async fn event_emission_does_not_own_runtime_state() {
+        let bus = EventBus::new();
+
+        bus.emit_server_started("192.168.1.8:2121").await;
+        bus.emit_stats_updated(ServerStats::default().with_connected_clients(3))
+            .await;
+
+        let snapshot = bus.runtime_state().current_snapshot().await;
+
+        assert!(snapshot.is_running);
+        assert_eq!(snapshot.connected_clients, 3);
+    }
+
+    #[tokio::test]
+    async fn transient_event_bus_and_event_processor_drop_pre_subscription_events() {
+        let bus = EventBus::new();
+        bus.emit_file_uploaded("before-processor.jpg", 7);
+
+        let transient_bus = crate::ftp::types::TransientEventBus::new();
+        transient_bus.emit(DomainEvent::FileUploaded {
+            path: "/before.jpg".into(),
+            size: 512,
+        });
+        let mut transient_rx = transient_bus.subscribe();
+
+        let handler = RecordingHandler::default();
+        let events = handler.events.clone();
+        let processor = EventProcessor::new(&bus).register(handler);
+
+        let run_handle = tokio::spawn(async move {
+            processor.run().await;
+        });
+
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        drop(bus);
+        run_handle.await.expect("event processor should exit cleanly");
+
+        assert!(matches!(
+            transient_rx.try_recv(),
+            Err(broadcast::error::TryRecvError::Empty)
+        ));
+
+        assert_eq!(events.lock().await.as_slice(), &[]);
+    }
+
+    #[tokio::test]
+    async fn non_state_events_emitted_before_processor_creation_are_not_replayed() {
         let bus = EventBus::new();
         bus.emit_file_uploaded("early-upload.jpg", 7);
         bus.emit_file_index_changed(1, Some("early-upload.jpg".to_string()));
@@ -758,28 +791,17 @@ mod tests {
         drop(bus);
         run_handle.await.expect("event processor should exit cleanly");
 
-        assert_eq!(
-            events.lock().await.as_slice(),
-            &[
-                DomainEvent::FileUploaded {
-                    path: "early-upload.jpg".to_string(),
-                    size: 7,
-                },
-                DomainEvent::FileIndexChanged {
-                    count: 1,
-                    latest_filename: Some("early-upload.jpg".to_string()),
-                },
-            ]
-        );
+        assert_eq!(events.lock().await.as_slice(), &[]);
     }
 
     #[tokio::test]
-    async fn stats_updated_before_server_started_is_replayed_after_startup_handoff() {
+    async fn runtime_state_replays_started_server_with_latest_stats() {
         let bus = EventBus::new();
-        let handler = RecordingHandler::default();
-        let events = handler.events.clone();
-        let processor = EventProcessor::new(&bus).register(handler);
+        let handler = RecordingRuntimeStateHandler::default();
+        let snapshots = handler.snapshots.clone();
+        let processor = EventProcessor::new(&bus).register_runtime_state_handler(handler);
 
+        bus.emit_server_started("127.0.0.1:2121").await;
         bus.emit_stats_updated(ServerStats {
             active_connections: 2,
             total_uploads: 5,
@@ -787,7 +809,43 @@ mod tests {
             last_uploaded_file: Some("handoff.jpg".to_string()),
         })
         .await;
-        bus.emit_server_started("127.0.0.1:2121").await;
+
+        let run_handle = tokio::spawn(async move {
+            processor.run().await;
+        });
+
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        drop(bus);
+        run_handle.await.expect("event processor should exit cleanly");
+
+        assert_eq!(snapshots.lock().await.as_slice(), &[ServerRuntimeSnapshot {
+            bind_addr: Some("127.0.0.1:2121".to_string()),
+            is_running: true,
+            stats: Some(ServerStats {
+                active_connections: 2,
+                total_uploads: 5,
+                total_bytes_received: 512,
+                last_uploaded_file: Some("handoff.jpg".to_string()),
+            }),
+        }]);
+    }
+
+    #[tokio::test]
+    async fn stopped_runtime_snapshot_with_stats_does_not_replay_stats_to_late_consumers() {
+        let bus = EventBus::new();
+        bus.runtime_state()
+            .update_running_snapshot(ServerStateSnapshot {
+                is_running: false,
+                connected_clients: 0,
+                files_received: 3,
+                bytes_received: 256,
+                last_file: Some("stopped.jpg".to_string()),
+            })
+            .await;
+
+        let handler = RecordingRuntimeStateHandler::default();
+        let snapshots = handler.snapshots.clone();
+        let processor = EventProcessor::new(&bus).register_runtime_state_handler(handler);
 
         let run_handle = tokio::spawn(async move {
             processor.run().await;
@@ -798,46 +856,68 @@ mod tests {
         run_handle.await.expect("event processor should exit cleanly");
 
         assert_eq!(
-            events.lock().await.as_slice(),
-            &[
-                DomainEvent::ServerStarted {
-                    bind_addr: "127.0.0.1:2121".to_string(),
-                },
-                DomainEvent::StatsUpdated(ServerStats {
-                    active_connections: 2,
-                    total_uploads: 5,
-                    total_bytes_received: 512,
-                    last_uploaded_file: Some("handoff.jpg".to_string()),
-                }),
-            ]
+            snapshots.lock().await.as_slice(),
+            &[ServerRuntimeSnapshot {
+                bind_addr: None,
+                is_running: false,
+                stats: None,
+            }]
         );
     }
 
     #[tokio::test]
-    async fn server_stop_clears_replayed_stats_state() {
+    async fn runtime_state_handlers_update_without_state_domain_event_delivery() {
         let bus = EventBus::new();
+        let runtime_handler = RecordingRuntimeStateHandler::default();
+        let snapshots = runtime_handler.snapshots.clone();
+        let transient_handler = RecordingHandler::default();
+        let events = transient_handler.events.clone();
+        let processor = EventProcessor::new(&bus)
+            .register_runtime_state_handler(runtime_handler)
+            .register(transient_handler);
+
+        let run_handle = tokio::spawn(async move {
+            processor.run().await;
+        });
+
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         bus.emit_server_started("127.0.0.1:2121").await;
-        bus.emit_stats_updated(ServerStats {
-            active_connections: 1,
-            total_uploads: 2,
-            total_bytes_received: 128,
-            last_uploaded_file: Some("stale.jpg".to_string()),
-        })
-        .await;
-        bus.emit_server_stopped().await;
+        bus.emit_stats_updated(ServerStats::default().with_connected_clients(2))
+            .await;
+        bus.emit_file_uploaded("after-start.jpg", 12);
 
-        let replay_state = bus
-            .inner
-            .lock()
-            .expect("event bus mutex poisoned")
-            .replay_state
-            .clone();
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        drop(bus);
+        run_handle.await.expect("event processor should exit cleanly");
 
-        assert_eq!(replay_state, EventBusReplayState::default());
+        assert!(snapshots.lock().await.iter().any(|snapshot| {
+            snapshot.is_running
+                && snapshot.stats.as_ref().is_some_and(|stats| stats.active_connections == 2)
+        }));
+        assert_eq!(
+            events.lock().await.as_slice(),
+            &[DomainEvent::FileUploaded {
+                path: "after-start.jpg".to_string(),
+                size: 12,
+            }]
+        );
     }
 
     #[tokio::test]
-    async fn stats_updates_after_stop_do_not_restore_replay_running_state() {
+    async fn state_updates_do_not_emit_transient_domain_events() {
+        let bus = EventBus::new();
+        let mut rx = bus.subscribe();
+
+        bus.emit_server_started("127.0.0.1:2121").await;
+        bus.emit_stats_updated(ServerStats::default().with_connected_clients(2))
+            .await;
+        bus.emit_server_stopped().await;
+
+        assert!(matches!(rx.try_recv(), Err(broadcast::error::TryRecvError::Empty)));
+    }
+
+    #[tokio::test]
+    async fn stats_updates_after_stop_do_not_restore_runtime_state() {
         let bus = EventBus::new();
         bus.emit_server_started("192.168.1.10:2121").await;
         bus.emit_server_stopped().await;
@@ -849,14 +929,10 @@ mod tests {
         })
         .await;
 
-        let replay_state = bus
-            .inner
-            .lock()
-            .expect("event bus mutex poisoned")
-            .replay_state
-            .clone();
-
-        assert_eq!(replay_state, EventBusReplayState::default());
+        assert_eq!(
+            bus.runtime_state().current_runtime_snapshot().await,
+            ServerRuntimeSnapshot::default()
+        );
     }
 
     #[tokio::test]
@@ -871,7 +947,7 @@ mod tests {
     }
 
     #[test]
-    fn fan_out_server_events_drive_ui_and_android_sync_from_same_source() {
+    fn runtime_state_fanout_drives_ui_and_android_sync_from_same_source() {
         let mut fanout = RecordingFanout::default();
         let stats = ServerStats {
             active_connections: 3,
@@ -880,14 +956,38 @@ mod tests {
             last_uploaded_file: Some("dual.jpg".to_string()),
         };
 
-        fan_out_server_event(
+        let started_state = ServerRuntimeSnapshot {
+            bind_addr: Some("127.0.0.1:2121".to_string()),
+            is_running: true,
+            stats: None,
+        };
+        let running_state = ServerRuntimeSnapshot {
+            bind_addr: Some("127.0.0.1:2121".to_string()),
+            is_running: true,
+            stats: Some(stats.clone()),
+        };
+
+        fan_out_runtime_state(
             &mut fanout,
-            &DomainEvent::ServerStarted {
-                bind_addr: "127.0.0.1:2121".to_string(),
-            },
+            None,
+            &started_state,
         );
-        fan_out_server_event(&mut fanout, &DomainEvent::StatsUpdated(stats.clone()));
-        fan_out_server_event(&mut fanout, &DomainEvent::ServerStopped);
+        fan_out_runtime_state(
+            &mut fanout,
+            Some(&RuntimeStateView {
+                bind_addr: started_state.bind_addr.clone(),
+                snapshot: runtime_state_to_snapshot(&started_state),
+            }),
+            &running_state,
+        );
+        fan_out_runtime_state(
+            &mut fanout,
+            Some(&RuntimeStateView {
+                bind_addr: running_state.bind_addr.clone(),
+                snapshot: runtime_state_to_snapshot(&running_state),
+            }),
+            &ServerRuntimeSnapshot::default(),
+        );
 
         assert_eq!(
             fanout.frontend_events,
@@ -915,6 +1015,84 @@ mod tests {
                 ServerStateSnapshot::default(),
             ]
         );
+    }
+
+    #[test]
+    fn stopped_runtime_snapshot_retains_stats_without_restarting_consumers() {
+        let mut fanout = RecordingFanout::default();
+        let started_state = ServerRuntimeSnapshot {
+            bind_addr: Some("127.0.0.1:2121".to_string()),
+            is_running: true,
+            stats: None,
+        };
+        let stopped_state = ServerRuntimeSnapshot {
+            bind_addr: None,
+            is_running: false,
+            stats: Some(ServerStats {
+                active_connections: 0,
+                total_uploads: 2,
+                total_bytes_received: 128,
+                last_uploaded_file: Some("late.jpg".to_string()),
+            }),
+        };
+
+        fan_out_runtime_state(
+            &mut fanout,
+            None,
+            &started_state,
+        );
+        fan_out_runtime_state(
+            &mut fanout,
+            Some(&RuntimeStateView {
+                bind_addr: started_state.bind_addr.clone(),
+                snapshot: runtime_state_to_snapshot(&started_state),
+            }),
+            &stopped_state,
+        );
+
+        assert_eq!(
+            fanout.frontend_events,
+            vec![
+                (
+                    "server-started".to_string(),
+                    serde_json::json!({ "ip": "127.0.0.1", "port": 2121 }),
+                ),
+                (
+                    "stats-update".to_string(),
+                    serde_json::to_value(ServerStateSnapshot {
+                        is_running: true,
+                        ..ServerStateSnapshot::default()
+                    })
+                    .expect("server snapshot should serialize"),
+                ),
+                ("server-stopped".to_string(), serde_json::Value::Null),
+            ]
+        );
+        assert_eq!(
+            fanout.android_snapshots,
+            vec![
+                ServerStateSnapshot {
+                    is_running: true,
+                    ..ServerStateSnapshot::default()
+                },
+                ServerStateSnapshot {
+                    is_running: false,
+                    connected_clients: 0,
+                    files_received: 2,
+                    bytes_received: 128,
+                    last_file: Some("late.jpg".to_string()),
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn windows_tray_handler_uses_runtime_state_snapshot_semantics() {
+        let source = include_str!("windows.rs");
+
+        assert!(source.contains("fn update_server_state(&self, app: &AppHandle, connected_clients: u32)"));
+        assert!(source.contains("TrayIconState::Active"));
+        assert!(source.contains("TrayIconState::Idle"));
     }
 
 }

@@ -65,7 +65,7 @@ impl FileIndexService {
         *self.event_bus.write().await = Some(event_bus);
     }
 
-    /// 发射文件索引变化事件（异步版本，确保事件可靠发射）
+    /// 发射文件索引变化事件（仅投递给已订阅的瞬时消费者）
     async fn emit_file_index_changed(&self) {
         // 获取 event_bus（使用阻塞锁确保获取成功）
         let event_bus_opt = {

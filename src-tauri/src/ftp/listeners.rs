@@ -47,7 +47,7 @@ impl DataListener for FtpDataListener {
                 DataEvent::Put { path, bytes } => {
                     // 记录上传统计
                     stats.record_upload(path.clone(), bytes).await;
-                    // 发送文件上传事件（用于Android媒体扫描）
+                    // 发送文件上传瞬时事件（仅影响已订阅的媒体/前端消费者）
                     event_bus.emit_file_uploaded(path.clone(), bytes);
                     info!(file = %path, size = bytes, "File uploaded");
 

@@ -379,8 +379,8 @@ impl PlatformService for WindowsPlatform {
                         Err(_) => tracing::warn!("Event processor ready timeout, continuing anyway"),
                     }
 
-                    // 统一通过 PlatformService 处理启动后逻辑
-                    crate::platform::get_platform().on_server_started(&app_handle);
+                    let file_index = app_handle.state::<Arc<crate::file_index::FileIndexService>>();
+                    file_index.set_event_bus(ctx.event_bus).await;
                 }
                 Err(e) => {
                     tracing::error!("Failed to auto-start server: {}", e);
@@ -424,5 +424,6 @@ mod tests {
         let source = include_str!("windows.rs");
 
         assert!(!source.contains("ctx.event_bus\n                        .emit_server_started"));
+        assert!(source.contains("file_index.set_event_bus(ctx.event_bus).await;"));
     }
 }

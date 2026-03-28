@@ -11,7 +11,8 @@ use crate::constants::{
 };
 use crate::error::AppError;
 use crate::ftp::{
-    create_ftp_server, EventBus, EventProcessor, FtpServerHandle, FtpAuthConfig, ServerConfig, StatsEventHandler, TrayUpdateHandler,
+    create_ftp_server, EventBus, EventProcessor, FtpServerHandle, FtpAuthConfig,
+    FrontendTransientEventHandler, ServerConfig, StatsEventHandler, TrayUpdateHandler,
 };
 use crate::network::NetworkManager;
 use std::sync::Arc;
@@ -170,13 +171,14 @@ pub fn spawn_event_processor(app_handle: AppHandle, event_bus: EventBus) -> ones
     let (ready_tx, ready_rx) = oneshot::channel();
     
     tokio::spawn(async move {
-        let mut processor = EventProcessor::new(&event_bus)
-            .register(StatsEventHandler::new(app_handle))
-            .register(TrayUpdateHandler::new(app_handle_for_tray));
+        let processor = EventProcessor::new(&event_bus)
+            .register_runtime_state_handler(StatsEventHandler::new(app_handle.clone()))
+            .register_runtime_state_handler(TrayUpdateHandler::new(app_handle_for_tray))
+            .register(FrontendTransientEventHandler::new(app_handle));
 
-        processor.catch_up().await;
-        
-        // 信号就绪（已完成初始状态追赶）
+        drop(event_bus);
+
+        // 信号就绪（处理器已订阅事件并将在运行时读取当前状态）
         let _ = ready_tx.send(());
         
         processor.run().await;
@@ -191,8 +193,10 @@ mod tests {
     fn event_processor_keeps_stats_handler_registered_for_dual_fan_out() {
         let source = include_str!("server_factory.rs");
 
-        assert!(source.contains(".register(StatsEventHandler::new(app_handle))"));
-        assert!(source.contains(".register(TrayUpdateHandler::new(app_handle_for_tray))"));
-        assert!(source.contains("processor.catch_up().await;"));
+        assert!(source.contains(".register_runtime_state_handler(StatsEventHandler::new(app_handle.clone()))"));
+        assert!(source.contains(".register_runtime_state_handler(TrayUpdateHandler::new(app_handle_for_tray))"));
+        assert!(source.contains(".register(FrontendTransientEventHandler::new(app_handle))"));
+        assert!(source.contains("drop(event_bus);"));
+        assert!(!source.contains("processor.catch_up().await;"));
     }
 }

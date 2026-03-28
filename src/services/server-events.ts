@@ -16,20 +16,40 @@ import { createEventManager, type EventRegistration } from '../utils/events';
 import { useServerStore } from '../stores/serverStore';
 type ServerStartedPayload = { ip: string; port: number };
 
-const defaultStats: ServerStateSnapshot = {
-  isRunning: false,
-  connectedClients: 0,
-  filesReceived: 0,
-  bytesReceived: 0,
-  lastFile: null,
+type ServerRuntimeView = {
+  serverInfo: ServerInfo | null;
+  stats: ServerStateSnapshot;
 };
+
+async function syncRuntimeStateFromBackend(): Promise<boolean> {
+  try {
+    const runtimeState = await invoke<ServerRuntimeView>('get_server_runtime_state');
+    if (runtimeState.serverInfo?.isRunning) {
+      useServerStore.getState().setServerRunning(runtimeState.serverInfo, {
+        stats: runtimeState.stats,
+        immediate: true,
+      });
+      return true;
+    }
+
+    useServerStore.getState().setServerStopped({ immediate: true });
+    return true;
+  } catch (err) {
+    console.warn('[server-events] Runtime state sync failed:', err);
+    return false;
+  }
+}
 
 function createEventRegistrations(): EventRegistration<any>[] {
   return [
     {
       name: 'server-started',
-      handler: (event: Event<ServerStartedPayload>) => {
+      handler: async (event: Event<ServerStartedPayload>) => {
         const { ip, port } = event.payload;
+        if (await syncRuntimeStateFromBackend()) {
+          return;
+        }
+
         useServerStore.getState().setServerRunning({
           isRunning: true,
           ip,
@@ -88,21 +108,9 @@ function createEventRegistrations(): EventRegistration<any>[] {
 }
 
 async function syncInitialServerState(): Promise<void> {
-  try {
-    const info = await invoke<ServerInfo | null>('get_server_info');
-    if (info?.isRunning) {
-      const status = await invoke<ServerStateSnapshot | null>('get_server_status');
-      const syncedStats = status || { ...defaultStats, isRunning: true };
-      useServerStore.getState().setServerRunning(info, {
-        stats: syncedStats,
-        immediate: true,
-      });
-      return;
-    }
-
-    useServerStore.getState().setServerStopped({ immediate: true });
-  } catch (err) {
-    console.warn('[server-events] Initial state sync failed:', err);
+  const synced = await syncRuntimeStateFromBackend();
+  if (!synced) {
+    console.warn('[server-events] Initial state sync failed');
   }
 }
 

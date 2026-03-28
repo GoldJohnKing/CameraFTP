@@ -4,7 +4,9 @@
 
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
+use tokio::sync::{broadcast, watch, RwLock};
 use ts_rs::TS;
+use std::sync::Arc;
 
 use crate::config::AuthConfig;
 
@@ -24,6 +26,11 @@ impl ServerStats {
             || self.total_uploads != other.total_uploads
             || self.total_bytes_received != other.total_bytes_received
             || self.last_uploaded_file != other.last_uploaded_file
+    }
+
+    pub fn with_connected_clients(mut self, connected_clients: u64) -> Self {
+        self.active_connections = connected_clients;
+        self
     }
 }
 
@@ -88,7 +95,7 @@ pub struct ServerConfig {
 }
 
 /// 服务器运行时统计快照
-#[derive(Debug, Clone, serde::Serialize, ts_rs::TS)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, ts_rs::TS)]
 #[ts(export)]
 #[serde(rename_all = "camelCase")]
 pub struct ServerStateSnapshot {
@@ -127,6 +134,211 @@ impl From<&ServerStats> for ServerStateSnapshot {
     }
 }
 
+impl From<&ServerStateSnapshot> for ServerStats {
+    fn from(snapshot: &ServerStateSnapshot) -> Self {
+        Self {
+            active_connections: snapshot.connected_clients as u64,
+            total_uploads: snapshot.files_received,
+            total_bytes_received: snapshot.bytes_received,
+            last_uploaded_file: snapshot.last_file.clone(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct ServerRuntimeSnapshot {
+    pub bind_addr: Option<String>,
+    pub is_running: bool,
+    pub stats: Option<ServerStats>,
+}
+
+#[derive(Debug, Clone, Serialize, TS)]
+#[ts(export)]
+#[serde(rename_all = "camelCase")]
+pub struct ServerRuntimeView {
+    pub server_info: Option<ServerInfo>,
+    pub stats: ServerStateSnapshot,
+}
+
+#[derive(Debug, Clone)]
+pub struct ServerRuntimeState {
+    state: Arc<RwLock<ServerRuntimeSnapshot>>,
+    tx: watch::Sender<ServerRuntimeSnapshot>,
+}
+
+impl Default for ServerRuntimeState {
+    fn default() -> Self {
+        let snapshot = ServerRuntimeSnapshot::default();
+        let (tx, _rx) = watch::channel(snapshot.clone());
+        Self {
+            state: Arc::new(RwLock::new(snapshot)),
+            tx,
+        }
+    }
+}
+
+impl ServerRuntimeState {
+    pub fn subscribe(&self) -> watch::Receiver<ServerRuntimeSnapshot> {
+        self.tx.subscribe()
+    }
+
+    pub async fn update_running_snapshot(&self, snapshot: ServerStateSnapshot) {
+        let mut state = self.state.write().await;
+        state.is_running = snapshot.is_running;
+        if snapshot.is_running {
+            state.stats = Some(ServerStats::from(&snapshot));
+        } else {
+            state.bind_addr = None;
+            state.stats = None;
+        }
+        let _ = self.tx.send(state.clone());
+    }
+
+    pub async fn record_server_started(&self, bind_addr: String) {
+        let mut state = self.state.write().await;
+        state.bind_addr = Some(bind_addr);
+        state.is_running = true;
+        let _ = self.tx.send(state.clone());
+    }
+
+    pub async fn record_stats(&self, stats: ServerStats) {
+        let mut state = self.state.write().await;
+        state.stats = Some(stats);
+        let _ = self.tx.send(state.clone());
+    }
+
+    pub async fn record_server_stopped(&self) {
+        let mut state = self.state.write().await;
+        *state = ServerRuntimeSnapshot::default();
+        let _ = self.tx.send(state.clone());
+    }
+
+    pub async fn current_snapshot(&self) -> ServerStateSnapshot {
+        let state = self.current_runtime_snapshot().await;
+        if !state.is_running {
+            return ServerStateSnapshot::default();
+        }
+        let stats = state.stats.unwrap_or_default();
+
+        ServerStateSnapshot {
+            is_running: state.is_running,
+            connected_clients: stats.active_connections as usize,
+            files_received: stats.total_uploads,
+            bytes_received: stats.total_bytes_received,
+            last_file: stats.last_uploaded_file,
+        }
+    }
+
+    pub async fn current_runtime_snapshot(&self) -> ServerRuntimeSnapshot {
+        let state = self.state.read().await;
+        state.clone()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ServerRuntimeState, ServerStats};
+
+    #[tokio::test]
+    async fn stats_after_stop_do_not_restore_running_state() {
+        let runtime_state = ServerRuntimeState::default();
+
+        runtime_state
+            .record_server_started("192.168.1.8:2121".to_string())
+            .await;
+        runtime_state.record_server_stopped().await;
+        runtime_state
+            .record_stats(ServerStats::default().with_connected_clients(2))
+            .await;
+
+        let snapshot = runtime_state.current_snapshot().await;
+
+        assert!(!snapshot.is_running);
+        assert_eq!(snapshot.connected_clients, 0);
+    }
+
+    #[tokio::test]
+    async fn stats_recorded_after_stop_are_ignored_for_runtime_snapshot() {
+        let runtime_state = ServerRuntimeState::default();
+
+        runtime_state
+            .record_server_started("192.168.1.8:2121".to_string())
+            .await;
+        runtime_state.record_server_stopped().await;
+        runtime_state
+            .record_stats(ServerStats {
+                active_connections: 3,
+                total_uploads: 7,
+                total_bytes_received: 1024,
+                last_uploaded_file: Some("late.jpg".to_string()),
+            })
+            .await;
+
+        let snapshot = runtime_state.current_snapshot().await;
+
+        assert_eq!(snapshot, Default::default());
+    }
+
+    #[tokio::test]
+    async fn runtime_snapshot_reads_bind_addr_and_stats_atomically() {
+        let runtime_state = ServerRuntimeState::default();
+
+        runtime_state
+            .record_server_started("192.168.1.8:2121".to_string())
+            .await;
+        runtime_state
+            .record_stats(ServerStats {
+                active_connections: 3,
+                total_uploads: 7,
+                total_bytes_received: 1024,
+                last_uploaded_file: Some("latest.jpg".to_string()),
+            })
+            .await;
+
+        let runtime_snapshot = runtime_state.current_runtime_snapshot().await;
+
+        assert_eq!(
+            runtime_snapshot,
+            super::ServerRuntimeSnapshot {
+                bind_addr: Some("192.168.1.8:2121".to_string()),
+                is_running: true,
+                stats: Some(ServerStats {
+                    active_connections: 3,
+                    total_uploads: 7,
+                    total_bytes_received: 1024,
+                    last_uploaded_file: Some("latest.jpg".to_string()),
+                }),
+            }
+        );
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct TransientEventBus {
+    tx: broadcast::Sender<DomainEvent>,
+}
+
+impl Default for TransientEventBus {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl TransientEventBus {
+    pub fn new() -> Self {
+        let (tx, _) = broadcast::channel(100);
+        Self { tx }
+    }
+
+    pub fn subscribe(&self) -> broadcast::Receiver<DomainEvent> {
+        self.tx.subscribe()
+    }
+
+    pub fn emit(&self, event: DomainEvent) {
+        let _ = self.tx.send(event);
+    }
+}
+
 /// 服务器运行状态
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 pub enum ServerStatus {
@@ -146,15 +358,10 @@ impl ServerStatus {
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
 #[serde(tag = "type", content = "data")]
 pub enum DomainEvent {
-    ServerStarted {
-        bind_addr: String,
-    },
-    ServerStopped,
     FileUploaded {
         path: String,
         size: u64,
     },
-    StatsUpdated(ServerStats),
     /// 文件索引发生变化（添加或删除）
     FileIndexChanged {
         count: usize,

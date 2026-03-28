@@ -11,7 +11,7 @@ use crate::ftp::events::EventBus;
 use crate::ftp::listeners::{FtpDataListener, FtpPresenceListener};
 use crate::ftp::stats::{StatsActor, StatsActorWorker};
 use crate::ftp::types::{
-    ServerConfig, ServerInfo, ServerStateSnapshot, ServerStatus, FtpAuthConfig,
+    FtpAuthConfig, ServerConfig, ServerInfo, ServerRuntimeState, ServerStateSnapshot, ServerStatus,
 };
 use crate::ftp::FtpStorageBackend;
 use dashmap::DashSet;
@@ -95,6 +95,7 @@ pub enum ServerCommand {
 #[derive(Debug, Clone)]
 pub struct FtpServerHandle {
     tx: mpsc::Sender<ServerCommand>,
+    runtime_state: ServerRuntimeState,
 }
 
 impl FtpServerHandle {
@@ -139,6 +140,10 @@ impl FtpServerHandle {
             .ok()
             .flatten()
     }
+
+    pub fn runtime_state(&self) -> ServerRuntimeState {
+        self.runtime_state.clone()
+    }
 }
 
 /// FTP服务器Actor
@@ -158,7 +163,10 @@ impl FtpServerActor {
     /// 创建新的FTP服务器Actor
     pub fn new(stats_actor: StatsActor, event_bus: EventBus, app_handle: Option<AppHandle>) -> (FtpServerHandle, Self) {
         let (tx, rx) = mpsc::channel(32);
-        let handle = FtpServerHandle { tx };
+        let handle = FtpServerHandle {
+            tx,
+            runtime_state: event_bus.runtime_state(),
+        };
 
         let actor = Self {
             rx,
@@ -444,11 +452,13 @@ impl FtpServerActor {
         self.config = Some(config);
         self.bind_addr = Some(bind_addr);
 
+        let advertised_addr = advertised_server_addr(
+            bind_addr,
+            crate::network::NetworkManager::recommended_ip(),
+        );
+
         self.event_bus
-            .emit_server_started(advertised_server_addr(
-                bind_addr,
-                crate::network::NetworkManager::recommended_ip(),
-            ))
+            .emit_server_started(advertised_addr)
             .await;
         info!(bind_addr = %bind_addr, "FTP server started successfully");
     }
@@ -504,16 +514,8 @@ impl FtpServerActor {
     /// 获取当前快照
     async fn get_current_snapshot(&self) -> ServerStateSnapshot {
         let status = self.get_current_status().await;
-        let is_running = status.is_running();
-
-        // 使用 get_stats_direct() 直接从共享状态读取，避免 channel 竞争问题
         let stats = self.stats_actor.get_stats_direct().await;
-        let mut snapshot = ServerStateSnapshot::from(&stats);
-
-        // 使用 sessions 集合的大小作为连接数（更可靠）
-        snapshot.connected_clients = self.sessions.len();
-        snapshot.is_running = is_running;
-        snapshot
+        build_server_snapshot(status, &stats, self.sessions.len())
     }
 
     /// 获取服务器连接信息（包含 IP 和端口）
@@ -555,6 +557,20 @@ fn advertised_server_addr(bind_addr: SocketAddr, recommended_ip: Option<String>)
     });
 
     format!("{}:{}", ip, bind_addr.port())
+}
+
+fn build_server_snapshot(
+    status: ServerStatus,
+    stats: &crate::ftp::types::ServerStats,
+    connected_clients: usize,
+) -> ServerStateSnapshot {
+    ServerStateSnapshot {
+        is_running: status.is_running(),
+        connected_clients,
+        files_received: stats.total_uploads,
+        bytes_received: stats.total_bytes_received,
+        last_file: stats.last_uploaded_file.clone(),
+    }
 }
 
 /// 创建FTP服务器Actor系统
@@ -611,5 +627,41 @@ mod tests {
         let bind_addr: SocketAddr = ([0, 0, 0, 0], 2121).into();
 
         assert_eq!(advertised_server_addr(bind_addr, None), "127.0.0.1:2121");
+    }
+
+    #[test]
+    fn build_server_snapshot_keeps_stopped_state_even_with_nonzero_stats() {
+        let stats = crate::ftp::types::ServerStats {
+            active_connections: 9,
+            total_uploads: 4,
+            total_bytes_received: 1024,
+            last_uploaded_file: Some("late.jpg".to_string()),
+        };
+
+        let snapshot = build_server_snapshot(ServerStatus::Stopped, &stats, 0);
+
+        assert!(!snapshot.is_running);
+        assert_eq!(snapshot.connected_clients, 0);
+        assert_eq!(snapshot.files_received, 4);
+        assert_eq!(snapshot.bytes_received, 1024);
+        assert_eq!(snapshot.last_file.as_deref(), Some("late.jpg"));
+    }
+
+    #[tokio::test]
+    async fn get_snapshot_does_not_mutate_runtime_state() {
+        let event_bus = EventBus::new();
+        let (stats_actor, _worker) = StatsActor::with_event_bus(None);
+        let (_handle, actor) = FtpServerActor::new(stats_actor, event_bus.clone(), None);
+
+        event_bus
+            .runtime_state()
+            .record_server_started("127.0.0.1:2121".to_string())
+            .await;
+
+        let _ = actor.get_current_snapshot().await;
+
+        let runtime_snapshot = event_bus.runtime_state().current_runtime_snapshot().await;
+        assert!(runtime_snapshot.is_running);
+        assert_eq!(runtime_snapshot.bind_addr.as_deref(), Some("127.0.0.1:2121"));
     }
 }

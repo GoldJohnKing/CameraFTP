@@ -94,11 +94,11 @@ describe('server event lifecycle service', () => {
     });
 
     invokeMock.mockImplementation(async (command: string) => {
-      if (command === 'get_server_info') {
-        return null;
-      }
-      if (command === 'get_server_status') {
-        return null;
+      if (command === 'get_server_runtime_state') {
+        return {
+          serverInfo: null,
+          stats: null,
+        };
       }
       if (command === 'start_server') {
         return {
@@ -140,11 +140,34 @@ describe('server event lifecycle service', () => {
 
     const cleanup = await initializeServerEvents();
 
-    expect(invokeMock).toHaveBeenCalledWith('get_server_info');
+    expect(invokeMock).toHaveBeenCalledWith('get_server_runtime_state');
     expect(eventHandlers.has('server-started')).toBe(true);
     expect(eventHandlers.has('server-stopped')).toBe(true);
     expect(eventHandlers.has('stats-update')).toBe(true);
     expect(eventHandlers.has('tray-start-server')).toBe(true);
+
+    invokeMock.mockImplementation(async (command: string) => {
+      if (command === 'get_server_runtime_state') {
+        return {
+          serverInfo: {
+            isRunning: true,
+            ip: '192.168.1.8',
+            port: 2121,
+            url: 'ftp://192.168.1.8:2121',
+            username: 'anonymous',
+            passwordInfo: '(任意密码)',
+          },
+          stats: {
+            isRunning: true,
+            connectedClients: 0,
+            filesReceived: 0,
+            bytesReceived: 0,
+            lastFile: null,
+          },
+        };
+      }
+      return null;
+    });
 
     await eventHandlers.get('server-started')?.({ payload: { ip: '192.168.1.8', port: 2121 } });
     expect(useServerStore.getState().isRunning).toBe(true);
@@ -171,23 +194,23 @@ describe('server event lifecycle service', () => {
 
   it('hydrates store state during initial sync when server is already running', async () => {
     invokeMock.mockImplementation(async (command: string) => {
-      if (command === 'get_server_info') {
+      if (command === 'get_server_runtime_state') {
         return {
-          isRunning: true,
-          ip: '192.168.1.99',
-          port: 2121,
-          url: 'ftp://192.168.1.99:2121',
-          username: 'anonymous',
-          passwordInfo: '(任意密码)',
-        };
-      }
-      if (command === 'get_server_status') {
-        return {
-          isRunning: true,
-          connectedClients: 2,
-          filesReceived: 7,
-          bytesReceived: 2048,
-          lastFile: null,
+          serverInfo: {
+            isRunning: true,
+            ip: '192.168.1.99',
+            port: 2121,
+            url: 'ftp://192.168.1.99:2121',
+            username: 'anonymous',
+            passwordInfo: '(任意密码)',
+          },
+          stats: {
+            isRunning: true,
+            connectedClients: 2,
+            filesReceived: 7,
+            bytesReceived: 2048,
+            lastFile: null,
+          },
         };
       }
       return null;
@@ -202,6 +225,46 @@ describe('server event lifecycle service', () => {
       filesReceived: 7,
       bytesReceived: 2048,
       lastFile: null,
+    });
+  });
+
+  it('refreshes full server info on server-started instead of hardcoding anonymous credentials', async () => {
+    invokeMock.mockImplementation(async (command: string) => {
+      if (command === 'get_server_runtime_state') {
+        return {
+          serverInfo: {
+            isRunning: true,
+            ip: '192.168.1.50',
+            port: 2121,
+            url: 'ftp://192.168.1.50:2121',
+            username: 'camera',
+            passwordInfo: '已设置密码',
+          },
+          stats: {
+            isRunning: true,
+            connectedClients: 1,
+            filesReceived: 3,
+            bytesReceived: 512,
+            lastFile: '/latest.jpg',
+          },
+        };
+      }
+      return null;
+    });
+
+    await initializeServerEvents();
+    invokeMock.mockClear();
+
+    await eventHandlers.get('server-started')?.({ payload: { ip: '192.168.1.50', port: 2121 } });
+
+    expect(invokeMock).toHaveBeenCalledWith('get_server_runtime_state');
+    expect(useServerStore.getState().serverInfo).toEqual({
+      isRunning: true,
+      ip: '192.168.1.50',
+      port: 2121,
+      url: 'ftp://192.168.1.50:2121',
+      username: 'camera',
+      passwordInfo: '已设置密码',
     });
   });
 
@@ -250,6 +313,29 @@ describe('server event lifecycle service', () => {
       setServerRunning,
       setServerStopped,
       setServerStats,
+    });
+
+    invokeMock.mockImplementation(async (command: string) => {
+      if (command === 'get_server_runtime_state') {
+        return {
+          serverInfo: {
+            isRunning: true,
+            ip: '192.168.1.8',
+            port: 2121,
+            url: 'ftp://192.168.1.8:2121',
+            username: 'anonymous',
+            passwordInfo: '(任意密码)',
+          },
+          stats: {
+            isRunning: true,
+            connectedClients: 0,
+            filesReceived: 0,
+            bytesReceived: 0,
+            lastFile: null,
+          },
+        };
+      }
+      return null;
     });
 
     await eventHandlers.get('server-started')?.({ payload: { ip: '192.168.1.8', port: 2121 } });

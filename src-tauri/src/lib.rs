@@ -37,6 +37,7 @@ use commands::{
     get_latest_file,
     get_platform,
     get_server_info,
+    get_server_runtime_state,
     get_server_status,
     get_storage_info,
     get_storage_path,
@@ -175,8 +176,7 @@ pub fn run() {
             // 启动后台任务
             spawn_background_tasks(app.handle());
 
-            // 托盘图标状态更新现在由 TrayUpdateHandler 事件驱动
-            // 通过 EventBus 监听 StatsUpdated 事件，替代原有的轮询机制
+            // 托盘图标状态更新现在由 TrayUpdateHandler 的运行时状态订阅驱动
 
             Ok(())
         })
@@ -186,6 +186,7 @@ pub fn run() {
             stop_server,
             get_server_status,
             get_server_info,
+            get_server_runtime_state,
             
             // 配置管理
             load_config,

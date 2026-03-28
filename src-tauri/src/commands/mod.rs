@@ -67,6 +67,7 @@ pub use server::{
     start_server,
     stop_server,
     get_server_info,
+    get_server_runtime_state,
     get_server_status,
 };
 
