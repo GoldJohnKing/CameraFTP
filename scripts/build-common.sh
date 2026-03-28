@@ -354,7 +354,7 @@ generate_ts_types() {
     fi
 
     cd src-tauri
-    $cargo_cmd test --quiet 2>/dev/null || true
+    $cargo_cmd run --quiet --bin export-bindings
     cd ..
 
     success "TypeScript 类型绑定已生成到 src-tauri/bindings/"
