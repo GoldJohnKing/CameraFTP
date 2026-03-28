@@ -10,6 +10,20 @@ use std::sync::Arc;
 
 use crate::config::AuthConfig;
 
+pub fn normalize_ipv4_host(host: &str) -> String {
+    host.parse::<std::net::Ipv4Addr>()
+        .map(|ip| ip.to_string())
+        .unwrap_or_else(|_| "127.0.0.1".to_string())
+}
+
+pub fn format_ipv4_socket_addr(host: &str, port: u16) -> String {
+    format!("{}:{}", normalize_ipv4_host(host), port)
+}
+
+pub fn format_ipv4_ftp_url(host: &str, port: u16) -> String {
+    format!("ftp://{}", format_ipv4_socket_addr(host, port))
+}
+
 /// FTP 服务器统计数据快照
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
 pub struct ServerStats {
@@ -203,6 +217,9 @@ impl ServerRuntimeState {
 
     pub async fn record_stats(&self, stats: ServerStats) {
         let mut state = self.state.write().await;
+        if !state.is_running {
+            return;
+        }
         state.stats = Some(stats);
         let _ = self.tx.send(state.clone());
     }
@@ -237,7 +254,18 @@ impl ServerRuntimeState {
 
 #[cfg(test)]
 mod tests {
-    use super::{ServerRuntimeState, ServerStats};
+    use super::{
+        format_ipv4_ftp_url, format_ipv4_socket_addr, normalize_ipv4_host, ServerInfo,
+        ServerRuntimeState, ServerStats,
+    };
+
+    #[test]
+    fn normalize_ipv4_helpers_enforce_ipv4_contract() {
+        assert_eq!(normalize_ipv4_host("192.168.1.8"), "192.168.1.8");
+        assert_eq!(normalize_ipv4_host("::1"), "127.0.0.1");
+        assert_eq!(format_ipv4_socket_addr("::1", 2121), "127.0.0.1:2121");
+        assert_eq!(format_ipv4_ftp_url("::1", 2121), "ftp://127.0.0.1:2121");
+    }
 
     #[tokio::test]
     async fn stats_after_stop_do_not_restore_running_state() {
@@ -275,8 +303,10 @@ mod tests {
             .await;
 
         let snapshot = runtime_state.current_snapshot().await;
+        let runtime_snapshot = runtime_state.current_runtime_snapshot().await;
 
         assert_eq!(snapshot, Default::default());
+        assert_eq!(runtime_snapshot, super::ServerRuntimeSnapshot::default());
     }
 
     #[tokio::test]
@@ -310,6 +340,21 @@ mod tests {
                 }),
             }
         );
+    }
+
+    #[test]
+    fn server_info_new_builds_ipv4_ftp_url() {
+        let info = ServerInfo::new("192.168.1.8".to_string(), 2121, None, None);
+
+        assert_eq!(info.url, "ftp://192.168.1.8:2121");
+    }
+
+    #[test]
+    fn future_server_info_contract_falls_back_to_ipv4_loopback_for_ipv6_like_host() {
+        let info = ServerInfo::new("::1".to_string(), 2121, None, None);
+
+        assert_eq!(info.ip, "127.0.0.1");
+        assert_eq!(info.url, "ftp://127.0.0.1:2121");
     }
 }
 
@@ -389,11 +434,12 @@ impl ServerInfo {
         username: Option<String>,
         password_info: Option<String>,
     ) -> Self {
+        let ip = normalize_ipv4_host(&ip);
         Self {
             is_running: true,
             ip: ip.clone(),
             port,
-            url: format!("ftp://{}:{}", ip, port),
+            url: format_ipv4_ftp_url(&ip, port),
             username: username.unwrap_or_else(|| "anonymous".to_string()),
             password_info: password_info.unwrap_or_else(|| "(任意密码)".to_string()),
         }

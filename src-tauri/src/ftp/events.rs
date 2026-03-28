@@ -280,14 +280,15 @@ fn fan_out_runtime_state(
         && previous_state.is_none_or(|previous| !previous.snapshot.is_running)
     {
         if let Some(bind_addr) = current_state.bind_addr.as_deref() {
-            let (ip, port) = parse_bind_addr(bind_addr);
-            target.emit_frontend_json(
-                "server-started",
-                serde_json::json!({
-                    "ip": ip,
-                    "port": port
-                }),
-            );
+            if let Some((ip, port)) = parse_bind_addr(bind_addr) {
+                target.emit_frontend_json(
+                    "server-started",
+                    serde_json::json!({
+                        "ip": ip,
+                        "port": port
+                    }),
+                );
+            }
         }
     }
 
@@ -375,15 +376,16 @@ impl EventHandler for FrontendTransientEventHandler {
 }
 
 /// 解析 bind_addr (格式: "ip:port") 返回 (ip, port)
-fn parse_bind_addr(bind_addr: &str) -> (String, u16) {
-    let parts: Vec<&str> = bind_addr.split(':').collect();
-    if parts.len() == 2 {
-        let ip = parts[0].to_string();
-        let port = parts[1].parse().unwrap_or(2121);
-        (ip, port)
-    } else {
-        ("0.0.0.0".to_string(), 2121)
+fn parse_bind_addr(bind_addr: &str) -> Option<(String, u16)> {
+    let (host, port) = bind_addr.split_once(':')?;
+    if host.contains(':') {
+        return None;
     }
+
+    let ip = host.parse::<std::net::Ipv4Addr>().ok()?.to_string();
+    let port = port.parse::<u16>().ok()?;
+
+    Some((ip, port))
 }
 
 /// 托盘状态更新处理器 - 监听统计更新并更新托盘图标
@@ -433,6 +435,10 @@ mod tests {
     use crate::ftp::types::ServerStats;
     use std::sync::Arc;
     use tokio::sync::Mutex;
+
+    fn parse_bind_addr_future_contract_view(bind_addr: &str) -> Option<(String, u16)> {
+        parse_bind_addr(bind_addr)
+    }
 
     #[derive(Clone, Default)]
     struct RecordingHandler {
@@ -1018,7 +1024,7 @@ mod tests {
     }
 
     #[test]
-    fn stopped_runtime_snapshot_retains_stats_without_restarting_consumers() {
+    fn stopped_runtime_snapshot_discards_stats_for_coherent_snapshots() {
         let mut fanout = RecordingFanout::default();
         let started_state = ServerRuntimeSnapshot {
             bind_addr: Some("127.0.0.1:2121".to_string()),
@@ -1075,13 +1081,7 @@ mod tests {
                     is_running: true,
                     ..ServerStateSnapshot::default()
                 },
-                ServerStateSnapshot {
-                    is_running: false,
-                    connected_clients: 0,
-                    files_received: 2,
-                    bytes_received: 128,
-                    last_file: Some("late.jpg".to_string()),
-                },
+                ServerStateSnapshot::default(),
             ]
         );
     }
@@ -1093,6 +1093,50 @@ mod tests {
         assert!(source.contains("fn update_server_state(&self, app: &AppHandle, connected_clients: u32)"));
         assert!(source.contains("TrayIconState::Active"));
         assert!(source.contains("TrayIconState::Idle"));
+    }
+
+    #[test]
+    fn future_parse_bind_addr_contract_reads_ipv4_host_and_port() {
+        assert_eq!(
+            parse_bind_addr_future_contract_view("192.168.1.8:2121"),
+            Some(("192.168.1.8".to_string(), 2121))
+        );
+    }
+
+    #[test]
+    fn future_parse_bind_addr_contract_rejects_ipv6_like_values() {
+        assert_eq!(parse_bind_addr_future_contract_view("::1:2121"), None);
+        assert_eq!(parse_bind_addr_future_contract_view("[::1]:2121"), None);
+    }
+
+    #[test]
+    fn future_parse_bind_addr_contract_rejects_malformed_values() {
+        assert_eq!(parse_bind_addr_future_contract_view("192.168.1.8"), None);
+        assert_eq!(parse_bind_addr_future_contract_view("192.168.1.8:not-a-port"), None);
+        assert_eq!(parse_bind_addr_future_contract_view("not-an-ip:2121"), None);
+    }
+
+    #[test]
+    fn runtime_state_fanout_skips_server_started_for_invalid_bind_addr() {
+        let mut fanout = RecordingFanout::default();
+        let started_state = ServerRuntimeSnapshot {
+            bind_addr: Some("::1:2121".to_string()),
+            is_running: true,
+            stats: None,
+        };
+
+        fan_out_runtime_state(&mut fanout, None, &started_state);
+
+        assert_eq!(fanout.frontend_events, vec![
+            (
+                "stats-update".to_string(),
+                serde_json::to_value(ServerStateSnapshot {
+                    is_running: true,
+                    ..ServerStateSnapshot::default()
+                })
+                .expect("server snapshot should serialize"),
+            )
+        ]);
     }
 
 }

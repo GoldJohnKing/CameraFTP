@@ -268,6 +268,23 @@ describe('server event lifecycle service', () => {
     });
   });
 
+  it('normalizes fallback server-started payloads to the IPv4-only contract', async () => {
+    await initializeServerEvents();
+
+    invokeMock.mockRejectedValueOnce(new Error('runtime sync failed'));
+
+    await eventHandlers.get('server-started')?.({ payload: { ip: '::1', port: 2121 } });
+
+    expect(useServerStore.getState().serverInfo).toEqual({
+      isRunning: true,
+      ip: '127.0.0.1',
+      port: 2121,
+      url: 'ftp://127.0.0.1:2121',
+      username: 'anonymous',
+      passwordInfo: '(任意密码)',
+    });
+  });
+
   it('reconciles stopped backend state during initial sync', async () => {
     useServerStore.setState({
       isRunning: true,

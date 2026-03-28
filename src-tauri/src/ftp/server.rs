@@ -11,7 +11,8 @@ use crate::ftp::events::EventBus;
 use crate::ftp::listeners::{FtpDataListener, FtpPresenceListener};
 use crate::ftp::stats::{StatsActor, StatsActorWorker};
 use crate::ftp::types::{
-    FtpAuthConfig, ServerConfig, ServerInfo, ServerRuntimeState, ServerStateSnapshot, ServerStatus,
+    format_ipv4_socket_addr, normalize_ipv4_host, FtpAuthConfig, ServerConfig, ServerInfo,
+    ServerRuntimeState, ServerStateSnapshot, ServerStatus,
 };
 use crate::ftp::FtpStorageBackend;
 use dashmap::DashSet;
@@ -22,7 +23,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tauri::AppHandle;
 use tokio::sync::{mpsc, oneshot, RwLock};
-use tracing::{error, info, instrument, warn};
+use tracing::{error, info, instrument};
 use unftp_core::auth::{Authenticator, Credentials, AuthenticationError, Principal};
 
 #[cfg(target_os = "android")]
@@ -152,11 +153,17 @@ pub struct FtpServerActor {
     status: Arc<RwLock<ServerStatus>>,
     config: Option<ServerConfig>,
     shutdown_tx: Option<oneshot::Sender<()>>,
+    server_task: Option<tokio::task::JoinHandle<()>>,
     stats_actor: StatsActor,
     event_bus: EventBus,
     sessions: Arc<DashSet<String>>,
     bind_addr: Option<SocketAddr>,
     app_handle: Option<AppHandle>,
+}
+
+struct SpawnedServer {
+    bind_addr: SocketAddr,
+    server_task: tokio::task::JoinHandle<()>,
 }
 
 impl FtpServerActor {
@@ -173,6 +180,7 @@ impl FtpServerActor {
             status: Arc::new(RwLock::new(ServerStatus::Stopped)),
             config: None,
             shutdown_tx: None,
+            server_task: None,
             stats_actor,
             event_bus,
             sessions: Arc::new(DashSet::new()),
@@ -235,22 +243,35 @@ impl FtpServerActor {
             "Starting FTP server"
         );
 
-        self.prepare_root_directory(&config.root_path).await?;
+        if let Err(error) = self.prepare_root_directory(&config.root_path).await {
+            self.reset_partial_state().await;
+            return Err(error);
+        }
         
         let port = config.port;
         let root_path = config.root_path.clone();
         let (listeners, shutdown_rx) = self.create_server_components(&root_path);
         
-        self.validate_filesystem(&root_path).await?;
+        if let Err(error) = self.validate_filesystem(&root_path).await {
+            self.reset_partial_state().await;
+            return Err(error);
+        }
         
-        let bind_addr = self.build_and_spawn_server(
+        let spawned_server = match self.build_and_spawn_server(
             config.clone(),
             listeners,
             shutdown_rx,
             port,
-        ).await?;
+        ).await {
+            Ok(spawned_server) => spawned_server,
+            Err(error) => {
+                self.reset_partial_state().await;
+                return Err(error);
+            }
+        };
 
-        self.finalize_startup(bind_addr, config).await;
+        let bind_addr = spawned_server.bind_addr;
+        self.finalize_startup(spawned_server, config).await;
 
         Ok(bind_addr)
     }
@@ -329,11 +350,12 @@ impl FtpServerActor {
         (data_listener, presence_listener): (FtpDataListener, FtpPresenceListener),
         shutdown_rx: oneshot::Receiver<()>,
         port: u16,
-    ) -> AppResult<SocketAddr> {
+    ) -> AppResult<SpawnedServer> {
         let authenticator = Arc::new(CustomAuthenticator::new(config.auth.clone()));
         let root_path = config.root_path.clone();
         let bind_addr: SocketAddr = ([0, 0, 0, 0], port).into();
         let bind_str = bind_addr.to_string();
+        let (startup_tx, startup_rx) = oneshot::channel();
 
         // 确保 TLS 证书有效
         let cert_paths = tls::ensure_valid_certificate()?;
@@ -364,40 +386,78 @@ impl FtpServerActor {
             }
         };
 
-        // Spawn server task
-        tokio::spawn(async move {
+        let server_task = tokio::spawn(async move {
+            let startup_tx = startup_tx;
             info!(bind_addr = %bind_str, "FTP server starting");
             match server.listen(bind_str).await {
-                Ok(_) => info!("FTP server stopped normally"),
-                Err(e) => error!(error = %e, "FTP server error"),
+                Ok(_) => {
+                    let _ = startup_tx.send(Err(AppError::Other(
+                        "FTP server exited before becoming ready".to_string(),
+                    )));
+                    info!("FTP server stopped normally");
+                }
+                Err(e) => {
+                    let app_error = AppError::Other(format!("FTP server failed before becoming ready: {e}"));
+                    let _ = startup_tx.send(Err(app_error.clone()));
+                    error!(error = %e, "FTP server error");
+                }
             }
         });
 
-        // 等待服务器就绪（而非固定延迟）
-        if !Self::wait_for_server_ready(port, Duration::from_secs(SERVER_READY_TIMEOUT_SECS)).await {
-            warn!(port = port, "Server may not be fully ready, continuing anyway");
+        match Self::wait_for_server_ready(
+            port,
+            Duration::from_secs(SERVER_READY_TIMEOUT_SECS),
+            startup_rx,
+        ).await {
+            Ok(()) => Ok(SpawnedServer { bind_addr, server_task }),
+            Err(error) => {
+                self.cleanup_failed_startup(server_task).await;
+                Err(error)
+            }
         }
-
-        Ok(bind_addr)
     }
 
     /// 等待服务器就绪（检查端口是否监听）
-    async fn wait_for_server_ready(port: u16, timeout: Duration) -> bool {
+    async fn wait_for_server_ready(
+        port: u16,
+        timeout: Duration,
+        mut startup_rx: oneshot::Receiver<AppResult<()>>,
+    ) -> AppResult<()> {
         let start = Instant::now();
         let check_interval = Duration::from_millis(CHECK_INTERVAL_MS);
 
         while start.elapsed() < timeout {
+            match startup_rx.try_recv() {
+                Ok(result) => return result,
+                Err(tokio::sync::oneshot::error::TryRecvError::Empty) => {}
+                Err(tokio::sync::oneshot::error::TryRecvError::Closed) => {
+                    return Err(AppError::Other(
+                        "FTP server startup handshake dropped unexpectedly".to_string(),
+                    ));
+                }
+            }
+
             if Self::is_port_listening(port) {
                 info!(
                     port = port,
                     elapsed_ms = start.elapsed().as_millis() as u64,
                     "Server is ready"
                 );
-                return true;
+                return Ok(());
             }
+
             tokio::time::sleep(check_interval).await;
         }
-        false
+
+        match startup_rx.try_recv() {
+            Ok(result) => result,
+            Err(tokio::sync::oneshot::error::TryRecvError::Empty) => {
+                Err(AppError::Other("FTP server startup timed out".to_string()))
+            }
+            Err(tokio::sync::oneshot::error::TryRecvError::Closed) => Err(AppError::Other(
+                "FTP server startup handshake dropped unexpectedly".to_string(),
+            )),
+        }
     }
 
     /// 等待服务器完全停止（检查端口是否不再监听）
@@ -446,11 +506,12 @@ impl FtpServerActor {
     }
 
     /// 完成启动流程，更新状态
-    async fn finalize_startup(
-        &mut self, bind_addr: SocketAddr, config: ServerConfig) {
+    async fn finalize_startup(&mut self, spawned_server: SpawnedServer, config: ServerConfig) {
+        let bind_addr = spawned_server.bind_addr;
         self.set_status(ServerStatus::Running).await;
         self.config = Some(config);
         self.bind_addr = Some(bind_addr);
+        self.server_task = Some(spawned_server.server_task);
 
         let advertised_addr = advertised_server_addr(
             bind_addr,
@@ -461,6 +522,46 @@ impl FtpServerActor {
             .emit_server_started(advertised_addr)
             .await;
         info!(bind_addr = %bind_addr, "FTP server started successfully");
+    }
+
+    async fn cleanup_failed_startup(&mut self, server_task: tokio::task::JoinHandle<()>) {
+        if let Some(shutdown_tx) = self.shutdown_tx.take() {
+            let _ = shutdown_tx.send(());
+        }
+
+        server_task.abort();
+        let _ = server_task.await;
+
+        self.config = None;
+        self.bind_addr = None;
+        self.server_task = None;
+        self.set_status(ServerStatus::Stopped).await;
+    }
+
+    async fn reset_partial_state(&mut self) {
+        self.shutdown_tx = None;
+        self.config = None;
+        self.bind_addr = None;
+        self.server_task = None;
+        self.set_status(ServerStatus::Stopped).await;
+    }
+
+    async fn clear_stopped_state(&mut self) {
+        self.sessions.clear();
+        self.shutdown_tx = None;
+        self.config = None;
+        self.bind_addr = None;
+        self.server_task = None;
+        self.set_status(ServerStatus::Stopped).await;
+    }
+
+    async fn emit_stopped_runtime_state(&self) {
+        self.event_bus.emit_server_stopped().await;
+    }
+
+    async fn finalize_terminal_stop(&mut self) {
+        self.clear_stopped_state().await;
+        self.emit_stopped_runtime_state().await;
     }
 
     /// 执行停止
@@ -477,33 +578,63 @@ impl FtpServerActor {
 
         info!(port = port, "Stopping FTP server");
 
+        self.set_status(ServerStatus::Stopping).await;
+
+        let mut server_task = match self.server_task.take() {
+            Some(server_task) => server_task,
+            None => {
+                self.finalize_terminal_stop().await;
+                return Ok(());
+            }
+        };
+
         if let Some(tx) = self.shutdown_tx.take() {
             let _ = tx.send(());
         }
 
+        match tokio::time::timeout(
+            Duration::from_secs(SERVER_SHUTDOWN_TIMEOUT_SECS),
+            &mut server_task,
+        )
+        .await
         {
-            let mut status = self.status.write().await;
-            *status = ServerStatus::Stopping;
+            Ok(Ok(())) => {
+                self.observe_post_task_stop(port, Duration::from_secs(SERVER_SHUTDOWN_TIMEOUT_SECS))
+                    .await;
+                self.finalize_terminal_stop().await;
+            }
+            Ok(Err(error)) => {
+                info!(error = %error, "FTP server task ended during shutdown");
+                self.finalize_terminal_stop().await;
+                return Ok(());
+            }
+            Err(_) => {
+                server_task.abort();
+                match server_task.await {
+                    Ok(()) | Err(_) => {
+                        self.finalize_terminal_stop().await;
+                        return Ok(());
+                    }
+                }
+            }
         }
-
-        // 等待服务器完全停止（而非固定延迟）
-        if !Self::wait_for_server_stopped(port, Duration::from_secs(SERVER_SHUTDOWN_TIMEOUT_SECS)).await {
-            warn!(port = port, "Server did not stop within timeout, continuing anyway");
-        }
-
-        {
-            let mut status = self.status.write().await;
-            *status = ServerStatus::Stopped;
-        }
-
-        self.config = None;
-        self.bind_addr = None;
-
-        self.event_bus.emit_server_stopped().await;
 
         info!("FTP server stopped");
 
         Ok(())
+    }
+
+    async fn observe_post_task_stop(&self, port: u16, timeout: Duration) {
+        if Self::wait_for_server_stopped(port, timeout).await {
+            return;
+        }
+
+        if Self::is_port_listening(port) {
+            error!(
+                port = port,
+                "Port remained reachable after FTP server task exited"
+            );
+        }
     }
 
     /// 获取当前状态
@@ -526,8 +657,10 @@ impl FtpServerActor {
         }
 
         let bind_addr = self.bind_addr?;
-        let ip = crate::network::NetworkManager::recommended_ip()
-            .unwrap_or_else(|| "0.0.0.0".to_string());
+        let ip = normalize_ipv4_host(
+            &crate::network::NetworkManager::recommended_ip()
+                .unwrap_or_else(|| "127.0.0.1".to_string()),
+        );
         let port = bind_addr.port();
 
         // 获取认证信息
@@ -552,11 +685,11 @@ impl FtpServerActor {
 fn advertised_server_addr(bind_addr: SocketAddr, recommended_ip: Option<String>) -> String {
     let ip = recommended_ip.unwrap_or_else(|| match bind_addr.ip() {
         std::net::IpAddr::V4(ip) if ip.is_unspecified() => "127.0.0.1".to_string(),
-        std::net::IpAddr::V6(ip) if ip.is_unspecified() => "::1".to_string(),
-        ip => ip.to_string(),
+        std::net::IpAddr::V4(ip) => ip.to_string(),
+        _ => "127.0.0.1".to_string(),
     });
 
-    format!("{}:{}", ip, bind_addr.port())
+    format_ipv4_socket_addr(&ip, bind_addr.port())
 }
 
 fn build_server_snapshot(
@@ -630,6 +763,16 @@ mod tests {
     }
 
     #[test]
+    fn advertised_server_addr_rejects_ipv6_like_recommended_ip() {
+        let bind_addr: SocketAddr = ([0, 0, 0, 0], 2121).into();
+
+        assert_eq!(
+            advertised_server_addr(bind_addr, Some("::1".to_string())),
+            "127.0.0.1:2121"
+        );
+    }
+
+    #[test]
     fn build_server_snapshot_keeps_stopped_state_even_with_nonzero_stats() {
         let stats = crate::ftp::types::ServerStats {
             active_connections: 9,
@@ -663,5 +806,52 @@ mod tests {
         let runtime_snapshot = event_bus.runtime_state().current_runtime_snapshot().await;
         assert!(runtime_snapshot.is_running);
         assert_eq!(runtime_snapshot.bind_addr.as_deref(), Some("127.0.0.1:2121"));
+    }
+
+    #[tokio::test]
+    async fn clear_stopped_state_clears_sessions_before_marking_stopped() {
+        let event_bus = EventBus::new();
+        let (stats_actor, _worker) = StatsActor::with_event_bus(None);
+        let (_handle, mut actor) = FtpServerActor::new(stats_actor, event_bus, None);
+
+        actor.sessions.insert("session-a".to_string());
+        actor.sessions.insert("session-b".to_string());
+        actor.set_status(ServerStatus::Stopping).await;
+
+        actor.clear_stopped_state().await;
+
+        assert!(actor.sessions.is_empty());
+        assert_eq!(actor.get_current_status().await, ServerStatus::Stopped);
+        assert_eq!(actor.get_current_snapshot().await.connected_clients, 0);
+    }
+
+    #[test]
+    fn future_server_startup_contract_times_out_with_explicit_error_path() {
+        let source = include_str!("server.rs");
+        let production_source = source
+            .split("#[cfg(test)]")
+            .next()
+            .expect("server.rs should contain production code before tests");
+
+        assert!(!production_source.contains("Server may not be fully ready, continuing anyway"));
+        assert!(!production_source.contains("Server did not stop within timeout, continuing anyway"));
+        assert!(production_source.contains("FTP server startup timed out"));
+    }
+
+    #[test]
+    fn future_server_lifecycle_contract_owns_and_times_out_server_task_shutdown() {
+        let source = include_str!("server.rs");
+        let production_source = source
+            .split("#[cfg(test)]")
+            .next()
+            .expect("server.rs should contain production code before tests");
+
+        assert!(production_source.contains(
+            "server_task: Option<tokio::task::JoinHandle<()>>"
+        ));
+        assert!(production_source.contains("self.server_task.take()"));
+        assert!(production_source.contains("Port remained reachable after FTP server task exited"));
+        assert!(!production_source.contains("self.server_task = Some(server_task)"));
+        assert!(!production_source.contains("Server did not stop within timeout, continuing anyway"));
     }
 }

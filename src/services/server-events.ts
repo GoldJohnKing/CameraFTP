@@ -21,6 +21,35 @@ type ServerRuntimeView = {
   stats: ServerStateSnapshot;
 };
 
+function normalizeIpv4Host(host: string): string {
+  const trimmedHost = host.trim();
+  const octets = trimmedHost.split('.');
+  if (octets.length !== 4) {
+    return '127.0.0.1';
+  }
+
+  for (const octet of octets) {
+    if (!/^\d+$/.test(octet)) {
+      return '127.0.0.1';
+    }
+
+    const value = Number(octet);
+    if (!Number.isInteger(value) || value < 0 || value > 255) {
+      return '127.0.0.1';
+    }
+  }
+
+  return octets.map((octet) => String(Number(octet))).join('.');
+}
+
+function buildNormalizedIpv4ServerInfo(ip: string, port: number): Pick<ServerInfo, 'ip' | 'url'> {
+  const normalizedIp = normalizeIpv4Host(ip);
+  return {
+    ip: normalizedIp,
+    url: `ftp://${normalizedIp}:${port}`,
+  };
+}
+
 async function syncRuntimeStateFromBackend(): Promise<boolean> {
   try {
     const runtimeState = await invoke<ServerRuntimeView>('get_server_runtime_state');
@@ -50,11 +79,13 @@ function createEventRegistrations(): EventRegistration<any>[] {
           return;
         }
 
+        const normalizedServerInfo = buildNormalizedIpv4ServerInfo(ip, port);
+
         useServerStore.getState().setServerRunning({
           isRunning: true,
-          ip,
+          ip: normalizedServerInfo.ip,
           port,
-          url: `ftp://${ip}:${port}`,
+          url: normalizedServerInfo.url,
           username: 'anonymous',
           passwordInfo: '(任意密码)',
         });

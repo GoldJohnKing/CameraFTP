@@ -89,17 +89,33 @@ pub async fn stop_server(
 ) -> Result<(), AppError> {
     info!("Stopping FTP server...");
 
-    let mut server_guard = state.0.lock().await;
+    let server = {
+        let server_guard = state.0.lock().await;
+        server_guard.as_ref().cloned()
+    };
 
-    if let Some(server) = server_guard.take() {
+    if let Some(server) = server {
         match server.stop().await {
             Ok(_) => {
+                let mut server_guard = state.0.lock().await;
+                server_guard.take();
+
                 info!("FTP server stopped successfully");
                 Ok(())
             }
             Err(e) => {
-                error!(error = %e, "Error stopping server");
-                Err(e.into())
+                let runtime_state = server.runtime_state().current_snapshot().await;
+
+                if !runtime_state.is_running {
+                    let mut server_guard = state.0.lock().await;
+                    server_guard.take();
+
+                    info!(error = %e, "Stop returned an error after the server had already stopped; cleared stale server handle");
+                    Ok(())
+                } else {
+                    error!(error = %e, "Error stopping server");
+                    Err(e.into())
+                }
             }
         }
     } else {
