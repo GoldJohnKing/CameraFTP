@@ -16,14 +16,19 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.net.wifi.WifiManager
 import android.os.IBinder
+import android.os.Build
 import android.os.PowerManager
 import android.util.Log
 import androidx.annotation.StringRes
+import androidx.annotation.RequiresApi
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import org.json.JSONObject
 
 class FtpForegroundService : Service() {
+    @Volatile
+    private var isInForeground = false
+
     companion object {
         const val TAG = "FtpForegroundService"
         const val NOTIFICATION_ID = 1001
@@ -31,6 +36,7 @@ class FtpForegroundService : Service() {
 
         // Actions
         const val ACTION_START = "com.gjk.cameraftpcompanion.START_SERVICE"
+        const val ACTION_STOP = "com.gjk.cameraftpcompanion.STOP_SERVICE"
         // Singleton instance for MainActivity to access
         @Volatile
         private var instance: FtpForegroundService? = null
@@ -68,11 +74,15 @@ class FtpForegroundService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         Log.d(TAG, "onStartCommand: action=${intent?.action}, startId=$startId")
 
+        if (intent?.action == ACTION_STOP) {
+            stopForegroundServiceNow("explicit stop action")
+            return START_NOT_STICKY
+        }
+
         val snapshot = AndroidServiceStateCoordinator.getLatestState()
         if (!snapshot.isRunning) {
             Log.d(TAG, "onStartCommand: ignoring start because coordinator is stopped")
-            applyServerState(null, 0)
-            stopSelf()
+            stopForegroundServiceNow("stale start while stopped")
             return START_NOT_STICKY
         }
 
@@ -90,12 +100,26 @@ class FtpForegroundService : Service() {
     override fun onDestroy() {
         Log.d(TAG, "onDestroy: cleaning up service")
         instance = null
+        isInForeground = false
         releaseLocks()
         super.onDestroy()
     }
 
+    @RequiresApi(Build.VERSION_CODES.VANILLA_ICE_CREAM)
+    override fun onTimeout(startId: Int, fgsType: Int) {
+        Log.w(TAG, "onTimeout(startId, fgsType): startId=$startId, fgsType=$fgsType")
+        AndroidServiceStateCoordinator.clearState()
+        stopForegroundServiceNow("fgs timeout startId=$startId type=$fgsType")
+    }
+
+    override fun onTimeout(startId: Int) {
+        Log.w(TAG, "onTimeout(startId): startId=$startId")
+        AndroidServiceStateCoordinator.clearState()
+        stopForegroundServiceNow("fgs timeout startId=$startId")
+    }
+
     /**
-     * Start foreground service with dataSync type.
+     * Start foreground service with connectedDevice type.
      * Required for MIUI and other OEM ROMs to recognize service type.
      */
     private fun startForegroundWithType(notification: Notification) {
@@ -103,9 +127,20 @@ class FtpForegroundService : Service() {
             this,
             NOTIFICATION_ID,
             notification,
-            ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+            ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE
         )
-        Log.d(TAG, "startForegroundWithType: started with FOREGROUND_SERVICE_TYPE_DATA_SYNC")
+        isInForeground = true
+        Log.d(TAG, "startForegroundWithType: started with FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE")
+    }
+
+    private fun stopForegroundServiceNow(reason: String) {
+        Log.d(TAG, "stopForegroundServiceNow: $reason")
+        applyServerState(null, 0)
+        if (isInForeground) {
+            ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
+            isInForeground = false
+        }
+        stopSelf()
     }
 
     /**
@@ -138,22 +173,32 @@ class FtpForegroundService : Service() {
 
         // Acquire partial wake lock to keep CPU running
         // No timeout - service lifecycle manages release via onDestroy()
-        val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
-        wakeLock = powerManager.newWakeLock(
-            PowerManager.PARTIAL_WAKE_LOCK,
-            "FtpForegroundService::WakeLock"
-        ).apply {
-            acquire() // Indefinite - released when service stops
+        runCatching {
+            val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
+            val nextWakeLock = powerManager.newWakeLock(
+                PowerManager.PARTIAL_WAKE_LOCK,
+                "FtpForegroundService::WakeLock"
+            )
+            wakeLock = nextWakeLock
+            nextWakeLock.acquire() // Indefinite - released when service stops
+        }.onFailure { error ->
+            Log.e(TAG, "Failed to acquire wake lock", error)
+            wakeLock = null
         }
 
         // Acquire WiFi lock to keep WiFi connection alive
-        val wifiManager = applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
-        @Suppress("DEPRECATION")
-        wifiLock = wifiManager.createWifiLock(
-            WifiManager.WIFI_MODE_FULL_HIGH_PERF,
-            "FtpForegroundService::WifiLock"
-        ).apply {
-            acquire()
+        runCatching {
+            val wifiManager = applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
+            @Suppress("DEPRECATION")
+            val nextWifiLock = wifiManager.createWifiLock(
+                WifiManager.WIFI_MODE_FULL_HIGH_PERF,
+                "FtpForegroundService::WifiLock"
+            )
+            wifiLock = nextWifiLock
+            nextWifiLock.acquire()
+        }.onFailure { error ->
+            Log.e(TAG, "Failed to acquire wifi lock", error)
+            wifiLock = null
         }
     }
 
@@ -164,15 +209,23 @@ class FtpForegroundService : Service() {
         Log.d(TAG, "releaseLocks: releasing wake lock and wifi lock")
 
         wakeLock?.let {
-            if (it.isHeld) {
-                it.release()
+            runCatching {
+                if (it.isHeld) {
+                    it.release()
+                }
+            }.onFailure { error ->
+                Log.e(TAG, "Failed to release wake lock", error)
             }
         }
         wakeLock = null
 
         wifiLock?.let {
-            if (it.isHeld) {
-                it.release()
+            runCatching {
+                if (it.isHeld) {
+                    it.release()
+                }
+            }.onFailure { error ->
+                Log.e(TAG, "Failed to release wifi lock", error)
             }
         }
         wifiLock = null

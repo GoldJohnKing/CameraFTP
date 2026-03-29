@@ -99,7 +99,10 @@ object AndroidServiceStateCoordinator {
     }
 
     private fun stopForegroundService(appContext: Context) {
-        val serviceIntent = Intent(appContext, FtpForegroundService::class.java)
-        appContext.stopService(serviceIntent)
+        val serviceIntent = Intent(appContext, FtpForegroundService::class.java).apply {
+            action = FtpForegroundService.ACTION_STOP
+        }
+
+        appContext.startService(serviceIntent)
     }
 }
