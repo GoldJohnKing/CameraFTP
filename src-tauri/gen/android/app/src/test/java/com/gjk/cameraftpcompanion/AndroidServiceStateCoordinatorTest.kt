@@ -34,7 +34,7 @@ class AndroidServiceStateCoordinatorTest {
     @Test
     fun manifest_declares_connected_device_foreground_service_type() {
         val manifestPath = Paths.get("app/src/main/AndroidManifest.xml")
-        val manifest = Files.readString(manifestPath)
+        val manifest = String(Files.readAllBytes(manifestPath))
         val androidNamespace = "http://schemas.android.com/apk/res/android"
         val document = DocumentBuilderFactory.newInstance().apply { isNamespaceAware = true }
             .newDocumentBuilder()
@@ -105,6 +105,20 @@ class AndroidServiceStateCoordinatorTest {
         assertEquals(0, snapshot.connectedClients)
         assertEquals(FtpForegroundService::class.java.name, stopIntent.component?.className)
         assertEquals(FtpForegroundService.ACTION_STOP, stopIntent.action)
+    }
+
+    @Test
+    fun stopped_snapshot_without_service_instance_does_not_start_stop_service() {
+        val context = getApplicationContext<Context>()
+        val application = getApplicationContext<android.app.Application>()
+
+        AndroidServiceStateCoordinator.clearState()
+        shadowOf(application).clearStartedServices()
+
+        AndroidServiceStateCoordinator.syncNativeServiceState(context, false, null, 0)
+
+        assertNull(shadowOf(application).nextStartedService)
+        assertFalse(AndroidServiceStateCoordinator.getLatestState().isRunning)
     }
 
     @Test
@@ -244,7 +258,7 @@ class AndroidServiceStateCoordinatorTest {
     @Test
     fun service_source_uses_connected_device_foreground_runtime_type() {
         val sourcePath = Paths.get("src/main/java/com/gjk/cameraftpcompanion/FtpForegroundService.kt")
-        val source = Files.readString(sourcePath)
+        val source = String(Files.readAllBytes(sourcePath))
 
         assertTrue(source.contains("const val ACTION_STOP = \"com.gjk.cameraftpcompanion.STOP_SERVICE\""))
         assertTrue(source.contains("ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE"))

@@ -77,6 +77,11 @@ object AndroidServiceStateCoordinator {
     fun stopService(callerContext: Context) {
         val appContext = callerContext.applicationContext
         storeSnapshot(false, null, 0)
+
+        if (FtpForegroundService.getInstance() == null) {
+            return
+        }
+
         stopForegroundService(appContext)
     }
 
