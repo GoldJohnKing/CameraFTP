@@ -8,9 +8,7 @@ package com.gjk.cameraftpcompanion
 
 import android.annotation.SuppressLint
 import android.app.Activity
-import android.content.Intent
 import android.content.IntentSender
-import android.os.Build
 import android.os.Bundle
 import android.util.Log
 import android.webkit.WebView
@@ -18,7 +16,6 @@ import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.enableEdgeToEdge
 import com.gjk.cameraftpcompanion.bridges.FileUploadBridge
-import com.gjk.cameraftpcompanion.bridges.ServerStateBridge
 import com.gjk.cameraftpcompanion.bridges.GalleryBridge
 import com.gjk.cameraftpcompanion.bridges.GalleryBridgeV2
 import com.gjk.cameraftpcompanion.bridges.MediaStoreBridge
@@ -37,6 +34,18 @@ class MainActivity : TauriActivity() {
         // Rust 侧: TAURI_LISTENER_RETRY_DELAY_MS = 50L
         private const val TAURI_LISTENER_MAX_RETRIES = 50
         private const val TAURI_LISTENER_RETRY_DELAY_MS = 50L
+        private val JS_REGISTRATION_CODE = """
+            (function() {
+                if (window.__tauriEventListenerRegistered) return 'already_registered';
+                
+                if (window.__TAURI__?.event) {
+                    window.__tauriEventListenerRegistered = true;
+
+                    return 'success';
+                }
+                return 'not_ready';
+            })();
+        """.trimIndent()
 
         /**
          * Static WebView reference for cross-Activity Tauri IPC access
@@ -47,12 +56,14 @@ class MainActivity : TauriActivity() {
 
     private var webViewRef: WebView? = null
     private var fileUploadBridge: FileUploadBridge? = null
-    private var serverStateBridge: ServerStateBridge? = null
     private var permissionBridge: PermissionBridge? = null
     private var galleryBridge: GalleryBridge? = null
     private var galleryBridgeV2: GalleryBridgeV2? = null
     private var mediaStoreBridge: MediaStoreBridge? = null
     private var imageViewerBridge: ImageViewerBridge? = null
+    @Volatile
+    private var isWebViewActive = false
+    private var eventListenerRegistration: EventListenerRegistration? = null
     private val pendingDeleteResult = AtomicReference<Pair<CountDownLatch, AtomicReference<Boolean>>?>(null)
     private val deleteRequestLauncher = registerForActivityResult(
         ActivityResultContracts.StartIntentSenderForResult()
@@ -80,7 +91,6 @@ class MainActivity : TauriActivity() {
         
         Log.d(TAG, "onCreate: initializing bridges")
         fileUploadBridge = FileUploadBridge(this)
-        serverStateBridge = ServerStateBridge(this)
         permissionBridge = PermissionBridge(this)
         galleryBridge = GalleryBridge(this)
         galleryBridgeV2 = GalleryBridgeV2(this)
@@ -104,10 +114,10 @@ class MainActivity : TauriActivity() {
         
         // 保存WebView引用
         webViewRef = webView
+        isWebViewActive = true
         
         Log.d(TAG, "onWebViewCreate: adding JavaScript bridges")
         addJsBridge(webView, fileUploadBridge, "FileUploadAndroid")
-        addJsBridge(webView, serverStateBridge, "ServerStateAndroid")
         addJsBridge(webView, permissionBridge, "PermissionAndroid")
         addJsBridge(webView, galleryBridge, "GalleryAndroid")
         addJsBridge(webView, galleryBridgeV2, "GalleryAndroidV2")
@@ -126,7 +136,8 @@ class MainActivity : TauriActivity() {
     @SuppressLint("SetJavaScriptEnabled")
     private fun registerTauriEventListeners() {
         webViewRef?.let { webView ->
-            EventListenerRegistration(webView).start()
+            eventListenerRegistration?.cancel()
+            eventListenerRegistration = EventListenerRegistration(webView).also { it.start() }
         } ?: Log.e(TAG, "WebView is null, cannot register event listeners")
     }
 
@@ -136,67 +147,60 @@ class MainActivity : TauriActivity() {
      */
     private inner class EventListenerRegistration(private val webView: WebView) {
         private var retryCount = 0
+        private var cancelled = false
+        private val retryRunnable = Runnable { attemptRegister() }
 
         fun start() {
             attemptRegister()
         }
 
+        fun cancel() {
+            cancelled = true
+            webView.removeCallbacks(retryRunnable)
+        }
+
         private fun attemptRegister() {
+            if (cancelled || !isWebViewActive || webViewRef !== webView) {
+                return
+            }
+
             if (retryCount >= TAURI_LISTENER_MAX_RETRIES) {
                 Log.w(TAG, "Max retries reached, Tauri event listener registration failed")
                 return
             }
 
-            webView.evaluateJavascript(jsRegistrationCode) { result ->
+            webView.evaluateJavascript(JS_REGISTRATION_CODE) { result ->
                 handleResult(result?.trim()?.removeSurrounding("\""))
             }
         }
 
         private fun handleResult(result: String?) {
+            if (cancelled || !isWebViewActive || webViewRef !== webView) {
+                return
+            }
+
             when (result) {
                 "success" -> Log.d(TAG, "Tauri event listeners registered successfully")
                 "already_registered" -> Log.d(TAG, "Event listeners already registered")
                 else -> {
                     retryCount++
-                    webView.postDelayed({ attemptRegister() }, TAURI_LISTENER_RETRY_DELAY_MS)
+                    webView.postDelayed(retryRunnable, TAURI_LISTENER_RETRY_DELAY_MS)
                 }
             }
         }
     }
 
-    /**
-     * 用于注册Tauri事件监听器的JavaScript代码
-     */
-    private val jsRegistrationCode = """
-        (function() {
-            if (window.__tauriEventListenerRegistered) return 'already_registered';
-            
-            if (window.__TAURI__?.event) {
-                window.__tauriEventListenerRegistered = true;
-                
-                window.__TAURI__.event.listen('android-service-state-update', (event) => {
-                    const p = event.payload;
-                    window.ServerStateAndroid?.onServerStateChanged(
-                        p?.is_running || false,
-                        p?.stats ? JSON.stringify(p.stats) : null,
-                        p?.connected_clients || 0
-                    );
-                });
-                
-                return 'success';
-            }
-            return 'not_ready';
-        })();
-    """.trimIndent()
-
     override fun onDestroy() {
         Log.d(TAG, "onDestroy: cleaning up bridge references")
+        isWebViewActive = false
+        eventListenerRegistration?.cancel()
+        eventListenerRegistration = null
+        galleryBridgeV2?.destroy()
         super.onDestroy()
         instance = null
         // Clear all bridge references to prevent memory leaks
         webViewRef = null
         fileUploadBridge = null
-        serverStateBridge = null
         permissionBridge = null
         galleryBridge = null
         galleryBridgeV2 = null
@@ -208,6 +212,10 @@ class MainActivity : TauriActivity() {
      * 获取 WebView 引用（供 Bridge 使用）
      */
     fun getWebView(): WebView? {
+        if (!isWebViewActive || isDestroyed) {
+            return null
+        }
+
         return webViewRef
     }
 
@@ -217,10 +225,10 @@ class MainActivity : TauriActivity() {
      * @param payloadJson JSON payload as string
      */
     fun emitTauriEvent(name: String, payloadJson: String) {
-        val webView = webViewRef ?: return
+        getWebView() ?: return
         val script = "window.__TAURI__?.event?.emit('$name', $payloadJson)"
         runOnUiThread {
-            webView.evaluateJavascript(script, null)
+            getWebView()?.evaluateJavascript(script, null)
         }
     }
 
@@ -230,10 +238,10 @@ class MainActivity : TauriActivity() {
      * @param detailJson JSON detail object as string
      */
     fun emitWindowEvent(name: String, detailJson: String) {
-        val webView = webViewRef ?: return
+        getWebView() ?: return
         val script = "window.dispatchEvent(new CustomEvent('$name', { detail: $detailJson }))"
         runOnUiThread {
-            webView.evaluateJavascript(script, null)
+            getWebView()?.evaluateJavascript(script, null)
         }
     }
 
@@ -266,22 +274,6 @@ class MainActivity : TauriActivity() {
     }
     
     /**
-     * Start the FTP foreground service
-     */
-    private fun startFtpForegroundService() {
-        Log.d(TAG, "startFtpForegroundService: starting FTP service")
-        val serviceIntent = Intent(this, FtpForegroundService::class.java).apply {
-            action = FtpForegroundService.ACTION_START
-        }
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            startForegroundService(serviceIntent)
-        } else {
-            startService(serviceIntent)
-        }
-    }
-    
-    /**
      * Handle permission request results
      */
     override fun onRequestPermissionsResult(
@@ -290,50 +282,6 @@ class MainActivity : TauriActivity() {
         grantResults: IntArray
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        // Service is started by updateServiceState() when server actually starts
-    }
-    
-    /**
-     * Update service state (called from JS bridge)
-     * This also handles starting/stopping the foreground service based on server state
-     */
-    fun updateServiceState(isRunning: Boolean, statsJson: String?, connectedClients: Int) {
-        Log.d(TAG, "updateServiceState: isRunning=$isRunning, connectedClients=$connectedClients")
-
-        when {
-            isRunning -> startOrUpdateService(statsJson, connectedClients)
-            else -> stopServiceIfRunning()
-        }
-    }
-
-    private fun startOrUpdateService(statsJson: String?, connectedClients: Int) {
-        val service = getOrCreateService()
-        service?.updateServerState(statsJson, connectedClients)
-            ?: Log.w(TAG, "Failed to start foreground service")
-    }
-
-    private fun getOrCreateService(): FtpForegroundService? {
-        return FtpForegroundService.getInstance() ?: run {
-            startFtpForegroundService()
-            FtpForegroundService.getInstance()
-        }
-    }
-
-    private fun stopServiceIfRunning() {
-        FtpForegroundService.getInstance()?.let {
-            stopFtpForegroundService()
-        }
-    }
-    
-    /**
-     * Stop the foreground service
-     */
-    private fun stopFtpForegroundService() {
-        Log.d(TAG, "stopFtpForegroundService: stopping FTP service")
-        val intent = Intent(this, FtpForegroundService::class.java).apply {
-            action = FtpForegroundService.ACTION_STOP
-        }
-        stopService(intent)
     }
 
   /**
@@ -343,10 +291,8 @@ class MainActivity : TauriActivity() {
 
   override fun onResume() {
     super.onResume()
-    // Notify WebView to refresh gallery (may be returning from ImageViewerActivity after deletion)
-    val refreshPayload = "{\"reason\":\"activity-resume\",\"timestamp\":${System.currentTimeMillis()}}"
-    emitWindowEvent("gallery-refresh-requested", refreshPayload)
-    emitWindowEvent("latest-photo-refresh-requested", refreshPayload)
+    // Incremental delete events are handled by ImageViewerActivity via gallery-items-deleted
+    // Full refresh is no longer needed on resume, preserving scroll position
   }
 
     /**
@@ -378,7 +324,7 @@ class MainActivity : TauriActivity() {
         if (isInSelectionMode) {
             // Notify JS to cancel selection
             try {
-                webViewRef?.evaluateJavascript(
+                getWebView()?.evaluateJavascript(
                     "if (window.__galleryOnBackPressed) { window.__galleryOnBackPressed(); }",
                     null
                 )

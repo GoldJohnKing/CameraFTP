@@ -258,6 +258,29 @@ class ThumbnailPipelineManagerTest {
         assertEquals("Pending should decrease by 5", 5, pipeline.pendingCount())
     }
 
+    @Test
+    fun `shutdown_clears_buffered_results_before_main_thread_flush`() {
+        val delivered = mutableListOf<ThumbResult>()
+        pipeline.onResult = { delivered.add(it) }
+
+        val job = ThumbJob(
+            requestId = "shutdown-job", mediaId = "media-shutdown", uri = "uri-shutdown",
+            dateModifiedMs = 1000L, sizeBucket = "s",
+            priority = "visible", viewId = "view-1"
+        )
+
+        assertTrue("Job should be accepted", pipeline.enqueue(job))
+        assertTrue("Cancel should schedule a buffered cancelled result", pipeline.cancel("shutdown-job"))
+
+        pipeline.shutdown()
+        idleMainLooper()
+
+        assertTrue(
+            "No buffered results should be delivered after shutdown",
+            delivered.isEmpty()
+        )
+    }
+
     // ── Test 9: dedup rejects same key ──────────────────────────────────
 
     @Test

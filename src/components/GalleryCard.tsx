@@ -75,6 +75,13 @@ export const GalleryCard = memo(function GalleryCard() {
     [scheduler],
   );
 
+  const handleNearEnd = useCallback(() => {
+    // Load next page when scrolling near the end
+    if (!pager.isLoading && pager.cursor !== null) {
+      void pager.loadNextPage();
+    }
+  }, [pager]);
+
   const handleItemClick = useCallback(
     (item: MediaItemDto) => {
       if (handleSelectionClick(item.mediaId)) {
@@ -119,7 +126,7 @@ export const GalleryCard = memo(function GalleryCard() {
     }
   }, [handleRefreshStart, pager, scheduler, requestStoragePermission, startPermissionPolling]);
 
-  // Listen for gallery refresh events (from MainActivity.onResume or ImageViewerActivity post-deletion)
+  // Full refresh on permission granted (necessary because gallery was empty before)
   useEffect(() => {
     const handleGalleryRefresh = () => {
       void handleRefresh();
@@ -129,6 +136,49 @@ export const GalleryCard = memo(function GalleryCard() {
       window.removeEventListener('gallery-refresh-requested', handleGalleryRefresh);
     };
   }, [handleRefresh]);
+
+  // Listen for incremental delete events from ImageViewerActivity (preserves scroll position)
+  useEffect(() => {
+    interface GalleryItemsDeletedEvent extends CustomEvent {
+      detail: { mediaIds: string[]; timestamp: number };
+    }
+
+    const handleItemsDeleted = (event: GalleryItemsDeletedEvent) => {
+      const { mediaIds } = event.detail;
+      if (mediaIds?.length > 0) {
+        const idsToDelete = new Set(mediaIds);
+        pager.removeItems(idsToDelete);
+        scheduler.removeThumbs(idsToDelete);
+        // Invalidate disk cache for deleted media IDs
+        void invalidateMediaIds([...idsToDelete]);
+      }
+    };
+
+    window.addEventListener('gallery-items-deleted', handleItemsDeleted as EventListener);
+    return () => {
+      window.removeEventListener('gallery-items-deleted', handleItemsDeleted as EventListener);
+    };
+  }, [pager, scheduler]);
+
+  // Listen for incremental add events from FTP upload (preserves scroll position)
+  useEffect(() => {
+    interface GalleryItemsAddedEvent extends CustomEvent {
+      detail: { items: MediaItemDto[]; timestamp: number };
+    }
+
+    const handleItemsAdded = (event: GalleryItemsAddedEvent) => {
+      const { items } = event.detail;
+      if (items?.length > 0) {
+        // Add new items to the beginning of the list (newest first)
+        pager.addItems(items);
+      }
+    };
+
+    window.addEventListener('gallery-items-added', handleItemsAdded as EventListener);
+    return () => {
+      window.removeEventListener('gallery-items-added', handleItemsAdded as EventListener);
+    };
+  }, [pager]);
 
   // Not on Android
   if (!isGalleryMediaAvailable()) {
@@ -175,7 +225,7 @@ export const GalleryCard = memo(function GalleryCard() {
       {/* Header with refresh button */}
       <div className="flex items-center justify-between shrink-0">
         <h2 className="text-lg font-semibold text-gray-900">
-          图库 ({pager.items.length})
+          图库 ({pager.totalCount})
         </h2>
         <button
           onClick={handleRefresh}
@@ -190,17 +240,18 @@ export const GalleryCard = memo(function GalleryCard() {
       {/* Virtualized image grid */}
       <div className="flex-1 min-h-0 mt-2">
         <VirtualGalleryGrid
-        items={pager.items}
-        thumbnails={scheduler.thumbnails}
-        loadingThumbs={scheduler.loadingThumbs}
-        onItemClick={handleItemClick}
-        onRangeChange={handleRangeChange}
-        isSelectionMode={isSelectionMode}
-        selectedIds={selectedIds}
-        deletingIds={deletingIds}
-        onTouchStart={handleTouchStart}
-        onTouchMove={handleTouchMove}
-        onTouchEnd={handleTouchEnd}
+          items={pager.items}
+          thumbnails={scheduler.thumbnails}
+          loadingThumbs={scheduler.loadingThumbs}
+          onItemClick={handleItemClick}
+          onRangeChange={handleRangeChange}
+          onNearEnd={handleNearEnd}
+          isSelectionMode={isSelectionMode}
+          selectedIds={selectedIds}
+          deletingIds={deletingIds}
+          onTouchStart={handleTouchStart}
+          onTouchMove={handleTouchMove}
+          onTouchEnd={handleTouchEnd}
         />
       </div>
 

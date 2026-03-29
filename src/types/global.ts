@@ -36,21 +36,6 @@ interface StorageSettingsAndroid {
 }
 
 /**
- * Android Server State Bridge 接口
- * 用于与前台的 FTP 服务通信
- * 由 ServerStateBridge 注入为 "ServerStateAndroid"
- */
-interface ServerStateAndroid {
-  /**
-   * 更新前台服务的状态
-   * @param isRunning 服务器是否运行中
-   * @param statsJson 统计信息的 JSON 字符串，或 null
-   * @param connectedClients 当前连接的客户端数量
-   */
-  onServerStateChanged(isRunning: boolean, statsJson: string | null, connectedClients: number): void;
-}
-
-/**
  * Android 权限检查结果
  */
 export interface PermissionCheckResult {
@@ -305,12 +290,6 @@ declare global {
     StorageSettingsAndroid?: StorageSettingsAndroid;
     
     /**
-     * Android Server State JS Bridge
-     * 用于与前台 FTP 服务通信
-     */
-    ServerStateAndroid?: ServerStateAndroid;
-    
-    /**
      * Android 权限管理 JS Bridge
      */
     PermissionAndroid?: PermissionAndroid;
@@ -373,32 +352,6 @@ export async function checkAndroidPermissions(): Promise<PermissionCheckResult |
 }
 
 // ===== Android Bridge Adapters =====
-
-/**
- * Server state bridge adapter
- * Provides a clean interface for updating Android foreground service state
- */
-export const serverStateBridge = {
-  /**
-   * Check if the server state bridge is available
-   */
-  isAvailable(): boolean {
-    return typeof window !== 'undefined' && !!window.ServerStateAndroid;
-  },
-
-  /**
-   * Update the foreground service with current server state
-   */
-  updateState(isRunning: boolean, statsJson: string | null, connectedClients: number): boolean {
-    if (!window.ServerStateAndroid) return false;
-    try {
-      window.ServerStateAndroid.onServerStateChanged(isRunning, statsJson, connectedClients);
-      return true;
-    } catch {
-      return false;
-    }
-  },
-};
 
 /**
  * Permission bridge adapter

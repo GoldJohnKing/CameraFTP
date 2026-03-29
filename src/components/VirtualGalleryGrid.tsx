@@ -28,6 +28,10 @@ export interface VirtualGalleryGridProps {
   onTouchStart?: (mediaId: string, event: TouchEvent, isScrolling: boolean) => void;
   onTouchMove?: (event: TouchEvent) => void;
   onTouchEnd?: () => void;
+  /** Called when scrolling near the end to trigger infinite scroll */
+  onNearEnd?: () => void;
+  /** Threshold in rows before end to trigger onNearEnd (default: 5) */
+  nearEndThreshold?: number;
 }
 
 export function VirtualGalleryGrid({
@@ -44,6 +48,8 @@ export function VirtualGalleryGrid({
   onTouchStart,
   onTouchMove,
   onTouchEnd,
+  onNearEnd,
+  nearEndThreshold = 5,
 }: VirtualGalleryGridProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [scrollTop, setScrollTop] = useState(0);
@@ -120,7 +126,7 @@ export function VirtualGalleryGrid({
     return items.slice(startIdx, endIdx);
   }, [items, startRow, endRow]);
 
-  // Report range changes
+  // Report range changes and trigger infinite scroll
   useEffect(() => {
     if (!onRangeChange) return;
     if (items.length === 0) return;
@@ -140,7 +146,16 @@ export function VirtualGalleryGrid({
 
     console.log(`[VGrid] onRangeChange: visible=${visibleIds.length} nearby=${nearbyIds.length} containerH=${containerHeight} totalRows=${totalRows}`);
     onRangeChange(visibleIds, nearbyIds);
-  }, [items, visibleStartRow, visibleEndRow, startRow, endRow, onRangeChange, containerHeight, totalRows]);
+
+    // Trigger infinite scroll when near the end
+    if (onNearEnd && totalRows > 0) {
+      const rowsRemaining = totalRows - visibleEndRow - 1;
+      if (rowsRemaining <= nearEndThreshold) {
+        console.log(`[VGrid] Near end triggered: rowsRemaining=${rowsRemaining}`);
+        onNearEnd();
+      }
+    }
+  }, [items, visibleStartRow, visibleEndRow, startRow, endRow, onRangeChange, onNearEnd, containerHeight, totalRows, nearEndThreshold]);
 
   const offsetY = startRow * rowHeight;
 

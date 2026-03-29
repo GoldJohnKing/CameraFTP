@@ -28,7 +28,8 @@ data class MediaPageItem(
 data class MediaPageResult(
     val items: List<MediaPageItem>,
     val nextCursor: String?,
-    val revisionToken: String
+    val revisionToken: String,
+    val totalCount: Int
 )
 
 class MediaPageProvider(private val context: Context) {
@@ -163,24 +164,40 @@ class MediaPageProvider(private val context: Context) {
         // This changes when items are added/removed, allowing callers to detect staleness
         val revisionToken = computeRevisionToken()
 
-        Log.d(TAG, "listPage: returned ${items.size} items, hasNext=${nextCursor != null}")
-        return MediaPageResult(items, nextCursor, revisionToken)
+        // Get total count for display
+        val totalCount = getTotalCount()
+
+        Log.d(TAG, "listPage: returned ${items.size} items, total=$totalCount, hasNext=${nextCursor != null}")
+        return MediaPageResult(items, nextCursor, revisionToken, totalCount)
+    }
+
+    private fun getTotalCount(): Int {
+        return try {
+            context.contentResolver.query(
+                MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+                arrayOf(MediaStore.Images.Media._ID),
+                SELECTION,
+                null,
+                null
+            )?.use { cursor ->
+                cursor.count
+            } ?: 0
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to get total count", e)
+            0
+        }
     }
 
     private fun computeRevisionToken(): String {
         return try {
             context.contentResolver.query(
                 MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
-                arrayOf("COUNT(*)"),
+                arrayOf(MediaStore.Images.Media._ID),
                 SELECTION,
                 null,
                 null
             )?.use { cursor ->
-                if (cursor.moveToFirst()) {
-                    "count:${cursor.getLong(0)}"
-                } else {
-                    "count:0"
-                }
+                "count:${cursor.count}"
             } ?: "count:unknown"
         } catch (e: Exception) {
             Log.w(TAG, "Failed to compute revisionToken", e)

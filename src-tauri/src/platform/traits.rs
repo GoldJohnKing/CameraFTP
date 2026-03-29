@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 use super::types::{PermissionStatus, ServerStartCheckResult, StorageInfo};
+use crate::ftp::types::ServerStateSnapshot;
 use std::sync::Arc;
 use tauri::AppHandle;
 #[cfg(target_os = "windows")]
@@ -85,6 +86,9 @@ pub trait PlatformService: Send + Sync {
 
     /// 更新服务器状态（用于托盘图标等）
     fn update_server_state(&self, _app: &AppHandle, _connected_clients: u32) {}
+
+    /// 将 Rust 服务器状态同步到 Android 原生前台服务协调器。
+    fn sync_android_service_state(&self, _app: &AppHandle, _snapshot: &ServerStateSnapshot) {}
 
     // ========== 开机自启相关 ==========
 

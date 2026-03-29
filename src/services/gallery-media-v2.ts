@@ -154,7 +154,7 @@ export function dispatchThumbnailResult(listenerId: string, resultJson: string):
  */
 export async function listMediaPageV2(req: MediaPageRequest): Promise<MediaPageResponse> {
   if (!isGalleryV2Available()) {
-    return { items: [], nextCursor: null, revisionToken: '' };
+    return { items: [], nextCursor: null, revisionToken: '', totalCount: 0 };
   }
   return listMediaPage(req);
 }

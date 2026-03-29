@@ -38,6 +38,7 @@ export interface MediaPageResponse {
   items: MediaItemDto[];
   nextCursor: MediaCursor;
   revisionToken: string;
+  totalCount: number;
 }
 
 // ===== Thumbnails =====

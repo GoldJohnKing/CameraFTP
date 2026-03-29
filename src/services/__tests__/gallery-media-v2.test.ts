@@ -70,6 +70,7 @@ describe('gallery-media-v2 service', () => {
         ],
         nextCursor: 'cursor-2',
         revisionToken: 'rev-1',
+        totalCount: 1,
       };
       const bridge = createMockBridge();
       bridge.listMediaPage.mockResolvedValue(JSON.stringify(response));

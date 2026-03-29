@@ -492,10 +492,13 @@ class MediaStoreBridge(activity: MainActivity) : BaseJsBridge(activity) {
                 val cursor = context.contentResolver.query(
                     Uri.parse(uri),
                     arrayOf(
+                        MediaStore.MediaColumns._ID,
                         MediaStore.MediaColumns.RELATIVE_PATH,
                         MediaStore.MediaColumns.DISPLAY_NAME,
                         MediaStore.MediaColumns.DATE_MODIFIED,
                         MediaStore.MediaColumns.MIME_TYPE,
+                        MediaStore.MediaColumns.WIDTH,
+                        MediaStore.MediaColumns.HEIGHT,
                     ),
                     null,
                     null,
@@ -504,14 +507,34 @@ class MediaStoreBridge(activity: MainActivity) : BaseJsBridge(activity) {
 
                 cursor?.use {
                     if (it.moveToFirst()) {
-                        val relativePath = it.getString(0) ?: ""
-                        val displayName = it.getString(1) ?: ""
-                        val timestamp = it.getLong(2) * 1000
-                        val mimeType = it.getString(3)
+                        val mediaId = it.getLong(0).toString()
+                        val relativePath = it.getString(1) ?: ""
+                        val displayName = it.getString(2) ?: ""
+                        val timestamp = it.getLong(3) * 1000
+                        val mimeType = it.getString(4)
+                        val width = it.getInt(5).takeIf { it > 0 }
+                        val height = it.getInt(6).takeIf { it > 0 }
 
                         if (shouldEmitMediaStoreReady(mimeType)) {
                             val payload = buildReadyPayload(uri, relativePath, displayName, size, timestamp)
                             (context as? MainActivity)?.emitTauriEvent("media-store-ready", payload)
+
+                            // Emit incremental add event to WebView (preserves scroll position)
+                            val itemPayload = JSONObject().apply {
+                                put("items", org.json.JSONArray().apply {
+                                    put(JSONObject().apply {
+                                        put("mediaId", mediaId)
+                                        put("uri", uri)
+                                        put("dateModifiedMs", timestamp)
+                                        put("width", width ?: JSONObject.NULL)
+                                        put("height", height ?: JSONObject.NULL)
+                                        put("mimeType", mimeType ?: JSONObject.NULL)
+                                        put("displayName", displayName)
+                                    })
+                                })
+                                put("timestamp", System.currentTimeMillis())
+                            }.toString()
+                            (context as? MainActivity)?.emitWindowEvent("gallery-items-added", itemPayload)
                         }
                     }
                 }

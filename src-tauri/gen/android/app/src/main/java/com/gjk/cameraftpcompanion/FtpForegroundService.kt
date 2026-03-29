@@ -13,15 +13,22 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ServiceInfo
 import android.net.wifi.WifiManager
-import android.os.Build
 import android.os.IBinder
+import android.os.Build
 import android.os.PowerManager
 import android.util.Log
+import androidx.annotation.StringRes
+import androidx.annotation.RequiresApi
 import androidx.core.app.NotificationCompat
+import androidx.core.app.ServiceCompat
 import org.json.JSONObject
 
 class FtpForegroundService : Service() {
+    @Volatile
+    private var isInForeground = false
+
     companion object {
         const val TAG = "FtpForegroundService"
         const val NOTIFICATION_ID = 1001
@@ -30,7 +37,6 @@ class FtpForegroundService : Service() {
         // Actions
         const val ACTION_START = "com.gjk.cameraftpcompanion.START_SERVICE"
         const val ACTION_STOP = "com.gjk.cameraftpcompanion.STOP_SERVICE"
-
         // Singleton instance for MainActivity to access
         @Volatile
         private var instance: FtpForegroundService? = null
@@ -57,6 +63,7 @@ class FtpForegroundService : Service() {
         Log.d(TAG, "onCreate: initializing service")
         super.onCreate()
         instance = this
+        restoreStateFromCoordinator()
         createNotificationChannel()
         acquireLocks()
 
@@ -67,18 +74,25 @@ class FtpForegroundService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         Log.d(TAG, "onStartCommand: action=${intent?.action}, startId=$startId")
 
-        // Handle stop service action
         if (intent?.action == ACTION_STOP) {
-            Log.d(TAG, "onStartCommand: stopping service")
-            stopSelf()
+            stopForegroundServiceNow("explicit stop action")
             return START_NOT_STICKY
         }
+
+        val snapshot = AndroidServiceStateCoordinator.getLatestState()
+        if (!snapshot.isRunning) {
+            Log.d(TAG, "onStartCommand: ignoring start because coordinator is stopped")
+            stopForegroundServiceNow("stale start while stopped")
+            return START_NOT_STICKY
+        }
+
+        restoreStateFromSnapshot(snapshot)
 
         // CRITICAL: Must call startForeground() within 5 seconds of startForegroundService()
         // Otherwise, Android will throw ForegroundServiceDidNotStartInTimeException and crash the app
         // Service is only started when server is running, so always show running notification
         val notification = buildNotification()
-        startForeground(NOTIFICATION_ID, notification)
+        startForegroundWithType(notification)
 
         return START_STICKY
     }
@@ -86,29 +100,69 @@ class FtpForegroundService : Service() {
     override fun onDestroy() {
         Log.d(TAG, "onDestroy: cleaning up service")
         instance = null
+        isInForeground = false
         releaseLocks()
         super.onDestroy()
     }
 
+    @RequiresApi(Build.VERSION_CODES.VANILLA_ICE_CREAM)
+    override fun onTimeout(startId: Int, fgsType: Int) {
+        Log.w(TAG, "onTimeout(startId, fgsType): startId=$startId, fgsType=$fgsType")
+        AndroidServiceStateCoordinator.clearState()
+        stopForegroundServiceNow("fgs timeout startId=$startId type=$fgsType")
+    }
+
+    override fun onTimeout(startId: Int) {
+        Log.w(TAG, "onTimeout(startId): startId=$startId")
+        AndroidServiceStateCoordinator.clearState()
+        stopForegroundServiceNow("fgs timeout startId=$startId")
+    }
+
     /**
-     * Create notification channel for Android O+
+     * Start foreground service with connectedDevice type.
+     * Required for MIUI and other OEM ROMs to recognize service type.
+     */
+    private fun startForegroundWithType(notification: Notification) {
+        ServiceCompat.startForeground(
+            this,
+            NOTIFICATION_ID,
+            notification,
+            ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE
+        )
+        isInForeground = true
+        Log.d(TAG, "startForegroundWithType: started with FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE")
+    }
+
+    private fun stopForegroundServiceNow(reason: String) {
+        Log.d(TAG, "stopForegroundServiceNow: $reason")
+        applyServerState(null, 0)
+        if (isInForeground) {
+            ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
+            isInForeground = false
+        }
+        stopSelf()
+    }
+
+    /**
+     * Create notification channel for foreground service notification.
      */
     private fun createNotificationChannel() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(
-                CHANNEL_ID,
-                getString(R.string.ftp_service_channel_name),
-                NotificationManager.IMPORTANCE_LOW
-            ).apply {
-                description = getString(R.string.ftp_service_channel_description)
-                setShowBadge(false)
-                lockscreenVisibility = Notification.VISIBILITY_PUBLIC
-            }
-
-            val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            notificationManager.createNotificationChannel(channel)
-            Log.d(TAG, "createNotificationChannel: created notification channel")
+        val channel = NotificationChannel(
+            CHANNEL_ID,
+            getStringOrFallback(R.string.ftp_service_channel_name, "FTP service"),
+            NotificationManager.IMPORTANCE_LOW
+        ).apply {
+            description = getStringOrFallback(
+                R.string.ftp_service_channel_description,
+                "Keeps FTP transfers running in the foreground",
+            )
+            setShowBadge(false)
+            lockscreenVisibility = Notification.VISIBILITY_PUBLIC
         }
+
+        val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        notificationManager.createNotificationChannel(channel)
+        Log.d(TAG, "createNotificationChannel: created notification channel")
     }
 
     /**
@@ -119,22 +173,32 @@ class FtpForegroundService : Service() {
 
         // Acquire partial wake lock to keep CPU running
         // No timeout - service lifecycle manages release via onDestroy()
-        val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
-        wakeLock = powerManager.newWakeLock(
-            PowerManager.PARTIAL_WAKE_LOCK,
-            "FtpForegroundService::WakeLock"
-        ).apply {
-            acquire() // Indefinite - released when service stops
+        runCatching {
+            val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
+            val nextWakeLock = powerManager.newWakeLock(
+                PowerManager.PARTIAL_WAKE_LOCK,
+                "FtpForegroundService::WakeLock"
+            )
+            wakeLock = nextWakeLock
+            nextWakeLock.acquire() // Indefinite - released when service stops
+        }.onFailure { error ->
+            Log.e(TAG, "Failed to acquire wake lock", error)
+            wakeLock = null
         }
 
         // Acquire WiFi lock to keep WiFi connection alive
-        val wifiManager = applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
-        @Suppress("DEPRECATION")
-        wifiLock = wifiManager.createWifiLock(
-            WifiManager.WIFI_MODE_FULL_HIGH_PERF,
-            "FtpForegroundService::WifiLock"
-        ).apply {
-            acquire()
+        runCatching {
+            val wifiManager = applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
+            @Suppress("DEPRECATION")
+            val nextWifiLock = wifiManager.createWifiLock(
+                WifiManager.WIFI_MODE_FULL_HIGH_PERF,
+                "FtpForegroundService::WifiLock"
+            )
+            wifiLock = nextWifiLock
+            nextWifiLock.acquire()
+        }.onFailure { error ->
+            Log.e(TAG, "Failed to acquire wifi lock", error)
+            wifiLock = null
         }
     }
 
@@ -145,15 +209,23 @@ class FtpForegroundService : Service() {
         Log.d(TAG, "releaseLocks: releasing wake lock and wifi lock")
 
         wakeLock?.let {
-            if (it.isHeld) {
-                it.release()
+            runCatching {
+                if (it.isHeld) {
+                    it.release()
+                }
+            }.onFailure { error ->
+                Log.e(TAG, "Failed to release wake lock", error)
             }
         }
         wakeLock = null
 
         wifiLock?.let {
-            if (it.isHeld) {
-                it.release()
+            runCatching {
+                if (it.isHeld) {
+                    it.release()
+                }
+            }.onFailure { error ->
+                Log.e(TAG, "Failed to release wifi lock", error)
             }
         }
         wifiLock = null
@@ -167,7 +239,7 @@ class FtpForegroundService : Service() {
         // Single state: server running (green icon)
         val iconRes = R.drawable.tray_active
 
-        val title = getString(R.string.notification_title_running)
+        val title = getStringOrFallback(R.string.notification_title_running, "FTP server running")
         val content = buildStatusContent()
 
         // Intent to open MainActivity when tapped
@@ -204,18 +276,22 @@ class FtpForegroundService : Service() {
             Pair(serverStats, connectedClients)
         }
 
-        val files = stats?.optInt("files_transferred", 0) ?: 0
-        val bytes = stats?.optLong("bytes_transferred", 0) ?: 0
+        val files = stats?.optInt("filesReceived", stats.optInt("files_transferred", 0)) ?: 0
+        val bytes = stats?.optLong("bytesReceived", stats.optLong("bytes_transferred", 0)) ?: 0
 
         // Connection status
         val connectionStatus = if (clients > 0) {
-            getString(R.string.status_connected)
+            getStringOrFallback(R.string.status_connected, "Connected")
         } else {
-            getString(R.string.status_disconnected)
+            getStringOrFallback(R.string.status_disconnected, "Disconnected")
         }
 
         // Format: connection status | received files count | total size
-        return getString(R.string.status_format, connectionStatus, files, formatBytes(bytes))
+        return try {
+            getString(R.string.status_format, connectionStatus, files, formatBytes(bytes))
+        } catch (_: Exception) {
+            "$connectionStatus | $files | ${formatBytes(bytes)}"
+        }
     }
 
     /**
@@ -235,10 +311,47 @@ class FtpForegroundService : Service() {
      * Called when server is running to update stats display.
      * Thread-safe: can be called from any thread (e.g., JS bridge).
      */
-    fun updateServerState(statsJson: String?, connectedClients: Int) {
-        Log.d(TAG, "updateServerState: connectedClients=$connectedClients")
+    fun refreshFromCoordinator() {
+        val snapshot = AndroidServiceStateCoordinator.getLatestState()
+        Log.d(TAG, "refreshFromCoordinator: connectedClients=${snapshot.connectedClients}")
 
+        if (!snapshot.isRunning) {
+            return
+        }
+
+        val statsChanged = applyServerState(snapshot.statsJson, snapshot.connectedClients)
+        if (!statsChanged) {
+            return
+        }
+
+        // Update notification with new stats
+        updateNotification()
+    }
+
+    private fun restoreStateFromCoordinator() {
+        refreshFromCoordinator()
+    }
+
+    private fun restoreStateFromSnapshot(snapshot: AndroidServiceStateSnapshot) {
+        if (!snapshot.isRunning) {
+            return
+        }
+
+        applyServerState(snapshot.statsJson, snapshot.connectedClients)
+    }
+
+    private fun getStringOrFallback(@StringRes resId: Int, fallback: String): String {
+        return try {
+            getString(resId)
+        } catch (_: Exception) {
+            fallback
+        }
+    }
+
+    private fun applyServerState(statsJson: String?, connectedClients: Int): Boolean {
         synchronized(stateLock) {
+            val previousStatsJson = serverStats?.toString()
+            val statsChanged = previousStatsJson != statsJson || this.connectedClients != connectedClients
             this.connectedClients = connectedClients
 
             if (statsJson != null) {
@@ -251,10 +364,9 @@ class FtpForegroundService : Service() {
             } else {
                 serverStats = null
             }
-        }
 
-        // Update notification with new stats
-        updateNotification()
+            return statsChanged
+        }
     }
 
     /**

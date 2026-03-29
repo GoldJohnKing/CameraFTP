@@ -11,7 +11,8 @@ use crate::constants::{
 };
 use crate::error::AppError;
 use crate::ftp::{
-    create_ftp_server, EventBus, EventProcessor, FtpServerHandle, FtpAuthConfig, ServerConfig, StatsEventHandler, TrayUpdateHandler,
+    create_ftp_server, EventBus, EventProcessor, FtpServerHandle, FtpAuthConfig,
+    FrontendTransientEventHandler, ServerConfig, StatsEventHandler, TrayUpdateHandler,
 };
 use crate::network::NetworkManager;
 use std::sync::Arc;
@@ -165,20 +166,46 @@ pub async fn start_ftp_server(
     }
 }
 
-pub fn spawn_event_processor(app_handle: AppHandle, event_bus: EventBus) -> oneshot::Receiver<()> {
+pub fn spawn_event_processor(app_handle: AppHandle, event_bus: &EventBus) -> oneshot::Receiver<()> {
     let app_handle_for_tray = app_handle.clone();
     let (ready_tx, ready_rx) = oneshot::channel();
-    
+
+    // 从 EventBus 借用组件，不获取所有权
+    // 这样 event_bus 继续由调用者拥有，服务器和处理器共享同一个状态通道
+    let transient_rx = event_bus.subscribe();
+    let runtime_state = event_bus.runtime_state();
+    let state_rx = runtime_state.subscribe();
+    // 保留 runtime_state 用于直接查询，避免 watch channel 的竞态条件
+    let runtime_state_for_processor = runtime_state.clone();
+
     tokio::spawn(async move {
-        let processor = EventProcessor::new(&event_bus)
-            .register(StatsEventHandler::new(app_handle))
-            .register(TrayUpdateHandler::new(app_handle_for_tray));
-        
-        // 信号就绪
-        let _ = ready_tx.send(());
-        
-        processor.run().await;
+        let processor = EventProcessor::from_parts(
+            transient_rx,
+            state_rx,
+            Some(runtime_state_for_processor)
+        )
+            .register_runtime_state_handler(StatsEventHandler::new(app_handle.clone()))
+            .register_runtime_state_handler(TrayUpdateHandler::new(app_handle_for_tray))
+            .register(FrontendTransientEventHandler::new(app_handle));
+
+        // 先运行处理器并等待其完成初始化（读取当前状态并分发给 handlers）
+        // 这确保在返回 ready 信号前，所有 runtime state handlers 都已处理当前状态
+        processor.run_with_ready_signal(ready_tx).await;
     });
-    
+
     ready_rx
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn event_processor_keeps_stats_handler_registered_for_dual_fan_out() {
+        let source = include_str!("server_factory.rs");
+
+        assert!(source.contains(".register_runtime_state_handler(StatsEventHandler::new(app_handle.clone()))"));
+        assert!(source.contains(".register_runtime_state_handler(TrayUpdateHandler::new(app_handle_for_tray))"));
+        assert!(source.contains(".register(FrontendTransientEventHandler::new(app_handle))"));
+        assert!(source.contains("drop(event_bus);"));
+        assert!(!source.contains("processor.catch_up().await;"));
+    }
 }

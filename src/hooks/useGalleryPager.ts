@@ -14,11 +14,13 @@ export interface UseGalleryPagerResult {
   items: MediaItemDto[];
   cursor: MediaCursor;
   revisionToken: string;
+  totalCount: number;
   isLoading: boolean;
   error: string | null;
   loadNextPage: () => Promise<void>;
   reload: () => Promise<void>;
   removeItems: (mediaIds: Set<string>) => void;
+  addItems: (items: MediaItemDto[]) => void;
 }
 
 function isStaleCursorError(err: unknown): boolean {
@@ -29,6 +31,7 @@ export function useGalleryPager(): UseGalleryPagerResult {
   const [items, setItems] = useState<MediaItemDto[]>([]);
   const [cursor, setCursor] = useState<MediaCursor>(null);
   const [revisionToken, setRevisionToken] = useState<string>('');
+  const [totalCount, setTotalCount] = useState<number>(0);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -44,6 +47,7 @@ export function useGalleryPager(): UseGalleryPagerResult {
 
     setCursor(response.nextCursor);
     setRevisionToken(response.revisionToken);
+    setTotalCount(response.totalCount);
 
     const seen = seenMediaIdsRef.current;
     const newItems = response.items.filter((item) => {
@@ -98,6 +102,7 @@ export function useGalleryPager(): UseGalleryPagerResult {
     setItems([]);
     setCursor(null);
     setRevisionToken('');
+    setTotalCount(0);
     seenMediaIdsRef.current = new Set();
 
     try {
@@ -120,14 +125,36 @@ export function useGalleryPager(): UseGalleryPagerResult {
     mediaIds.forEach((id) => seen.delete(id));
   }, []);
 
+  const addItems = useCallback((newItems: MediaItemDto[]) => {
+    if (newItems.length === 0) {
+      return;
+    }
+
+    const seen = seenMediaIdsRef.current;
+    const itemsToAdd = newItems.filter((item) => {
+      if (seen.has(item.mediaId)) {
+        return false;
+      }
+      seen.add(item.mediaId);
+      return true;
+    });
+
+    if (itemsToAdd.length > 0) {
+      setItems((prev) => [...itemsToAdd, ...prev]);
+      setTotalCount((prev) => prev + itemsToAdd.length);
+    }
+  }, []);
+
   return {
     items,
     cursor,
     revisionToken,
+    totalCount,
     isLoading,
     error,
     loadNextPage,
     reload,
     removeItems,
+    addItems,
   };
 }

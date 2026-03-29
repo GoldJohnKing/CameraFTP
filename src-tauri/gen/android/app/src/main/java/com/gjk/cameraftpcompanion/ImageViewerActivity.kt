@@ -398,6 +398,9 @@ class ImageViewerActivity : AppCompatActivity() {
     private fun applyDeleteSuccess(uriString: String) {
         val removedIndex = uris.indexOf(uriString)
 
+        // Extract mediaId from URI (last segment of content://media/.../id)
+        val mediaId = uriString.substringAfterLast("/")
+
         if (removedIndex >= 0) {
             uris.removeAt(removedIndex)
 
@@ -408,7 +411,7 @@ class ImageViewerActivity : AppCompatActivity() {
             }
         }
 
-        notifyMediaLibraryDeleted()
+        notifyMediaLibraryDeleted(listOf(mediaId))
 
         if (uris.isEmpty()) {
             Toast.makeText(this, "图片已删除", Toast.LENGTH_SHORT).show()
@@ -444,13 +447,17 @@ class ImageViewerActivity : AppCompatActivity() {
         }
     }
 
-    private fun notifyMediaLibraryDeleted() {
+    private fun notifyMediaLibraryDeleted(deletedMediaIds: List<String>) {
         val mainActivity = MainActivity.instance ?: return
-        val refreshPayload = "{\"reason\":\"delete\",\"timestamp\":${System.currentTimeMillis()}}"
 
-        mainActivity.emitTauriEvent("file-index-changed", "{\"count\":1,\"latestFilename\":null}")
-        mainActivity.emitTauriEvent(MEDIA_LIBRARY_REFRESH_REQUESTED_EVENT, "{}")
-        mainActivity.emitWindowEvent("gallery-refresh-requested", refreshPayload)
+        // Note: Full refresh events removed - handled incrementally via gallery-items-deleted
+        // Send incremental delete event to WebView (no full refresh, preserves scroll position)
+        val deletedIdsJson = JSONArray(deletedMediaIds).toString()
+        val deletePayload = "{\"mediaIds\":$deletedIdsJson,\"timestamp\":${System.currentTimeMillis()}}"
+        mainActivity.emitWindowEvent("gallery-items-deleted", deletePayload)
+
+        // Also refresh latest photo
+        val refreshPayload = "{\"reason\":\"delete\",\"timestamp\":${System.currentTimeMillis()}}"
         mainActivity.emitWindowEvent("latest-photo-refresh-requested", refreshPayload)
     }
 

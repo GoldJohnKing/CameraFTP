@@ -5,9 +5,24 @@
 use super::traits::PlatformService;
 use super::types::{PermissionStatus, StorageInfo};
 use crate::constants::ANDROID_DCIM_PATH;
+use crate::ftp::types::ServerStateSnapshot;
 use crate::utils::fs::is_path_writable;
 use tauri::{AppHandle, Emitter};
 use tracing::{debug, error, info};
+
+#[cfg(target_os = "android")]
+use jni::objects::{JClass, JObject, JValue};
+#[cfg(target_os = "android")]
+use jni::JavaVM;
+
+#[cfg(target_os = "android")]
+const ANDROID_SERVICE_COORDINATOR_CLASS: &str =
+    "com.gjk.cameraftpcompanion.AndroidServiceStateCoordinator";
+#[cfg(target_os = "android")]
+const SYNC_ANDROID_SERVICE_STATE_METHOD: &str = "syncNativeServiceState";
+#[cfg(target_os = "android")]
+const SYNC_ANDROID_SERVICE_STATE_SIGNATURE: &str =
+    "(Landroid/content/Context;ZLjava/lang/String;I)V";
 
 // 重新导出常量（使用 crate 路径避免导入警告）
 pub use crate::constants::ANDROID_DEFAULT_STORAGE_PATH as DEFAULT_STORAGE_PATH;
@@ -162,16 +177,21 @@ impl PlatformService for AndroidPlatform {
         }
     }
 
-    // Note: on_server_started/on_server_stopped use default empty implementation
-    // Notification is managed via update_server_state() which is called from frontend
+    // Note: on_server_started/on_server_stopped use default empty implementation.
+    // Direction 1 routes Android foreground-service updates through the frontend bridge.
 
-    fn update_server_state(&self, app: &AppHandle, connected_clients: u32) {
-        // Emit event to Android for notification update
-        let _ = app.emit(
-            "android-service-state-update",
-            serde_json::json!({
-                "connected_clients": connected_clients,
-            }),
+    fn sync_android_service_state(&self, _app: &AppHandle, snapshot: &ServerStateSnapshot) {
+        #[cfg(target_os = "android")]
+        {
+            if let Err(error) = sync_android_service_state(snapshot) {
+                error!(%error, ?snapshot, "Failed to sync Android native service state");
+                return;
+            }
+        }
+
+        info!(
+            ?snapshot,
+            "Syncing Android native service state from Rust events"
         );
     }
 
@@ -213,5 +233,128 @@ impl PlatformService for AndroidPlatform {
     fn open_all_files_access_settings(&self, app: &AppHandle) -> Result<(), String> {
         open_storage_permission_settings(app);
         Ok(())
+    }
+}
+
+#[cfg(target_os = "android")]
+fn sync_android_service_state(snapshot: &ServerStateSnapshot) -> Result<(), String> {
+    let jvm = get_java_vm()?;
+    let mut env = jvm
+        .attach_current_thread()
+        .map_err(|e| format!("Failed to attach JNI thread: {e}"))?;
+    let context = get_android_context(&mut env)?;
+    let coordinator_class = get_coordinator_class(&mut env, &context)?;
+    let stats_json = match serde_json::to_string(snapshot) {
+        Ok(value) if snapshot.is_running => Some(value),
+        Ok(_) => None,
+        Err(e) => return Err(format!("Failed to serialize service snapshot: {e}")),
+    };
+    let stats_arg = match stats_json.as_deref() {
+        Some(value) => JObject::from(
+            env.new_string(value)
+                .map_err(|e| format!("Failed to create stats JSON string: {e}"))?,
+        ),
+        None => JObject::null(),
+    };
+    let connected_clients = i32::try_from(snapshot.connected_clients).map_err(|_| {
+        format!(
+            "Connected client count exceeds Android JNI range: {}",
+            snapshot.connected_clients
+        )
+    })?;
+
+    env.call_static_method(
+        coordinator_class,
+        SYNC_ANDROID_SERVICE_STATE_METHOD,
+        SYNC_ANDROID_SERVICE_STATE_SIGNATURE,
+        &[
+            JValue::Object(&context),
+            JValue::Bool(snapshot.is_running.into()),
+            JValue::Object(&stats_arg),
+            JValue::Int(connected_clients),
+        ],
+    )
+    .map_err(|e| format!("Failed to call syncNativeServiceState: {e}"))?;
+
+    Ok(())
+}
+
+#[cfg(target_os = "android")]
+fn get_java_vm() -> Result<JavaVM, String> {
+    let context = ndk_context::android_context();
+    unsafe { JavaVM::from_raw(context.vm().cast()) }
+        .map_err(|e| format!("Failed to get JavaVM: {e}"))
+}
+
+#[cfg(target_os = "android")]
+fn get_android_context<'a>(env: &mut jni::JNIEnv<'a>) -> Result<JObject<'a>, String> {
+    let context = ndk_context::android_context();
+    let raw_context = unsafe { JObject::from_raw(context.context().cast()) };
+    let local_context = env
+        .new_local_ref(&raw_context)
+        .map_err(|e| format!("Failed to create local Android context ref: {e}"))?;
+    let _ = raw_context.into_raw();
+    Ok(local_context)
+}
+
+#[cfg(target_os = "android")]
+fn get_coordinator_class<'a>(
+    env: &mut jni::JNIEnv<'a>,
+    context: &JObject<'a>,
+) -> Result<JClass<'a>, String> {
+    let loader = env
+        .call_method(context, "getClassLoader", "()Ljava/lang/ClassLoader;", &[])
+        .and_then(|value| value.l())
+        .map_err(|e| format!("Failed to get Android app ClassLoader: {e}"))?;
+    let class_name = env
+        .new_string(ANDROID_SERVICE_COORDINATOR_CLASS)
+        .map_err(|e| format!("Failed to create AndroidServiceStateCoordinator class name: {e}"))?;
+    let class_name_obj = JObject::from(class_name);
+    let class_obj = env
+        .call_method(
+            loader,
+            "loadClass",
+            "(Ljava/lang/String;)Ljava/lang/Class;",
+            &[JValue::Object(&class_name_obj)],
+        )
+        .and_then(|value| value.l())
+        .map_err(|e| {
+            format!("Failed to load AndroidServiceStateCoordinator with app ClassLoader: {e}")
+        })?;
+
+    Ok(JClass::from(class_obj))
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn android_platform_exposes_native_service_sync_hook() {
+        let source = include_str!("traits.rs");
+
+        assert!(source.contains("sync_android_service_state"));
+    }
+
+    #[test]
+    fn android_platform_no_longer_emits_service_state_update_event() {
+        let source = include_str!("android.rs");
+        let stale_event = ["android-service", "-state-update"].concat();
+
+        assert!(!source.contains(&stale_event));
+    }
+
+    #[test]
+    fn android_platform_uses_context_class_loader_for_coordinator_lookup() {
+        let source = include_str!("android.rs");
+
+        assert!(source.contains("getClassLoader"));
+        assert!(source.contains("loadClass"));
+        assert!(!source.contains("find_class(ANDROID_SERVICE_COORDINATOR_CLASS)"));
+    }
+
+    #[test]
+    fn android_service_coordinator_is_kept_for_release_jni_calls() {
+        let rules = include_str!("../../gen/android/app/proguard-rules.pro");
+
+        assert!(rules.contains("AndroidServiceStateCoordinator"));
     }
 }

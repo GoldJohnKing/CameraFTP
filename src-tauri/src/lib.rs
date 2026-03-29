@@ -17,8 +17,6 @@ pub mod utils;
 
 use std::sync::Arc;
 use tokio::sync::Mutex;
-#[cfg(debug_assertions)]
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use tauri::Manager;
 
 use auto_open::AutoOpenService;
@@ -37,6 +35,7 @@ use commands::{
     get_latest_file,
     get_platform,
     get_server_info,
+    get_server_runtime_state,
     get_server_status,
     get_storage_info,
     get_storage_path,
@@ -69,57 +68,57 @@ use commands::{
 };
 
 fn setup_logging() {
-    // Debug 模式：写入日志文件 + 控制台
-    // Release 模式：不输出任何日志
-    #[cfg(debug_assertions)]
-    {
-        use std::fs;
-        use std::path::PathBuf;
-        
-        // 获取日志目录 - Android 使用外部存储以便用户可以访问
-        #[cfg(target_os = "android")]
-        let log_dir = PathBuf::from(platform::android::DEFAULT_STORAGE_PATH).join("logs");
-        
-        #[cfg(target_os = "windows")]
-        let log_dir = dirs::data_dir()
-            .unwrap_or_else(|| PathBuf::from("."))
-            .join("cameraftp/logs");
+    use std::fs;
+    use std::path::PathBuf;
+    use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
-        let log_file = log_dir.join("app.log");
-        let log_file_for_writer = log_file.clone();
-        
-        // 尝试创建日志目录
-        if let Err(e) = fs::create_dir_all(&log_dir) {
-            eprintln!("Failed to create log directory {:?}: {}", log_dir, e);
-        }
+    // 获取日志目录 - Android 使用外部存储以便用户可以访问
+    #[cfg(target_os = "android")]
+    let log_dir = PathBuf::from(platform::android::DEFAULT_STORAGE_PATH).join("logs");
 
-        // 创建文件追加器，失败时回退到 stderr
-        let file_appender = tracing_subscriber::fmt::layer()
-            .with_writer(move || {
-                match std::fs::OpenOptions::new()
-                    .create(true)
-                    .append(true)
-                    .open(&log_file_for_writer)
-                {
-                    Ok(file) => Box::new(file) as Box<dyn std::io::Write + Send + Sync>,
-                    Err(_) => Box::new(std::io::stderr()) as Box<dyn std::io::Write + Send + Sync>,
-                }
-            })
-            .with_ansi(false)
-            .with_thread_ids(true)
-            .with_thread_names(true)
-            .with_target(true);
+    #[cfg(target_os = "windows")]
+    let log_dir = dirs::data_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("cameraftp/logs");
 
-        // 初始化订阅器（同时输出到控制台和文件）
-        tracing_subscriber::registry()
-            .with(file_appender)
-            .with(tracing_subscriber::fmt::layer().with_ansi(false))
-            .init();
+    let log_file = log_dir.join("app.log");
+    let log_file_for_writer = log_file.clone();
 
-        tracing::info!(log_file = ?log_file, "Logging initialized (debug mode)");
+    // 尝试创建日志目录
+    if let Err(e) = fs::create_dir_all(&log_dir) {
+        eprintln!("Failed to create log directory {:?}: {}", log_dir, e);
     }
-    
-    // Release 模式：不初始化日志系统，不输出任何日志
+
+    // 创建文件追加器
+    let file_appender = tracing_subscriber::fmt::layer()
+        .with_writer(move || {
+            match std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&log_file_for_writer)
+            {
+                Ok(file) => Box::new(file) as Box<dyn std::io::Write + Send + Sync>,
+                Err(_) => Box::new(std::io::stderr()) as Box<dyn std::io::Write + Send + Sync>,
+            }
+        })
+        .with_ansi(false)
+        .with_thread_ids(true)
+        .with_thread_names(true)
+        .with_target(true);
+
+    // 根据模式配置日志级别
+    #[cfg(debug_assertions)]
+    let env_filter = EnvFilter::new("debug");
+    #[cfg(not(debug_assertions))]
+    let env_filter = EnvFilter::new("info");
+
+    // 初始化订阅器
+    tracing_subscriber::registry()
+        .with(env_filter)
+        .with(file_appender)
+        .init();
+
+    tracing::info!(log_file = ?log_file, "Logging initialized");
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -175,8 +174,7 @@ pub fn run() {
             // 启动后台任务
             spawn_background_tasks(app.handle());
 
-            // 托盘图标状态更新现在由 TrayUpdateHandler 事件驱动
-            // 通过 EventBus 监听 StatsUpdated 事件，替代原有的轮询机制
+            // 托盘图标状态更新现在由 TrayUpdateHandler 的运行时状态订阅驱动
 
             Ok(())
         })
@@ -186,6 +184,7 @@ pub fn run() {
             stop_server,
             get_server_status,
             get_server_info,
+            get_server_runtime_state,
             
             // 配置管理
             load_config,

@@ -11,6 +11,7 @@ import android.os.Looper
 import android.util.Log
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+import java.util.concurrent.RejectedExecutionException
 import java.util.concurrent.locks.ReentrantLock
 import kotlin.concurrent.withLock
 
@@ -96,6 +97,9 @@ class ThumbnailPipelineManager(poolSize: Int = 3) {
     private var workerPool: ExecutorService =
         Executors.newFixedThreadPool(poolSize)
 
+    @Volatile
+    private var isShutdown = false
+
     // ── Lock ────────────────────────────────────────────────────────────
 
     private val lock = ReentrantLock()
@@ -170,6 +174,10 @@ class ThumbnailPipelineManager(poolSize: Int = 3) {
      * @return `true` if the job was accepted, `false` if rejected.
      */
     fun enqueue(job: ThumbJob): Boolean = lock.withLock {
+        if (isShutdown) {
+            return@withLock false
+        }
+
         val key = compositeKey(job.mediaId, job.dateModifiedMs, job.sizeBucket)
 
         // Dedup: same key already queued or running
@@ -255,7 +263,15 @@ class ThumbnailPipelineManager(poolSize: Int = 3) {
      * be queued internally by the executor.
      */
     fun processNext() {
+        if (isShutdown) {
+            return
+        }
+
         val job = lock.withLock {
+            if (isShutdown) {
+                return@withLock null
+            }
+
             // Reserve 1 slot for visible jobs: if non-visible running jobs
             // have consumed (poolSize - 1) slots, only dispatch visible.
             val nonVisibleRunning = runningCountLocked() - visibleRunningCount
@@ -279,8 +295,20 @@ class ThumbnailPipelineManager(poolSize: Int = 3) {
             next
         } ?: return
 
-        workerPool.submit {
-            executeJob(job)
+        try {
+            workerPool.submit {
+                executeJob(job)
+            }
+        } catch (e: RejectedExecutionException) {
+            lock.withLock {
+                runningMap.remove(job.requestId)
+                if (job.priority == "visible" && visibleRunningCount > 0) {
+                    visibleRunningCount--
+                }
+                dedupMap.remove(compositeKey(job.mediaId, job.dateModifiedMs, job.sizeBucket))
+                retryCount.remove(job.requestId)
+            }
+            Log.w("ThumbPipeline", "processNext: rejected after shutdown for ${job.requestId}", e)
         }
     }
 
@@ -371,6 +399,27 @@ class ThumbnailPipelineManager(poolSize: Int = 3) {
      * Shut down the worker pool.  No new jobs will be accepted after this.
      */
     fun shutdown() {
+        lock.withLock {
+            if (isShutdown) {
+                return
+            }
+
+            isShutdown = true
+            visibleQueue.clear()
+            nearbyQueue.clear()
+            prefetchQueue.clear()
+            dedupMap.clear()
+            runningMap.clear()
+            retryCount.clear()
+            visibleRunningCount = 0
+        }
+
+        synchronized(resultBuffer) {
+            resultBuffer.clear()
+        }
+
+        handler.removeCallbacksAndMessages(null)
+        onResult = null
         workerPool.shutdownNow()
     }
 
@@ -427,6 +476,11 @@ class ThumbnailPipelineManager(poolSize: Int = 3) {
         errorCode: String?
     ) {
         lock.withLock {
+            if (isShutdown) {
+                runningMap.remove(job.requestId)
+                return@withLock
+            }
+
             val runningJob = runningMap[job.requestId]
             val wasCancelled = runningJob?.cancelled == true
             if (runningJob != null && runningJob.job.priority == "visible") {
@@ -464,11 +518,20 @@ class ThumbnailPipelineManager(poolSize: Int = 3) {
 
                 if (backoff > 0) {
                     // Schedule re-enqueue after backoff on a pool thread
-                    workerPool.submit {
-                        Thread.sleep(backoff)
-                        lock.withLock {
-                            queueForPriority(job.priority).addLast(job)
+                    try {
+                        workerPool.submit {
+                            Thread.sleep(backoff)
+                            lock.withLock {
+                                if (!isShutdown) {
+                                    queueForPriority(job.priority).addLast(job)
+                                }
+                            }
                         }
+                    } catch (e: RejectedExecutionException) {
+                        retryCount.remove(job.requestId)
+                        val key = compositeKey(job.mediaId, job.dateModifiedMs, job.sizeBucket)
+                        dedupMap.remove(key)
+                        Log.w("ThumbPipeline", "finishJob: retry rejected after shutdown for ${job.requestId}", e)
                     }
                 } else {
                     queueForPriority(job.priority).addLast(job)
@@ -493,7 +556,15 @@ class ThumbnailPipelineManager(poolSize: Int = 3) {
      * [BATCH_DELAY_MS] milliseconds for frame-splitting.
      */
     private fun deliverResult(result: ThumbResult) {
+        if (isShutdown) {
+            return
+        }
+
         synchronized(resultBuffer) {
+            if (isShutdown) {
+                return
+            }
+
             resultBuffer.add(result)
             if (resultBuffer.size >= BATCH_SIZE) {
                 flushResults()
@@ -507,6 +578,13 @@ class ThumbnailPipelineManager(poolSize: Int = 3) {
      * Flush all buffered results through the [onResult] callback.
      */
     private fun flushResults() {
+        if (isShutdown) {
+            synchronized(resultBuffer) {
+                resultBuffer.clear()
+            }
+            return
+        }
+
         val batch: List<ThumbResult>
         synchronized(resultBuffer) {
             if (resultBuffer.isEmpty()) return

@@ -15,6 +15,7 @@ use crate::config_service::ConfigService;
 use crate::constants::{
     SERVER_READY_TIMEOUT_SECS, AUTOSTART_DELAY_MS,
 };
+use crate::ftp::types::ServerStateSnapshot;
 use super::traits::PlatformService;
 use super::types::{StorageInfo, PermissionStatus};
 
@@ -69,15 +70,14 @@ fn show_main_window(app: &AppHandle) {
 /// * `state` - 托盘图标状态（Stopped/Idle/Active）
 pub fn update_tray_icon(app: &AppHandle, state: TrayIconState) -> Result<(), Box<dyn std::error::Error>> {
     if let Some(tray) = app.tray_by_id("main") {
-        let (icon_data, state_name) = match state {
-            TrayIconState::Stopped => (TRAY_STOPPED_PNG, "stopped (red dot)"),
-            TrayIconState::Idle => (TRAY_IDLE_PNG, "idle (yellow dot)"),
-            TrayIconState::Active => (TRAY_ACTIVE_PNG, "active (green dot)"),
+        let icon_data = match state {
+            TrayIconState::Stopped => TRAY_STOPPED_PNG,
+            TrayIconState::Idle => TRAY_IDLE_PNG,
+            TrayIconState::Active => TRAY_ACTIVE_PNG,
         };
         
         let icon = create_icon_from_bytes(icon_data)?;
         tray.set_icon(Some(icon))?;
-        tracing::info!("Tray icon updated to {}", state_name);
     }
     Ok(())
 }
@@ -92,7 +92,6 @@ pub fn update_tray_menu(app: &AppHandle, server_running: bool) -> Result<(), Box
     if let Some(state) = app.try_state::<TrayMenuState>() {
         state.start_item.set_enabled(!server_running)?;
         state.stop_item.set_enabled(server_running)?;
-        tracing::info!("Tray menu updated: server_running={}", server_running);
     }
     Ok(())
 }
@@ -301,6 +300,8 @@ impl PlatformService for WindowsPlatform {
         }
     }
 
+    fn sync_android_service_state(&self, _app: &AppHandle, _snapshot: &ServerStateSnapshot) {}
+
     // ========== 开机自启相关 ==========
 
     fn set_autostart(&self, enable: bool) -> Result<(), String> {
@@ -362,9 +363,10 @@ impl PlatformService for WindowsPlatform {
                     tracing::info!("FTP server auto-started on {}:{}", ctx.ip, ctx.port);
 
                     // 先启动事件处理器（获取就绪信号）
+                    // 注意：传递 event_bus 的引用，不要克隆，以确保处理器和服务器共享同一个状态通道
                     let ready_rx = crate::ftp::server_factory::spawn_event_processor(
                         app_handle.clone(),
-                        ctx.event_bus.clone(),
+                        &ctx.event_bus,
                     );
 
                     // 等待事件处理器就绪（而非固定延迟）
@@ -376,12 +378,8 @@ impl PlatformService for WindowsPlatform {
                         Err(_) => tracing::warn!("Event processor ready timeout, continuing anyway"),
                     }
 
-                    // 重新发送 server-started 事件（因为原事件在 EventProcessor 就绪前已发出）
-                    ctx.event_bus.emit_server_started(format!("{}:{}", ctx.ip, ctx.port));
-                    tracing::info!("Re-emitted server-started event for autostart via EventBus");
-
-                    // 统一通过 PlatformService 处理启动后逻辑
-                    crate::platform::get_platform().on_server_started(&app_handle);
+                    let file_index = app_handle.state::<Arc<crate::file_index::FileIndexService>>();
+                    file_index.set_event_bus(ctx.event_bus).await;
                 }
                 Err(e) => {
                     tracing::error!("Failed to auto-start server: {}", e);
@@ -415,5 +413,16 @@ impl PlatformService for WindowsPlatform {
     fn select_save_directory(&self, _app: &AppHandle) -> Result<Option<String>, String> {
         // Windows 平台通过前端对话框选择，这里返回 None 表示使用前端选择
         Ok(None)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn windows_autostart_no_longer_reemits_server_started_event() {
+        let source = include_str!("windows.rs");
+
+        assert!(!source.contains("ctx.event_bus\n                        .emit_server_started"));
+        assert!(source.contains("file_index.set_event_bus(ctx.event_bus).await;"));
     }
 }

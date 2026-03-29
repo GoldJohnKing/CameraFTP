@@ -54,8 +54,9 @@ function makePage(
   items: MediaItemDto[],
   nextCursor: string | null,
   revisionToken = 'rev-1',
+  totalCount = 0,
 ): MediaPageResponse {
-  return { items, nextCursor, revisionToken };
+  return { items, nextCursor, revisionToken, totalCount };
 }
 
 function makeItem(mediaId: string, dateModifiedMs = 1000): MediaItemDto {

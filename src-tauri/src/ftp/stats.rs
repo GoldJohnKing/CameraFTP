@@ -161,5 +161,3 @@ impl StatsActorWorker {
         }
     }
 }
-
-

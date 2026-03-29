@@ -10,11 +10,9 @@ import { useServerStore } from '../serverStore';
 const {
   invokeMock,
   checkAndroidPermissionsMock,
-  syncAndroidServerStateMock,
 } = vi.hoisted(() => ({
   invokeMock: vi.fn(),
   checkAndroidPermissionsMock: vi.fn(),
-  syncAndroidServerStateMock: vi.fn(),
 }));
 
 vi.mock('@tauri-apps/api/core', () => ({
@@ -28,10 +26,6 @@ vi.mock('../../types', async () => {
     checkAndroidPermissions: checkAndroidPermissionsMock,
   };
 });
-
-vi.mock('../../services/android-server-state-sync', () => ({
-  syncAndroidServerState: syncAndroidServerStateMock,
-}));
 
 describe('serverStore characterization', () => {
   beforeEach(() => {
@@ -53,8 +47,6 @@ describe('serverStore characterization', () => {
 
     invokeMock.mockReset();
     checkAndroidPermissionsMock.mockReset();
-    syncAndroidServerStateMock.mockReset();
-
     invokeMock.mockImplementation(async (command: string) => {
       if (command === 'start_server') {
         return {
@@ -82,12 +74,46 @@ describe('serverStore characterization', () => {
     expect(invokeMock).toHaveBeenCalledWith('start_server');
     expect(useServerStore.getState().isRunning).toBe(true);
     expect(useServerStore.getState().serverInfo?.url).toBe('ftp://127.0.0.1:2221');
-    expect(syncAndroidServerStateMock).toHaveBeenCalledWith(
-      true,
-      expect.objectContaining({ isRunning: true }),
-      0,
-      true,
-    );
+    expect(useServerStore.getState().stats).toEqual({
+      isRunning: true,
+      connectedClients: 0,
+      filesReceived: 0,
+      bytesReceived: 0,
+      lastFile: null,
+    });
+  });
+
+  it('preserves existing counters when startServer succeeds while already running', async () => {
+    useServerStore.setState((state) => ({
+      ...state,
+      isRunning: true,
+      serverInfo: {
+        isRunning: true,
+        ip: '127.0.0.1',
+        port: 2221,
+        url: 'ftp://127.0.0.1:2221',
+        username: 'anonymous',
+        passwordInfo: '(任意密码)',
+      },
+      stats: {
+        isRunning: true,
+        connectedClients: 4,
+        filesReceived: 11,
+        bytesReceived: 8192,
+        lastFile: '/keep.jpg',
+      },
+    }));
+
+    const started = await useServerStore.getState().startServer();
+
+    expect(started).toBe(true);
+    expect(useServerStore.getState().stats).toEqual({
+      isRunning: true,
+      connectedClients: 4,
+      filesReceived: 11,
+      bytesReceived: 8192,
+      lastFile: '/keep.jpg',
+    });
   });
 
   it('shows permission dialog when startServer prerequisites fail', async () => {
@@ -124,6 +150,36 @@ describe('serverStore characterization', () => {
     expect(invokeMock).toHaveBeenCalledWith('stop_server');
     expect(useServerStore.getState().isRunning).toBe(false);
     expect(useServerStore.getState().serverInfo).toBeNull();
-    expect(syncAndroidServerStateMock).toHaveBeenCalledWith(false, null, 0);
+  });
+
+  it('resets stopped-state stats in direct store helper', () => {
+    useServerStore.getState().setServerStopped();
+
+    expect(useServerStore.getState().isRunning).toBe(false);
+    expect(useServerStore.getState().stats).toEqual({
+      isRunning: false,
+      connectedClients: 0,
+      filesReceived: 0,
+      bytesReceived: 0,
+      lastFile: null,
+    });
+  });
+
+  it('drops stale stopped stats updates for ui-only state', () => {
+    useServerStore.getState().setServerStats({
+      isRunning: false,
+      connectedClients: 5,
+      filesReceived: 99,
+      bytesReceived: 1234,
+      lastFile: '/stale.jpg',
+    });
+
+    expect(useServerStore.getState().stats).toEqual({
+      isRunning: false,
+      connectedClients: 0,
+      filesReceived: 0,
+      bytesReceived: 0,
+      lastFile: null,
+    });
   });
 });

@@ -8,93 +8,107 @@ import { invoke } from '@tauri-apps/api/core';
 import type { Event } from '@tauri-apps/api/event';
 import type { ServerInfo, ServerStateSnapshot } from '../types';
 import { storageSettingsBridge } from '../types/global';
-import type { MediaStoreReadyPayload } from '../types/events';
-import { createEventManager, type EventRegistration } from '../utils/events';
-import { scheduleMediaLibraryRefresh } from '../utils/gallery-refresh';
-import { shouldScheduleUploadRefresh } from '../utils/server-stats-refresh';
-import { useServerStore } from '../stores/serverStore';
-import { syncAndroidServerState } from './android-server-state-sync';
 
+import { createEventManager, type EventRegistration } from '../utils/events';
+// Note: scheduleMediaLibraryRefresh removed - full refresh no longer needed
+// FTP uploads and deletions are handled incrementally to preserve scroll position
+
+import { useServerStore } from '../stores/serverStore';
 type ServerStartedPayload = { ip: string; port: number };
 
-const defaultStats: ServerStateSnapshot = {
-  isRunning: false,
-  connectedClients: 0,
-  filesReceived: 0,
-  bytesReceived: 0,
-  lastFile: null,
+type ServerRuntimeView = {
+  serverInfo: ServerInfo | null;
+  stats: ServerStateSnapshot;
 };
+
+function normalizeIpv4Host(host: string): string {
+  const trimmedHost = host.trim();
+  const octets = trimmedHost.split('.');
+  if (octets.length !== 4) {
+    return '127.0.0.1';
+  }
+
+  for (const octet of octets) {
+    if (!/^\d+$/.test(octet)) {
+      return '127.0.0.1';
+    }
+
+    const value = Number(octet);
+    if (!Number.isInteger(value) || value < 0 || value > 255) {
+      return '127.0.0.1';
+    }
+  }
+
+  return octets.map((octet) => String(Number(octet))).join('.');
+}
+
+function buildNormalizedIpv4ServerInfo(ip: string, port: number): Pick<ServerInfo, 'ip' | 'url'> {
+  const normalizedIp = normalizeIpv4Host(ip);
+  return {
+    ip: normalizedIp,
+    url: `ftp://${normalizedIp}:${port}`,
+  };
+}
+
+async function syncRuntimeStateFromBackend(): Promise<boolean> {
+  try {
+    const runtimeState = await invoke<ServerRuntimeView>('get_server_runtime_state');
+    if (runtimeState.serverInfo?.isRunning) {
+      useServerStore.getState().setServerRunning(runtimeState.serverInfo, {
+        stats: runtimeState.stats,
+        immediate: true,
+      });
+      return true;
+    }
+
+    useServerStore.getState().setServerStopped({ immediate: true });
+    return true;
+  } catch (err) {
+    console.warn('[server-events] Runtime state sync failed:', err);
+    return false;
+  }
+}
 
 function createEventRegistrations(): EventRegistration<any>[] {
   return [
     {
       name: 'server-started',
-      handler: (event: Event<ServerStartedPayload>) => {
+      handler: async (event: Event<ServerStartedPayload>) => {
         const { ip, port } = event.payload;
-        useServerStore.setState((state) => ({
-          ...state,
+        if (await syncRuntimeStateFromBackend()) {
+          return;
+        }
+
+        const normalizedServerInfo = buildNormalizedIpv4ServerInfo(ip, port);
+
+        useServerStore.getState().setServerRunning({
           isRunning: true,
-          serverInfo: {
-            isRunning: true,
-            ip,
-            port,
-            url: `ftp://${ip}:${port}`,
-            username: 'anonymous',
-            passwordInfo: '(任意密码)',
-          },
-          stats: { ...state.stats, isRunning: true },
-        }));
-        syncAndroidServerState(true, useServerStore.getState().stats, 0);
+          ip: normalizedServerInfo.ip,
+          port,
+          url: normalizedServerInfo.url,
+          username: 'anonymous',
+          passwordInfo: '(任意密码)',
+        });
       },
     },
     {
       name: 'server-stopped',
       handler: () => {
-        useServerStore.setState((state) => ({
-          ...state,
-          isRunning: false,
-          serverInfo: null,
-          stats: defaultStats,
-        }));
-        syncAndroidServerState(false, null, 0);
+        useServerStore.getState().setServerStopped();
       },
     },
     {
       name: 'stats-update',
       handler: (event: Event<ServerStateSnapshot>) => {
-        const stats = event.payload;
-        const previousStats = useServerStore.getState().stats;
-        useServerStore.setState((state) => ({ ...state, stats }));
-        syncAndroidServerState(true, stats, stats.connectedClients || 0);
+        useServerStore.getState().setServerStats(event.payload);
 
-        if (shouldScheduleUploadRefresh(previousStats.filesReceived, stats.filesReceived)) {
-          scheduleMediaLibraryRefresh({
-            reason: 'upload',
-            timestamp: Date.now(),
-          });
-        }
+        // Note: FTP upload refresh is handled incrementally via gallery-items-added event
+        // to preserve scroll position. Full refresh is no longer needed here.
       },
     },
-    {
-      name: 'media-store-ready',
-      handler: (event: Event<MediaStoreReadyPayload>) => {
-        scheduleMediaLibraryRefresh({
-          reason: 'upload',
-          uri: event.payload.uri,
-          displayName: event.payload.displayName,
-          timestamp: event.payload.timestamp,
-        });
-      },
-    },
-    {
-      name: 'media-library-refresh-requested',
-      handler: () => {
-        scheduleMediaLibraryRefresh({
-          reason: 'delete',
-          timestamp: Date.now(),
-        });
-      },
-    },
+    // Note: media-store-ready and media-library-refresh-requested events are now handled
+    // incrementally via gallery-items-added and gallery-items-deleted events to preserve
+    // scroll position. Full refresh is no longer needed for these events.
     {
       name: 'tray-start-server',
       handler: async () => {
@@ -125,21 +139,9 @@ function createEventRegistrations(): EventRegistration<any>[] {
 }
 
 async function syncInitialServerState(): Promise<void> {
-  try {
-    const info = await invoke<ServerInfo | null>('get_server_info');
-    if (info?.isRunning) {
-      const status = await invoke<ServerStateSnapshot | null>('get_server_status');
-      const syncedStats = status || { ...defaultStats, isRunning: true };
-      useServerStore.setState((state) => ({
-        ...state,
-        isRunning: true,
-        serverInfo: info,
-        stats: syncedStats,
-      }));
-      syncAndroidServerState(true, syncedStats, syncedStats.connectedClients || 0, true);
-    }
-  } catch (err) {
-    console.warn('[server-events] Initial state sync failed:', err);
+  const synced = await syncRuntimeStateFromBackend();
+  if (!synced) {
+    console.warn('[server-events] Initial state sync failed');
   }
 }
 

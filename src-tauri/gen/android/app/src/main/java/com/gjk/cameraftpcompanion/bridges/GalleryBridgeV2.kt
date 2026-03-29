@@ -31,6 +31,10 @@ class GalleryBridgeV2(
         private const val TAG = "GalleryBridgeV2"
     }
 
+    @Volatile
+    private var destroyed = false
+    private val stateLock = Any()
+
     /**
      * Maps listenerId → viewId for listener lifecycle management.
      */
@@ -83,6 +87,7 @@ class GalleryBridgeV2(
                 })
                 put("nextCursor", result.nextCursor ?: JSONObject.NULL)
                 put("revisionToken", result.revisionToken)
+                put("totalCount", result.totalCount)
             }
             json.toString()
         } catch (e: Exception) {
@@ -95,89 +100,104 @@ class GalleryBridgeV2(
 
     @android.webkit.JavascriptInterface
     fun enqueueThumbnails(requestsJson: String) {
-        try {
-            val requests = JSONArray(requestsJson)
-            Log.d(TAG, "enqueueThumbnails: ${requests.length()} requests")
-            var accepted = 0
-            var cacheHits = 0
-            for (i in 0 until requests.length()) {
-                val req = requests.getJSONObject(i)
-                val requestId = req.getString("requestId")
-                val mediaId = req.getString("mediaId")
-                val dateModifiedMs = req.getLong("dateModifiedMs")
-                val sizeBucket = req.getString("sizeBucket")
-                val viewId = req.getString("viewId")
+        synchronized(stateLock) {
+            if (destroyed) {
+                Log.w(TAG, "enqueueThumbnails: bridge already destroyed")
+                return
+            }
 
-                // Check L2 cache first
-                val key = ThumbnailKeyV2.of(mediaId, dateModifiedMs, sizeBucket, 0, 0)
-                val cachedFile = cache.get(mediaId, key, sizeBucket)
-                if (cachedFile != null) {
-                    // Cache hit - deliver result immediately without enqueueing
-                    cacheHits++
-                    pipelineManager.recordCacheHit()
-                    val result = ThumbResult(
+            try {
+                val requests = JSONArray(requestsJson)
+                Log.d(TAG, "enqueueThumbnails: ${requests.length()} requests")
+                var accepted = 0
+                var cacheHits = 0
+                for (i in 0 until requests.length()) {
+                    val req = requests.getJSONObject(i)
+                    val requestId = req.getString("requestId")
+                    val mediaId = req.getString("mediaId")
+                    val dateModifiedMs = req.getLong("dateModifiedMs")
+                    val sizeBucket = req.getString("sizeBucket")
+                    val viewId = req.getString("viewId")
+
+                    val key = ThumbnailKeyV2.of(mediaId, dateModifiedMs, sizeBucket, 0, 0)
+                    val cachedFile = cache.get(mediaId, key, sizeBucket)
+                    if (cachedFile != null) {
+                        cacheHits++
+                        pipelineManager.recordCacheHit()
+                        val result = ThumbResult(
+                            requestId = requestId,
+                            mediaId = mediaId,
+                            status = "ready",
+                            localPath = cachedFile.absolutePath,
+                            errorCode = null
+                        )
+                        requestViewMap[requestId] = viewId
+                        dispatchResult(result)
+                        continue
+                    }
+
+                    val job = ThumbJob(
                         requestId = requestId,
                         mediaId = mediaId,
-                        status = "ready",
-                        localPath = cachedFile.absolutePath,
-                        errorCode = null
+                        uri = req.getString("uri"),
+                        dateModifiedMs = dateModifiedMs,
+                        sizeBucket = sizeBucket,
+                        priority = req.getString("priority"),
+                        viewId = viewId
                     )
-                    requestViewMap[requestId] = viewId
-                    dispatchResult(result)
-                    continue
+                    if (pipelineManager.enqueue(job)) {
+                        requestViewMap[job.requestId] = job.viewId
+                        accepted++
+                    } else {
+                        Log.w(TAG, "enqueueThumbnails: rejected job ${job.requestId} mediaId=${job.mediaId}")
+                    }
                 }
-
-                // Cache miss - enqueue for decoding
-                val job = ThumbJob(
-                    requestId = requestId,
-                    mediaId = mediaId,
-                    uri = req.getString("uri"),
-                    dateModifiedMs = dateModifiedMs,
-                    sizeBucket = sizeBucket,
-                    priority = req.getString("priority"),
-                    viewId = viewId
-                )
-                if (pipelineManager.enqueue(job)) {
-                    requestViewMap[job.requestId] = job.viewId
-                    accepted++
-                } else {
-                    Log.w(TAG, "enqueueThumbnails: rejected job ${job.requestId} mediaId=${job.mediaId}")
-                }
+                Log.d(TAG, "enqueueThumbnails: accepted=$accepted cacheHits=$cacheHits/${requests.length()}, pending=${pipelineManager.pendingCount()}")
+                repeat(accepted) { pipelineManager.processNext() }
+            } catch (e: Exception) {
+                Log.e(TAG, "enqueueThumbnails error", e)
             }
-            Log.d(TAG, "enqueueThumbnails: accepted=$accepted cacheHits=$cacheHits/${requests.length()}, pending=${pipelineManager.pendingCount()}")
-            // Kick off processing for accepted jobs
-            repeat(accepted) { pipelineManager.processNext() }
-        } catch (e: Exception) {
-            Log.e(TAG, "enqueueThumbnails error", e)
         }
     }
 
     @android.webkit.JavascriptInterface
     fun cancelThumbnailRequests(requestIdsJson: String) {
-        Log.d(TAG, "cancelThumbnailRequests")
-        try {
-            val ids = JSONArray(requestIdsJson)
-            for (i in 0 until ids.length()) {
-                val id = ids.getString(i)
-                pipelineManager.cancel(id)
-                requestViewMap.remove(id)
+        synchronized(stateLock) {
+            if (destroyed) {
+                return
             }
-        } catch (e: Exception) {
-            Log.e(TAG, "cancelThumbnailRequests error", e)
+
+            Log.d(TAG, "cancelThumbnailRequests")
+            try {
+                val ids = JSONArray(requestIdsJson)
+                for (i in 0 until ids.length()) {
+                    val id = ids.getString(i)
+                    pipelineManager.cancel(id)
+                    requestViewMap.remove(id)
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "cancelThumbnailRequests error", e)
+            }
         }
     }
 
     @android.webkit.JavascriptInterface
     fun cancelByView(viewId: String) {
-        Log.d(TAG, "cancelByView: viewId=$viewId")
-        try {
-            pipelineManager.cancelByView(viewId)
-            val iterator = requestViewMap.entries.iterator()
-            while (iterator.hasNext()) {
-                if (iterator.next().value == viewId) iterator.remove()
+        synchronized(stateLock) {
+            if (destroyed) {
+                return
             }
-        } catch (e: Exception) {
-            Log.e(TAG, "cancelByView error", e)
+
+            Log.d(TAG, "cancelByView: viewId=$viewId")
+            try {
+                pipelineManager.cancelByView(viewId)
+                val iterator = requestViewMap.entries.iterator()
+                while (iterator.hasNext()) {
+                    if (iterator.next().value == viewId) iterator.remove()
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "cancelByView error", e)
+            }
         }
     }
 
@@ -185,17 +205,30 @@ class GalleryBridgeV2(
 
     @android.webkit.JavascriptInterface
     fun registerThumbnailListener(viewId: String, listenerId: String) {
-        Log.d(TAG, "registerThumbnailListener: viewId=$viewId, listenerId=$listenerId")
-        listenerMap[listenerId] = viewId
-        viewListeners.getOrPut(viewId) { ConcurrentHashMap.newKeySet() }.add(listenerId)
+        synchronized(stateLock) {
+            if (destroyed) {
+                Log.w(TAG, "registerThumbnailListener: bridge already destroyed")
+                return
+            }
+
+            Log.d(TAG, "registerThumbnailListener: viewId=$viewId, listenerId=$listenerId")
+            listenerMap[listenerId] = viewId
+            viewListeners.getOrPut(viewId) { ConcurrentHashMap.newKeySet() }.add(listenerId)
+        }
     }
 
     @android.webkit.JavascriptInterface
     fun unregisterThumbnailListener(listenerId: String) {
-        Log.d(TAG, "unregisterThumbnailListener: listenerId=$listenerId")
-        val viewId = listenerMap.remove(listenerId)
-        if (viewId != null) {
-            viewListeners[viewId]?.remove(listenerId)
+        synchronized(stateLock) {
+            if (destroyed) {
+                return
+            }
+
+            Log.d(TAG, "unregisterThumbnailListener: listenerId=$listenerId")
+            val viewId = listenerMap.remove(listenerId)
+            if (viewId != null) {
+                viewListeners[viewId]?.remove(listenerId)
+            }
         }
     }
 
@@ -204,14 +237,34 @@ class GalleryBridgeV2(
      * Called when the Activity or WebView is destroyed.
      */
     fun invalidateListenersForView(viewId: String) {
-        Log.d(TAG, "invalidateListenersForView: viewId=$viewId")
-        val ids = viewListeners.remove(viewId) ?: return
-        ids.forEach { listenerMap.remove(it) }
-        pipelineManager.cancelByView(viewId)
-        val iterator = requestViewMap.entries.iterator()
-        while (iterator.hasNext()) {
-            if (iterator.next().value == viewId) iterator.remove()
+        synchronized(stateLock) {
+            Log.d(TAG, "invalidateListenersForView: viewId=$viewId")
+            val ids = viewListeners.remove(viewId) ?: return
+            ids.forEach { listenerMap.remove(it) }
+            pipelineManager.cancelByView(viewId)
+            val iterator = requestViewMap.entries.iterator()
+            while (iterator.hasNext()) {
+                if (iterator.next().value == viewId) iterator.remove()
+            }
         }
+    }
+
+    fun destroy() {
+        synchronized(stateLock) {
+            if (destroyed) {
+                return
+            }
+
+            destroyed = true
+            val viewIds = viewListeners.keys.toList() + requestViewMap.values.toList()
+            viewIds.distinct().forEach { viewId ->
+                pipelineManager.cancelByView(viewId)
+            }
+            listenerMap.clear()
+            viewListeners.clear()
+            requestViewMap.clear()
+        }
+        pipelineManager.shutdown()
     }
 
     // ── Cache invalidation ────────────────────────────────────────────
@@ -251,34 +304,47 @@ class GalleryBridgeV2(
     // ── Internal dispatch ─────────────────────────────────────────────
 
     private fun dispatchResult(result: ThumbResult) {
-        val viewId = requestViewMap.remove(result.requestId)
-        if (viewId == null) {
-            Log.w(TAG, "dispatchResult: no viewId for requestId=${result.requestId}")
-            return
-        }
-        val listenerIds = viewListeners[viewId]
-        if (listenerIds == null || listenerIds.isEmpty()) {
-            Log.w(TAG, "dispatchResult: no listeners for viewId=$viewId")
-            return
-        }
+        synchronized(stateLock) {
+            if (destroyed) {
+                return
+            }
 
-        val payload = JSONObject().apply {
-            put("requestId", result.requestId)
-            put("mediaId", result.mediaId)
-            put("status", result.status)
-            put("localPath", result.localPath ?: JSONObject.NULL)
-            put("errorCode", result.errorCode ?: JSONObject.NULL)
-        }.toString()
+            val viewId = requestViewMap.remove(result.requestId)
+            if (viewId == null) {
+                Log.w(TAG, "dispatchResult: no viewId for requestId=${result.requestId}")
+                return
+            }
+            val listenerIds = viewListeners[viewId]
+            if (listenerIds == null || listenerIds.isEmpty()) {
+                Log.w(TAG, "dispatchResult: no listeners for viewId=$viewId")
+                return
+            }
 
-        Log.d(TAG, "dispatchResult: mediaId=${result.mediaId} status=${result.status} path=${result.localPath} listeners=${listenerIds.size}")
-        for (listenerId in listenerIds) {
-            dispatchThumbBatch(listenerId, payload)
+            val payload = JSONObject().apply {
+                put("requestId", result.requestId)
+                put("mediaId", result.mediaId)
+                put("status", result.status)
+                put("localPath", result.localPath ?: JSONObject.NULL)
+                put("errorCode", result.errorCode ?: JSONObject.NULL)
+            }.toString()
+
+            Log.d(TAG, "dispatchResult: mediaId=${result.mediaId} status=${result.status} path=${result.localPath} listeners=${listenerIds.size}")
+            for (listenerId in listenerIds) {
+                dispatchThumbBatch(listenerId, payload)
+            }
         }
     }
 
     private fun dispatchThumbBatch(listenerId: String, payload: String) {
+        if (destroyed) {
+            return
+        }
+
         val script = "window.__galleryThumbDispatch('$listenerId', '${payload.replace("'", "\\'")}')"
         runOnUiThread {
+            if (destroyed) {
+                return@runOnUiThread
+            }
             (activity as? MainActivity)?.getWebView()?.evaluateJavascript(script, null)
         }
     }
