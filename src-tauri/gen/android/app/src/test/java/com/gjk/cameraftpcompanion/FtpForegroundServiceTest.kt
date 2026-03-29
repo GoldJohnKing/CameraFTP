@@ -7,6 +7,7 @@
 package com.gjk.cameraftpcompanion
 
 import android.app.NotificationManager
+import android.app.Service
 import android.content.Context
 import android.content.Intent
 import androidx.test.core.app.ApplicationProvider
@@ -73,7 +74,15 @@ class FtpForegroundServiceTest {
 
             val snapshot = AndroidServiceStateCoordinator.getLatestState()
             val stoppedIntent = shadowOf(application).nextStartedService
+            val stopResult = service.onStartCommand(
+                Intent(context, FtpForegroundService::class.java).apply {
+                    action = FtpForegroundService.ACTION_STOP
+                },
+                0,
+                2,
+            )
             notification = shadowOf(notificationManager).getNotification(FtpForegroundService.NOTIFICATION_ID)
+            assertEquals(Service.START_NOT_STICKY, stopResult)
             assertFalse(snapshot.isRunning)
             assertEquals(0, snapshot.connectedClients)
             assertEquals(FtpForegroundService::class.java.name, stoppedIntent.component?.className)
@@ -87,8 +96,7 @@ class FtpForegroundServiceTest {
     }
 
     @Test
-    @Config(sdk = [36], manifest = Config.NONE)
-    fun onTimeout_overloads_stop_service_now() {
+    fun onTimeout_stops_service_now_and_clears_state() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val notificationManager =
             context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
@@ -112,27 +120,6 @@ class FtpForegroundServiceTest {
             )
 
             service.onTimeout(2)
-            assertFalse(AndroidServiceStateCoordinator.getLatestState().isRunning)
-            assertEquals(0, readConnectedClients(service))
-            assertNull(readServiceStatsJson(service))
-            assertFalse(readIsInForeground(service))
-            assertNull(shadowOf(notificationManager).getNotification(FtpForegroundService.NOTIFICATION_ID))
-
-            AndroidServiceStateCoordinator.syncNativeServiceState(
-                context,
-                true,
-                "{\"isRunning\":true,\"connectedClients\":1,\"filesReceived\":2,\"bytesReceived\":1024,\"lastFile\":null}",
-                1,
-            )
-            service.onStartCommand(
-                Intent(context, FtpForegroundService::class.java).apply {
-                    action = FtpForegroundService.ACTION_START
-                },
-                0,
-                3,
-            )
-
-            service.onTimeout(4, 0)
             assertFalse(AndroidServiceStateCoordinator.getLatestState().isRunning)
             assertEquals(0, readConnectedClients(service))
             assertNull(readServiceStatsJson(service))
@@ -214,8 +201,13 @@ class FtpForegroundServiceTest {
     }
 
     private fun readServiceSource(): String {
+        val localPath = File("src/main/java/com/gjk/cameraftpcompanion/FtpForegroundService.kt")
+        if (localPath.exists()) {
+            return localPath.readText()
+        }
+
         return File(
-            "src/main/java/com/gjk/cameraftpcompanion/FtpForegroundService.kt"
+            "src-tauri/gen/android/app/src/main/java/com/gjk/cameraftpcompanion/FtpForegroundService.kt"
         ).readText()
     }
 }

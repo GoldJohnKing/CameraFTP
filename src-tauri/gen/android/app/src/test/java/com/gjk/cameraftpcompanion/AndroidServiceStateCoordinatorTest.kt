@@ -33,7 +33,13 @@ class AndroidServiceStateCoordinatorTest {
 
     @Test
     fun manifest_declares_connected_device_foreground_service_type() {
-        val manifestPath = Paths.get("app/src/main/AndroidManifest.xml")
+        val manifestPath = resolveProjectPath(
+            "src/main/AndroidManifest.xml",
+            "app/src/main/AndroidManifest.xml",
+            "../app/src/main/AndroidManifest.xml",
+            "../../app/src/main/AndroidManifest.xml",
+            "src-tauri/gen/android/app/src/main/AndroidManifest.xml",
+        )
         val manifest = String(Files.readAllBytes(manifestPath))
         val androidNamespace = "http://schemas.android.com/apk/res/android"
         val document = DocumentBuilderFactory.newInstance().apply { isNamespaceAware = true }
@@ -91,20 +97,26 @@ class AndroidServiceStateCoordinatorTest {
     fun update_service_state_stops_foreground_service_via_stop_service_call() {
         val context = getApplicationContext<Context>()
         val application = getApplicationContext<android.app.Application>()
+        val controller = Robolectric.buildService(FtpForegroundService::class.java).create()
 
-        AndroidServiceStateCoordinator.clearState()
-        AndroidServiceStateCoordinator.syncNativeServiceState(context, true, "{\"files_transferred\":1}", 2)
-        shadowOf(application).clearStartedServices()
+        try {
+            AndroidServiceStateCoordinator.clearState()
+            AndroidServiceStateCoordinator.syncNativeServiceState(context, true, "{\"files_transferred\":1}", 2)
+            shadowOf(application).clearStartedServices()
 
-        AndroidServiceStateCoordinator.syncNativeServiceState(context, false, null, 0)
+            AndroidServiceStateCoordinator.syncNativeServiceState(context, false, null, 0)
 
-        val snapshot = AndroidServiceStateCoordinator.getLatestState()
-        val stopIntent = shadowOf(application).nextStartedService
-        assertFalse(snapshot.isRunning)
-        assertNull(snapshot.statsJson)
-        assertEquals(0, snapshot.connectedClients)
-        assertEquals(FtpForegroundService::class.java.name, stopIntent.component?.className)
-        assertEquals(FtpForegroundService.ACTION_STOP, stopIntent.action)
+            val snapshot = AndroidServiceStateCoordinator.getLatestState()
+            val stopIntent = shadowOf(application).nextStartedService
+            assertFalse(snapshot.isRunning)
+            assertNull(snapshot.statsJson)
+            assertEquals(0, snapshot.connectedClients)
+            assertEquals(FtpForegroundService::class.java.name, stopIntent.component?.className)
+            assertEquals(FtpForegroundService.ACTION_STOP, stopIntent.action)
+        } finally {
+            controller.destroy()
+            AndroidServiceStateCoordinator.clearState()
+        }
     }
 
     @Test
@@ -257,7 +269,13 @@ class AndroidServiceStateCoordinatorTest {
 
     @Test
     fun service_source_uses_connected_device_foreground_runtime_type() {
-        val sourcePath = Paths.get("src/main/java/com/gjk/cameraftpcompanion/FtpForegroundService.kt")
+        val sourcePath = resolveProjectPath(
+            "src/main/java/com/gjk/cameraftpcompanion/FtpForegroundService.kt",
+            "src/main/java/com/gjk/cameraftpcompanion/FtpForegroundService.kt",
+            "../app/src/main/java/com/gjk/cameraftpcompanion/FtpForegroundService.kt",
+            "../../app/src/main/java/com/gjk/cameraftpcompanion/FtpForegroundService.kt",
+            "src-tauri/gen/android/app/src/main/java/com/gjk/cameraftpcompanion/FtpForegroundService.kt",
+        )
         val source = String(Files.readAllBytes(sourcePath))
 
         assertTrue(source.contains("const val ACTION_STOP = \"com.gjk.cameraftpcompanion.STOP_SERVICE\""))
@@ -321,6 +339,17 @@ class AndroidServiceStateCoordinatorTest {
         return withAccessibleField(service, "isInForeground") { field ->
             field.getBoolean(service)
         }
+    }
+
+    private fun resolveProjectPath(vararg candidates: String): java.nio.file.Path {
+        for (candidate in candidates) {
+            val path = Paths.get(candidate)
+            if (Files.exists(path)) {
+                return path
+            }
+        }
+
+        throw java.nio.file.NoSuchFileException(candidates.joinToString(", "))
     }
 
     private fun <T> withAccessibleField(
