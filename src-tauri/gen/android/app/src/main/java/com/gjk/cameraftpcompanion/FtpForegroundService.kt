@@ -94,7 +94,7 @@ class FtpForegroundService : Service() {
         val notification = buildNotification()
         startForegroundWithType(notification)
 
-        return START_STICKY
+        return START_NOT_STICKY
     }
 
     override fun onDestroy() {
