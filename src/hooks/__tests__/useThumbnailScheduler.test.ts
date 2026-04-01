@@ -326,7 +326,9 @@ describe('useThumbnailScheduler', () => {
     });
 
     // Wait for debounce to fire
-    await new Promise((r) => setTimeout(r, 100));
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 100));
+    });
 
     // Only one enqueue call (last viewport state)
     expect(enqueueThumbnailsV2).toHaveBeenCalledTimes(1);
