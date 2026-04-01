@@ -23,9 +23,24 @@ type HarnessProps = {
   activeTab?: string;
   onDeleteApplied?: (pathsToAnimate: Set<string>) => void | Promise<void>;
   getUriForId?: (mediaId: string) => string | undefined;
+  touchCount?: number;
+  isScrollingOnStart?: boolean;
 };
 
-function GallerySelectionHarness({ activeTab = 'gallery', onDeleteApplied, getUriForId }: HarnessProps) {
+function createTouchStartEvent(touchCount = 1, clientX = 0, clientY = 0): React.TouchEvent {
+  return {
+    touches: Array.from({ length: touchCount }, () => ({ clientX, clientY })),
+    preventDefault: () => {},
+  } as unknown as React.TouchEvent;
+}
+
+function GallerySelectionHarness({
+  activeTab = 'gallery',
+  onDeleteApplied,
+  getUriForId,
+  touchCount = 1,
+  isScrollingOnStart = false,
+}: HarnessProps) {
   const {
     isSelectionMode,
     selectedIds,
@@ -56,7 +71,7 @@ function GallerySelectionHarness({ activeTab = 'gallery', onDeleteApplied, getUr
       <span data-testid="deleting-count">{deletingIds.size}</span>
       <button
         data-testid="start-selection"
-        onClick={() => handleTouchStart('content://1', { preventDefault: () => {} } as React.TouchEvent, false)}
+        onClick={() => handleTouchStart('content://1', createTouchStartEvent(touchCount), isScrollingOnStart)}
       >
         start-selection
       </button>
@@ -140,10 +155,46 @@ describe('useGallerySelection', () => {
     expect(window.GalleryAndroid?.unregisterBackPressCallback).toHaveBeenCalled();
   });
 
+  it('does not enter selection mode for multi-touch long press', async () => {
+    await act(async () => {
+      root.render(<GallerySelectionHarness touchCount={2} />);
+      await flush();
+    });
+
+    await act(async () => {
+      container.querySelector('[data-testid="start-selection"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      vi.advanceTimersByTime(400);
+      await flush();
+    });
+
+    expect(container.querySelector('[data-testid="selection-mode"]')?.textContent).toBe('no');
+    expect(container.querySelector('[data-testid="selected-count"]')?.textContent).toBe('0');
+  });
+
+  it('does not enter selection mode when touch starts while scrolling', async () => {
+    await act(async () => {
+      root.render(<GallerySelectionHarness isScrollingOnStart />);
+      await flush();
+    });
+
+    await act(async () => {
+      container.querySelector('[data-testid="start-selection"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      vi.advanceTimersByTime(400);
+      await flush();
+    });
+
+    expect(container.querySelector('[data-testid="selection-mode"]')?.textContent).toBe('no');
+    expect(container.querySelector('[data-testid="selected-count"]')?.textContent).toBe('0');
+  });
+
   it('deletes immediately and keeps remaining failed selection after partial delete', async () => {
     const onDeleteApplied = vi.fn();
     (window.GalleryAndroid?.deleteImages as ReturnType<typeof vi.fn>).mockResolvedValue(
-      JSON.stringify({ deleted: ['content://1'], notFound: [], failed: ['content://2'] }),
+      JSON.stringify({
+        deleted: ['content://media/content://1'],
+        notFound: [],
+        failed: ['content://media/content://2'],
+      }),
     );
 
     await act(async () => {
@@ -174,7 +225,9 @@ describe('useGallerySelection', () => {
       await flush();
     });
 
-    expect(window.GalleryAndroid?.deleteImages).toHaveBeenCalledWith(JSON.stringify(['content://1', 'content://2']));
+    expect(window.GalleryAndroid?.deleteImages).toHaveBeenCalledWith(
+      JSON.stringify(['content://media/content://1', 'content://media/content://2']),
+    );
     expect(window.GalleryAndroid?.removeThumbnails).not.toHaveBeenCalled();
     expect(onDeleteApplied).toHaveBeenCalledTimes(1);
     expect(container.querySelector('[data-testid="selection-mode"]')?.textContent).toBe('yes');
