@@ -54,6 +54,10 @@ class ImageViewerActivity : AppCompatActivity() {
         var instance: ImageViewerActivity? = null
             private set
 
+        @Volatile
+        var isViewerVisible: Boolean = false
+            private set
+
         @JvmStatic
         fun shouldRequestDeleteConfirmation(
             apiLevel: Int,
@@ -79,6 +83,58 @@ class ImageViewerActivity : AppCompatActivity() {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
             context.startActivity(intent)
+        }
+
+        data class NavigationTarget(
+            val uris: List<String>,
+            val targetIndex: Int,
+        )
+
+        data class ReuseNavigationPlan(
+            val shouldReuseExisting: Boolean,
+            val uris: List<String>,
+            val safeTargetIndex: Int,
+        )
+
+        @JvmStatic
+        fun buildNavigationTarget(allUris: List<String>, targetUri: String): NavigationTarget? {
+            val targetIndex = allUris.indexOf(targetUri)
+            return if (targetIndex >= 0) {
+                NavigationTarget(allUris, targetIndex)
+            } else {
+                null
+            }
+        }
+
+        @JvmStatic
+        fun buildReuseNavigationPlan(
+            hasVisibleReusableViewer: Boolean,
+            targetUris: List<String>,
+            targetIndex: Int,
+        ): ReuseNavigationPlan? {
+            if (targetUris.isEmpty()) {
+                return null
+            }
+
+            return ReuseNavigationPlan(
+                shouldReuseExisting = hasVisibleReusableViewer,
+                uris = targetUris,
+                safeTargetIndex = targetIndex.coerceIn(0, targetUris.lastIndex),
+            )
+        }
+
+        @JvmStatic
+        fun navigateOrStart(context: Context, uris: List<String>, targetIndex: Int) {
+            val active = instance
+            val hasVisibleReusableViewer = active != null && isViewerVisible && !active.isFinishing && !active.isDestroyed
+            val plan = buildReuseNavigationPlan(hasVisibleReusableViewer, uris, targetIndex) ?: return
+
+            if (plan.shouldReuseExisting && active != null) {
+                active.navigateTo(plan.uris, plan.safeTargetIndex)
+                return
+            }
+
+            start(context, plan.uris, plan.safeTargetIndex)
         }
     }
 
@@ -144,6 +200,33 @@ class ImageViewerActivity : AppCompatActivity() {
                 updateUI()
             }
         })
+    }
+
+    fun navigateTo(newUris: List<String>, targetIndex: Int) {
+        runOnUiThread {
+            if (isFinishing || isDestroyed) {
+                return@runOnUiThread
+            }
+
+            uris.clear()
+            uris.addAll(newUris)
+
+            if (uris.isEmpty()) {
+                finish()
+                return@runOnUiThread
+            }
+
+            val safeTargetIndex = targetIndex.coerceIn(0, uris.lastIndex)
+            currentIndex = safeTargetIndex
+
+            (viewPager.adapter as? ImageViewerAdapter)?.replaceUris(uris)
+                ?: run {
+                    setupViewPager()
+                }
+
+            viewPager.setCurrentItem(safeTargetIndex, false)
+            updateUI()
+        }
     }
 
     private fun toggleBottomBar() {
@@ -505,9 +588,26 @@ class ImageViewerActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         instance = this
+        isViewerVisible = true
+    }
+
+    override fun onPause() {
+        isViewerVisible = false
+        super.onPause()
+    }
+
+    override fun onStart() {
+        super.onStart()
+        MainActivity.markActivityVisible()
+    }
+
+    override fun onStop() {
+        MainActivity.markActivityHidden()
+        super.onStop()
     }
 
     override fun onDestroy() {
+        if (instance == this) isViewerVisible = false
         if (instance == this) instance = null
         super.onDestroy()
     }

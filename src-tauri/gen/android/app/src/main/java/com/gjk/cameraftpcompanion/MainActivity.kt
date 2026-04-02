@@ -23,6 +23,7 @@ import com.gjk.cameraftpcompanion.bridges.ImageViewerBridge
 import com.gjk.cameraftpcompanion.cache.ThumbnailCacheProvider
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 
 class MainActivity : TauriActivity() {
@@ -52,6 +53,34 @@ class MainActivity : TauriActivity() {
          */
         var instance: MainActivity? = null
             private set
+
+        @Volatile
+        var isAppVisible: Boolean = false
+            private set
+
+        private val visibleActivityCount = AtomicInteger(0)
+
+        @JvmStatic
+        fun markActivityVisible() {
+            val visibleCount = visibleActivityCount.incrementAndGet()
+            isAppVisible = visibleCount > 0
+        }
+
+        @JvmStatic
+        fun markActivityHidden() {
+            while (true) {
+                val currentCount = visibleActivityCount.get()
+                if (currentCount <= 0) {
+                    isAppVisible = false
+                    return
+                }
+
+                if (visibleActivityCount.compareAndSet(currentCount, currentCount - 1)) {
+                    isAppVisible = currentCount - 1 > 0
+                    return
+                }
+            }
+        }
     }
 
     private var webViewRef: WebView? = null
@@ -206,6 +235,16 @@ class MainActivity : TauriActivity() {
         galleryBridgeV2 = null
         mediaStoreBridge = null
         imageViewerBridge = null
+    }
+
+    override fun onStart() {
+        super.onStart()
+        markActivityVisible()
+    }
+
+    override fun onStop() {
+        markActivityHidden()
+        super.onStop()
     }
 
     /**

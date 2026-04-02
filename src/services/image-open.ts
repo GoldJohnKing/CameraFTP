@@ -11,6 +11,7 @@ import type { MediaStoreEntry } from '../utils/media-store-events';
 interface OpenImagePreviewParams {
   filePath: string;
   openMethod?: string;
+  preferReuse?: boolean;
   allUris?: string[];
   getAllUris?: () => Promise<string[]>;
 }
@@ -23,6 +24,24 @@ async function getMediaStoreUris(): Promise<string[]> {
   const listJson = await window.GalleryAndroid.listMediaStoreImages();
   const entries = JSON.parse(listJson ?? '[]') as MediaStoreEntry[];
   return entries.map((entry) => entry.uri);
+}
+
+async function resolveViewerUris(params: {
+  filePath: string;
+  allUris?: string[];
+  getAllUris?: () => Promise<string[]>;
+}): Promise<string[]> {
+  const { filePath, allUris, getAllUris } = params;
+  if (allUris) {
+    return allUris.length > 0 ? allUris : [filePath];
+  }
+
+  try {
+    const resolved = getAllUris ? await getAllUris() : await getMediaStoreUris();
+    return resolved.length > 0 ? resolved : [filePath];
+  } catch {
+    return [filePath];
+  }
 }
 
 async function sendExifToViewer(path: string): Promise<void> {
@@ -39,23 +58,68 @@ async function sendExifToViewer(path: string): Promise<void> {
   }
 }
 
+function isChooserOpenSuccess(result: unknown): boolean {
+  if (typeof result === 'boolean') {
+    return result;
+  }
+
+  if (typeof result !== 'string' || result.length === 0) {
+    return false;
+  }
+
+  try {
+    const parsed = JSON.parse(result) as { success?: unknown };
+    return parsed.success === true;
+  } catch {
+    return false;
+  }
+}
+
 export async function openImagePreview({
   filePath,
   openMethod,
+  preferReuse,
   allUris,
   getAllUris,
 }: OpenImagePreviewParams): Promise<void> {
-  if (openMethod === 'built-in-viewer' && window.ImageViewerAndroid?.openViewer) {
-    const resolvedUris = allUris ?? (getAllUris ? await getAllUris() : await getMediaStoreUris());
-    const viewerUris = resolvedUris.length > 0 ? resolvedUris : [filePath];
-    window.ImageViewerAndroid.openViewer(filePath, JSON.stringify(viewerUris));
-    void sendExifToViewer(filePath);
-    return;
+  const imageViewerAndroid = window.ImageViewerAndroid;
+
+  if (openMethod === 'built-in-viewer' && imageViewerAndroid) {
+    const viewerUris = await resolveViewerUris({ filePath, allUris, getAllUris });
+    const viewerUrisJson = JSON.stringify(viewerUris);
+
+    if (preferReuse && imageViewerAndroid.openOrNavigateTo) {
+      try {
+        if (imageViewerAndroid.openOrNavigateTo(filePath, viewerUrisJson)) {
+          void sendExifToViewer(filePath);
+          return;
+        }
+      } catch {
+        // Fall through to other open methods when bridge call fails.
+      }
+    }
+
+    if (imageViewerAndroid.openViewer) {
+      try {
+        if (imageViewerAndroid.openViewer(filePath, viewerUrisJson)) {
+          void sendExifToViewer(filePath);
+          return;
+        }
+      } catch {
+        // Fall through to chooser/window fallback when bridge call fails.
+      }
+    }
   }
 
   if (window.PermissionAndroid?.openImageWithChooser) {
-    window.PermissionAndroid.openImageWithChooser(filePath);
-    return;
+    try {
+      const chooserResult = window.PermissionAndroid.openImageWithChooser(filePath);
+      if (isChooserOpenSuccess(chooserResult)) {
+        return;
+      }
+    } catch {
+      // Fall through to preview window fallback.
+    }
   }
 
   await invoke('open_preview_window', { filePath });

@@ -167,6 +167,7 @@ export const ConfigCard = memo(function ConfigCard() {
           icon={<Wifi className="w-5 h-5 text-indigo-600" />}
           action={
             <ToggleSwitch
+              ariaLabel="启用高级连接设置"
               enabled={draft?.advancedConnection?.enabled ?? false}
               onChange={(enabled) => {
                 const currentConfig = draft?.advancedConnection ?? DEFAULT_ADVANCED_CONFIG;
@@ -209,25 +210,39 @@ export const ConfigCard = memo(function ConfigCard() {
             icon={<Image className="w-5 h-5 text-violet-600" />}
           />
           <div className="p-4 space-y-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <span className="text-sm font-medium text-gray-700">使用外部应用打开图片</span>
-                <p className="text-xs text-gray-500 mt-0.5">使用第三方APP打开图片</p>
-              </div>
+            <ToggleSwitch
+              label="使用外部应用打开图片"
+              description="使用第三方APP打开图片"
+              enabled={draft.androidImageViewer.openMethod === 'external-app'}
+              onChange={(enabled) => {
+                updateDraft(d => ({
+                  ...d,
+                  androidImageViewer: {
+                    ...d.androidImageViewer!,
+                    openMethod: enabled ? 'external-app' : 'built-in-viewer',
+                  },
+                }));
+              }}
+              disabled={isLoading}
+            />
+
+            {draft.androidImageViewer.openMethod !== 'external-app' && (
               <ToggleSwitch
-                enabled={draft.androidImageViewer.openMethod === 'external-app'}
+                label="前台接收新图片时自动显示"
+                description="仅内置图片查看器生效"
+                enabled={draft.androidImageViewer.autoOpenLatestWhenVisible}
                 onChange={(enabled) => {
                   updateDraft(d => ({
                     ...d,
                     androidImageViewer: {
                       ...d.androidImageViewer!,
-                      openMethod: enabled ? 'external-app' : 'built-in-viewer',
+                      autoOpenLatestWhenVisible: enabled,
                     },
                   }));
                 }}
                 disabled={isLoading}
               />
-            </div>
+            )}
           </div>
         </Card>
       )}

@@ -10,6 +10,7 @@ import android.net.Uri
 import android.provider.MediaStore
 import android.util.Log
 import com.gjk.cameraftpcompanion.ImageViewerActivity
+import com.gjk.cameraftpcompanion.MainActivity
 import org.json.JSONArray
 
 class ImageViewerBridge(activity: android.app.Activity) : BaseJsBridge(activity) {
@@ -21,19 +22,34 @@ class ImageViewerBridge(activity: android.app.Activity) : BaseJsBridge(activity)
     @android.webkit.JavascriptInterface
     fun openViewer(uri: String, allUrisJson: String): Boolean {
         Log.d(TAG, "openViewer: uri=$uri")
+        return openOrNavigateTo(uri, allUrisJson)
+    }
+
+    @android.webkit.JavascriptInterface
+    fun isAppVisible(): Boolean {
+        return MainActivity.isAppVisible
+    }
+
+    @android.webkit.JavascriptInterface
+    fun openOrNavigateTo(uri: String, allUrisJson: String): Boolean {
+        Log.d(TAG, "openOrNavigateTo: uri=$uri")
         return try {
             val allUris = JSONArray(allUrisJson).let { json ->
                 (0 until json.length()).map { json.getString(it) }
             }
-            val targetIndex = allUris.indexOf(uri)
-            if (targetIndex == -1) {
+            val navigationTarget = ImageViewerActivity.buildNavigationTarget(allUris, uri)
+            if (navigationTarget == null) {
                 Log.e(TAG, "openViewer: target URI not found in list")
                 return false
             }
-            ImageViewerActivity.start(activity, allUris, targetIndex)
+            ImageViewerActivity.navigateOrStart(
+                activity,
+                navigationTarget.uris,
+                navigationTarget.targetIndex,
+            )
             true
         } catch (e: Exception) {
-            Log.e(TAG, "openViewer error", e)
+            Log.e(TAG, "openOrNavigateTo error", e)
             false
         }
     }

@@ -16,13 +16,21 @@ import { useGalleryPager } from '../hooks/useGalleryPager';
 import { useThumbnailScheduler } from '../hooks/useThumbnailScheduler';
 import { useGallerySelection } from '../hooks/useGallerySelection';
 import { useImagePreviewOpener } from '../hooks/useImagePreviewOpener';
+import { useAndroidAutoOpenLatestPhoto } from '../hooks/useAndroidAutoOpenLatestPhoto';
 import { VirtualGalleryGrid } from './VirtualGalleryGrid';
 
 export const GalleryCard = memo(function GalleryCard() {
   const { activeTab } = useConfigStore();
+  const draft = useConfigStore((state) => state.draft);
   const openPreview = useImagePreviewOpener();
   const pager = useGalleryPager();
   const scheduler = useThumbnailScheduler();
+
+  useAndroidAutoOpenLatestPhoto({
+    galleryItems: pager.items,
+    openMethod: draft?.androidImageViewer?.openMethod,
+    autoOpenLatestWhenVisible: draft?.androidImageViewer?.autoOpenLatestWhenVisible,
+  });
 
   const getUriForId = useCallback(
     (mediaId: string) => pager.items.find((item) => item.mediaId === mediaId)?.uri,
