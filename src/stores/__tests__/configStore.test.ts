@@ -249,4 +249,33 @@ describe('configStore coordination', () => {
     expect(useConfigStore.getState().draft?.previewConfig?.autoBringToFront).toBe(true);
     expect(useConfigStore.getState().config?.previewConfig?.autoBringToFront).toBe(true);
   });
+
+  it('keeps autoOpenLatestWhenVisible true when updateDraft only changes android openMethod', () => {
+    const androidConfig: AppConfig = {
+      ...baseConfig,
+      androidImageViewer: {
+        openMethod: 'built-in-viewer',
+        autoOpenLatestWhenVisible: true,
+      },
+    };
+
+    useConfigStore.setState((state) => ({
+      ...state,
+      config: androidConfig,
+      draft: androidConfig,
+      platform: 'android',
+    }));
+
+    useConfigStore.getState().updateDraft((draft) => ({
+      ...draft,
+      androidImageViewer: {
+        ...draft.androidImageViewer!,
+        openMethod: 'external-app',
+      },
+    }));
+
+    expect(useConfigStore.getState().draft?.androidImageViewer?.openMethod).toBe('external-app');
+    expect(useConfigStore.getState().draft?.androidImageViewer?.autoOpenLatestWhenVisible).toBe(true);
+  });
+
 });

@@ -115,15 +115,17 @@ impl Default for AndroidImageOpenMethod {
 /// Android 图片查看器配置
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", default)]
 pub struct AndroidImageViewerConfig {
     pub open_method: AndroidImageOpenMethod,
+    pub auto_open_latest_when_visible: bool,
 }
 
 impl Default for AndroidImageViewerConfig {
     fn default() -> Self {
         Self {
             open_method: AndroidImageOpenMethod::default(),
+            auto_open_latest_when_visible: false,
         }
     }
 }
@@ -364,4 +366,21 @@ pub fn init_android_paths(app_handle: &tauri::AppHandle) {
 #[cfg(target_os = "windows")]
 pub fn init_android_paths(_app_handle: &tauri::AppHandle) {
     // 非 Android 平台无需初始化
+}
+
+#[cfg(test)]
+mod tests {
+    use super::AndroidImageViewerConfig;
+
+    #[test]
+    fn deserializes_legacy_android_image_viewer_without_auto_open_flag() {
+        let legacy_payload = r#"{
+            "openMethod": "external-app"
+        }"#;
+
+        let config: AndroidImageViewerConfig =
+            serde_json::from_str(legacy_payload).expect("legacy payload should deserialize");
+
+        assert!(!config.auto_open_latest_when_visible);
+    }
 }

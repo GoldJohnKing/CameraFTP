@@ -16,9 +16,11 @@ import com.davemorrissey.labs.subscaleview.SubsamplingScaleImageView
 import kotlin.math.abs
 
 class ImageViewerAdapter(
-    private val uris: List<String>,
+    uris: List<String>,
     private val onTap: (() -> Unit)? = null
 ) : RecyclerView.Adapter<ImageViewerAdapter.ViewHolder>() {
+
+    private val uris: MutableList<String> = uris.toMutableList()
 
     /** Current visible position, updated by ViewPager2 callback */
     var currentPosition: Int = 0
@@ -66,4 +68,10 @@ class ImageViewerAdapter(
     }
 
     override fun getItemCount(): Int = uris.size
+
+    fun replaceUris(newUris: List<String>) {
+        uris.clear()
+        uris.addAll(newUris)
+        notifyDataSetChanged()
+    }
 }

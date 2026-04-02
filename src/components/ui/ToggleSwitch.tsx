@@ -9,15 +9,18 @@ interface ToggleSwitchProps {
   onChange: (enabled: boolean) => void;
   label?: string;
   description?: string;
+  ariaLabel?: string;
   disabled?: boolean;
 }
 
-export function ToggleSwitch({ enabled, onChange, label, description, disabled }: ToggleSwitchProps) {
+export function ToggleSwitch({ enabled, onChange, label, description, ariaLabel, disabled }: ToggleSwitchProps) {
   const button = (
     <button
       type="button"
       onClick={() => !disabled && onChange(!enabled)}
       disabled={disabled}
+      aria-label={ariaLabel ?? label}
+      aria-pressed={enabled}
       className={`
         relative inline-flex h-6 w-11 items-center rounded-full
         transition-colors duration-200 ease-in-out

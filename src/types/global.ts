@@ -256,6 +256,20 @@ interface ImageViewerAndroid {
   openViewer(uri: string, allUrisJson: string): boolean;
 
   /**
+   * Reuse existing viewer if visible, otherwise open viewer
+   * @param uri Content URI of the target image
+   * @param allUrisJson JSON array of all image URIs for navigation
+   * @returns true if navigation/open action succeeded
+   */
+  openOrNavigateTo(uri: string, allUrisJson: string): boolean;
+
+  /**
+   * Check whether image viewer app/activity is currently visible
+   * @returns true when app is visible to user
+   */
+  isAppVisible(): boolean;
+
+  /**
    * Close the image viewer
    * @returns true if viewer closed successfully
    */
