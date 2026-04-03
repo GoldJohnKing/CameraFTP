@@ -13,15 +13,3 @@ import type { PreviewWindowConfig } from './index';
 export interface ConfigChangedEvent {
     config: PreviewWindowConfig;
 }
-
-/**
- * Event payload for media store ready notification
- * Emitted when Android MediaStore has finished scanning and indexing uploaded files
- */
-export type MediaStoreReadyPayload = {
-  uri: string;
-  relativePath: string;
-  displayName: string;
-  size: number;
-  timestamp: number;
-};
