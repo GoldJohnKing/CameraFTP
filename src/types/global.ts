@@ -62,7 +62,7 @@ interface PermissionAndroid {
    /**
     * 用外部APP打开图片
     * 首次点击会显示选择器，用户选择"始终"后系统会记住选择
-    * @param path 图片的绝对路径
+    * @param path 图片的 content:// URI 或文件路径
     * @returns JSON 字符串，包含 success 和 message
     */
    openImageWithChooser: (path: string) => string;

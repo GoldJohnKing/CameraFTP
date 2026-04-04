@@ -53,10 +53,7 @@ class ThumbnailPipelineManagerTest {
         assertTrue(pipeline.enqueue(visible))
         assertEquals(2, pipeline.pendingCount())
 
-        // Verify queue stats show both jobs pending
-        val stats = pipeline.queueStats()
-        assertEquals(2, stats.pending)
-        assertEquals(0, stats.running)
+        assertEquals(2, pipeline.pendingCount())
     }
 
     // ── Test 2: prefetch io_transient has no retry ──────────────────────

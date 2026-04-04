@@ -40,15 +40,6 @@ data class ThumbResult(
 )
 
 /**
- * Snapshot of the pipeline queue state.
- */
-data class QueueStats(
-    val pending: Int,
-    val running: Int,
-    val cacheHitRate: Double
-)
-
-/**
  * Tracks an in-flight job and whether it has been cancelled.
  */
 private data class RunningJob(
@@ -221,22 +212,6 @@ class ThumbnailPipelineManager(poolSize: Int = 3) {
      * Total number of pending jobs across all three queues.
      */
     fun pendingCount(): Int = lock.withLock { pendingCountLocked() }
-
-    /**
-     * Return a snapshot of current queue statistics.
-     */
-    fun queueStats(): QueueStats = lock.withLock {
-        val hitRate = if (totalRequests > 0) {
-            cacheHits.toDouble() / totalRequests.toDouble()
-        } else {
-            0.0
-        }
-        QueueStats(
-            pending = pendingCountLocked(),
-            running = runningMap.size,
-            cacheHitRate = hitRate
-        )
-    }
 
     /**
      * Record a cache hit (call when a thumbnail is served from cache

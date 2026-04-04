@@ -126,8 +126,3 @@ export function dispatchThumbnailResult(listenerId: string, resultJson: string):
     console.warn(`[GalleryV2] dispatchThumbnailResult: no listener for ${listenerId}, registered: ${[...listeners.keys()]}`);
   }
 }
-
-/**
- * List a page of media items using V2 bridge (simplified API).
- * Returns empty response if bridge is unavailable.
- */
