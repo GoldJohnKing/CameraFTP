@@ -228,8 +228,8 @@ export const ConfigCard = memo(function ConfigCard() {
 
             {draft.androidImageViewer.openMethod !== 'external-app' && (
               <ToggleSwitch
-                label="前台接收新图片时自动显示"
-                description="仅内置图片查看器生效"
+                label="自动预览"
+                description="收到新图片后自动显示预览"
                 enabled={draft.androidImageViewer.autoOpenLatestWhenVisible}
                 onChange={(enabled) => {
                   updateDraft(d => ({
