@@ -8,6 +8,7 @@ import { act } from 'react';
 import { flushSync } from 'react-dom';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { AndroidImageOpenMethod } from '../../types';
 import type { MediaItemDto } from '../../types/gallery-v2';
 import { useAndroidAutoOpenLatestPhoto } from '../useAndroidAutoOpenLatestPhoto';
 
@@ -21,7 +22,7 @@ vi.mock('../../services/image-open', () => ({
 
 interface HarnessProps {
   galleryItems: MediaItemDto[];
-  openMethod?: string;
+  openMethod?: AndroidImageOpenMethod;
   autoOpenLatestWhenVisible?: boolean;
 }
 

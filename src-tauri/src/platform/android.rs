@@ -195,16 +195,8 @@ impl PlatformService for AndroidPlatform {
         );
     }
 
-    fn get_storage_path(&self, _app: &AppHandle) -> Result<String, String> {
-        Ok(DEFAULT_STORAGE_PATH.to_string())
-    }
-
     fn get_default_storage_path(&self) -> std::path::PathBuf {
         std::path::PathBuf::from(DEFAULT_STORAGE_PATH)
-    }
-
-    fn needs_storage_permission(&self) -> bool {
-        true
     }
 
     fn request_all_files_permission(&self, app: &AppHandle) -> Result<bool, String> {
@@ -228,11 +220,6 @@ impl PlatformService for AndroidPlatform {
     fn select_save_directory(&self, _app: &AppHandle) -> Result<Option<String>, String> {
         // Android 使用固定路径，直接返回默认路径
         Ok(Some(DEFAULT_STORAGE_PATH.to_string()))
-    }
-
-    fn open_all_files_access_settings(&self, app: &AppHandle) -> Result<(), String> {
-        open_storage_permission_settings(app);
-        Ok(())
     }
 }
 

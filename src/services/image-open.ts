@@ -5,25 +5,14 @@
  */
 
 import { invoke } from '@tauri-apps/api/core';
-import type { ExifInfo } from '../types';
-import type { MediaStoreEntry } from '../utils/media-store-events';
+import type { AndroidImageOpenMethod, ExifInfo } from '../types';
 
 interface OpenImagePreviewParams {
   filePath: string;
-  openMethod?: string;
+  openMethod?: AndroidImageOpenMethod;
   preferReuse?: boolean;
   allUris?: string[];
   getAllUris?: () => Promise<string[]>;
-}
-
-async function getMediaStoreUris(): Promise<string[]> {
-  if (!window.GalleryAndroid) {
-    return [];
-  }
-
-  const listJson = await window.GalleryAndroid.listMediaStoreImages();
-  const entries = JSON.parse(listJson ?? '[]') as MediaStoreEntry[];
-  return entries.map((entry) => entry.uri);
 }
 
 async function resolveViewerUris(params: {
@@ -37,7 +26,7 @@ async function resolveViewerUris(params: {
   }
 
   try {
-    const resolved = getAllUris ? await getAllUris() : await getMediaStoreUris();
+    const resolved = getAllUris ? await getAllUris() : [];
     return resolved.length > 0 ? resolved : [filePath];
   } catch {
     return [filePath];
@@ -59,10 +48,6 @@ async function sendExifToViewer(path: string): Promise<void> {
 }
 
 function isChooserOpenSuccess(result: unknown): boolean {
-  if (typeof result === 'boolean') {
-    return result;
-  }
-
   if (typeof result !== 'string' || result.length === 0) {
     return false;
   }

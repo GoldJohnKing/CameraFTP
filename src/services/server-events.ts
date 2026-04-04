@@ -9,8 +9,9 @@ import type { Event } from '@tauri-apps/api/event';
 import type { ServerInfo, ServerStateSnapshot } from '../types';
 
 import { createEventManager, type EventRegistration } from '../utils/events';
-// Note: scheduleMediaLibraryRefresh removed - full refresh no longer needed
-// FTP uploads and deletions are handled incrementally to preserve scroll position
+import { requestMediaLibraryRefresh } from '../utils/gallery-refresh';
+// Runtime gallery updates primarily rely on incremental events (added/deleted),
+// while delete-triggered bridge refresh remains as a compatibility fallback.
 
 import { useServerStore } from '../stores/serverStore';
 type ServerStartedPayload = { ip: string; port: number };
@@ -101,13 +102,19 @@ function createEventRegistrations(): EventRegistration<any>[] {
       handler: (event: Event<ServerStateSnapshot>) => {
         useServerStore.getState().setServerStats(event.payload);
 
-        // Note: FTP upload refresh is handled incrementally via gallery-items-added event
-        // to preserve scroll position. Full refresh is no longer needed here.
+        // Runtime upload refresh is handled via incremental gallery-items-added.
+        // Full refresh is not part of the upload runtime chain.
       },
     },
-    // Note: media-store-ready and media-library-refresh-requested events are now handled
-    // incrementally via gallery-items-added and gallery-items-deleted events to preserve
-    // scroll position. Full refresh is no longer needed for these events.
+    {
+      name: 'media-library-refresh-requested',
+      handler: () => {
+        requestMediaLibraryRefresh({ reason: 'delete' });
+      },
+    },
+    // Legacy media-store-ready runtime path remains removed.
+    // Incremental gallery-items-added/gallery-items-deleted are primary, with
+    // media-library-refresh-requested kept for delete compatibility bridging.
     {
       name: 'tray-start-server',
       handler: async () => {

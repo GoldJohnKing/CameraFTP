@@ -110,7 +110,6 @@ describe('useGallerySelection', () => {
 
     window.GalleryAndroid = {
       deleteImages: vi.fn().mockResolvedValue(JSON.stringify({ deleted: [], notFound: [], failed: [] })),
-      removeThumbnails: vi.fn().mockResolvedValue(true),
       shareImages: vi.fn().mockResolvedValue(true),
       registerBackPressCallback: vi.fn().mockReturnValue(true),
       unregisterBackPressCallback: vi.fn().mockReturnValue(true),
@@ -228,7 +227,7 @@ describe('useGallerySelection', () => {
     expect(window.GalleryAndroid?.deleteImages).toHaveBeenCalledWith(
       JSON.stringify(['content://media/content://1', 'content://media/content://2']),
     );
-    expect(window.GalleryAndroid?.removeThumbnails).not.toHaveBeenCalled();
+    expect((window.GalleryAndroid as Record<string, unknown> | undefined)?.removeThumbnails).toBeUndefined();
     expect(onDeleteApplied).toHaveBeenCalledTimes(1);
     expect(container.querySelector('[data-testid="selection-mode"]')?.textContent).toBe('yes');
     expect(container.querySelector('[data-testid="selected-count"]')?.textContent).toBe('1');

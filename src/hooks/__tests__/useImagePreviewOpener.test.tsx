@@ -71,7 +71,10 @@ describe('useImagePreviewOpener', () => {
 
   it('passes configured Android open method to image-open service', async () => {
     useDraftConfigMock.mockReturnValue({
-      androidImageViewer: { openMethod: 'built-in-viewer' },
+      androidImageViewer: {
+        openMethod: 'built-in-viewer',
+        autoOpenLatestWhenVisible: true,
+      },
     });
 
     await act(async () => {

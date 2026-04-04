@@ -136,19 +136,6 @@ pub fn save_auth_config(
     save_auth_config_with_service(config_service.inner().as_ref(), anonymous, username, password)
 }
 
-/// 获取固定存储路径（Android）或当前配置路径（桌面）
-#[command]
-pub fn get_storage_path(app: AppHandle) -> Result<String, String> {
-    crate::platform::get_platform().get_storage_path(&app)
-}
-
-/// 验证保存路径是否有效
-#[command]
-pub fn validate_save_path(path: String) -> bool {
-    let path_obj = std::path::PathBuf::from(&path);
-    path_obj.exists() && path_obj.is_dir()
-}
-
 /// 选择保存目录
 #[command]
 pub async fn select_save_directory(app: AppHandle) -> Result<Option<String>, String> {

@@ -46,6 +46,5 @@ export type {
   ThumbStatus,
   ThumbResult,
   ThumbErrorCode,
-  QueueStats,
   ThumbResultListener,
 } from './gallery-v2';

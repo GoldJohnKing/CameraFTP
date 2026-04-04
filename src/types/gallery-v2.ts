@@ -82,15 +82,6 @@ export type ThumbErrorCode =
   | 'oom_guard'
   | 'cancelled';
 
-// ===== Queue Stats =====
-
-/** Current state of the thumbnail processing queue */
-export interface QueueStats {
-  pending: number;
-  running: number;
-  cacheHitRate: number;
-}
-
 // ===== Listener =====
 
 /** Callback type for thumbnail results */

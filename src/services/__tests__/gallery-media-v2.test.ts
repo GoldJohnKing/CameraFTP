@@ -10,11 +10,9 @@ import {
   listMediaPage,
   enqueueThumbnails,
   cancelThumbnailRequests,
-  cancelByView,
   registerThumbnailListener,
   unregisterThumbnailListener,
   invalidateMediaIds,
-  getQueueStats,
   dispatchThumbnailResult,
 } from '../gallery-media-v2';
 import type {
@@ -22,7 +20,6 @@ import type {
   MediaPageResponse,
   ThumbRequest,
   ThumbResult,
-  QueueStats,
 } from '../../types/gallery-v2';
 
 function createMockBridge() {
@@ -30,11 +27,9 @@ function createMockBridge() {
     listMediaPage: vi.fn().mockResolvedValue('{}'),
     enqueueThumbnails: vi.fn().mockResolvedValue(''),
     cancelThumbnailRequests: vi.fn().mockResolvedValue(''),
-    cancelByView: vi.fn().mockResolvedValue(''),
     registerThumbnailListener: vi.fn().mockResolvedValue(''),
     unregisterThumbnailListener: vi.fn().mockResolvedValue(''),
     invalidateMediaIds: vi.fn().mockResolvedValue(''),
-    getQueueStats: vi.fn().mockResolvedValue('{}'),
   };
 }
 
@@ -121,16 +116,6 @@ describe('gallery-media-v2 service', () => {
     });
   });
 
-  describe('cancelByView', () => {
-    it('sends view ID directly', async () => {
-      const bridge = createMockBridge();
-      window.GalleryAndroidV2 = bridge as unknown as typeof window.GalleryAndroidV2;
-
-      await cancelByView('view-1');
-      expect(bridge.cancelByView).toHaveBeenCalledWith('view-1');
-    });
-  });
-
   describe('registerThumbnailListener', () => {
     it('registers with bridge and stores listener', async () => {
       const bridge = createMockBridge();
@@ -159,18 +144,6 @@ describe('gallery-media-v2 service', () => {
 
       await invalidateMediaIds(['1', '2', '3']);
       expect(bridge.invalidateMediaIds).toHaveBeenCalledWith(JSON.stringify(['1', '2', '3']));
-    });
-  });
-
-  describe('getQueueStats', () => {
-    it('parses queue stats response', async () => {
-      const stats: QueueStats = { pending: 5, running: 2, cacheHitRate: 0.85 };
-      const bridge = createMockBridge();
-      bridge.getQueueStats.mockResolvedValue(JSON.stringify(stats));
-      window.GalleryAndroidV2 = bridge as unknown as typeof window.GalleryAndroidV2;
-
-      const result = await getQueueStats();
-      expect(result).toEqual(stats);
     });
   });
 
@@ -213,16 +186,20 @@ describe('gallery-media-v2 service', () => {
     });
   });
 
-  describe('all 8 bridge methods have adapter functions', () => {
+  describe('only active V2 bridge methods have adapter functions', () => {
     it('exports all expected functions', () => {
       expect(typeof listMediaPage).toBe('function');
       expect(typeof enqueueThumbnails).toBe('function');
       expect(typeof cancelThumbnailRequests).toBe('function');
-      expect(typeof cancelByView).toBe('function');
       expect(typeof registerThumbnailListener).toBe('function');
       expect(typeof unregisterThumbnailListener).toBe('function');
       expect(typeof invalidateMediaIds).toBe('function');
-      expect(typeof getQueueStats).toBe('function');
+    });
+
+    it('does not export removed methods', async () => {
+      const module = await import('../gallery-media-v2');
+      expect(module).not.toHaveProperty('cancelByView');
+      expect(module).not.toHaveProperty('getQueueStats');
     });
   });
 
@@ -236,11 +213,9 @@ describe('gallery-media-v2 service', () => {
       expect(listMediaPage(req)).toBeInstanceOf(Promise);
       expect(enqueueThumbnails([])).toBeInstanceOf(Promise);
       expect(cancelThumbnailRequests([])).toBeInstanceOf(Promise);
-      expect(cancelByView('v')).toBeInstanceOf(Promise);
       expect(registerThumbnailListener('v', 'l', vi.fn())).toBeInstanceOf(Promise);
       expect(unregisterThumbnailListener('l')).toBeInstanceOf(Promise);
       expect(invalidateMediaIds([])).toBeInstanceOf(Promise);
-      expect(getQueueStats()).toBeInstanceOf(Promise);
     });
   });
 });

@@ -14,7 +14,6 @@
 import type {
   MediaPageRequest,
   MediaPageResponse,
-  QueueStats,
   ThumbRequest,
   ThumbResult,
   ThumbResultListener,
@@ -75,14 +74,6 @@ export async function cancelThumbnailRequests(requestIds: string[]): Promise<voi
 }
 
 /**
- * Cancel all thumbnail requests associated with a view
- */
-export async function cancelByView(viewId: string): Promise<void> {
-  const bridge = getBridge();
-  await bridge.cancelByView(viewId);
-}
-
-/**
  * Register a listener for thumbnail results
  *
  * The bridge delivers results via a global callback mechanism.
@@ -114,19 +105,6 @@ export async function unregisterThumbnailListener(listenerId: string): Promise<v
 export async function invalidateMediaIds(mediaIds: string[]): Promise<void> {
   const bridge = getBridge();
   await bridge.invalidateMediaIds(JSON.stringify(mediaIds));
-}
-
-/**
- * Get current thumbnail queue statistics
- */
-export async function getQueueStats(): Promise<QueueStats> {
-  const bridge = getBridge();
-  const json = await bridge.getQueueStats();
-  try {
-    return JSON.parse(json) as QueueStats;
-  } catch (e) {
-    throw new Error(`Failed to parse getQueueStats response: ${(e as Error).message}`);
-  }
 }
 
 /**

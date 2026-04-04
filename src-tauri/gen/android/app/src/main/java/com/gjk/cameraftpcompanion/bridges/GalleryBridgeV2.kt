@@ -181,26 +181,6 @@ class GalleryBridgeV2(
         }
     }
 
-    @android.webkit.JavascriptInterface
-    fun cancelByView(viewId: String) {
-        synchronized(stateLock) {
-            if (destroyed) {
-                return
-            }
-
-            Log.d(TAG, "cancelByView: viewId=$viewId")
-            try {
-                pipelineManager.cancelByView(viewId)
-                val iterator = requestViewMap.entries.iterator()
-                while (iterator.hasNext()) {
-                    if (iterator.next().value == viewId) iterator.remove()
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "cancelByView error", e)
-            }
-        }
-    }
-
     // ── Listener lifecycle ────────────────────────────────────────────
 
     @android.webkit.JavascriptInterface
@@ -228,23 +208,6 @@ class GalleryBridgeV2(
             val viewId = listenerMap.remove(listenerId)
             if (viewId != null) {
                 viewListeners[viewId]?.remove(listenerId)
-            }
-        }
-    }
-
-    /**
-     * Invalidate all listeners registered under a viewId.
-     * Called when the Activity or WebView is destroyed.
-     */
-    fun invalidateListenersForView(viewId: String) {
-        synchronized(stateLock) {
-            Log.d(TAG, "invalidateListenersForView: viewId=$viewId")
-            val ids = viewListeners.remove(viewId) ?: return
-            ids.forEach { listenerMap.remove(it) }
-            pipelineManager.cancelByView(viewId)
-            val iterator = requestViewMap.entries.iterator()
-            while (iterator.hasNext()) {
-                if (iterator.next().value == viewId) iterator.remove()
             }
         }
     }
@@ -281,23 +244,6 @@ class GalleryBridgeV2(
             cache.invalidateByMediaId(mediaIds)
         } catch (e: Exception) {
             Log.e(TAG, "invalidateMediaIds error", e)
-        }
-    }
-
-    // ── Stats ─────────────────────────────────────────────────────────
-
-    @android.webkit.JavascriptInterface
-    fun getQueueStats(): String {
-        return try {
-            val stats = pipelineManager.queueStats()
-            JSONObject().apply {
-                put("pending", stats.pending)
-                put("running", stats.running)
-                put("cacheHitRate", stats.cacheHitRate)
-            }.toString()
-        } catch (e: Exception) {
-            Log.e(TAG, "getQueueStats error", e)
-            """{"pending":0,"running":0,"cacheHitRate":0.0}"""
         }
     }
 

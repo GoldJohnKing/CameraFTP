@@ -115,9 +115,10 @@ impl Default for AndroidImageOpenMethod {
 /// Android 图片查看器配置
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export)]
-#[serde(rename_all = "camelCase", default)]
+#[serde(rename_all = "camelCase")]
 pub struct AndroidImageViewerConfig {
     pub open_method: AndroidImageOpenMethod,
+    #[serde(default)]
     pub auto_open_latest_when_visible: bool,
 }
 
@@ -271,18 +272,7 @@ impl AppConfig {
             Self::default()
         };
 
-        // Android 端强制使用固定存储路径，忽略配置文件中的值
-        #[cfg(target_os = "android")]
-        {
-            let fixed_path = PathBuf::from(crate::constants::ANDROID_DEFAULT_STORAGE_PATH);
-            if config.save_path != fixed_path {
-                info!(
-                    "Android: Overriding save_path from {:?} to fixed path {:?}",
-                    config.save_path, fixed_path
-                );
-                config.save_path = fixed_path;
-            }
-        }
+        config = config.normalized_for_current_platform();
 
         // 如果是新创建的默认配置，保存到文件
         if !path.exists() {
@@ -302,29 +292,23 @@ impl AppConfig {
             fs::create_dir_all(parent)?;
         }
 
-        // Android 端强制使用固定存储路径进行保存
-        #[cfg(target_os = "android")]
-        let config_to_save = {
-            let mut cloned = self.clone();
-            let fixed_path = PathBuf::from(crate::constants::ANDROID_DEFAULT_STORAGE_PATH);
-            if cloned.save_path != fixed_path {
-                info!(
-                    "Android: Setting save_path to fixed path {:?} before saving",
-                    fixed_path
-                );
-                cloned.save_path = fixed_path;
-            }
-            cloned
-        };
-
-        #[cfg(target_os = "windows")]
-        let config_to_save = self;
+        let config_to_save = self.clone().normalized_for_current_platform();
 
         let content = serde_json::to_string_pretty(&config_to_save)?;
         fs::write(&path, content)?;
 
         info!("Config saved to {:?}", path);
         Ok(())
+    }
+
+    #[cfg_attr(not(target_os = "android"), allow(unused_mut))]
+    pub fn normalized_for_current_platform(mut self) -> Self {
+        #[cfg(target_os = "android")]
+        {
+            self.save_path = PathBuf::from(crate::constants::ANDROID_DEFAULT_STORAGE_PATH);
+        }
+
+        self
     }
 }
 
@@ -370,17 +354,41 @@ pub fn init_android_paths(_app_handle: &tauri::AppHandle) {
 
 #[cfg(test)]
 mod tests {
-    use super::AndroidImageViewerConfig;
+    use std::path::PathBuf;
+
+    use super::{AndroidImageViewerConfig, AppConfig};
 
     #[test]
-    fn deserializes_legacy_android_image_viewer_without_auto_open_flag() {
+    fn accepts_legacy_android_image_viewer_without_auto_open_flag() {
         let legacy_payload = r#"{
             "openMethod": "external-app"
         }"#;
 
-        let config: AndroidImageViewerConfig =
-            serde_json::from_str(legacy_payload).expect("legacy payload should deserialize");
+        let result = serde_json::from_str::<AndroidImageViewerConfig>(legacy_payload);
 
+        assert!(result.is_ok(), "legacy payload should be accepted");
+        let config = result.expect("legacy payload should deserialize");
+        assert_eq!(
+            config.open_method,
+            super::AndroidImageOpenMethod::ExternalApp
+        );
         assert!(!config.auto_open_latest_when_visible);
+    }
+
+    #[test]
+    fn normalized_for_current_platform_applies_platform_save_path_rules() {
+        let mut config = AppConfig::default();
+        config.save_path = PathBuf::from("/tmp/custom-cameraftp");
+
+        let normalized = config.normalized_for_current_platform();
+
+        #[cfg(target_os = "android")]
+        assert_eq!(
+            normalized.save_path,
+            PathBuf::from(crate::constants::ANDROID_DEFAULT_STORAGE_PATH)
+        );
+
+        #[cfg(not(target_os = "android"))]
+        assert_eq!(normalized.save_path, PathBuf::from("/tmp/custom-cameraftp"));
     }
 }

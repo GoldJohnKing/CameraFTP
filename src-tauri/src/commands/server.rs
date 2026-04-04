@@ -128,34 +128,6 @@ pub async fn stop_server(
 
 #[command]
 #[instrument(skip(state))]
-pub async fn get_server_status(
-    state: State<'_, FtpServerState>,
-) -> Result<Option<ServerStateSnapshot>, AppError> {
-    let server_guard = state.0.lock().await;
-    if let Some(server) = server_guard.as_ref() {
-        let snapshot = server.get_snapshot().await;
-        Ok(Some(snapshot))
-    } else {
-        Ok(None)
-    }
-}
-
-#[command]
-#[instrument(skip(state))]
-pub async fn get_server_info(
-    state: State<'_, FtpServerState>,
-) -> Result<Option<ServerInfo>, AppError> {
-    let server_guard = state.0.lock().await;
-    if let Some(server) = server_guard.as_ref() {
-        let info = server.get_server_info().await;
-        Ok(info)
-    } else {
-        Ok(None)
-    }
-}
-
-#[command]
-#[instrument(skip(state))]
 pub async fn get_server_runtime_state(
     state: State<'_, FtpServerState>,
 ) -> Result<ServerRuntimeView, AppError> {

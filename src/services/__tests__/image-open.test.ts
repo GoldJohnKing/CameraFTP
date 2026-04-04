@@ -47,7 +47,7 @@ describe('image-open service', () => {
     expect(onExifResult).toHaveBeenCalledWith(JSON.stringify({ iso: 100 }));
   });
 
-  it('loads MediaStore URIs for built-in viewer when list is not provided', async () => {
+  it('uses filePath URI when URI list provider is not provided', async () => {
     const openViewer = vi.fn().mockReturnValue(true);
     window.ImageViewerAndroid = {
       openViewer,
@@ -58,13 +58,6 @@ describe('image-open service', () => {
       resolveFilePath: vi.fn().mockReturnValue('content://media/3'),
     };
 
-    window.GalleryAndroid = {
-      listMediaStoreImages: vi.fn().mockResolvedValue(JSON.stringify([
-        { uri: 'content://media/3', displayName: 'c.jpg', dateModified: 3 },
-        { uri: 'content://media/2', displayName: 'b.jpg', dateModified: 2 },
-      ])),
-    } as unknown as Window['GalleryAndroid'];
-
     vi.mocked(invoke).mockResolvedValueOnce(null);
 
     await openImagePreview({
@@ -72,7 +65,7 @@ describe('image-open service', () => {
       openMethod: 'built-in-viewer',
     });
 
-    expect(openViewer).toHaveBeenCalledWith('content://media/3', JSON.stringify(['content://media/3', 'content://media/2']));
+    expect(openViewer).toHaveBeenCalledWith('content://media/3', JSON.stringify(['content://media/3']));
   });
 
   it('uses openOrNavigateTo when preferReuse is true', async () => {
@@ -104,7 +97,7 @@ describe('image-open service', () => {
     expect(openViewer).not.toHaveBeenCalled();
   });
 
-  it('uses getAllUris provider without calling legacy GalleryAndroid', async () => {
+  it('uses getAllUris provider to construct URI list', async () => {
     const openViewer = vi.fn().mockReturnValue(true);
     window.ImageViewerAndroid = {
       openViewer,
@@ -114,11 +107,6 @@ describe('image-open service', () => {
       onExifResult: vi.fn(),
       resolveFilePath: vi.fn().mockReturnValue('/real/path.jpg'),
     };
-
-    const legacyListMock = vi.fn().mockRejectedValue(new Error('legacy bridge should not be used'));
-    window.GalleryAndroid = {
-      listMediaStoreImages: legacyListMock,
-    } as unknown as Window['GalleryAndroid'];
 
     await openImagePreview({
       filePath: 'content://media/5',
@@ -130,7 +118,6 @@ describe('image-open service', () => {
       'content://media/5',
       JSON.stringify(['content://media/5', 'content://media/4']),
     );
-    expect(legacyListMock).not.toHaveBeenCalled();
   });
 
   it('falls back to openViewer when openOrNavigateTo returns false', async () => {
@@ -158,31 +145,6 @@ describe('image-open service', () => {
       'content://media/1',
       JSON.stringify(['content://media/1', 'content://media/2']),
     );
-  });
-
-  it('falls back to filePath URI when MediaStore bridge payload is malformed', async () => {
-    const openViewer = vi.fn().mockReturnValue(true);
-    window.ImageViewerAndroid = {
-      openViewer,
-      openOrNavigateTo: vi.fn().mockReturnValue(false),
-      isAppVisible: vi.fn().mockReturnValue(true),
-      closeViewer: vi.fn(),
-      onExifResult: vi.fn(),
-      resolveFilePath: vi.fn().mockReturnValue('/real/path.jpg'),
-    };
-
-    window.GalleryAndroid = {
-      listMediaStoreImages: vi.fn().mockResolvedValue('not-json'),
-    } as unknown as Window['GalleryAndroid'];
-
-    await expect(
-      openImagePreview({
-        filePath: 'content://media/1',
-        openMethod: 'built-in-viewer',
-      }),
-    ).resolves.toBeUndefined();
-
-    expect(openViewer).toHaveBeenCalledWith('content://media/1', JSON.stringify(['content://media/1']));
   });
 
   it('falls back to chooser when built-in viewer bridge call fails', async () => {
@@ -225,6 +187,22 @@ describe('image-open service', () => {
 
     expect(openImageWithChooser).toHaveBeenCalledWith('/tmp/pic.jpg');
     expect(invoke).not.toHaveBeenCalledWith('open_preview_window', expect.anything());
+  });
+
+  it('falls back to preview window when chooser returns legacy boolean true', async () => {
+    const openImageWithChooser = vi.fn().mockReturnValue(true);
+    window.PermissionAndroid = {
+      openImageWithChooser,
+    } as unknown as Window['PermissionAndroid'];
+    vi.mocked(invoke).mockResolvedValue(undefined);
+
+    await openImagePreview({
+      filePath: '/tmp/pic.jpg',
+      openMethod: 'built-in-viewer',
+    });
+
+    expect(openImageWithChooser).toHaveBeenCalledWith('/tmp/pic.jpg');
+    expect(invoke).toHaveBeenCalledWith('open_preview_window', { filePath: '/tmp/pic.jpg' });
   });
 
   it('falls back to preview window when chooser reports failure', async () => {

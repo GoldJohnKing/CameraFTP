@@ -11,27 +11,12 @@ import org.junit.Assert.*
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
-import org.json.JSONObject
 import android.provider.MediaStore
-import android.content.Context
+import org.json.JSONObject
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [33], manifest = Config.NONE)
 class MediaStoreBridgeTest {
-
-    @Test
-    fun parse_entry_result_reads_fd_and_uri() {
-        val result = MediaStoreBridge.parseEntryResult("{\"fd\":123,\"uri\":\"content://media/1\"}")
-        assertNotNull(result)
-        assertEquals(123, result!!.fd)
-        assertEquals("content://media/1", result.uri)
-    }
-
-    @Test
-    fun parse_entry_result_returns_null_for_missing_fields() {
-        val result = MediaStoreBridge.parseEntryResult("{\"fd\":123}")
-        assertNull(result)
-    }
 
     @Test
     fun retry_with_backoff_uses_correct_delays() {
@@ -49,24 +34,6 @@ class MediaStoreBridgeTest {
             "ok"
         }
         assertTrue(result.isSuccess)
-    }
-
-    @Test
-    fun resolve_existing_uri_returns_first_when_present() {
-        val result = MediaStoreBridge.resolveExistingUri(listOf("content://media/1", "content://media/2"))
-        assertEquals("content://media/1", result)
-    }
-
-    @Test
-    fun resolve_existing_uri_returns_null_for_empty_list() {
-        val result = MediaStoreBridge.resolveExistingUri(emptyList())
-        assertNull(result)
-    }
-
-    @Test
-    fun fatal_write_error_detects_enospc_and_io() {
-        assertTrue(MediaStoreBridge.isFatalWriteError("ENOSPC"))
-        assertTrue(MediaStoreBridge.isFatalWriteError("EIO"))
     }
 
     @Test
@@ -88,14 +55,9 @@ class MediaStoreBridgeTest {
     }
 
     @Test
-    fun ready_payload_contains_required_fields() {
-        val payload = MediaStoreBridge.buildReadyPayload("content://media/1", "DCIM/CameraFTP/", "IMG_1.JPG", 123, 1000)
-        val json = JSONObject(payload)
-        assertTrue(json.has("uri"))
-        assertTrue(json.has("relativePath"))
-        assertTrue(json.has("displayName"))
-        assertTrue(json.has("size"))
-        assertTrue(json.has("timestamp"))
+    fun pending_values_preserves_display_name() {
+        val values = MediaStoreBridge.buildPendingValues("IMG_1.JPG", null)
+        assertEquals("IMG_1.JPG", values.getAsString(MediaStore.MediaColumns.DISPLAY_NAME))
     }
 
     @Test
@@ -134,10 +96,49 @@ class MediaStoreBridgeTest {
     }
 
     @Test
-    fun should_emit_media_store_ready_for_common_image_mime_types() {
-        assertTrue(MediaStoreBridge.shouldEmitMediaStoreReady("image/jpeg"))
-        assertTrue(MediaStoreBridge.shouldEmitMediaStoreReady("image/png"))
-        assertTrue(MediaStoreBridge.shouldEmitMediaStoreReady("image/webp"))
+    fun gallery_items_added_payload_keeps_incremental_item_shape() {
+        val payload = MediaStoreBridge.buildGalleryItemsAddedPayload(
+            uri = "content://media/1",
+            mediaId = "1",
+            timestamp = 1700000000000L,
+            mimeType = "image/jpeg",
+            displayName = "IMG_0001.JPG",
+            width = 1920,
+            height = 1080,
+            emittedAt = 1700000001234L,
+        )
+
+        val json = JSONObject(payload)
+        val items = json.getJSONArray("items")
+        assertEquals(1, items.length())
+        val first = items.getJSONObject(0)
+        assertEquals("1", first.getString("mediaId"))
+        assertEquals("content://media/1", first.getString("uri"))
+        assertEquals(1700000000000L, first.getLong("dateModifiedMs"))
+        assertEquals("image/jpeg", first.getString("mimeType"))
+        assertEquals("IMG_0001.JPG", first.getString("displayName"))
+        assertEquals(1920, first.getInt("width"))
+        assertEquals(1080, first.getInt("height"))
+        assertEquals(1700000001234L, json.getLong("timestamp"))
+    }
+
+    @Test
+    fun gallery_items_added_payload_serializes_missing_dimensions_as_null() {
+        val payload = MediaStoreBridge.buildGalleryItemsAddedPayload(
+            uri = "content://media/2",
+            mediaId = "2",
+            timestamp = 1700000005000L,
+            mimeType = null,
+            displayName = "IMG_0002.JPG",
+            width = null,
+            height = null,
+            emittedAt = 1700000006000L,
+        )
+
+        val first = JSONObject(payload).getJSONArray("items").getJSONObject(0)
+        assertTrue(first.isNull("mimeType"))
+        assertTrue(first.isNull("width"))
+        assertTrue(first.isNull("height"))
     }
 
     @Test
@@ -154,8 +155,9 @@ class MediaStoreBridgeTest {
     }
 
     @Test
-    fun finalize_native_bridge_exposes_emit_ready_entrypoint() {
-        val methodRef: (Context, String, Long?) -> Boolean = MediaStoreBridge.Companion::finalizeEntryAndEmitReadyNative
-        assertNotNull(methodRef)
+    fun finalize_native_bridge_uses_finalize_only_entrypoint() {
+        val methods = MediaStoreBridge.Companion::class.java.declaredMethods.map { it.name }.toSet()
+        assertTrue(methods.contains("finalizeEntryAndEmitGalleryItemsAddedNative"))
+        assertFalse(methods.contains("finalizeEntryAndEmitReadyNative"))
     }
 }

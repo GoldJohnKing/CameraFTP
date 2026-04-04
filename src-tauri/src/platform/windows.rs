@@ -323,17 +323,8 @@ impl PlatformService for WindowsPlatform {
         }
     }
 
-    fn get_storage_path(&self, app: &AppHandle) -> Result<String, String> {
-        let config = load_config_from_service(app)?;
-        Ok(config.save_path.to_string_lossy().to_string())
-    }
-
     fn get_default_storage_path(&self) -> std::path::PathBuf {
         dirs::picture_dir().unwrap_or_else(|| std::path::PathBuf::from("./pictures"))
-    }
-
-    fn needs_storage_permission(&self) -> bool {
-        false
     }
 
     fn check_server_start_prerequisites(&self) -> super::types::ServerStartCheckResult {

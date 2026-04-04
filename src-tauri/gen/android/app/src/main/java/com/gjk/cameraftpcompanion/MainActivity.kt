@@ -19,7 +19,6 @@ import com.gjk.cameraftpcompanion.bridges.GalleryBridge
 import com.gjk.cameraftpcompanion.bridges.GalleryBridgeV2
 import com.gjk.cameraftpcompanion.bridges.MediaStoreBridge
 import com.gjk.cameraftpcompanion.bridges.ImageViewerBridge
-import com.gjk.cameraftpcompanion.cache.ThumbnailCacheProvider
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
@@ -121,9 +120,6 @@ class MainActivity : TauriActivity() {
         galleryBridgeV2 = GalleryBridgeV2(this)
         imageViewerBridge = ImageViewerBridge(this)
 
-        // Initialize thumbnail cache
-        ThumbnailCacheProvider.initialize(this)
-        
         // Cleanup stale pending entries (older than 24 hours)
         val cutoffMillis = System.currentTimeMillis() - 24 * 60 * 60 * 1000L
         MediaStoreBridge.cleanupStalePendingEntries(contentResolver, cutoffMillis)

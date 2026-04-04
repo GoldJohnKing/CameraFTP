@@ -30,20 +30,11 @@ pub trait PlatformService: Send + Sync {
     /// 确保存储就绪
     fn ensure_storage_ready(&self, app: &AppHandle) -> Result<String, String>;
 
-    /// 获取存储路径
-    fn get_storage_path(&self, app: &AppHandle) -> Result<String, String>;
-
     /// 请求所有文件访问权限（仅 Android 有效）
     /// 返回 true 表示已授予权限，false 表示需要用户操作
     fn request_all_files_permission(&self, _app: &AppHandle) -> Result<bool, String> {
         // 默认实现：桌面平台始终返回 true
         Ok(true)
-    }
-
-    /// 检查是否需要存储权限
-    fn needs_storage_permission(&self) -> bool {
-        // 默认实现：桌面平台不需要
-        false
     }
 
     /// 检查服务器启动前提条件
@@ -150,11 +141,5 @@ pub trait PlatformService: Send + Sync {
     fn select_save_directory(&self, _app: &AppHandle) -> Result<Option<String>, String> {
         // 默认实现：返回 None
         Ok(None)
-    }
-
-    /// 打开所有文件访问权限设置（仅 Android 有效）
-    fn open_all_files_access_settings(&self, _app: &AppHandle) -> Result<(), String> {
-        // 默认实现：桌面平台不需要此功能
-        Ok(())
     }
 }

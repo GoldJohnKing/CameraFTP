@@ -26,24 +26,19 @@ use commands::{
     check_permission_status,
     check_port_available,
     check_server_start_prerequisites,
-    check_storage_permission,
     ensure_storage_ready,
     get_autostart_status,
     get_current_file_index,
     get_file_list,
     get_image_exif,
     get_latest_file,
+    get_latest_image,
     get_platform,
-    get_server_info,
     get_server_runtime_state,
-    get_server_status,
     get_storage_info,
-    get_storage_path,
     hide_main_window,
     load_config,
     navigate_to_file,
-    needs_storage_permission,
-    open_all_files_access_settings,
     open_external_link,
     open_folder_select_file,
     open_preview_window,
@@ -58,13 +53,7 @@ use commands::{
     show_main_window,
     start_server,
     stop_server,
-    validate_save_path,
     FtpServerState,
-    // 文件系统监听
-    start_file_watcher,
-    stop_file_watcher,
-    scan_gallery_images,
-    get_latest_image,
 };
 
 fn setup_logging() {
@@ -182,17 +171,13 @@ pub fn run() {
             // 服务器控制
             start_server,
             stop_server,
-            get_server_status,
-            get_server_info,
             get_server_runtime_state,
             
             // 配置管理
             load_config,
             save_config,
             save_auth_config,
-            get_storage_path,
             select_save_directory,
-            validate_save_path,
             
             // 网络
             check_port_available,
@@ -209,17 +194,12 @@ pub fn run() {
             hide_main_window,
             show_main_window,
             
-            // Android 权限管理
-            open_all_files_access_settings,
-            
             // 存储权限（新 API）
             get_storage_info,
             check_permission_status,
             request_all_files_permission,
             ensure_storage_ready,
-            check_storage_permission,
             check_server_start_prerequisites,
-            needs_storage_permission,
 
             // 自动预览配置（Windows）
             update_preview_config,
@@ -235,9 +215,6 @@ pub fn run() {
             get_latest_file,
 
             // 文件系统监听
-            start_file_watcher,
-            stop_file_watcher,
-            scan_gallery_images,
             get_latest_image,
 
             // EXIF 信息

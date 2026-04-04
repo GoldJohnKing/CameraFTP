@@ -53,32 +53,8 @@ class GalleryBridgeV2Test {
     }
 
     @Test
-    fun register_multiple_listeners_per_view() {
-        bridge.registerThumbnailListener("view1", "listenerA")
-        bridge.registerThumbnailListener("view1", "listenerB")
-
-        // Unregister one, the other should still be active
-        bridge.unregisterThumbnailListener("listenerA")
-
-        // Invalidate the view — should clean up remaining listener
-        bridge.invalidateListenersForView("view1")
-    }
-
-    @Test
     fun unregister_nonexistent_listener_does_not_throw() {
         bridge.unregisterThumbnailListener("nonexistent")
-    }
-
-    @Test
-    fun invalidate_listeners_for_view_removes_all_listeners() {
-        bridge.registerThumbnailListener("view1", "listener1")
-        bridge.registerThumbnailListener("view1", "listener2")
-        bridge.registerThumbnailListener("view2", "listener3")
-
-        bridge.invalidateListenersForView("view1")
-
-        // view2 listener should still be valid — verify no exception
-        bridge.unregisterThumbnailListener("listener3")
     }
 
     @Test
@@ -94,56 +70,6 @@ class GalleryBridgeV2Test {
         assertTrue(readConcurrentMap<String, String>("listenerMap").isEmpty())
         assertTrue(readConcurrentMap<String, MutableSet<String>>("viewListeners").isEmpty())
         assertTrue(readConcurrentMap<String, String>("requestViewMap").isEmpty())
-    }
-
-    // ── cancelByView ──────────────────────────────────────────────────
-
-    @Test
-    fun cancel_by_view_cancels_all_jobs_for_view() {
-        val jobsJson = JSONArray().apply {
-            put(JSONObject().apply {
-                put("requestId", "req1")
-                put("mediaId", "100")
-                put("uri", "content://media/100")
-                put("dateModifiedMs", 1000L)
-                put("sizeBucket", "s")
-                put("priority", "visible")
-                put("viewId", "view1")
-            })
-            put(JSONObject().apply {
-                put("requestId", "req2")
-                put("mediaId", "200")
-                put("uri", "content://media/200")
-                put("dateModifiedMs", 2000L)
-                put("sizeBucket", "s")
-                put("priority", "nearby")
-                put("viewId", "view1")
-            })
-            put(JSONObject().apply {
-                put("requestId", "req3")
-                put("mediaId", "300")
-                put("uri", "content://media/300")
-                put("dateModifiedMs", 3000L)
-                put("sizeBucket", "s")
-                put("priority", "visible")
-                put("viewId", "view2")
-            })
-        }
-
-        bridge.enqueueThumbnails(jobsJson.toString())
-
-        // Cancel all jobs for view1
-        bridge.cancelByView("view1")
-
-        // view1 jobs should be cancelled; view2 job should remain
-        val stats = pipelineManager.queueStats()
-        // After cancellation, only view2's job should remain in queue
-        assertTrue("view2 job should still be pending", stats.pending <= 1)
-    }
-
-    @Test
-    fun cancel_by_view_with_no_jobs_does_not_throw() {
-        bridge.cancelByView("empty_view")
     }
 
     // ── invalidateMediaIds ────────────────────────────────────────────
@@ -248,35 +174,12 @@ class GalleryBridgeV2Test {
         assertNotNull("Bridge should be initialized", bridgeWithSmallCache)
     }
 
-    // ── getQueueStats ─────────────────────────────────────────────────
-
     @Test
-    fun get_queue_stats_returns_valid_json() {
-        val statsJson = bridge.getQueueStats()
-        val json = JSONObject(statsJson)
-
-        assertTrue("should have pending", json.has("pending"))
-        assertTrue("should have running", json.has("running"))
-        assertTrue("should have cacheHitRate", json.has("cacheHitRate"))
-    }
-
-    @Test
-    fun get_queue_stats_reflects_enqueued_jobs() {
-        val jobsJson = JSONArray().apply {
-            put(JSONObject().apply {
-                put("requestId", "req1")
-                put("mediaId", "100")
-                put("uri", "content://media/100")
-                put("dateModifiedMs", 1000L)
-                put("sizeBucket", "s")
-                put("priority", "visible")
-                put("viewId", "view1")
-            })
-        }
-        bridge.enqueueThumbnails(jobsJson.toString())
-
-        val stats = JSONObject(bridge.getQueueStats())
-        assertTrue("pending should be >= 0", stats.getInt("pending") >= 0)
+    fun removed_v2_methods_are_not_exposed() {
+        val methodNames = GalleryBridgeV2::class.java.methods.map { it.name }.toSet()
+        assertFalse(methodNames.contains("cancelByView"))
+        assertFalse(methodNames.contains("invalidateListenersForView"))
+        assertFalse(methodNames.contains("getQueueStats"))
     }
 
     // ── listMediaPage ─────────────────────────────────────────────────

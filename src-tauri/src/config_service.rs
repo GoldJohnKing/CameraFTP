@@ -125,14 +125,8 @@ impl ConfigService {
         Ok(())
     }
 
-    #[cfg_attr(not(target_os = "android"), allow(unused_mut))]
-    fn normalize_for_runtime(mut config: AppConfig) -> AppConfig {
-        #[cfg(target_os = "android")]
-        {
-            config.save_path = PathBuf::from(crate::constants::ANDROID_DEFAULT_STORAGE_PATH);
-        }
-
-        config
+    fn normalize_for_runtime(config: AppConfig) -> AppConfig {
+        config.normalized_for_current_platform()
     }
 }
 

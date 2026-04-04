@@ -28,7 +28,7 @@ use super::types::{mime_type_from_filename, relative_path_from_full_path};
 const MEDIASTORE_BRIDGE_CLASS: &str = "com.gjk.cameraftpcompanion.bridges.MediaStoreBridge";
 
 #[cfg(any(target_os = "android", test))]
-const FINALIZE_ENTRY_METHOD_NAME: &str = "finalizeEntryAndEmitReadyNative";
+const FINALIZE_ENTRY_METHOD_NAME: &str = "finalizeEntryAndEmitGalleryItemsAddedNative";
 
 #[cfg(target_os = "android")]
 const FINALIZE_ENTRY_METHOD_SIGNATURE: &str =
@@ -752,8 +752,11 @@ mod tests {
     use tempfile::TempDir;
 
     #[test]
-    fn test_finalize_entry_uses_emit_capable_native_method() {
-        assert_eq!(FINALIZE_ENTRY_METHOD_NAME, "finalizeEntryAndEmitReadyNative");
+    fn test_finalize_entry_uses_current_native_method() {
+        assert_eq!(
+            FINALIZE_ENTRY_METHOD_NAME,
+            "finalizeEntryAndEmitGalleryItemsAddedNative"
+        );
     }
 
     #[cfg(all(not(target_os = "android"), unix))]

@@ -5,7 +5,6 @@
 use std::sync::Arc;
 
 use tauri::{command, State};
-use tracing::{error, info};
 
 use crate::error::AppError;
 use crate::file_index::FileIndexService;
@@ -42,51 +41,6 @@ pub async fn get_latest_file(
     file_index: State<'_, Arc<FileIndexService>>,
 ) -> Result<Option<FileInfo>, AppError> {
     Ok(file_index.get_latest_file().await)
-}
-
-/// 启动文件系统监听（桌面平台）
-/// 返回是否成功启动
-#[command]
-pub async fn start_file_watcher(
-    file_index: State<'_, Arc<FileIndexService>>,
-) -> Result<bool, AppError> {
-    info!("Starting file watcher...");
-
-    let file_index_arc = Arc::clone(&file_index);
-    match FileIndexService::start_watcher(file_index_arc).await {
-        Ok(started) => {
-            if started {
-                info!("File watcher started successfully");
-            } else {
-                info!("File watcher not started (may be Android platform)");
-            }
-            Ok(started)
-        }
-        Err(e) => {
-            error!("Failed to start file watcher: {}", e);
-            Err(e)
-        }
-    }
-}
-
-/// 停止文件系统监听
-#[command]
-pub async fn stop_file_watcher(
-    file_index: State<'_, Arc<FileIndexService>>,
-) -> Result<(), AppError> {
-    info!("Stopping file watcher...");
-    file_index.stop_watcher().await;
-    Ok(())
-}
-
-/// 扫描图库图片（供Android前端调用）
-#[command]
-pub async fn scan_gallery_images(
-    file_index: State<'_, Arc<FileIndexService>>,
-) -> Result<Vec<FileInfo>, AppError> {
-    file_index.scan_directory().await?;
-    let files = file_index.get_files().await;
-    Ok(files.to_vec())
 }
 
 /// 获取最新图片（供Android前端调用）

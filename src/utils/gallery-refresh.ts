@@ -12,7 +12,6 @@ export type MediaLibraryRefreshReason =
   | 'upload'
   | 'delete'
   | 'permission-granted'
-  | 'media-store-ready'
   | 'activity-resume';
 
 export interface MediaLibraryRefreshDetail {
@@ -22,38 +21,11 @@ export interface MediaLibraryRefreshDetail {
   timestamp?: number;
 }
 
-let trailingRefreshTimer: ReturnType<typeof setTimeout> | null = null;
-let trailingRefreshDetail: MediaLibraryRefreshDetail | null = null;
-
 function dispatchRefreshEvent(eventName: string, detail: MediaLibraryRefreshDetail): void {
   window.dispatchEvent(new CustomEvent<MediaLibraryRefreshDetail>(eventName, { detail }));
-}
-
-export function requestLatestPhotoRefresh(detail: MediaLibraryRefreshDetail): void {
-  dispatchRefreshEvent(LATEST_PHOTO_REFRESH_REQUESTED_EVENT, detail);
 }
 
 export function requestMediaLibraryRefresh(detail: MediaLibraryRefreshDetail): void {
   dispatchRefreshEvent(GALLERY_REFRESH_REQUESTED_EVENT, detail);
   dispatchRefreshEvent(LATEST_PHOTO_REFRESH_REQUESTED_EVENT, detail);
-}
-
-export function scheduleMediaLibraryRefresh(
-  detail: MediaLibraryRefreshDetail,
-  debounceMs = 300,
-): void {
-  if (trailingRefreshTimer === null) {
-    requestMediaLibraryRefresh(detail);
-    trailingRefreshTimer = setTimeout(() => {
-      trailingRefreshTimer = null;
-      if (trailingRefreshDetail) {
-        const nextDetail = trailingRefreshDetail;
-        trailingRefreshDetail = null;
-        requestMediaLibraryRefresh(nextDetail);
-      }
-    }, debounceMs);
-    return;
-  }
-
-  trailingRefreshDetail = detail;
 }

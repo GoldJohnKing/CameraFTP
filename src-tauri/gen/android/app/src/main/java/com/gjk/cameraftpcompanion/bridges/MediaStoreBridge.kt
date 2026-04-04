@@ -15,6 +15,7 @@ import android.os.ParcelFileDescriptor
 import android.provider.MediaStore
 import android.util.Log
 import com.gjk.cameraftpcompanion.MainActivity
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.FileNotFoundException
 
@@ -81,63 +82,6 @@ class MediaStoreBridge(activity: MainActivity) : BaseJsBridge(activity) {
             return Result.failure(lastException ?: RuntimeException("Unknown error"))
         }
 
-        /**
-         * Parse entry result JSON into EntryResult
-         * Returns null if required fields are missing or malformed
-         */
-        @JvmStatic
-        fun parseEntryResult(json: String): EntryResult? {
-            return try {
-                val obj = JSONObject(json)
-                if (!obj.has("fd") || !obj.has("uri")) {
-                    Log.w(TAG, "parseEntryResult: missing required fields in JSON: $json")
-                    return null
-                }
-                EntryResult(
-                    fd = obj.getInt("fd"),
-                    uri = obj.getString("uri")
-                )
-            } catch (e: Exception) {
-                Log.e(TAG, "parseEntryResult: failed to parse JSON: $json", e)
-                null
-            }
-        }
-
-        /**
-         * Resolve existing URI from candidate list
-         */
-        @JvmStatic
-        fun resolveExistingUri(candidates: List<String>): String? {
-            return candidates.firstOrNull()
-        }
-
-        /**
-         * Check if error code is fatal
-         */
-        @JvmStatic
-        fun isFatalWriteError(code: String): Boolean {
-            return code == "ENOSPC" || code == "EIO"
-        }
-
-        /**
-         * Build ready event payload JSON
-         */
-        @JvmStatic
-        fun buildReadyPayload(
-            uri: String,
-            relativePath: String,
-            displayName: String,
-            size: Long,
-            timestamp: Long
-        ): String {
-            return JSONObject().apply {
-                put("uri", uri)
-                put("relativePath", relativePath)
-                put("displayName", displayName)
-                put("size", size)
-                put("timestamp", timestamp)
-            }.toString()
-        }
 
         /**
          * Build ContentValues for pending entry
@@ -168,22 +112,6 @@ class MediaStoreBridge(activity: MainActivity) : BaseJsBridge(activity) {
         @JvmStatic
         fun validateSize(expected: Long, actual: Long): Boolean {
             return actual == 0L || expected == actual
-        }
-
-        /**
-         * Determine if should abort on size mismatch
-         */
-        @JvmStatic
-        fun shouldAbortOnSizeMismatch(expected: Long, actual: Long): Boolean {
-            return !validateSize(expected, actual)
-        }
-
-        /**
-         * Determine if should emit after validation
-         */
-        @JvmStatic
-        fun shouldEmitAfterValidation(expected: Long, actual: Long): Boolean {
-            return validateSize(expected, actual)
         }
 
         /**
@@ -250,12 +178,6 @@ class MediaStoreBridge(activity: MainActivity) : BaseJsBridge(activity) {
         @JvmStatic
         fun buildListSelection(relativePathColumn: String): String {
             return "$relativePathColumn = ? OR $relativePathColumn LIKE ?"
-        }
-
-        @JvmStatic
-        fun shouldEmitMediaStoreReady(mimeType: String?): Boolean {
-            val value = mimeType?.lowercase() ?: return false
-            return value.startsWith("image/") || value.startsWith("video/")
         }
 
         /**
@@ -349,14 +271,16 @@ class MediaStoreBridge(activity: MainActivity) : BaseJsBridge(activity) {
         }
 
         @JvmStatic
-        fun finalizeEntryAndEmitReadyNative(context: Context, uri: String, expectedSize: Long?): Boolean {
+        fun finalizeEntryAndEmitGalleryItemsAddedNative(
+            context: Context,
+            uri: String,
+            expectedSize: Long?
+        ): Boolean {
             val finalized = finalizeEntryNative(context, uri, expectedSize)
-            if (!finalized) {
-                return false
+            if (finalized) {
+                emitGalleryItemsAdded(context, uri)
             }
-
-            emitMediaStoreReady(context, uri, expectedSize ?: 0)
-            return true
+            return finalized
         }
 
         /**
@@ -487,13 +411,12 @@ class MediaStoreBridge(activity: MainActivity) : BaseJsBridge(activity) {
             }
         }
 
-        private fun emitMediaStoreReady(context: Context, uri: String, size: Long) {
+        private fun emitGalleryItemsAdded(context: Context, uri: String) {
             try {
                 val cursor = context.contentResolver.query(
                     Uri.parse(uri),
                     arrayOf(
                         MediaStore.MediaColumns._ID,
-                        MediaStore.MediaColumns.RELATIVE_PATH,
                         MediaStore.MediaColumns.DISPLAY_NAME,
                         MediaStore.MediaColumns.DATE_MODIFIED,
                         MediaStore.MediaColumns.MIME_TYPE,
@@ -508,39 +431,59 @@ class MediaStoreBridge(activity: MainActivity) : BaseJsBridge(activity) {
                 cursor?.use {
                     if (it.moveToFirst()) {
                         val mediaId = it.getLong(0).toString()
-                        val relativePath = it.getString(1) ?: ""
-                        val displayName = it.getString(2) ?: ""
-                        val timestamp = it.getLong(3) * 1000
-                        val mimeType = it.getString(4)
-                        val width = it.getInt(5).takeIf { it > 0 }
-                        val height = it.getInt(6).takeIf { it > 0 }
+                        val displayName = it.getString(1) ?: ""
+                        val timestamp = it.getLong(2) * 1000
+                        val mimeType = it.getString(3)
+                        val width = it.getInt(4).takeIf { value -> value > 0 }
+                        val height = it.getInt(5).takeIf { value -> value > 0 }
 
-                        if (shouldEmitMediaStoreReady(mimeType)) {
-                            val payload = buildReadyPayload(uri, relativePath, displayName, size, timestamp)
-                            (context as? MainActivity)?.emitTauriEvent("media-store-ready", payload)
-
-                            // Emit incremental add event to WebView (preserves scroll position)
-                            val itemPayload = JSONObject().apply {
-                                put("items", org.json.JSONArray().apply {
-                                    put(JSONObject().apply {
-                                        put("mediaId", mediaId)
-                                        put("uri", uri)
-                                        put("dateModifiedMs", timestamp)
-                                        put("width", width ?: JSONObject.NULL)
-                                        put("height", height ?: JSONObject.NULL)
-                                        put("mimeType", mimeType ?: JSONObject.NULL)
-                                        put("displayName", displayName)
-                                    })
-                                })
-                                put("timestamp", System.currentTimeMillis())
-                            }.toString()
+                        if ((mimeType?.lowercase()?.startsWith("image/") == true) ||
+                            (mimeType?.lowercase()?.startsWith("video/") == true)
+                        ) {
+                            val itemPayload = buildGalleryItemsAddedPayload(
+                                uri = uri,
+                                mediaId = mediaId,
+                                timestamp = timestamp,
+                                mimeType = mimeType,
+                                displayName = displayName,
+                                width = width,
+                                height = height,
+                                emittedAt = System.currentTimeMillis(),
+                            )
                             (context as? MainActivity)?.emitWindowEvent("gallery-items-added", itemPayload)
                         }
                     }
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "Failed to emit media-store-ready event", e)
+                Log.e(TAG, "Failed to emit gallery-items-added event", e)
             }
+        }
+
+        @JvmStatic
+        fun buildGalleryItemsAddedPayload(
+            uri: String,
+            mediaId: String,
+            timestamp: Long,
+            mimeType: String?,
+            displayName: String,
+            width: Int?,
+            height: Int?,
+            emittedAt: Long,
+        ): String {
+            return JSONObject().apply {
+                put("items", JSONArray().apply {
+                    put(JSONObject().apply {
+                        put("mediaId", mediaId)
+                        put("uri", uri)
+                        put("dateModifiedMs", timestamp)
+                        put("width", width ?: JSONObject.NULL)
+                        put("height", height ?: JSONObject.NULL)
+                        put("mimeType", mimeType ?: JSONObject.NULL)
+                        put("displayName", displayName)
+                    })
+                })
+                put("timestamp", emittedAt)
+            }.toString()
         }
     }
 
@@ -587,7 +530,7 @@ class MediaStoreBridge(activity: MainActivity) : BaseJsBridge(activity) {
 
         return try {
             val result = retryWithBackoff(3) {
-                finalizeEntryAndEmitReadyNative(activity, uri, expectedSize)
+                finalizeEntryAndEmitGalleryItemsAddedNative(activity, uri, expectedSize)
             }
 
             if (result.isSuccess && result.getOrThrow()) {

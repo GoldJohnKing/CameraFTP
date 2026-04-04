@@ -21,7 +21,6 @@ pub use exif::ExifInfo;
 
 // Re-export all commands
 pub use config::{
-    get_storage_path,
     load_config,
     open_external_link,
     open_folder_select_file,
@@ -31,7 +30,6 @@ pub use config::{
     select_executable_file,
     select_save_directory,
     update_preview_config,
-    validate_save_path,
 };
 
 pub use exif::get_image_exif;
@@ -40,11 +38,8 @@ pub use file_index::{
     get_current_file_index,
     get_file_list,
     get_latest_file,
-    navigate_to_file,
-    start_file_watcher,
-    stop_file_watcher,
-    scan_gallery_images,
     get_latest_image,
+    navigate_to_file,
 };
 
 pub use server::{
@@ -54,21 +49,16 @@ pub use server::{
     show_main_window,
     start_server,
     stop_server,
-    get_server_info,
     get_server_runtime_state,
-    get_server_status,
 };
 
 pub use storage::{
     check_permission_status,
     check_server_start_prerequisites,
-    check_storage_permission,
     ensure_storage_ready,
     get_autostart_status,
     get_platform,
     get_storage_info,
-    needs_storage_permission,
-    open_all_files_access_settings,
     request_all_files_permission,
     set_autostart_command,
 };

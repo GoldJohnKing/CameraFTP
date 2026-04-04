@@ -50,28 +50,10 @@ pub async fn ensure_storage_ready(app: AppHandle) -> Result<String, AppError> {
         .map_err(AppError::StoragePermissionError)
 }
 
-/// 检查存储权限
-#[command]
-pub async fn check_storage_permission() -> Result<bool, AppError> {
-    Ok(get_platform_service().check_permission_status().has_all_files_access)
-}
-
 /// 检查服务器启动前提条件
 #[command]
 pub async fn check_server_start_prerequisites() -> Result<ServerStartCheckResult, AppError> {
     Ok(get_platform_service().check_server_start_prerequisites())
-}
-
-/// 检查是否需要存储权限（用于前端 UI 判断）
-#[command]
-pub async fn needs_storage_permission() -> bool {
-    get_platform_service().needs_storage_permission()
-}
-
-/// 打开"所有文件访问权限"设置页面（Android）
-#[command]
-pub fn open_all_files_access_settings(app: AppHandle) -> Result<(), String> {
-    crate::platform::get_platform().open_all_files_access_settings(&app)
 }
 
 /// 获取当前平台名称

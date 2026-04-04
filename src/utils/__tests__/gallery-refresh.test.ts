@@ -9,7 +9,6 @@ import {
   GALLERY_REFRESH_REQUESTED_EVENT,
   LATEST_PHOTO_REFRESH_REQUESTED_EVENT,
   requestMediaLibraryRefresh,
-  scheduleMediaLibraryRefresh,
 } from '../gallery-refresh';
 
 describe('gallery-refresh', () => {
@@ -41,24 +40,6 @@ describe('gallery-refresh', () => {
     });
   });
 
-  it('coalesces burst upload refreshes into immediate and trailing refreshes', () => {
-    const galleryHandler = vi.fn();
-
-    window.addEventListener(GALLERY_REFRESH_REQUESTED_EVENT, galleryHandler);
-
-    scheduleMediaLibraryRefresh({ reason: 'upload' }, 250);
-    scheduleMediaLibraryRefresh({ reason: 'upload' }, 250);
-    scheduleMediaLibraryRefresh({ reason: 'upload' }, 250);
-
-    expect(galleryHandler).toHaveBeenCalledTimes(1);
-
-    vi.advanceTimersByTime(249);
-    expect(galleryHandler).toHaveBeenCalledTimes(1);
-
-    vi.advanceTimersByTime(1);
-    expect(galleryHandler).toHaveBeenCalledTimes(2);
-  });
-
   it('dispatches explicit delete refresh events to gallery and latest-photo listeners', () => {
     const galleryHandler = vi.fn();
     const latestHandler = vi.fn();
@@ -76,5 +57,23 @@ describe('gallery-refresh', () => {
     expect(latestHandler.mock.calls[0]?.[0]).toMatchObject({
       detail: { reason: 'delete', timestamp: 123 },
     });
+  });
+
+  it('emits runtime refresh output only for active refresh events, not media-store-ready', () => {
+    const runtimeRefreshOutput: Array<string> = [];
+    const dispatchRuntimeRefresh = (event: Event): void => {
+      const detail = (event as CustomEvent<{ reason: string }>).detail;
+      runtimeRefreshOutput.push(detail.reason);
+    };
+
+    window.addEventListener(GALLERY_REFRESH_REQUESTED_EVENT, dispatchRuntimeRefresh);
+
+    window.dispatchEvent(new CustomEvent('media-store-ready', {
+      detail: { reason: 'upload', uri: 'content://media/1' },
+    }));
+    expect(runtimeRefreshOutput).toEqual([]);
+
+    requestMediaLibraryRefresh({ reason: 'manual' });
+    expect(runtimeRefreshOutput).toEqual(['manual']);
   });
 });
