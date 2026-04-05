@@ -460,25 +460,6 @@ impl FtpServerActor {
         }
     }
 
-    /// 等待服务器完全停止（检查端口是否不再监听）
-    async fn wait_for_server_stopped(port: u16, timeout: Duration) -> bool {
-        let start = Instant::now();
-        let check_interval = Duration::from_millis(CHECK_INTERVAL_MS);
-
-        while start.elapsed() < timeout {
-            if !Self::is_port_listening(port) {
-                info!(
-                    port = port,
-                    elapsed_ms = start.elapsed().as_millis() as u64,
-                    "Server has stopped"
-                );
-                return true;
-            }
-            tokio::time::sleep(check_interval).await;
-        }
-        false
-    }
-
     /// 检查端口是否在监听
     fn is_port_listening(port: u16) -> bool {
         let addr: SocketAddr = ([127, 0, 0, 1], port).into();
@@ -599,8 +580,6 @@ impl FtpServerActor {
         .await
         {
             Ok(Ok(())) => {
-                self.observe_post_task_stop(port, Duration::from_secs(SERVER_SHUTDOWN_TIMEOUT_SECS))
-                    .await;
                 self.finalize_terminal_stop().await;
             }
             Ok(Err(error)) => {
@@ -622,19 +601,6 @@ impl FtpServerActor {
         info!("FTP server stopped");
 
         Ok(())
-    }
-
-    async fn observe_post_task_stop(&self, port: u16, timeout: Duration) {
-        if Self::wait_for_server_stopped(port, timeout).await {
-            return;
-        }
-
-        if Self::is_port_listening(port) {
-            error!(
-                port = port,
-                "Port remained reachable after FTP server task exited"
-            );
-        }
     }
 
     /// 获取当前状态
