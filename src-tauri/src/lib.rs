@@ -31,7 +31,6 @@ use commands::{
     get_current_file_index,
     get_file_list,
     get_image_exif,
-    get_latest_file,
     get_latest_image,
     get_platform,
     get_server_runtime_state,
@@ -212,9 +211,6 @@ pub fn run() {
             get_file_list,
             get_current_file_index,
             navigate_to_file,
-            get_latest_file,
-
-            // 文件系统监听
             get_latest_image,
 
             // EXIF 信息

@@ -54,20 +54,6 @@ class ImageViewerBridge(activity: android.app.Activity) : BaseJsBridge(activity)
         }
     }
 
-    @android.webkit.JavascriptInterface
-    fun closeViewer(): Boolean {
-        Log.d(TAG, "closeViewer")
-        return try {
-            ImageViewerActivity.instance?.finish() ?: run {
-                Log.w(TAG, "closeViewer: no active ImageViewerActivity")
-            }
-            true
-        } catch (e: Exception) {
-            Log.e(TAG, "closeViewer error", e)
-            false
-        }
-    }
-
     /**
      * Callback from JS when EXIF data is fetched via Tauri IPC
      */

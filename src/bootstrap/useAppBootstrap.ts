@@ -21,23 +21,18 @@ export function useAppBootstrap({ isMainWindow }: UseAppBootstrapOptions): void 
     if (!isMainWindow) {
       return;
     }
+
     loadPlatform();
-  }, [isMainWindow, loadPlatform]);
-
-  useEffect(() => {
-    if (!isMainWindow) {
-      return;
-    }
     initializePermissions();
-  }, [isMainWindow, initializePermissions]);
+    loadConfig();
+  }, [initializePermissions, isMainWindow, loadConfig, loadPlatform]);
 
   useEffect(() => {
-    if (!isMainWindow) {
+    if (!isMainWindow || !platform || platform === 'unknown') {
       return;
     }
-    if (platform && platform !== 'unknown') {
-      document.documentElement.className = `platform-${platform}`;
-    }
+
+    document.documentElement.className = `platform-${platform}`;
   }, [isMainWindow, platform]);
 
   useEffect(() => {
@@ -48,31 +43,21 @@ export function useAppBootstrap({ isMainWindow }: UseAppBootstrapOptions): void 
     let cleanupFn: (() => void) | undefined;
     let isCancelled = false;
 
-    const setup = async () => {
-      try {
-        const cleanup = await initializeServerEvents();
+    void initializeServerEvents()
+      .then((cleanup) => {
         if (!isCancelled) {
           cleanupFn = cleanup;
         } else {
           cleanup();
         }
-      } catch (err) {
+      })
+      .catch((err) => {
         console.warn('[useAppBootstrap] Listener initialization failed:', err);
-      }
-    };
-
-    setup();
+      });
 
     return () => {
       isCancelled = true;
       cleanupFn?.();
     };
-  }, [isMainWindow, initializeServerEvents]);
-
-  useEffect(() => {
-    if (!isMainWindow) {
-      return;
-    }
-    loadConfig();
-  }, [isMainWindow, loadConfig]);
+  }, [isMainWindow]);
 }

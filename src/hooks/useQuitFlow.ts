@@ -6,7 +6,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { createEventManager } from '../utils/events';
+import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 
 interface UseQuitFlowResult {
   showQuitDialog: boolean;
@@ -27,34 +27,33 @@ export function useQuitFlow({ enabled = true }: UseQuitFlowOptions = {}): UseQui
       return;
     }
 
-    const eventManager = createEventManager();
     let isDisposed = false;
-    let setupResolved = false;
+    let unlisten: UnlistenFn | undefined;
 
-    const setup = async () => {
-      await eventManager.on('window-close-requested', async () => {
+    void listen('window-close-requested', async () => {
         try {
           await invoke('show_main_window');
         } catch {
           // Ignore window display errors
         }
         setShowQuitDialog(true);
+      })
+      .then((cleanup) => {
+        if (isDisposed) {
+          cleanup();
+          return;
+        }
+
+        unlisten = cleanup;
+      })
+      .catch(() => {
+        // Ignore listener registration errors
       });
-
-      setupResolved = true;
-
-      if (isDisposed) {
-        eventManager.cleanup();
-      }
-    };
-
-    setup();
 
     return () => {
       isDisposed = true;
-
-      if (setupResolved) {
-        eventManager.cleanup();
+      if (unlisten) {
+        unlisten();
       }
     };
   }, [enabled]);

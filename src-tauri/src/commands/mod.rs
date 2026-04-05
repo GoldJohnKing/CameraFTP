@@ -37,7 +37,6 @@ pub use exif::get_image_exif;
 pub use file_index::{
     get_current_file_index,
     get_file_list,
-    get_latest_file,
     get_latest_image,
     navigate_to_file,
 };

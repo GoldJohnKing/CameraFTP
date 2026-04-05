@@ -189,12 +189,6 @@ interface ImageViewerAndroid {
   isAppVisible(): boolean;
 
   /**
-   * Close the image viewer
-   * @returns true if viewer closed successfully
-   */
-  closeViewer(): boolean;
-
-  /**
    * Callback from Tauri IPC when EXIF data is fetched
    * @param exifJson JSON string of ExifInfo, or null
    */
@@ -252,7 +246,7 @@ declare global {
 /**
  * 检查 Android 权限管理是否可用
  */
-export function isPermissionAndroidAvailable(): boolean {
+function isPermissionAndroidAvailable(): boolean {
   return typeof window !== 'undefined' && 
          !!window.PermissionAndroid && 
          typeof window.PermissionAndroid.checkAllPermissions === 'function';

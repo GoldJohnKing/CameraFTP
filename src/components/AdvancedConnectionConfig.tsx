@@ -8,8 +8,7 @@ import { useState, useMemo } from 'react';
 import { Loader2, Eye, EyeOff, AlertCircle } from 'lucide-react';
 import { ToggleSwitch } from './ui';
 import type { AdvancedConnectionConfig, AppConfig } from '../types';
-import { validatePort as validatePortBasic } from '../utils/validation';
-import { usePortCheck } from '../hooks/usePortCheck';
+import { parsePortInput, usePortCheck } from '../hooks/usePortCheck';
 import { useConfigStore } from '../stores/configStore';
 
 const PASSWORD_PLACEHOLDER = '••••••••';
@@ -89,23 +88,18 @@ export function AdvancedConnectionConfigPanel({
     }
   };
 
-  // ========== 验证函数 ==========
-  const validatePort = (value: string): { valid: boolean; port?: number; error?: PortValidationError } => {
-    if (value.trim() === '') {
-      return { valid: false, error: { type: 'empty' } };
+  const toPortValidationError = (value: string): PortValidationError | null => {
+    const result = parsePortInput(value, minPort, maxPort);
+
+    if (result.valid) {
+      return null;
     }
-    
-    const portNum = validatePortBasic(value);
-    
-    if (portNum === null) {
-      return { valid: false, error: { type: 'invalid_number' } };
+
+    if (result.reason === 'out_of_range') {
+      return { type: 'out_of_range', min: minPort, max: maxPort };
     }
-    
-    if (portNum < minPort || portNum > maxPort) {
-      return { valid: false, error: { type: 'out_of_range', min: minPort, max: maxPort } };
-    }
-    
-    return { valid: true, port: portNum };
+
+    return { type: result.reason };
   };
 
   // ========== 开关处理：立即更新 draft ==========
@@ -122,8 +116,7 @@ export function AdvancedConnectionConfigPanel({
   const handlePortChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value;
     setPortInput(value);
-    const result = validatePort(value);
-    setPortError(result.valid ? null : result.error || null);
+    setPortError(toPortValidationError(value));
   };
 
   const handleUsernameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -152,22 +145,22 @@ export function AdvancedConnectionConfigPanel({
       return;
     }
     
-    const result = validatePort(portInput);
-    if (!result.valid || result.port === undefined) {
+    const parsedPort = parsePortInput(portInput, minPort, maxPort);
+    if (!parsedPort.valid) {
       // 验证失败，恢复原端口
       setPortInput(port.toString());
       setPortError(null);
       return;
     }
-    if (result.port === port) return;
+    if (parsedPort.port === port) return;
 
-    const checkResult = await checkPort(portInput);
+    const checkResult = await checkPort(parsedPort.port);
     if (!checkResult.available) {
-      setPortError({ type: 'port_in_use', port: result.port });
+      setPortError({ type: 'port_in_use', port: parsedPort.port });
       return;
     }
     // 更新 draft
-    onUpdate(() => ({ port: result.port }));
+    onUpdate(() => ({ port: parsedPort.port }));
   };
 
   const handleUsernameBlur = () => {

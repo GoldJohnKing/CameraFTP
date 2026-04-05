@@ -40,15 +40,3 @@ export async function silent<T>(fn: () => Promise<T>): Promise<T | null> {
         return null;
     }
 }
-
-/**
- * Execute an async function and return a fallback value on error
- * Use when you need a guaranteed value even if the operation fails
- */
-export async function ignoreErrors<T>(fn: () => Promise<T>, fallback: T): Promise<T> {
-    try {
-        return await fn();
-    } catch {
-        return fallback;
-    }
-}

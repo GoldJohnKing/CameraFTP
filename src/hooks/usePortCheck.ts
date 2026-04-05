@@ -8,27 +8,47 @@ import { useState, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { validatePort } from '../utils/validation';
 
+export type PortSyntaxValidationResult =
+  | { valid: false; reason: 'empty' | 'invalid_number' | 'out_of_range' }
+  | { valid: true; port: number };
+
 interface UsePortCheckResult {
-  checkPort: (value: string) => Promise<{ valid: boolean; available: boolean }>;
+  checkPort: (port: number) => Promise<{ available: boolean }>;
   isChecking: boolean;
+}
+
+export function parsePortInput(
+  value: string,
+  minPort: number,
+  maxPort: number,
+): PortSyntaxValidationResult {
+  if (value.trim() === '') {
+    return { valid: false, reason: 'empty' };
+  }
+
+  const port = validatePort(value);
+  if (port === null) {
+    return { valid: false, reason: 'invalid_number' };
+  }
+
+  if (port < minPort || port > maxPort) {
+    return { valid: false, reason: 'out_of_range' };
+  }
+
+  return { valid: true, port };
 }
 
 export function usePortCheck(): UsePortCheckResult {
   const [isChecking, setIsChecking] = useState(false);
 
-  const checkPort = useCallback(async (value: string) => {
-    const port = validatePort(value);
-    if (port === null) {
-      return { valid: false, available: false };
-    }
-
+  const checkPort = useCallback(async (port: number) => {
     setIsChecking(true);
 
     try {
       const available = await invoke<boolean>('check_port_available', { port });
-      return { valid: true, available };
+      return { available };
     } catch {
-      return { valid: true, available: false };
+      return { available: false };
     } finally {
       setIsChecking(false);
     }

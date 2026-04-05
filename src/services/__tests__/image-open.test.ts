@@ -28,7 +28,6 @@ describe('image-open service', () => {
       openViewer,
       openOrNavigateTo: vi.fn().mockReturnValue(false),
       isAppVisible: vi.fn().mockReturnValue(true),
-      closeViewer: vi.fn(),
       onExifResult,
       resolveFilePath: vi.fn().mockReturnValue('/real/path.jpg'),
     };
@@ -53,7 +52,6 @@ describe('image-open service', () => {
       openViewer,
       openOrNavigateTo: vi.fn().mockReturnValue(false),
       isAppVisible: vi.fn().mockReturnValue(true),
-      closeViewer: vi.fn(),
       onExifResult: vi.fn(),
       resolveFilePath: vi.fn().mockReturnValue('content://media/3'),
     };
@@ -76,7 +74,6 @@ describe('image-open service', () => {
       openViewer,
       openOrNavigateTo,
       isAppVisible: vi.fn().mockReturnValue(true),
-      closeViewer: vi.fn(),
       onExifResult: vi.fn(),
       resolveFilePath: vi.fn().mockReturnValue('/real/path.jpg'),
     };
@@ -103,7 +100,6 @@ describe('image-open service', () => {
       openViewer,
       openOrNavigateTo: vi.fn().mockReturnValue(false),
       isAppVisible: vi.fn().mockReturnValue(true),
-      closeViewer: vi.fn(),
       onExifResult: vi.fn(),
       resolveFilePath: vi.fn().mockReturnValue('/real/path.jpg'),
     };
@@ -128,7 +124,6 @@ describe('image-open service', () => {
       openViewer,
       openOrNavigateTo,
       isAppVisible: vi.fn().mockReturnValue(true),
-      closeViewer: vi.fn(),
       onExifResult: vi.fn(),
       resolveFilePath: vi.fn().mockReturnValue('/real/path.jpg'),
     };
@@ -159,7 +154,6 @@ describe('image-open service', () => {
       }),
       openOrNavigateTo: vi.fn().mockReturnValue(false),
       isAppVisible: vi.fn().mockReturnValue(true),
-      closeViewer: vi.fn(),
       onExifResult: vi.fn(),
       resolveFilePath: vi.fn().mockReturnValue('/real/path.jpg'),
     };

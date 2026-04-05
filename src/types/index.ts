@@ -25,7 +25,6 @@ export type { PreviewWindowConfig } from '../../src-tauri/bindings/PreviewWindow
 export type { AndroidImageOpenMethod } from '../../src-tauri/bindings/AndroidImageOpenMethod';
 
 // ===== Re-export from global.ts =====
-export type { PermissionCheckResult } from './global';
 export * from './global';
 
 // ===== Re-export from gallery-v2.ts =====

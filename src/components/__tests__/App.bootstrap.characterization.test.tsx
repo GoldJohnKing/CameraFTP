@@ -32,6 +32,7 @@ const {
 }));
 
 let currentWindowLabel: 'main' | 'preview' = 'main';
+let currentPlatform = 'android';
 
 vi.mock('@tauri-apps/api/core', () => ({
   invoke: vi.fn(),
@@ -68,7 +69,7 @@ vi.mock('../../stores/configStore', () => ({
     activeTab: 'home',
     loadConfig: loadConfigMock,
     loadPlatform: loadPlatformMock,
-    platform: 'android',
+    platform: currentPlatform,
   }),
 }));
 
@@ -112,6 +113,7 @@ describe('App bootstrap characterization', () => {
     initializeServerEventsMock.mockResolvedValue(vi.fn());
     document.documentElement.className = '';
     currentWindowLabel = 'main';
+    currentPlatform = 'android';
   });
 
   afterEach(() => {
@@ -186,5 +188,16 @@ describe('App bootstrap characterization', () => {
     expect(initializeServerEventsMock).not.toHaveBeenCalled();
     expect(loadConfigMock).not.toHaveBeenCalled();
     expect(useQuitFlowMock).toHaveBeenCalledWith({ enabled: false });
+  });
+
+  it('does not touch document class when platform is unknown', async () => {
+    currentPlatform = 'unknown';
+
+    await act(async () => {
+      root.render(<App />);
+      await flush();
+    });
+
+    expect(document.documentElement.className).toBe('');
   });
 });
