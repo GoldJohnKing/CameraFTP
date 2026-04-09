@@ -394,8 +394,6 @@ class ThumbnailPipelineManager(poolSize: Int = 3) {
             return
         }
 
-        recordCacheMiss()
-
         try {
             val uri = android.net.Uri.parse(job.uri)
             val key = ThumbnailKeyV2.of(job.mediaId, job.dateModifiedMs, job.sizeBucket, 0, 0)

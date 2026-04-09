@@ -268,7 +268,7 @@ class PermissionBridge(activity: MainActivity) : BaseJsBridge(activity) {
                 Log.e(TAG, "openExternalLink: failed to open URL", e)
                 // Try to show a toast or handle the error
                 try {
-                    android.widget.Toast.makeText(activity, "无法打开链接: ${e.message}", android.widget.Toast.LENGTH_SHORT).show()
+                    Toast.makeText(activity, "无法打开链接: ${e.message}", Toast.LENGTH_SHORT).show()
                 } catch (toastError: Exception) {
                     Log.e(TAG, "Failed to show toast", toastError)
                 }

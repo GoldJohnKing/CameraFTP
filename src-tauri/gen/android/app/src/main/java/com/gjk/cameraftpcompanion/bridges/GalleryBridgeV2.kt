@@ -110,7 +110,6 @@ class GalleryBridgeV2(
                 val requests = JSONArray(requestsJson)
                 Log.d(TAG, "enqueueThumbnails: ${requests.length()} requests")
                 var accepted = 0
-                var cacheHits = 0
                 for (i in 0 until requests.length()) {
                     val req = requests.getJSONObject(i)
                     val requestId = req.getString("requestId")
@@ -122,8 +121,6 @@ class GalleryBridgeV2(
                     val key = ThumbnailKeyV2.of(mediaId, dateModifiedMs, sizeBucket, 0, 0)
                     val cachedFile = cache.get(mediaId, key, sizeBucket)
                     if (cachedFile != null) {
-                        cacheHits++
-                        pipelineManager.recordCacheHit()
                         val result = ThumbResult(
                             requestId = requestId,
                             mediaId = mediaId,
@@ -152,7 +149,7 @@ class GalleryBridgeV2(
                         Log.w(TAG, "enqueueThumbnails: rejected job ${job.requestId} mediaId=${job.mediaId}")
                     }
                 }
-                Log.d(TAG, "enqueueThumbnails: accepted=$accepted cacheHits=$cacheHits/${requests.length()}, pending=${pipelineManager.pendingCount()}")
+                Log.d(TAG, "enqueueThumbnails: accepted=$accepted total=${requests.length()}, pending=${pipelineManager.pendingCount()}")
                 repeat(accepted) { pipelineManager.processNext() }
             } catch (e: Exception) {
                 Log.e(TAG, "enqueueThumbnails error", e)
