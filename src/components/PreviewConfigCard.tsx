@@ -4,14 +4,13 @@
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
 
-import { useEffect } from 'react';
+import { useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { listen } from '@tauri-apps/api/event';
 import type { PreviewWindowConfig } from '../types';
-import type { ConfigChangedEvent } from '../types/events';
 import { ImagePlay } from 'lucide-react';
 import { Card, CardHeader, ToggleSwitch } from './ui';
 import { useConfigStore } from '../stores/configStore';
+import { usePreviewConfigListener } from '../hooks/usePreviewConfigListener';
 
 interface PreviewConfigCardProps {
   platform: string;
@@ -24,18 +23,10 @@ export function PreviewConfigCard({ platform }: PreviewConfigCardProps) {
   const config = useConfigStore(state => state.draft?.previewConfig ?? null);
   const isLoading = useConfigStore(state => state.isLoading || state.draft == null);
 
-  // 监听全局配置变化事件
-  useEffect(() => {
-    if (!isWindows) return;
-
-    const unlistenPromise = listen<ConfigChangedEvent>('preview-config-changed', (event) => {
-      applyPreviewConfig(event.payload.config);
-    });
-
-    return () => {
-      void unlistenPromise.then(fn => fn()).catch(() => {});
-    };
-  }, [isWindows, applyPreviewConfig]);
+  usePreviewConfigListener(
+    useCallback((config) => applyPreviewConfig(config), [applyPreviewConfig]),
+    isWindows,
+  );
 
   const updateConfig = async (updates: Partial<PreviewWindowConfig>) => {
     if (!config) return;

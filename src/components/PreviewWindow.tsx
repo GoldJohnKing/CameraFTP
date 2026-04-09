@@ -6,10 +6,8 @@
 
 import { useEffect, useState, useCallback, useMemo, memo } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { listen } from '@tauri-apps/api/event';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import type { ConfigChangedEvent } from '../types/events';
 import { useConfigStore } from '../stores/configStore';
 import { PREVIEW_NAVIGATE_EVENT } from '../hooks/preview-window-events';
 import { usePreviewWindowLifecycle } from '../hooks/usePreviewWindowLifecycle';
@@ -17,6 +15,7 @@ import { usePreviewNavigation } from '../hooks/usePreviewNavigation';
 import { usePreviewExif } from '../hooks/usePreviewExif';
 import { usePreviewZoomPan } from '../hooks/usePreviewZoomPan';
 import { usePreviewToolbarAutoHide } from '../hooks/usePreviewToolbarAutoHide';
+import { usePreviewConfigListener } from '../hooks/usePreviewConfigListener';
 
 export function PreviewWindow() {
   const state = usePreviewWindowLifecycle();
@@ -90,20 +89,9 @@ const PreviewWindowContent = memo(function PreviewWindowContent({
     onNavigationSettled: resetZoom,
   });
 
-  // 监听全局配置变化事件
-  useEffect(() => {
-    const setupListener = async () => {
-      const unlisten = await listen<ConfigChangedEvent>('preview-config-changed', (event) => {
-        setLocalAutoBringToFront(event.payload.config.autoBringToFront);
-      });
-      return unlisten;
-    };
-
-    const unlistenPromise = setupListener();
-    return () => {
-      void unlistenPromise.then(unlisten => unlisten()).catch(() => {});
-    };
-  }, []);
+  usePreviewConfigListener(
+    useCallback((config) => setLocalAutoBringToFront(config.autoBringToFront), []),
+  );
 
   // 重置图片错误状态和缩放
   useEffect(() => {
