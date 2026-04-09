@@ -28,38 +28,6 @@ const SYNC_ANDROID_SERVICE_STATE_SIGNATURE: &str =
 pub use crate::constants::ANDROID_DEFAULT_STORAGE_PATH as DEFAULT_STORAGE_PATH;
 pub use crate::constants::ANDROID_STORAGE_DISPLAY_NAME as STORAGE_DISPLAY_NAME;
 
-/// 获取存储路径信息
-pub fn get_storage_info() -> StorageInfo {
-    let path = DEFAULT_STORAGE_PATH;
-    let path_buf = std::path::PathBuf::from(path);
-
-    let exists = path_buf.exists();
-    let writable = if exists {
-        validate_path_writable(path)
-    } else {
-        false
-    };
-
-    // 检查权限：如果能写入，就认为有权限
-    let has_all_files_access = writable || (exists && can_write_to_dcim());
-
-    StorageInfo {
-        display_name: STORAGE_DISPLAY_NAME.to_string(),
-        path: path.to_string(),
-        exists,
-        writable,
-        has_all_files_access,
-    }
-}
-
-/// 检查权限状态
-pub fn check_permission_status() -> PermissionStatus {
-    PermissionStatus {
-        has_all_files_access: true,
-        needs_user_action: false,
-    }
-}
-
 /// 检查 DCIM 目录是否可写（用于判断所有文件访问权限）
 fn can_write_to_dcim() -> bool {
     let dcim_path = std::path::Path::new(ANDROID_DCIM_PATH);
@@ -110,22 +78,6 @@ fn validate_path_writable(path: &str) -> bool {
     writable
 }
 
-/// 确保存储目录存在且可写
-/// 前端通过 PermissionDialog 处理权限检查，这里只负责创建目录
-pub fn ensure_storage_ready() -> Result<String, String> {
-    let path = DEFAULT_STORAGE_PATH;
-    let path_buf = std::path::PathBuf::from(path);
-
-    // 创建目录（如果不存在）
-    // 前端已处理权限检查，这里直接尝试创建目录
-    if !path_buf.exists() {
-        std::fs::create_dir_all(&path_buf).map_err(|e| format!("无法创建存储目录: {}", e))?;
-        info!("Created storage directory: {}", path);
-    }
-
-    Ok(path.to_string())
-}
-
 /// 打开存储权限设置页面
 pub fn open_storage_permission_settings(app: &AppHandle) {
     let _ = app.emit("android-open-storage-permission-settings", ());
@@ -146,15 +98,44 @@ impl PlatformService for AndroidPlatform {
     }
 
     fn get_storage_info(&self) -> StorageInfo {
-        get_storage_info()
+        let path = DEFAULT_STORAGE_PATH;
+        let path_buf = std::path::PathBuf::from(path);
+
+        let exists = path_buf.exists();
+        let writable = if exists {
+            validate_path_writable(path)
+        } else {
+            false
+        };
+
+        let has_all_files_access = writable || (exists && can_write_to_dcim());
+
+        StorageInfo {
+            display_name: STORAGE_DISPLAY_NAME.to_string(),
+            path: path.to_string(),
+            exists,
+            writable,
+            has_all_files_access,
+        }
     }
 
     fn check_permission_status(&self) -> PermissionStatus {
-        check_permission_status()
+        PermissionStatus {
+            has_all_files_access: true,
+            needs_user_action: false,
+        }
     }
 
     fn ensure_storage_ready(&self, _app: &AppHandle) -> Result<String, String> {
-        ensure_storage_ready()
+        let path = DEFAULT_STORAGE_PATH;
+        let path_buf = std::path::PathBuf::from(path);
+
+        if !path_buf.exists() {
+            std::fs::create_dir_all(&path_buf).map_err(|e| format!("无法创建存储目录: {}", e))?;
+            info!("Created storage directory: {}", path);
+        }
+
+        Ok(path.to_string())
     }
 
     fn check_server_start_prerequisites(&self) -> super::types::ServerStartCheckResult {
