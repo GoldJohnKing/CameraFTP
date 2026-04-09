@@ -179,17 +179,6 @@ class ThumbnailCacheV2(
         return File(root, "$sizeBucket/${mediaId}_$key.jpg")
     }
 
-    private fun deleteDiskEntries(key: String) {
-        val root = cacheRoot ?: return
-        root.walkTopDown()
-            .filter { it.isFile && it.nameWithoutExtension.endsWith("_$key") }
-            .forEach {
-                if (it.delete()) {
-                    Log.d(TAG, "Invalidated disk entry: ${it.name}")
-                }
-            }
-    }
-
     private fun enforceL2Capacity() {
         cleanup(l2MaxBytes)
     }
