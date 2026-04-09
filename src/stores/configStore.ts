@@ -195,11 +195,7 @@ export const useConfigStore = create<ConfigState>((set, get) => {
 
     // Note: This doesn't modify global isLoading to avoid triggering re-renders
     setAutostart: async (enabled: boolean) => {
-      try {
-        await invoke('set_autostart_command', { enable: enabled });
-      } catch (e) {
-        throw e;
-      }
+      await invoke('set_autostart_command', { enable: enabled });
     },
 
     setActiveTab: (tab: 'home' | 'gallery' | 'config') => {

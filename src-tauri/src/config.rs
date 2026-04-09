@@ -7,9 +7,9 @@ use std::fs;
 use std::path::PathBuf;
 #[cfg(target_os = "android")]
 use std::sync::OnceLock;
+use tracing::info;
 #[cfg(target_os = "android")]
 use tracing::warn;
-use tracing::{error, info};
 use ts_rs::TS;
 
 use crate::constants::{DEFAULT_FTP_PORT_ANDROID, DEFAULT_FTP_PORT_WINDOWS};
@@ -245,43 +245,6 @@ impl AppConfig {
                 .unwrap_or_else(|| PathBuf::from("./config"))
                 .join("config.json")
         }
-    }
-
-    pub fn load() -> Self {
-        let path = Self::config_path();
-
-        #[allow(unused_mut)]
-        let mut config = if path.exists() {
-            match fs::read_to_string(&path) {
-                Ok(content) => match serde_json::from_str(&content) {
-                    Ok(config) => {
-                        info!("Config loaded from {:?}", path);
-                        config
-                    }
-                    Err(e) => {
-                        error!("Failed to parse config: {}", e);
-                        Self::default()
-                    }
-                },
-                Err(e) => {
-                    error!("Failed to read config file: {}", e);
-                    Self::default()
-                }
-            }
-        } else {
-            Self::default()
-        };
-
-        config = config.normalized_for_current_platform();
-
-        // 如果是新创建的默认配置，保存到文件
-        if !path.exists() {
-            if let Err(e) = config.save() {
-                error!("Failed to save default config: {}", e);
-            }
-        }
-
-        config
     }
 
     pub fn save(&self) -> Result<(), Box<dyn std::error::Error>> {

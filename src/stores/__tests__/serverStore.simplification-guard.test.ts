@@ -20,4 +20,9 @@ describe('serverStore simplification guard', () => {
     expect(fnBody).not.toContain('...defaultStats');
     expect(fnBody).not.toContain('...stats');
   });
+
+  it('setServerRunning/setServerStopped/setServerStats do not spread state redundantly', () => {
+    const source = readFileSync(resolve(process.cwd(), 'src/stores/serverStore.ts'), 'utf-8');
+    expect(source).not.toContain('...state');
+  });
 });

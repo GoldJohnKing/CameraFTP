@@ -90,11 +90,6 @@ const PreviewWindowContent = memo(function PreviewWindowContent({
     onNavigationSettled: resetZoom,
   });
 
-  // 同步外部状态
-  useEffect(() => {
-    setLocalAutoBringToFront(autoBringToFront);
-  }, [autoBringToFront]);
-
   // 监听全局配置变化事件
   useEffect(() => {
     const setupListener = async () => {

@@ -153,7 +153,6 @@ export function useGallerySelection({ activeTab, onDeleteApplied, getUriForId }:
     try {
       const resultJson = await window.GalleryAndroid?.deleteImages(JSON.stringify(urisToDelete));
       if (!resultJson) {
-        setShowMenu(false);
         return;
       }
 

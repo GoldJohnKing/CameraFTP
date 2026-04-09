@@ -465,7 +465,7 @@ impl FileIndexService {
     }
 
     /// 获取文件数量
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub async fn get_file_count(&self) -> usize {
         let index = self.index.read().await;
         index.files.len()

@@ -747,7 +747,7 @@ mod tests {
 
     #[tokio::test]
     async fn transient_subscriber_does_not_receive_pre_subscription_file_events() {
-        let transient_bus = crate::ftp::types::TransientEventBus::new();
+        let transient_bus = crate::ftp::types::test_utils::TransientEventBus::new();
         transient_bus.emit(DomainEvent::FileUploaded {
             path: "/before.jpg".into(),
             size: 512,
@@ -797,7 +797,7 @@ mod tests {
         let bus = EventBus::new();
         bus.emit_file_uploaded("before-processor.jpg", 7);
 
-        let transient_bus = crate::ftp::types::TransientEventBus::new();
+        let transient_bus = crate::ftp::types::test_utils::TransientEventBus::new();
         transient_bus.emit(DomainEvent::FileUploaded {
             path: "/before.jpg".into(),
             size: 512,

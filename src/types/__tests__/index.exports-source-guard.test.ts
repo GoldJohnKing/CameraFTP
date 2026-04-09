@@ -20,4 +20,14 @@ describe('types/index.ts exports (source guard)', () => {
     expect(source).not.toContain("ThumbStatus");
     expect(source).not.toContain("ThumbErrorCode");
   });
+
+  it('omits dead gallery-v2 re-exports (consumers import directly from gallery-v2)', () => {
+    const source = readFileSync(resolve(process.cwd(), 'src/types/index.ts'), 'utf-8');
+    expect(source).not.toContain("MediaPageRequest");
+    expect(source).not.toContain("MediaPageResponse");
+    expect(source).not.toContain("MediaCursor");
+    expect(source).not.toContain("ThumbRequest");
+    expect(source).not.toContain("ThumbResult");
+    expect(source).not.toContain("ThumbResultListener");
+  });
 });

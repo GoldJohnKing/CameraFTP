@@ -4,7 +4,7 @@
 
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
-use tokio::sync::{broadcast, watch, RwLock};
+use tokio::sync::{watch, RwLock};
 use ts_rs::TS;
 use std::sync::Arc;
 
@@ -342,34 +342,6 @@ mod tests {
     }
 }
 
-/// Test-only event bus that doesn't persist events
-#[allow(dead_code)]
-#[derive(Debug, Clone)]
-pub struct TransientEventBus {
-    tx: broadcast::Sender<DomainEvent>,
-}
-
-impl Default for TransientEventBus {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl TransientEventBus {
-    pub fn new() -> Self {
-        let (tx, _) = broadcast::channel(100);
-        Self { tx }
-    }
-
-    pub fn subscribe(&self) -> broadcast::Receiver<DomainEvent> {
-        self.tx.subscribe()
-    }
-
-    pub fn emit(&self, event: DomainEvent) {
-        let _ = self.tx.send(event);
-    }
-}
-
 /// 服务器运行状态
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 pub enum ServerStatus {
@@ -428,6 +400,39 @@ impl ServerInfo {
             url: format_ipv4_ftp_url(&ip, port),
             username: username.unwrap_or_else(|| "anonymous".to_string()),
             password_info: password_info.unwrap_or_else(|| "(任意密码)".to_string()),
+        }
+    }
+}
+
+#[cfg(test)]
+pub mod test_utils {
+    use super::DomainEvent;
+    use tokio::sync::broadcast;
+
+    /// Test-only event bus that doesn't persist events
+    #[derive(Debug, Clone)]
+    pub struct TransientEventBus {
+        tx: broadcast::Sender<DomainEvent>,
+    }
+
+    impl Default for TransientEventBus {
+        fn default() -> Self {
+            Self::new()
+        }
+    }
+
+    impl TransientEventBus {
+        pub fn new() -> Self {
+            let (tx, _) = broadcast::channel(100);
+            Self { tx }
+        }
+
+        pub fn subscribe(&self) -> broadcast::Receiver<DomainEvent> {
+            self.tx.subscribe()
+        }
+
+        pub fn emit(&self, event: DomainEvent) {
+            let _ = self.tx.send(event);
         }
     }
 }

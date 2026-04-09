@@ -103,25 +103,23 @@ export const useServerStore = create<ServerState>((set, get) => ({
 
   setServerRunning: (serverInfo, options) => {
     const stats = createRunningStats(options?.stats);
-    set((state) => ({
-      ...state,
+    set({
       isRunning: true,
       serverInfo,
       stats,
-    }));
+    });
   },
 
   setServerStopped: () => {
-    set((state) => ({
-      ...state,
+    set({
       isRunning: false,
       serverInfo: null,
       stats: defaultStats,
-    }));
+    });
   },
 
   setServerStats: (stats) => {
     const nextStats = stats.isRunning ? createRunningStats(stats) : defaultStats;
-    set((state) => ({ ...state, stats: nextStats, isRunning: nextStats.isRunning }));
+    set({ stats: nextStats, isRunning: nextStats.isRunning });
   },
 }));

@@ -27,4 +27,13 @@ describe('stores dead code guard', () => {
 
     expect(source).not.toContain('createStoppedStats');
   });
+
+  it('configStore setAutostart does not contain pointless try/catch', () => {
+    const source = readFileSync(resolve(process.cwd(), 'src/stores/configStore.ts'), 'utf-8');
+    const setAutostartMatch = source.match(/setAutostart[^}]+\}/s);
+
+    expect(setAutostartMatch).toBeTruthy();
+    expect(setAutostartMatch![0]).not.toContain('try');
+    expect(setAutostartMatch![0]).not.toContain('catch');
+  });
 });
