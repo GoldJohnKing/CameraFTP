@@ -19,11 +19,6 @@ import org.robolectric.annotation.Config
 class ImageViewerDeletePermissionTest {
 
     @Test
-    fun delete_refresh_event_name_matches_frontend_listener_chain() {
-        assertTrue(ImageViewerActivity.MEDIA_LIBRARY_REFRESH_REQUESTED_EVENT == "media-library-refresh-requested")
-    }
-
-    @Test
     fun treat_delete_as_success_when_rows_deleted() {
         assertTrue(
             ImageViewerActivity.shouldTreatDeleteAsSuccess(

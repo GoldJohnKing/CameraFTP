@@ -207,7 +207,7 @@ export function useThumbnailScheduler(opts?: UseThumbnailSchedulerOptions) {
       }
 
       if (newReqs.length > 0) {
-        void enqueueThumbnails(newReqs);
+        void enqueueThumbnails(newReqs).catch(() => {});
       }
     },
     [thumbnails],
