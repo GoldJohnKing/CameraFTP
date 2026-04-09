@@ -62,7 +62,6 @@ function isChooserOpenSuccess(result: unknown): boolean {
 export async function openImagePreview({
   filePath,
   openMethod,
-  preferReuse,
   allUris,
   getAllUris,
 }: OpenImagePreviewParams): Promise<void> {
