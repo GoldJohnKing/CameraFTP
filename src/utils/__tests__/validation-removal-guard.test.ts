@@ -1,5 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import { expect, test } from 'vitest';
 
 test('no source file imports from utils/validation', () => {
   const srcRoot = path.resolve(__dirname, '..');

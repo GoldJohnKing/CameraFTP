@@ -67,7 +67,6 @@ describe('useAndroidAutoOpenLatestPhoto', () => {
 
   it('auto-opens newest added item when built-in mode, enabled, and app visible', async () => {
     window.ImageViewerAndroid = {
-      openViewer: vi.fn(),
       openOrNavigateTo: vi.fn(),
       onExifResult: vi.fn(),
       resolveFilePath: vi.fn(),
@@ -113,7 +112,6 @@ describe('useAndroidAutoOpenLatestPhoto', () => {
 
   it('does not auto-open when app is not visible', async () => {
     window.ImageViewerAndroid = {
-      openViewer: vi.fn(),
       openOrNavigateTo: vi.fn(),
       onExifResult: vi.fn(),
       resolveFilePath: vi.fn(),
@@ -143,7 +141,6 @@ describe('useAndroidAutoOpenLatestPhoto', () => {
 
   it('does not auto-open in external-app mode', async () => {
     window.ImageViewerAndroid = {
-      openViewer: vi.fn(),
       openOrNavigateTo: vi.fn(),
       onExifResult: vi.fn(),
       resolveFilePath: vi.fn(),
@@ -173,7 +170,6 @@ describe('useAndroidAutoOpenLatestPhoto', () => {
 
   it('removes listener on unmount and does not open after cleanup', async () => {
     window.ImageViewerAndroid = {
-      openViewer: vi.fn(),
       openOrNavigateTo: vi.fn(),
       onExifResult: vi.fn(),
       resolveFilePath: vi.fn(),
@@ -207,7 +203,6 @@ describe('useAndroidAutoOpenLatestPhoto', () => {
 
   it('uses latest rendered gallery items for same-tick rapid events', async () => {
     window.ImageViewerAndroid = {
-      openViewer: vi.fn(),
       openOrNavigateTo: vi.fn(),
       onExifResult: vi.fn(),
       resolveFilePath: vi.fn(),
@@ -275,7 +270,6 @@ describe('useAndroidAutoOpenLatestPhoto', () => {
 
   it('accumulates earlier added batch for same-tick events without rerender', async () => {
     window.ImageViewerAndroid = {
-      openViewer: vi.fn(),
       openOrNavigateTo: vi.fn(),
       onExifResult: vi.fn(),
       resolveFilePath: vi.fn(),
