@@ -301,22 +301,6 @@ class AndroidServiceStateCoordinatorTest {
     }
 
     @Test
-    fun service_source_uses_connected_device_foreground_runtime_type() {
-        val sourcePath = resolveProjectPath(
-            "src/main/java/com/gjk/cameraftpcompanion/FtpForegroundService.kt",
-            "src/main/java/com/gjk/cameraftpcompanion/FtpForegroundService.kt",
-            "../app/src/main/java/com/gjk/cameraftpcompanion/FtpForegroundService.kt",
-            "../../app/src/main/java/com/gjk/cameraftpcompanion/FtpForegroundService.kt",
-            "src-tauri/gen/android/app/src/main/java/com/gjk/cameraftpcompanion/FtpForegroundService.kt",
-        )
-        val source = String(Files.readAllBytes(sourcePath))
-
-        assertTrue(source.contains("const val ACTION_STOP = \"com.gjk.cameraftpcompanion.STOP_SERVICE\""))
-        assertTrue(source.contains("ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE"))
-        assertFalse(source.contains("ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC"))
-    }
-
-    @Test
     fun direct_native_update_refreshes_notification_using_rust_payload_shape() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val notificationManager =

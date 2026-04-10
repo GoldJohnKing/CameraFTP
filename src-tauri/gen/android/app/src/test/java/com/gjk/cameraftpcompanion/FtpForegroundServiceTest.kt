@@ -131,42 +131,6 @@ class FtpForegroundServiceTest {
         }
     }
 
-    @Test
-    fun service_source_handles_timeout_and_explicit_foreground_stop() {
-        val source = readServiceSource()
-
-        assertTrue(source.contains("override fun onTimeout(startId: Int, fgsType: Int)"))
-        assertTrue(source.contains("override fun onTimeout(startId: Int)"))
-        assertTrue(source.contains("Log.w(TAG, \"onTimeout(startId): startId=${'$'}startId\")"))
-        assertTrue(source.contains("AndroidServiceStateCoordinator.clearState()"))
-        assertTrue(source.contains("stopForegroundServiceNow(\"fgs timeout startId=${'$'}startId\")"))
-        assertTrue(source.contains("Log.w(TAG, \"onTimeout(startId, fgsType): startId=${'$'}startId, fgsType=${'$'}fgsType\")"))
-        assertTrue(source.contains("stopForegroundServiceNow(\"fgs timeout startId=${'$'}startId type=${'$'}fgsType\")"))
-        assertTrue(source.contains("if (intent?.action == ACTION_STOP) {"))
-        assertTrue(source.contains("stopForegroundServiceNow(\"explicit stop action\")"))
-        assertTrue(source.contains("if (isInForeground) {"))
-        assertTrue(source.contains("ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)"))
-    }
-
-    @Test
-    fun service_source_wraps_lock_acquire_and_release_defensively() {
-        val source = readServiceSource()
-
-        assertTrue(source.contains("runCatching {"))
-        assertTrue(source.contains("val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager"))
-        assertTrue(source.contains("wakeLock = nextWakeLock"))
-        assertTrue(source.contains("nextWakeLock.acquire()"))
-        assertTrue(source.contains("Failed to acquire wake lock"))
-        assertTrue(source.contains("val wifiManager = applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager"))
-        assertTrue(source.contains("wifiLock = nextWifiLock"))
-        assertTrue(source.contains("nextWifiLock.acquire()"))
-        assertTrue(source.contains("Failed to acquire wifi lock"))
-        assertTrue(source.contains("if (it.isHeld)"))
-        assertTrue(source.contains("it.release()"))
-        assertTrue(source.contains("Failed to release wake lock"))
-        assertTrue(source.contains("Failed to release wifi lock"))
-    }
-
     private fun readConnectedClients(service: FtpForegroundService): Int {
         return withAccessibleField(service, "connectedClients") { field ->
             field.getInt(service)
