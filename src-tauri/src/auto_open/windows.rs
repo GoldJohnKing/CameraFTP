@@ -24,6 +24,51 @@ const CLSID_APPLICATION_ACTIVATION_MANAGER: windows::core::GUID = windows::core:
     data4: [0x8F, 0x95, 0xD7, 0x52, 0x57, 0x69, 0xF0, 0xC1],
 };
 
+#[allow(dead_code)]
+struct ShellExecutePayload {
+    file_utf16: Vec<u16>,
+    operation_utf16: Option<Vec<u16>>,
+    arguments_utf16: Option<Vec<u16>>,
+    file: PCWSTR,
+    operation: PCWSTR,
+    arguments: PCWSTR,
+}
+
+impl ShellExecutePayload {
+    fn new(file_path: &PathBuf, operation: Option<&str>, arguments: Option<&PathBuf>) -> Self {
+        let file_utf16: Vec<u16> = file_path.as_os_str().encode_wide().chain(Some(0)).collect();
+        let operation_utf16 = operation.map(|value| {
+            OsStr::new(value)
+                .encode_wide()
+                .chain(Some(0))
+                .collect::<Vec<u16>>()
+        });
+        let arguments_utf16 = arguments.map(|value| {
+            format!("\"{}\"", value.to_string_lossy())
+                .encode_utf16()
+                .chain(Some(0))
+                .collect::<Vec<u16>>()
+        });
+
+        let file = PCWSTR(file_utf16.as_ptr());
+        let operation = operation_utf16
+            .as_ref()
+            .map_or(PCWSTR(ptr::null()), |value| PCWSTR(value.as_ptr()));
+        let arguments = arguments_utf16
+            .as_ref()
+            .map_or(PCWSTR(ptr::null()), |value| PCWSTR(value.as_ptr()));
+
+        Self {
+            file_utf16,
+            operation_utf16,
+            arguments_utf16,
+            file,
+            operation,
+            arguments,
+        }
+    }
+}
+
 /// 使用系统默认程序打开
 pub fn open_with_default(file_path: &PathBuf) -> Result<(), AppError> {
     open_with_shell_execute(file_path, None, None)
@@ -149,30 +194,14 @@ fn open_with_shell_execute(
         let _ = CoInitialize(None);
     }
 
-    let file_wide: Vec<u16> = file_path.as_os_str().encode_wide().chain(Some(0)).collect();
-
-    let operation_ptr = match operation {
-        Some(op) => {
-            let op_wide: Vec<u16> = OsStr::new(op).encode_wide().chain(Some(0)).collect();
-            PCWSTR(op_wide.as_ptr())
-        }
-        None => PCWSTR(ptr::null()),
-    };
-
-    let arguments_ptr = match arguments {
-        Some(arg) => {
-            let arg_wide: Vec<u16> = arg.as_os_str().encode_wide().chain(Some(0)).collect();
-            PCWSTR(arg_wide.as_ptr())
-        }
-        None => PCWSTR(ptr::null()),
-    };
+    let payload = ShellExecutePayload::new(file_path, operation, arguments);
 
     let result = unsafe {
         ShellExecuteW(
             None,
-            operation_ptr,
-            PCWSTR(file_wide.as_ptr()),
-            arguments_ptr,
+            payload.operation,
+            payload.file,
+            payload.arguments,
             None,
             SW_SHOWNORMAL,
         )
@@ -191,4 +220,44 @@ fn open_with_shell_execute(
 fn open_with_program_execute(file_path: &PathBuf, program: &str) -> Result<(), AppError> {
     let program_path = PathBuf::from(program);
     open_with_shell_execute(&program_path, None, Some(file_path))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn shell_execute_payload_keeps_program_and_argument_buffers_alive() {
+        let file_path = PathBuf::from(r"C:\photos\latest image.jpg");
+        let payload = ShellExecutePayload::new(
+            &PathBuf::from(r"C:\Program Files\Viewer\viewer.exe"),
+            None,
+            Some(&file_path),
+        );
+
+        assert_eq!(payload.file_utf16.last(), Some(&0));
+        assert_eq!(
+            payload.arguments_utf16.as_ref().and_then(|buf| buf.last()),
+            Some(&0)
+        );
+        assert_eq!(payload.file.as_ptr(), payload.file_utf16.as_ptr());
+        assert_eq!(
+            payload.arguments.as_ptr(),
+            payload.arguments_utf16.as_ref().unwrap().as_ptr(),
+        );
+    }
+
+    #[test]
+    fn shell_execute_payload_quotes_file_argument_for_custom_programs() {
+        let file_path = PathBuf::from(r"C:\photos\latest image.jpg");
+        let payload = ShellExecutePayload::new(
+            &PathBuf::from(r"C:\Program Files\Viewer\viewer.exe"),
+            None,
+            Some(&file_path),
+        );
+
+        let encoded_argument = payload.arguments_utf16.as_ref().unwrap();
+        let argument = String::from_utf16_lossy(&encoded_argument[..encoded_argument.len() - 1]);
+        assert_eq!(argument, format!("\"{}\"", file_path.display()));
+    }
 }
