@@ -51,6 +51,74 @@ impl MediaStoreCollection {
     }
 }
 
+/// Classification of a file based on MIME type.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MediaFileClass {
+    /// Image file (image/*)
+    Image,
+    /// Video file (video/*)
+    Video,
+    /// Non-media file (anything else)
+    NonMedia,
+}
+
+/// Queries the Android system MimeTypeMap for the given file extension.
+/// Returns `None` if the extension is not recognized.
+///
+/// On Android, this calls `MimeTypeMap.getMimeTypeFromExtension()` via JNI.
+/// On non-Android, returns `None` (tests use the fallback mapping instead).
+pub fn system_mime_from_extension(extension: &str) -> Option<String> {
+    #[cfg(target_os = "android")]
+    {
+        super::bridge::JniMediaStoreBridge::query_system_mime_type(extension)
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = extension;
+        None
+    }
+}
+
+/// Classifies a MIME type string into a media file class.
+fn classify_from_system_mime(mime: &str) -> MediaFileClass {
+    let lower = mime.to_lowercase();
+    if lower.starts_with("image/") {
+        MediaFileClass::Image
+    } else if lower.starts_with("video/") {
+        MediaFileClass::Video
+    } else {
+        MediaFileClass::NonMedia
+    }
+}
+
+/// Classifies a file by querying the Android system MimeTypeMap.
+/// Falls back to `NonMedia` for unrecognized extensions.
+///
+/// This replaces the old hardcoded `collection_from_filename()` for Android.
+pub fn classify_file(filename: &str) -> (String, MediaFileClass) {
+    let extension = filename.rsplit('.').next().unwrap_or("");
+    if extension.is_empty() {
+        return (MIME_TYPE_DEFAULT.to_string(), MediaFileClass::NonMedia);
+    }
+
+    match system_mime_from_extension(extension) {
+        Some(mime) => {
+            let class = classify_from_system_mime(&mime);
+            (mime, class)
+        }
+        None => (MIME_TYPE_DEFAULT.to_string(), MediaFileClass::NonMedia),
+    }
+}
+
+/// Determines the MediaStore collection from a MediaFileClass.
+pub fn collection_from_class(class: MediaFileClass) -> MediaStoreCollection {
+    match class {
+        MediaFileClass::Image => MediaStoreCollection::Images,
+        MediaFileClass::Video => MediaStoreCollection::Videos,
+        MediaFileClass::NonMedia => MediaStoreCollection::Downloads,
+    }
+}
+
 /// Result of a MediaStore query operation.
 #[derive(Debug, Clone)]
 pub struct QueryResult {

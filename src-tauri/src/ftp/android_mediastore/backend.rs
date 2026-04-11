@@ -10,9 +10,9 @@
 use super::limiter::UploadLimiter;
 use super::retry::{retry_with_backoff, RetryConfig};
 use super::types::{
-    collection_from_filename, default_relative_path, display_name_from_path, mime_type_from_filename,
+    classify_file, collection_from_class, default_relative_path, display_name_from_path,
     relative_path_from_full_path, MediaStoreBridgeClient,
-    MediaStoreError, QueryResult,
+    MediaStoreError, MediaStoreCollection, QueryResult,
 };
 use async_trait::async_trait;
 use std::collections::BTreeMap;
@@ -28,6 +28,9 @@ use unftp_core::auth::DefaultUser;
 use unftp_core::storage::{
     Error as StorageError, ErrorKind as StorageErrorKind, Fileinfo, Metadata, StorageBackend,
 };
+
+/// Default relative path for non-media file uploads.
+const DOWNLOADS_RELATIVE_PATH: &str = "Download/CameraFTP/";
 
 /// Metadata implementation for MediaStore files.
 #[derive(Debug, Clone)]
@@ -210,10 +213,6 @@ impl AndroidMediaStoreBackend {
 
     fn unsupported_command(message: impl Into<String>) -> StorageError {
         Self::storage_error(StorageErrorKind::CommandNotImplemented, message)
-    }
-
-    fn file_name_not_allowed(message: impl Into<String>) -> StorageError {
-        Self::storage_error(StorageErrorKind::FileNameNotAllowedError, message)
     }
 
     fn file_not_available(message: impl Into<String>) -> StorageError {
@@ -499,15 +498,26 @@ impl StorageBackend<DefaultUser> for AndroidMediaStoreBackend {
         let display_name = display_name_from_path(&path.to_string_lossy());
         let relative_path = self.resolve_path(path);
         let parent_path = relative_path_from_full_path(&relative_path);
-        let mime_type = mime_type_from_filename(&display_name);
-        let collection = collection_from_filename(&display_name);
+
+        // Classify file using Android system MimeTypeMap
+        let (mime_type, file_class) = classify_file(&display_name);
+        let collection = collection_from_class(file_class);
+
+        // For non-media files, override the relative path to Download/CameraFTP/
+        // since MediaStore.Files only allows Download/ and Documents/ primary directories.
+        let effective_parent_path = if collection == MediaStoreCollection::Downloads {
+            DOWNLOADS_RELATIVE_PATH.to_string()
+        } else {
+            parent_path
+        };
 
         debug!(
             path = %path.display(),
             display_name = %display_name,
-            relative_path = %parent_path,
+            relative_path = %effective_parent_path,
             mime_type = %mime_type,
             collection = %collection.as_str(),
+            file_class = ?file_class,
             start_pos,
             "Uploading file"
         );
@@ -518,13 +528,6 @@ impl StorageBackend<DefaultUser> for AndroidMediaStoreBackend {
             ));
         }
 
-        if !matches!(collection, super::types::MediaStoreCollection::Images | super::types::MediaStoreCollection::Videos) {
-            return Err(Self::file_name_not_allowed(format!(
-                "Only image and video uploads are supported by the Android MediaStore backend: {}",
-                display_name
-            )));
-        }
-
         // Acquire upload slot (limit concurrency)
         let _permit = self.limiter.acquire().await;
         
@@ -533,7 +536,7 @@ impl StorageBackend<DefaultUser> for AndroidMediaStoreBackend {
         let fd_info = retry_with_backoff(&self.retry_config, "open_fd_for_write", || {
             let bridge = bridge.clone();
             let display_name = display_name.clone();
-            let parent_path = parent_path.clone();
+            let parent_path = effective_parent_path.clone();
             let mime_type = mime_type.to_string();
             let collection = collection;
             async move {

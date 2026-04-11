@@ -276,6 +276,51 @@ impl JniMediaStoreBridge {
                 MediaStoreError::BridgeError(format!("{method} call failed: {e}"))
             })
     }
+
+    /// Queries Android's MimeTypeMap for the given file extension.
+    /// Returns None if the extension is not recognized by the system.
+    pub fn query_system_mime_type(extension: &str) -> Option<String> {
+        Self::with_env(|env| {
+            let class = Self::get_bridge_class(env)?;
+            let j_ext = Self::new_jstring(env, extension)?;
+
+            let result = env
+                .call_static_method(
+                    &class,
+                    "mimeTypeFromExtension",
+                    "(Ljava/lang/String;)Ljava/lang/String;",
+                    &[JValue::Object(&j_ext)],
+                )
+                .map_err(|e| {
+                    Self::clear_pending_exception(env);
+                    MediaStoreError::BridgeError(format!("mimeTypeFromExtension call failed: {e}"))
+                })?;
+
+            let obj = result.l().map_err(|e| {
+                Self::clear_pending_exception(env);
+                MediaStoreError::BridgeError(format!("mimeTypeFromExtension result extraction failed: {e}"))
+            })?;
+
+            if obj.is_null() {
+                Ok(None)
+            } else {
+                let s = JString::from(obj);
+                let mime: String = env.get_string(&s)
+                    .map_err(|e| {
+                        Self::clear_pending_exception(env);
+                        MediaStoreError::BridgeError(format!("mimeTypeFromExtension string extraction failed: {e}"))
+                    })?
+                    .into();
+                if mime.is_empty() {
+                    Ok(None)
+                } else {
+                    Ok(Some(mime))
+                }
+            }
+        })
+        .ok()
+        .flatten()
+    }
 }
 
 #[cfg(target_os = "android")]

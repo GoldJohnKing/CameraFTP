@@ -11,10 +11,10 @@ use super::backend::{AndroidMediaStoreBackend, MediaStoreMetadata};
 use super::limiter::UploadLimiter;
 use super::retry::{retry_with_backoff, RetryConfig};
 use super::types::{
-    collection_from_filename, default_relative_path, display_name_from_path,
-    mime_type_from_filename, relative_path_from_full_path, MediaStoreCollection,
-    MediaStoreError, QueryResult, MIME_TYPE_DEFAULT, MIME_TYPE_HEIF, MIME_TYPE_JPEG,
-    MIME_TYPE_MP4,
+    classify_file, collection_from_class, collection_from_filename, default_relative_path,
+    display_name_from_path, MediaFileClass, mime_type_from_filename, relative_path_from_full_path,
+    MediaStoreCollection, MediaStoreError, QueryResult, MIME_TYPE_DEFAULT, MIME_TYPE_HEIF,
+    MIME_TYPE_JPEG, MIME_TYPE_MP4,
 };
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -164,6 +164,27 @@ fn test_collection_from_filename_routes_raw_to_images() {
 fn test_collection_from_filename_keeps_unknown_files_outside_images() {
     assert_eq!(collection_from_filename("file.bin"), MediaStoreCollection::Downloads);
     assert_eq!(collection_from_filename("file.txt"), MediaStoreCollection::Downloads);
+}
+
+#[test]
+fn test_classify_file_unknown_extension_returns_non_media() {
+    let (mime, class) = classify_file("unknown.xyz");
+    assert_eq!(class, MediaFileClass::NonMedia);
+    assert_eq!(mime, MIME_TYPE_DEFAULT);
+}
+
+#[test]
+fn test_classify_file_empty_extension_returns_non_media() {
+    let (mime, class) = classify_file("noextension");
+    assert_eq!(class, MediaFileClass::NonMedia);
+    assert_eq!(mime, MIME_TYPE_DEFAULT);
+}
+
+#[test]
+fn test_collection_from_class_mapping() {
+    assert_eq!(collection_from_class(MediaFileClass::Image), MediaStoreCollection::Images);
+    assert_eq!(collection_from_class(MediaFileClass::Video), MediaStoreCollection::Videos);
+    assert_eq!(collection_from_class(MediaFileClass::NonMedia), MediaStoreCollection::Downloads);
 }
 
 // ============================================================================
@@ -504,16 +525,27 @@ async fn test_backend_mkd_and_list() {
 
 #[cfg(not(target_os = "android"))]
 #[tokio::test]
-async fn test_backend_put_rejects_non_media_files_with_explicit_kind() {
+async fn test_backend_put_accepts_non_media_files() {
     let (backend, _temp_dir) = create_test_backend();
     let user = DefaultUser;
 
+    // Non-media files are now accepted (routed to Downloads collection).
+    // On non-Android (mock bridge), the FD write may fail for platform reasons,
+    // but it should NOT fail with FileNameNotAllowedError.
     let result = backend
         .put(&user, tokio::io::empty(), Path::new("notes.txt"), 0)
         .await;
 
-    assert!(result.is_err());
-    assert_eq!(result.unwrap_err().kind(), ErrorKind::FileNameNotAllowedError);
+    match result {
+        Ok(_) => {},
+        Err(e) => {
+            assert_ne!(
+                e.kind(),
+                ErrorKind::FileNameNotAllowedError,
+                "Non-media files should be accepted, not rejected: {e:?}"
+            );
+        }
+    }
 }
 
 #[cfg(not(target_os = "android"))]

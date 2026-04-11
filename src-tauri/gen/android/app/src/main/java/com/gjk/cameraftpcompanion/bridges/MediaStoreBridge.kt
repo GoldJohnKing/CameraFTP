@@ -68,6 +68,16 @@ class MediaStoreBridge(activity: MainActivity) : BaseJsBridge(activity) {
         }
 
         /**
+         * Query Android's MimeTypeMap for a file extension.
+         * Returns null if the extension is not recognized.
+         */
+        @JvmStatic
+        fun mimeTypeFromExtension(extension: String): String? {
+            return android.webkit.MimeTypeMap.getSingleton()
+                .getMimeTypeFromExtension(extension.lowercase())
+        }
+
+        /**
          * Retry with exponential backoff
          */
         @JvmStatic
@@ -166,11 +176,6 @@ class MediaStoreBridge(activity: MainActivity) : BaseJsBridge(activity) {
             return MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
         }
 
-        private fun isFilesPrimaryDirAllowed(relativePath: String): Boolean {
-            val normalized = relativePath.trimStart('/').lowercase()
-            return normalized.startsWith("download/") || normalized.startsWith("documents/")
-        }
-
         private fun listCollections(): List<Uri> {
             return listOf(
                 filesCollectionUri()
@@ -205,18 +210,22 @@ class MediaStoreBridge(activity: MainActivity) : BaseJsBridge(activity) {
             sizeHint: Long?
         ): String {
             val resolver = context.contentResolver
-            var uri = collectionUri(collection)
+            val uri = collectionUri(collection)
+            var effectiveRelativePath = relativePath
 
-            if (collection.lowercase() == COLLECTION_DOWNLOADS && !isFilesPrimaryDirAllowed(relativePath)) {
-                Log.w(
-                    TAG,
-                    "Files collection rejects primary dir for '$relativePath'; fallback to Images collection for compatibility"
-                )
-                uri = MediaStore.Images.Media.EXTERNAL_CONTENT_URI
+            if (collection.lowercase() == COLLECTION_DOWNLOADS) {
+                // MediaStore.Files only allows Download/ and Documents/ as primary directories.
+                // Remap DCIM/CameraFTP/ → Download/CameraFTP/ for non-media files.
+                val normalized = relativePath.trimStart('/').lowercase()
+                if (normalized.startsWith("dcim/")) {
+                    val remapped = "Download/${relativePath.trimStart('/').substringAfter('/')}"
+                    Log.d(TAG, "Remapping Downloads path: '$relativePath' → '$remapped'")
+                    effectiveRelativePath = remapped
+                }
             }
 
             // Check if entry already exists
-            val existingUri = findEntryUriNative(context, relativePath, displayName)
+            val existingUri = findEntryUriNative(context, effectiveRelativePath, displayName)
             if (existingUri != null) {
                 // Reuse existing entry by setting IS_PENDING=1
                 val values = ContentValues().apply {
@@ -231,7 +240,7 @@ class MediaStoreBridge(activity: MainActivity) : BaseJsBridge(activity) {
             val values = ContentValues().apply {
                 put(MediaStore.MediaColumns.DISPLAY_NAME, displayName)
                 put(MediaStore.MediaColumns.MIME_TYPE, mime)
-                put(MediaStore.MediaColumns.RELATIVE_PATH, relativePath)
+                put(MediaStore.MediaColumns.RELATIVE_PATH, effectiveRelativePath)
                 put(MediaStore.MediaColumns.IS_PENDING, 1)
                 sizeHint?.let { put(MediaStore.MediaColumns.SIZE, it) }
             }
