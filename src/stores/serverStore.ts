@@ -23,8 +23,8 @@ interface ServerState {
   stopServer: () => Promise<void>;
   closePermissionDialog: () => void;
   continueAfterPermissionsGranted: () => Promise<void>;
-  setServerRunning: (serverInfo: ServerInfo, options?: { stats?: ServerStateSnapshot; immediate?: boolean }) => void;
-  setServerStopped: (options?: { immediate?: boolean }) => void;
+  setServerRunning: (serverInfo: ServerInfo, options?: { stats?: ServerStateSnapshot }) => void;
+  setServerStopped: () => void;
   setServerStats: (stats: ServerStateSnapshot) => void;
 }
 
@@ -38,18 +38,12 @@ const defaultStats: ServerStateSnapshot = {
 
 function createRunningStats(stats?: ServerStateSnapshot): ServerStateSnapshot {
   return {
-    ...defaultStats,
-    ...stats,
     isRunning: true,
     connectedClients: stats?.connectedClients ?? 0,
     filesReceived: stats?.filesReceived ?? 0,
     bytesReceived: stats?.bytesReceived ?? 0,
     lastFile: stats?.lastFile ?? null,
   };
-}
-
-function createStoppedStats(): ServerStateSnapshot {
-  return { ...defaultStats };
 }
 
 const doStartServer = async (set: (fn: (state: ServerState) => ServerState) => void, get: () => ServerState): Promise<void> => {
@@ -59,7 +53,6 @@ const doStartServer = async (set: (fn: (state: ServerState) => ServerState) => v
       const currentState = get();
       get().setServerRunning(info, {
         stats: currentState.isRunning ? currentState.stats : undefined,
-        immediate: true,
       });
     },
     errorPrefix: 'Failed to start server',
@@ -110,26 +103,23 @@ export const useServerStore = create<ServerState>((set, get) => ({
 
   setServerRunning: (serverInfo, options) => {
     const stats = createRunningStats(options?.stats);
-    set((state) => ({
-      ...state,
+    set({
       isRunning: true,
       serverInfo,
       stats,
-    }));
+    });
   },
 
-  setServerStopped: (_options) => {
-    const stats = createStoppedStats();
-    set((state) => ({
-      ...state,
+  setServerStopped: () => {
+    set({
       isRunning: false,
       serverInfo: null,
-      stats,
-    }));
+      stats: defaultStats,
+    });
   },
 
   setServerStats: (stats) => {
-    const nextStats = stats.isRunning ? createRunningStats(stats) : createStoppedStats();
-    set((state) => ({ ...state, stats: nextStats, isRunning: nextStats.isRunning }));
+    const nextStats = stats.isRunning ? createRunningStats(stats) : defaultStats;
+    set({ stats: nextStats, isRunning: nextStats.isRunning });
   },
 }));

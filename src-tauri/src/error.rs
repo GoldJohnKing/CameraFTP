@@ -131,24 +131,3 @@ impl Serialize for AppError {
 
 /// 应用结果类型别名
 pub type AppResult<T> = Result<T, AppError>;
-
-/// AppError 扩展 trait，用于简化 map_err 模式
-///
-/// 提供 `with_context` 方法，允许为错误添加上下文信息。
-///
-/// # Example
-/// ```ignore
-/// use camera_ftp_companion_lib::error::AppErrorExt;
-///
-/// let result = std::fs::read_to_string("config.txt").with_context("failed to read config");
-/// ```
-pub trait AppErrorExt<T> {
-    /// 为错误添加上下文，转换为 AppError
-    fn with_context(self, msg: &str) -> Result<T, AppError>;
-}
-
-impl<T, E: std::fmt::Display> AppErrorExt<T> for Result<T, E> {
-    fn with_context(self, msg: &str) -> Result<T, AppError> {
-        self.map_err(|e| AppError::Other(format!("{}: {}", msg, e)))
-    }
-}

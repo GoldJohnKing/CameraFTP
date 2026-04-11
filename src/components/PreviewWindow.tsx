@@ -5,11 +5,8 @@
  */
 
 import { useEffect, useState, useCallback, useMemo, memo } from 'react';
-import { invoke } from '@tauri-apps/api/core';
-import { listen } from '@tauri-apps/api/event';
-import { convertFileSrc } from '@tauri-apps/api/core';
+import { convertFileSrc, invoke } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import type { ConfigChangedEvent } from '../types/events';
 import { useConfigStore } from '../stores/configStore';
 import { PREVIEW_NAVIGATE_EVENT } from '../hooks/preview-window-events';
 import { usePreviewWindowLifecycle } from '../hooks/usePreviewWindowLifecycle';
@@ -17,6 +14,7 @@ import { usePreviewNavigation } from '../hooks/usePreviewNavigation';
 import { usePreviewExif } from '../hooks/usePreviewExif';
 import { usePreviewZoomPan } from '../hooks/usePreviewZoomPan';
 import { usePreviewToolbarAutoHide } from '../hooks/usePreviewToolbarAutoHide';
+import { usePreviewConfigListener } from '../hooks/usePreviewConfigListener';
 
 export function PreviewWindow() {
   const state = usePreviewWindowLifecycle();
@@ -90,25 +88,13 @@ const PreviewWindowContent = memo(function PreviewWindowContent({
     onNavigationSettled: resetZoom,
   });
 
-  // 同步外部状态
+  usePreviewConfigListener(
+    useCallback((config) => setLocalAutoBringToFront(config.autoBringToFront), []),
+  );
+
   useEffect(() => {
     setLocalAutoBringToFront(autoBringToFront);
   }, [autoBringToFront]);
-
-  // 监听全局配置变化事件
-  useEffect(() => {
-    const setupListener = async () => {
-      const unlisten = await listen<ConfigChangedEvent>('preview-config-changed', (event) => {
-        setLocalAutoBringToFront(event.payload.config.autoBringToFront);
-      });
-      return unlisten;
-    };
-
-    const unlistenPromise = setupListener();
-    return () => {
-      void unlistenPromise.then(unlisten => unlisten()).catch(() => {});
-    };
-  }, []);
 
   // 重置图片错误状态和缩放
   useEffect(() => {
@@ -426,6 +412,8 @@ const PreviewWindowContent = memo(function PreviewWindowContent({
           {/* 自动前台按钮 - 使用置顶图标（向上箭头指向横线） */}
           <button
             onClick={handleToggleAutoFront}
+            aria-label="接收到新图片时自动前台显示"
+            aria-pressed={localAutoBringToFront}
             className={`
               p-2 rounded-lg transition-colors
               ${localAutoBringToFront
@@ -433,7 +421,7 @@ const PreviewWindowContent = memo(function PreviewWindowContent({
                 : 'text-gray-300 hover:text-white hover:bg-white/10'
               }
             `}
-            title={localAutoBringToFront ? '新图片时自动前台显示 (已开启)' : '新图片时自动前台显示 (已关闭)'}
+            title={localAutoBringToFront ? '接收到新图片时自动前台显示 (已开启)' : '接收到新图片时自动前台显示 (已关闭)'}
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
               <path strokeLinecap="round" strokeLinejoin="round" d="M12 20V10M12 10l-5 5M12 10l5 5" />

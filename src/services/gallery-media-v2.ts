@@ -57,12 +57,9 @@ export async function listMediaPage(req: MediaPageRequest): Promise<MediaPageRes
  * Enqueue thumbnail generation requests
  */
 export async function enqueueThumbnails(reqs: ThumbRequest[]): Promise<void> {
-  console.log(`[GalleryV2] enqueueThumbnails: ${reqs.length} requests, bridge=${!!window.GalleryAndroidV2}`);
   const bridge = getBridge();
   const json = JSON.stringify(reqs);
-  console.log(`[GalleryV2] enqueueThumbnails: json length=${json.length}`);
   await bridge.enqueueThumbnails(json);
-  console.log(`[GalleryV2] enqueueThumbnails: done`);
 }
 
 /**
@@ -111,18 +108,14 @@ export async function invalidateMediaIds(mediaIds: string[]): Promise<void> {
  * Dispatch a thumbnail result to the registered listener.
  * Called by the Android bridge via a global callback.
  */
-export function dispatchThumbnailResult(listenerId: string, resultJson: string): void {
-  console.log(`[GalleryV2] dispatchThumbnailResult: listenerId=${listenerId} json=${resultJson.substring(0, 100)}`);
+function dispatchThumbnailResult(listenerId: string, resultJson: string): void {
   const listener = listeners.get(listenerId);
   if (listener) {
     try {
       const result = JSON.parse(resultJson) as ThumbResult;
-      console.log(`[GalleryV2] dispatchThumbnailResult: calling listener with status=${result.status} path=${result.localPath}`);
       listener(result);
-    } catch (e) {
-      console.error(`[GalleryV2] dispatchThumbnailResult parse error:`, e);
+    } catch {
+      // Ignore malformed result JSON
     }
-  } else {
-    console.warn(`[GalleryV2] dispatchThumbnailResult: no listener for ${listenerId}, registered: ${[...listeners.keys()]}`);
   }
 }

@@ -10,7 +10,7 @@ import { listMediaPage } from '../services/gallery-media-v2';
 
 const PAGE_SIZE = 120;
 
-export interface UseGalleryPagerResult {
+interface UseGalleryPagerResult {
   items: MediaItemDto[];
   cursor: MediaCursor;
   revisionToken: string;

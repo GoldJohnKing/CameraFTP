@@ -39,11 +39,10 @@ async-trait = "0.1"
 image = { version = "0.25", default-features = false, features = ["png"] }
 # EXIF 元数据读取 - 使用 nom-exif 支持全格式 (JPG/RAW/CR3/NEF等)
 nom-exif = "2.7"
-chrono = "0.4"
 
 # 密码哈希
 argon2 = "0.5"
-rand = "0.8"  # 提供 rand_core/getrandom feature，argon2 依赖需要
+rand = "0.8"  # argon2 依赖需要 rand_core/getrandom feature
 zeroize = "1.8"  # 内存安全：密码使用后自动清零
 # FTPS 证书生成
 rcgen = "0.13"

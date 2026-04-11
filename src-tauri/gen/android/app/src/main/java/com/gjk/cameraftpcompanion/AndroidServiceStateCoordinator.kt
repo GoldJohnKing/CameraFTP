@@ -8,7 +8,6 @@ package com.gjk.cameraftpcompanion
 
 import android.content.Context
 import android.content.Intent
-import android.os.Build
 
 data class AndroidServiceStateSnapshot(
     val isRunning: Boolean = false,
@@ -83,11 +82,7 @@ object AndroidServiceStateCoordinator {
             action = FtpForegroundService.ACTION_START
         }
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            appContext.startForegroundService(serviceIntent)
-        } else {
-            appContext.startService(serviceIntent)
-        }
+        appContext.startForegroundService(serviceIntent)
     }
 
     private fun stopForegroundService(appContext: Context) {

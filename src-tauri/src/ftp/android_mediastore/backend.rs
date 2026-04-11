@@ -136,32 +136,10 @@ impl AndroidMediaStoreBackend {
     }
 
     /// Normalizes a path by removing leading slashes and resolving "." and "..".
-    #[cfg(test)]
-    pub fn normalize_path(&self, path: &Path) -> PathBuf {
+    pub(crate) fn normalize_path(&self, path: &Path) -> PathBuf {
         let path_str = path.to_string_lossy();
         let normalized = path_str.trim_start_matches('/');
         
-        // Handle relative path components
-        let mut components = Vec::new();
-        for part in normalized.split('/') {
-            match part {
-                "" | "." => {}
-                ".." => {
-                    components.pop();
-                }
-                _ => components.push(part),
-            }
-        }
-        
-        PathBuf::from(components.join("/"))
-    }
-
-    #[cfg(not(test))]
-    fn normalize_path(&self, path: &Path) -> PathBuf {
-        let path_str = path.to_string_lossy();
-        let normalized = path_str.trim_start_matches('/');
-        
-        // Handle relative path components
         let mut components = Vec::new();
         for part in normalized.split('/') {
             match part {
@@ -177,27 +155,9 @@ impl AndroidMediaStoreBackend {
     }
 
     /// Resolves a user-provided path to the full relative path in MediaStore.
-    #[cfg(test)]
-    pub fn resolve_path(&self, path: &Path) -> String {
+    pub(crate) fn resolve_path(&self, path: &Path) -> String {
         let normalized = self.normalize_path(path);
         
-        // If path is absolute (starts with /), use it relative to base
-        // If path is relative, use it directly
-        let full_path = if normalized.starts_with("DCIM/") || normalized.starts_with("Pictures/") {
-            normalized.to_string_lossy().to_string()
-        } else {
-            format!("{}{}", self.base_relative_path, normalized.to_string_lossy())
-        };
-        
-        full_path
-    }
-
-    #[cfg(not(test))]
-    fn resolve_path(&self, path: &Path) -> String {
-        let normalized = self.normalize_path(path);
-        
-        // If path is absolute (starts with /), use it relative to base
-        // If path is relative, use it directly
         let full_path = if normalized.starts_with("DCIM/") || normalized.starts_with("Pictures/") {
             normalized.to_string_lossy().to_string()
         } else {
@@ -208,11 +168,9 @@ impl AndroidMediaStoreBackend {
     }
 
     /// Validates a path for security (prevents directory traversal attacks).
-    #[cfg(test)]
-    pub fn validate_path(&self, path: &Path) -> Result<(), StorageError> {
+    pub(crate) fn validate_path(&self, path: &Path) -> Result<(), StorageError> {
         let path_str = path.to_string_lossy();
         
-        // Check for null bytes
         if path_str.contains('\0') {
             return Err(StorageError::from(std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,
@@ -220,38 +178,7 @@ impl AndroidMediaStoreBackend {
             )));
         }
         
-        // Check for absolute path escape attempts
         if path_str.contains("..") {
-            // After normalization, ".." should be resolved.
-            // If it still exists, it means someone tried to escape the root.
-            let normalized = self.normalize_path(path);
-            if normalized.to_string_lossy().contains("..") {
-                return Err(StorageError::from(std::io::Error::new(
-                    std::io::ErrorKind::PermissionDenied,
-                    "Path traversal attempt detected",
-                )));
-            }
-        }
-        
-        Ok(())
-    }
-
-    #[cfg(not(test))]
-    fn validate_path(&self, path: &Path) -> Result<(), StorageError> {
-        let path_str = path.to_string_lossy();
-        
-        // Check for null bytes
-        if path_str.contains('\0') {
-            return Err(StorageError::from(std::io::Error::new(
-                std::io::ErrorKind::InvalidInput,
-                "Path contains null bytes",
-            )));
-        }
-        
-        // Check for absolute path escape attempts
-        if path_str.contains("..") {
-            // After normalization, ".." should be resolved.
-            // If it still exists, it means someone tried to escape the root.
             let normalized = self.normalize_path(path);
             if normalized.to_string_lossy().contains("..") {
                 return Err(StorageError::from(std::io::Error::new(
@@ -867,4 +794,5 @@ mod tests {
         assert!(rmd_result.is_err(), "rmd should fail as unsupported");
         assert_eq!(rmd_result.unwrap_err().kind(), StorageErrorKind::CommandNotImplemented);
     }
+
 }

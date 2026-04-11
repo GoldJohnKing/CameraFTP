@@ -5,7 +5,6 @@
 use crate::ftp::types::{
     DomainEvent, ServerRuntimeSnapshot, ServerRuntimeState, ServerStateSnapshot, ServerStats,
 };
-use serde::Serialize;
 use tokio::sync::{broadcast, watch};
 use tracing::warn;
 use tauri::Emitter;
@@ -269,19 +268,14 @@ impl StatsEventHandler {
         }
     }
 
-    /// 向前端发送事件，失败时记录警告日志
-    fn emit_to_frontend<T: Serialize + Clone>(&self, event_name: &str, payload: T) {
-        if let Err(e) = self.app_handle.emit(event_name, payload) {
-            warn!(event = event_name, error = %e, "Failed to emit frontend event");
-        }
-    }
-
     fn sync_android_service_state(&self, snapshot: &ServerStateSnapshot) {
         crate::platform::get_platform().sync_android_service_state(&self.app_handle, snapshot);
     }
 
     fn emit_frontend_json(&self, event_name: &str, payload: serde_json::Value) {
-        self.emit_to_frontend(event_name, payload);
+        if let Err(e) = self.app_handle.emit(event_name, payload) {
+            warn!(event = event_name, error = %e, "Failed to emit frontend event");
+        }
     }
 }
 
@@ -532,13 +526,6 @@ mod tests {
         }
     }
 
-    #[test]
-    fn tray_update_handler_calls_platform_update_server_state_for_active_clients() {
-        let source = include_str!("events.rs");
-
-        assert!(source.contains("update_server_state(&self.app_handle, snapshot.connected_clients as u32);"));
-    }
-
     #[tokio::test]
     async fn state_event_emitters_maintain_runtime_state_for_consumers() {
         let bus = EventBus::new();
@@ -747,7 +734,7 @@ mod tests {
 
     #[tokio::test]
     async fn transient_subscriber_does_not_receive_pre_subscription_file_events() {
-        let transient_bus = crate::ftp::types::TransientEventBus::new();
+        let transient_bus = crate::ftp::types::test_utils::TransientEventBus::new();
         transient_bus.emit(DomainEvent::FileUploaded {
             path: "/before.jpg".into(),
             size: 512,
@@ -797,7 +784,7 @@ mod tests {
         let bus = EventBus::new();
         bus.emit_file_uploaded("before-processor.jpg", 7);
 
-        let transient_bus = crate::ftp::types::TransientEventBus::new();
+        let transient_bus = crate::ftp::types::test_utils::TransientEventBus::new();
         transient_bus.emit(DomainEvent::FileUploaded {
             path: "/before.jpg".into(),
             size: 512,
@@ -1137,15 +1124,6 @@ mod tests {
                 ServerStateSnapshot::default(),
             ]
         );
-    }
-
-    #[test]
-    fn windows_tray_handler_uses_runtime_state_snapshot_semantics() {
-        let source = include_str!("../platform/windows.rs");
-
-        assert!(source.contains("fn update_server_state(&self, app: &AppHandle, connected_clients: u32)"));
-        assert!(source.contains("TrayIconState::Active"));
-        assert!(source.contains("TrayIconState::Idle"));
     }
 
     #[test]

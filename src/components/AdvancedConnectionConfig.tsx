@@ -13,8 +13,6 @@ import { useConfigStore } from '../stores/configStore';
 
 const PASSWORD_PLACEHOLDER = '••••••••';
 
-// Note: ToggleSwitch import kept for "允许匿名访问" toggle
-
 interface AdvancedConnectionConfigPanelProps {
   config: AdvancedConnectionConfig;
   port: number;

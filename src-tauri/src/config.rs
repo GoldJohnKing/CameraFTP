@@ -3,13 +3,15 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 use serde::{Deserialize, Serialize};
+#[cfg(target_os = "android")]
 use std::fs;
 use std::path::PathBuf;
 #[cfg(target_os = "android")]
 use std::sync::OnceLock;
 #[cfg(target_os = "android")]
+use tracing::info;
+#[cfg(target_os = "android")]
 use tracing::warn;
-use tracing::{error, info};
 use ts_rs::TS;
 
 use crate::constants::{DEFAULT_FTP_PORT_ANDROID, DEFAULT_FTP_PORT_WINDOWS};
@@ -98,7 +100,7 @@ impl Default for PreviewWindowConfig {
 }
 
 /// Android 图片打开方式
-#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[ts(export)]
 #[serde(rename_all = "kebab-case")]
 pub enum AndroidImageOpenMethod {
@@ -138,10 +140,16 @@ static ANDROID_CONFIG_PATH: OnceLock<PathBuf> = OnceLock::new();
 /// 设置 Android 配置路径（在应用初始化时调用）
 #[cfg(target_os = "android")]
 pub fn set_android_config_path(config_path: PathBuf) {
-    if ANDROID_CONFIG_PATH.set(config_path.clone()).is_err() {
-        warn!("Android config path already set, ignoring duplicate initialization");
-    } else {
-        info!("Android config path set: {:?}", config_path);
+    match ANDROID_CONFIG_PATH.set(config_path) {
+        Ok(()) => {
+            info!(
+                "Android config path set: {:?}",
+                ANDROID_CONFIG_PATH.get().unwrap()
+            );
+        }
+        Err(_) => {
+            warn!("Android config path already set, ignoring duplicate initialization");
+        }
     }
 }
 
@@ -176,12 +184,14 @@ pub struct AppConfig {
     pub android_image_viewer: Option<AndroidImageViewerConfig>,
 }
 
+#[cfg(target_os = "android")]
 fn default_android_image_viewer() -> Option<AndroidImageViewerConfig> {
-    if cfg!(target_os = "android") {
-        Some(AndroidImageViewerConfig::default())
-    } else {
-        None
-    }
+    Some(AndroidImageViewerConfig::default())
+}
+
+#[cfg(not(target_os = "android"))]
+const fn default_android_image_viewer() -> Option<AndroidImageViewerConfig> {
+    None
 }
 
 impl Default for AppConfig {
@@ -245,60 +255,6 @@ impl AppConfig {
                 .unwrap_or_else(|| PathBuf::from("./config"))
                 .join("config.json")
         }
-    }
-
-    pub fn load() -> Self {
-        let path = Self::config_path();
-
-        #[allow(unused_mut)]
-        let mut config = if path.exists() {
-            match fs::read_to_string(&path) {
-                Ok(content) => match serde_json::from_str(&content) {
-                    Ok(config) => {
-                        info!("Config loaded from {:?}", path);
-                        config
-                    }
-                    Err(e) => {
-                        error!("Failed to parse config: {}", e);
-                        Self::default()
-                    }
-                },
-                Err(e) => {
-                    error!("Failed to read config file: {}", e);
-                    Self::default()
-                }
-            }
-        } else {
-            Self::default()
-        };
-
-        config = config.normalized_for_current_platform();
-
-        // 如果是新创建的默认配置，保存到文件
-        if !path.exists() {
-            if let Err(e) = config.save() {
-                error!("Failed to save default config: {}", e);
-            }
-        }
-
-        config
-    }
-
-    pub fn save(&self) -> Result<(), Box<dyn std::error::Error>> {
-        let path = Self::config_path();
-
-        // Ensure parent directory exists
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)?;
-        }
-
-        let config_to_save = self.clone().normalized_for_current_platform();
-
-        let content = serde_json::to_string_pretty(&config_to_save)?;
-        fs::write(&path, content)?;
-
-        info!("Config saved to {:?}", path);
-        Ok(())
     }
 
     #[cfg_attr(not(target_os = "android"), allow(unused_mut))]

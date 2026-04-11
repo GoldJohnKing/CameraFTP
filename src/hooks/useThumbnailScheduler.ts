@@ -49,13 +49,13 @@ function isRetryable(errorCode: string | undefined): boolean {
   return errorCode === 'io_transient' || errorCode === 'oom_guard';
 }
 
-export type ThumbnailSchedulerMedia = {
+type ThumbnailSchedulerMedia = {
   mediaId: string;
   uri: string;
   dateModifiedMs: number;
 };
 
-export type UseThumbnailSchedulerOptions = {
+type UseThumbnailSchedulerOptions = {
   /** Override debounce interval in ms (default: 60). Useful for testing. */
   debounceMs?: number;
 };
@@ -79,7 +79,6 @@ export function useThumbnailScheduler(opts?: UseThumbnailSchedulerOptions) {
    * Called internally when media items are loaded.
    */
   const registerMedia = useCallback((items: ThumbnailSchedulerMedia[]) => {
-    console.log(`[ThumbSched] registerMedia: ${items.length} items`);
     for (const item of items) {
       mediaMapRef.current.set(item.mediaId, item);
     }
@@ -88,10 +87,8 @@ export function useThumbnailScheduler(opts?: UseThumbnailSchedulerOptions) {
   // ---- dispatch handler ----
   useEffect(() => {
     const handleResult = (result: ThumbResult) => {
-      console.log(`[ThumbSched] handleResult: mediaId=${result.mediaId} status=${result.status} path=${result.localPath ?? 'null'}`);
       const active = activeRequestsRef.current.get(result.requestId);
       if (!active) {
-        console.log(`[ThumbSched] handleResult: no active request for ${result.requestId}`);
         return;
       }
 
@@ -210,10 +207,7 @@ export function useThumbnailScheduler(opts?: UseThumbnailSchedulerOptions) {
       }
 
       if (newReqs.length > 0) {
-        console.log(`[ThumbSched] enqueueing ${newReqs.length} thumbnail requests`);
-        void enqueueThumbnails(newReqs).catch((e) => console.error('[ThumbSched] enqueueThumbnails error:', e));
-      } else {
-        console.log('[ThumbSched] no new requests to enqueue');
+        void enqueueThumbnails(newReqs).catch(() => {});
       }
     },
     [thumbnails],

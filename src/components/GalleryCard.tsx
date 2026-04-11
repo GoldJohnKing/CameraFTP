@@ -10,6 +10,7 @@ import { useConfigStore } from '../stores/configStore';
 import { usePermissionStore } from '../stores/permissionStore';
 import type { MediaItemDto } from '../types/gallery-v2';
 import { isGalleryV2Available, invalidateMediaIds } from '../services/gallery-media-v2';
+import { GALLERY_REFRESH_REQUESTED_EVENT } from '../utils/gallery-refresh';
 import { permissionBridge } from '../types';
 import { useGalleryPager } from '../hooks/useGalleryPager';
 import { useThumbnailScheduler } from '../hooks/useThumbnailScheduler';
@@ -138,9 +139,9 @@ export const GalleryCard = memo(function GalleryCard() {
     const handleGalleryRefresh = () => {
       void handleRefresh();
     };
-    window.addEventListener('gallery-refresh-requested', handleGalleryRefresh);
+    window.addEventListener(GALLERY_REFRESH_REQUESTED_EVENT, handleGalleryRefresh);
     return () => {
-      window.removeEventListener('gallery-refresh-requested', handleGalleryRefresh);
+      window.removeEventListener(GALLERY_REFRESH_REQUESTED_EVENT, handleGalleryRefresh);
     };
   }, [handleRefresh]);
 

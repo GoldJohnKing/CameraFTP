@@ -14,7 +14,6 @@ import { Card, CardHeader, ToggleSwitch } from './ui';
 import { PermissionList } from './PermissionList';
 import { PathSelector } from './PathSelector';
 import { AdvancedConnectionConfigPanel } from './AdvancedConnectionConfig';
-import { AutoStartToggle } from './AutoStartToggle';
 import { PreviewConfigCard } from './PreviewConfigCard';
 import { AboutCard } from './AboutCard';
 import type { AdvancedConnectionConfig, AppConfig } from '../types';
@@ -144,9 +143,11 @@ export const ConfigCard = memo(function ConfigCard() {
 
           {/* 开机自启动配置 - 仅在桌面平台显示 */}
           {isDesktop && (
-            <AutoStartToggle
+            <ToggleSwitch
               enabled={autostartEnabled}
-              onToggle={handleAutostartToggle}
+              onChange={handleAutostartToggle}
+              label="开机自启动"
+              description="系统启动时自动运行图传伴侣"
             />
           )}
 

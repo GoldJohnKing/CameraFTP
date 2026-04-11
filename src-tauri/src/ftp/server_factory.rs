@@ -6,7 +6,7 @@
 
 use crate::config_service::ConfigService;
 use crate::constants::{
-    DEFAULT_FTP_PORT_WINDOWS, DEFAULT_FTP_PORT_ANDROID, DEFAULT_FTP_PORT_OTHER,
+    DEFAULT_FTP_PORT_WINDOWS, DEFAULT_FTP_PORT_ANDROID,
     MIN_PORT, IDLE_TIMEOUT_SECONDS,
 };
 use crate::error::AppError;
@@ -24,7 +24,6 @@ use tracing::{error, info, warn};
 pub struct ServerStartupContext {
     pub port: u16,
     pub ip: String,
-    pub server_handle: FtpServerHandle,
     pub event_bus: EventBus,
 }
 
@@ -75,10 +74,8 @@ pub async fn start_ftp_server(
     // 当 advanced_connection 禁用时，Windows 使用默认端口 21，Android 使用 2121
     let default_port = if cfg!(target_os = "windows") {
         DEFAULT_FTP_PORT_WINDOWS
-    } else if cfg!(target_os = "android") {
-        DEFAULT_FTP_PORT_ANDROID
     } else {
-        DEFAULT_FTP_PORT_OTHER
+        DEFAULT_FTP_PORT_ANDROID
     };
     let requested_port = if config.advanced_connection.enabled {
         config.port
@@ -154,7 +151,6 @@ pub async fn start_ftp_server(
             Ok(ServerStartupContext {
                 port,
                 ip,
-                server_handle,
                 event_bus,
             })
         }
@@ -199,14 +195,10 @@ pub fn spawn_event_processor(app_handle: AppHandle, event_bus: &EventBus) -> one
 #[cfg(test)]
 mod tests {
     #[test]
-    fn event_processor_keeps_stats_handler_registered_for_dual_fan_out() {
+    fn startup_context_source_does_not_store_server_handle() {
         let source = include_str!("server_factory.rs");
+        let forbidden = ["pub server_handle", "FtpServerHandle"].join(": ");
 
-        assert!(source.contains(".register_runtime_state_handler(StatsEventHandler::new(app_handle.clone()))"));
-        assert!(source.contains(".register_runtime_state_handler(TrayUpdateHandler::new(app_handle_for_tray))"));
-        assert!(source.contains(".register(FrontendTransientEventHandler::new(app_handle))"));
-        assert!(source.contains("fn spawn_event_processor(app_handle: AppHandle, event_bus: &EventBus)"));
-        assert!(source.contains("EventProcessor::from_parts("));
-        assert!(source.contains("processor.run_with_ready_signal(ready_tx).await;"));
+        assert!(!source.contains(&forbidden));
     }
 }

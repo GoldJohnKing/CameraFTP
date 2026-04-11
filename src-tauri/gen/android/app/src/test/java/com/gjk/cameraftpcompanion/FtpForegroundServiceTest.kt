@@ -10,8 +10,8 @@ import android.app.NotificationManager
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.os.PowerManager
 import androidx.test.core.app.ApplicationProvider
-import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -23,6 +23,8 @@ import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
+import org.robolectric.annotation.Implementation
+import org.robolectric.annotation.Implements
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [33], manifest = Config.NONE)
@@ -132,39 +134,48 @@ class FtpForegroundServiceTest {
     }
 
     @Test
-    fun service_source_handles_timeout_and_explicit_foreground_stop() {
-        val source = readServiceSource()
+    @Config(shadows = [ThrowingWakeLockPowerManagerShadow::class])
+    fun start_with_wake_lock_creation_failure_does_not_crash_and_timeout_cleanup_still_works() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val notificationManager =
+            context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        AndroidServiceStateCoordinator.clearState()
+        AndroidServiceStateCoordinator.syncNativeServiceState(
+            context,
+            true,
+            "{\"isRunning\":true,\"connectedClients\":1,\"filesReceived\":2,\"bytesReceived\":1024,\"lastFile\":null}",
+            1,
+        )
 
-        assertTrue(source.contains("override fun onTimeout(startId: Int, fgsType: Int)"))
-        assertTrue(source.contains("override fun onTimeout(startId: Int)"))
-        assertTrue(source.contains("Log.w(TAG, \"onTimeout(startId): startId=${'$'}startId\")"))
-        assertTrue(source.contains("AndroidServiceStateCoordinator.clearState()"))
-        assertTrue(source.contains("stopForegroundServiceNow(\"fgs timeout startId=${'$'}startId\")"))
-        assertTrue(source.contains("Log.w(TAG, \"onTimeout(startId, fgsType): startId=${'$'}startId, fgsType=${'$'}fgsType\")"))
-        assertTrue(source.contains("stopForegroundServiceNow(\"fgs timeout startId=${'$'}startId type=${'$'}fgsType\")"))
-        assertTrue(source.contains("if (intent?.action == ACTION_STOP) {"))
-        assertTrue(source.contains("stopForegroundServiceNow(\"explicit stop action\")"))
-        assertTrue(source.contains("if (isInForeground) {"))
-        assertTrue(source.contains("ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)"))
-    }
+        val serviceController = Robolectric.buildService(FtpForegroundService::class.java).create()
+        try {
+            val service = serviceController.get()
+            val startResult = runCatching {
+                service.onStartCommand(
+                    Intent(context, FtpForegroundService::class.java).apply {
+                        action = FtpForegroundService.ACTION_START
+                    },
+                    0,
+                    1,
+                )
+            }
 
-    @Test
-    fun service_source_wraps_lock_acquire_and_release_defensively() {
-        val source = readServiceSource()
+            assertTrue(startResult.isSuccess)
+            assertEquals(Service.START_NOT_STICKY, startResult.getOrThrow())
+            assertTrue(readIsInForeground(service))
+            assertNotNull(shadowOf(notificationManager).getNotification(FtpForegroundService.NOTIFICATION_ID))
+            assertNull(readWakeLock(service))
 
-        assertTrue(source.contains("runCatching {"))
-        assertTrue(source.contains("val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager"))
-        assertTrue(source.contains("wakeLock = nextWakeLock"))
-        assertTrue(source.contains("nextWakeLock.acquire()"))
-        assertTrue(source.contains("Failed to acquire wake lock"))
-        assertTrue(source.contains("val wifiManager = applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager"))
-        assertTrue(source.contains("wifiLock = nextWifiLock"))
-        assertTrue(source.contains("nextWifiLock.acquire()"))
-        assertTrue(source.contains("Failed to acquire wifi lock"))
-        assertTrue(source.contains("if (it.isHeld)"))
-        assertTrue(source.contains("it.release()"))
-        assertTrue(source.contains("Failed to release wake lock"))
-        assertTrue(source.contains("Failed to release wifi lock"))
+            service.onTimeout(2)
+            assertFalse(AndroidServiceStateCoordinator.getLatestState().isRunning)
+            assertEquals(0, readConnectedClients(service))
+            assertNull(readServiceStatsJson(service))
+            assertFalse(readIsInForeground(service))
+            assertNull(shadowOf(notificationManager).getNotification(FtpForegroundService.NOTIFICATION_ID))
+        } finally {
+            serviceController.destroy()
+            AndroidServiceStateCoordinator.clearState()
+        }
     }
 
     private fun readConnectedClients(service: FtpForegroundService): Int {
@@ -185,6 +196,12 @@ class FtpForegroundServiceTest {
         }
     }
 
+    private fun readWakeLock(service: FtpForegroundService): PowerManager.WakeLock? {
+        return withAccessibleField(service, "wakeLock") { field ->
+            field.get(service) as PowerManager.WakeLock?
+        }
+    }
+
     private fun <T> withAccessibleField(
         target: Any,
         fieldName: String,
@@ -200,14 +217,12 @@ class FtpForegroundServiceTest {
         }
     }
 
-    private fun readServiceSource(): String {
-        val localPath = File("src/main/java/com/gjk/cameraftpcompanion/FtpForegroundService.kt")
-        if (localPath.exists()) {
-            return localPath.readText()
+    @Implements(PowerManager::class)
+    class ThrowingWakeLockPowerManagerShadow {
+        @Implementation
+        fun newWakeLock(_levelAndFlags: Int, _tag: String?): PowerManager.WakeLock {
+            throw IllegalStateException("wake lock creation failed for test")
         }
-
-        return File(
-            "src-tauri/gen/android/app/src/main/java/com/gjk/cameraftpcompanion/FtpForegroundService.kt"
-        ).readText()
     }
+
 }

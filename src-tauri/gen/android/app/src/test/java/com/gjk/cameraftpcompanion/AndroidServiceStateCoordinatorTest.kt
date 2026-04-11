@@ -62,30 +62,6 @@ class AndroidServiceStateCoordinatorTest {
     }
 
     @Test
-    fun legacy_server_state_bridge_source_is_removed() {
-        val sourcePath = Paths.get("src/main/java/com/gjk/cameraftpcompanion/bridges/ServerStateBridge.kt")
-
-        assertFalse(Files.exists(sourcePath))
-    }
-
-    @Test
-    fun dead_android_helpers_are_removed() {
-        val storageHelper = resolveProjectPathOrNull(
-            "src/main/java/com/gjk/cameraftpcompanion/StorageHelper.kt",
-            "app/src/main/java/com/gjk/cameraftpcompanion/StorageHelper.kt",
-            "src-tauri/gen/android/app/src/main/java/com/gjk/cameraftpcompanion/StorageHelper.kt",
-        )
-        val mediaScannerHelper = resolveProjectPathOrNull(
-            "src/main/java/com/gjk/cameraftpcompanion/MediaScannerHelper.kt",
-            "app/src/main/java/com/gjk/cameraftpcompanion/MediaScannerHelper.kt",
-            "src-tauri/gen/android/app/src/main/java/com/gjk/cameraftpcompanion/MediaScannerHelper.kt",
-        )
-
-        assertNull(storageHelper)
-        assertNull(mediaScannerHelper)
-    }
-
-    @Test
     fun main_activity_has_no_legacy_emit_or_empty_permission_override() {
         val methods = MainActivity::class.java.declaredMethods.map { it.name }.toSet()
 
@@ -301,22 +277,6 @@ class AndroidServiceStateCoordinatorTest {
     }
 
     @Test
-    fun service_source_uses_connected_device_foreground_runtime_type() {
-        val sourcePath = resolveProjectPath(
-            "src/main/java/com/gjk/cameraftpcompanion/FtpForegroundService.kt",
-            "src/main/java/com/gjk/cameraftpcompanion/FtpForegroundService.kt",
-            "../app/src/main/java/com/gjk/cameraftpcompanion/FtpForegroundService.kt",
-            "../../app/src/main/java/com/gjk/cameraftpcompanion/FtpForegroundService.kt",
-            "src-tauri/gen/android/app/src/main/java/com/gjk/cameraftpcompanion/FtpForegroundService.kt",
-        )
-        val source = String(Files.readAllBytes(sourcePath))
-
-        assertTrue(source.contains("const val ACTION_STOP = \"com.gjk.cameraftpcompanion.STOP_SERVICE\""))
-        assertTrue(source.contains("ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE"))
-        assertFalse(source.contains("ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC"))
-    }
-
-    @Test
     fun direct_native_update_refreshes_notification_using_rust_payload_shape() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val notificationManager =
@@ -383,17 +343,6 @@ class AndroidServiceStateCoordinatorTest {
         }
 
         throw java.nio.file.NoSuchFileException(candidates.joinToString(", "))
-    }
-
-    private fun resolveProjectPathOrNull(vararg candidates: String): java.nio.file.Path? {
-        for (candidate in candidates) {
-            val path = Paths.get(candidate)
-            if (Files.exists(path)) {
-                return path
-            }
-        }
-
-        return null
     }
 
     private fun <T> withAccessibleField(

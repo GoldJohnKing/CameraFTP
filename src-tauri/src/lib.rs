@@ -233,21 +233,10 @@ fn setup_window_close_handler(app_handle: &tauri::AppHandle) {
         window.on_window_event(move |event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 api.prevent_close();
-                restore_and_focus_window(&handle);
+                let _ = crate::platform::get_platform().show_main_window(&handle);
                 let _ = handle.emit("window-close-requested", ());
             }
         });
-    }
-}
-
-/// 恢复并聚焦主窗口
-#[cfg(target_os = "windows")]
-fn restore_and_focus_window(app_handle: &tauri::AppHandle) {
-    if let Some(window) = app_handle.get_webview_window("main") {
-        let _ = window.set_skip_taskbar(false);
-        let _ = window.unminimize();
-        let _ = window.show();
-        let _ = window.set_focus();
     }
 }
 

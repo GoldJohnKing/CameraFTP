@@ -7,7 +7,8 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { useGalleryPager, type UseGalleryPagerResult } from '../useGalleryPager';
+import { useGalleryPager } from '../useGalleryPager';
+type UseGalleryPagerResult = ReturnType<typeof useGalleryPager>;
 import type { MediaItemDto, MediaPageResponse } from '../../types/gallery-v2';
 
 const { listMediaPageMock } = vi.hoisted(() => ({

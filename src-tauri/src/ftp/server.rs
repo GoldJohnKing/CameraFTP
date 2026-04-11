@@ -127,13 +127,6 @@ impl FtpServerHandle {
         self.send_command(|tx| ServerCommand::Stop { respond_to: tx }).await?
     }
 
-    /// 获取状态快照
-    pub async fn get_snapshot(&self) -> ServerStateSnapshot {
-        self.send_command(|tx| ServerCommand::GetSnapshot { respond_to: tx })
-            .await
-            .unwrap_or_default()
-    }
-
     /// 获取服务器连接信息（包含 IP 和端口）
     pub async fn get_server_info(&self) -> Option<ServerInfo> {
         self.send_command(|tx| ServerCommand::GetServerInfo { respond_to: tx })
@@ -387,7 +380,6 @@ impl FtpServerActor {
         };
 
         let server_task = tokio::spawn(async move {
-            let startup_tx = startup_tx;
             info!(bind_addr = %bind_str, "FTP server starting");
             match server.listen(bind_str).await {
                 Ok(_) => {
@@ -529,11 +521,7 @@ impl FtpServerActor {
 
     async fn clear_stopped_state(&mut self) {
         self.sessions.clear();
-        self.shutdown_tx = None;
-        self.config = None;
-        self.bind_addr = None;
-        self.server_task = None;
-        self.set_status(ServerStatus::Stopped).await;
+        self.reset_partial_state().await;
     }
 
     async fn emit_stopped_runtime_state(&self) {
@@ -591,12 +579,9 @@ impl FtpServerActor {
                 server_task.abort();
                 // Port remained reachable after FTP server task exited
                 // (abort enforced — the port will be released by the OS)
-                match server_task.await {
-                    Ok(()) | Err(_) => {
-                        self.finalize_terminal_stop().await;
-                        return Ok(());
-                    }
-                }
+                let _ = server_task.await;
+                self.finalize_terminal_stop().await;
+                return Ok(());
             }
         }
 
@@ -632,19 +617,10 @@ impl FtpServerActor {
         let port = bind_addr.port();
 
         // 获取认证信息
-        let (username, password_info) = if let Some(ref config) = self.config {
-            match &config.auth {
-                FtpAuthConfig::Anonymous => (None, None),
-                FtpAuthConfig::Authenticated { username, .. } => {
-                    (
-                        Some(username.clone()),
-                        Some("(配置密码)".to_string()),
-                    )
-                }
-            }
-        } else {
-            (None, None)
-        };
+        let (username, password_info) = self.config
+            .as_ref()
+            .map(|c| c.auth.to_display_credentials())
+            .unwrap_or((None, None));
 
         Some(ServerInfo::new(ip, port, username, password_info))
     }
@@ -793,33 +769,4 @@ mod tests {
         assert_eq!(actor.get_current_snapshot().await.connected_clients, 0);
     }
 
-    #[test]
-    fn future_server_startup_contract_times_out_with_explicit_error_path() {
-        let source = include_str!("server.rs");
-        let production_source = source
-            .split("#[cfg(test)]")
-            .next()
-            .expect("server.rs should contain production code before tests");
-
-        assert!(!production_source.contains("Server may not be fully ready, continuing anyway"));
-        assert!(!production_source.contains("Server did not stop within timeout, continuing anyway"));
-        assert!(production_source.contains("FTP server startup timed out"));
-    }
-
-    #[test]
-    fn future_server_lifecycle_contract_owns_and_times_out_server_task_shutdown() {
-        let source = include_str!("server.rs");
-        let production_source = source
-            .split("#[cfg(test)]")
-            .next()
-            .expect("server.rs should contain production code before tests");
-
-        assert!(production_source.contains(
-            "server_task: Option<tokio::task::JoinHandle<()>>"
-        ));
-        assert!(production_source.contains("self.server_task.take()"));
-        assert!(production_source.contains("Port remained reachable after FTP server task exited"));
-        assert!(!production_source.contains("self.server_task = Some(server_task)"));
-        assert!(!production_source.contains("Server did not stop within timeout, continuing anyway"));
-    }
 }

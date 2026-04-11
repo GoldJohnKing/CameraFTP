@@ -135,11 +135,6 @@ class ThumbnailPipelineManager(poolSize: Int = 3) {
     /** Per-request retry attempt counter. */
     private val retryCount = HashMap<String, Int>()
 
-    // ── Cache hit tracking ─────────────────────────────────────────────
-
-    private var totalRequests: Long = 0
-    private var cacheHits: Long = 0
-
     // ── Result callback ─────────────────────────────────────────────────
 
     /**
@@ -212,22 +207,6 @@ class ThumbnailPipelineManager(poolSize: Int = 3) {
      * Total number of pending jobs across all three queues.
      */
     fun pendingCount(): Int = lock.withLock { pendingCountLocked() }
-
-    /**
-     * Record a cache hit (call when a thumbnail is served from cache
-     * without needing a pipeline job).
-     */
-    fun recordCacheHit() = lock.withLock {
-        totalRequests++
-        cacheHits++
-    }
-
-    /**
-     * Record a cache miss (call when a job is actually dispatched to a worker).
-     */
-    fun recordCacheMiss() = lock.withLock {
-        totalRequests++
-    }
 
     /**
      * Dequeue the next job from the highest-priority non-empty queue
@@ -415,8 +394,6 @@ class ThumbnailPipelineManager(poolSize: Int = 3) {
             return
         }
 
-        recordCacheMiss()
-
         try {
             val uri = android.net.Uri.parse(job.uri)
             val key = ThumbnailKeyV2.of(job.mediaId, job.dateModifiedMs, job.sizeBucket, 0, 0)
@@ -567,18 +544,6 @@ class ThumbnailPipelineManager(poolSize: Int = 3) {
             resultBuffer.clear()
         }
         batch.forEach { onResult?.invoke(it) }
-    }
-
-    /**
-     * Dynamically adjust the worker pool size.
-     * Shuts down the old pool and creates a new one with the given size.
-     */
-    fun setWorkerCount(count: Int) {
-        val clamped = count.coerceIn(2, 4)
-        lock.withLock {
-            workerPool.shutdownNow()
-            workerPool = Executors.newFixedThreadPool(clamped)
-        }
     }
 
     /**

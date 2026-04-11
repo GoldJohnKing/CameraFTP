@@ -33,18 +33,6 @@ pub struct FileIndexService {
     event_bus: Arc<RwLock<Option<EventBus>>>,
 }
 
-impl Clone for FileIndexService {
-    fn clone(&self) -> Self {
-        Self {
-            index: RwLock::new(self.index.blocking_read().clone()),
-            save_path: RwLock::new(self.save_path.blocking_read().clone()),
-            #[cfg(target_os = "windows")]
-            watcher: Mutex::new(None), // watcher 不克隆，新实例需要重新启动
-            event_bus: Arc::clone(&self.event_bus), // 共享 event_bus
-        }
-    }
-}
-
 impl FileIndexService {
     pub fn new(config_service: Arc<ConfigService>) -> Self {
         let config = config_service.get().unwrap_or_else(|e| {
@@ -112,30 +100,28 @@ impl FileIndexService {
                 // 克隆 Arc 用于 watcher 任务
                 let self_arc_clone = Arc::clone(&self_arc);
 
-                let result = match watcher.start(self_arc_clone).await {
+                let result = watcher.start(self_arc_clone).await;
+
+                // 将 watcher 重新放回 Mutex（无论 start 成功与否）
+                {
+                    let mut watcher_guard = self_arc.watcher.lock().await;
+                    *watcher_guard = Some(watcher);
+                }
+
+                match result {
                     Ok(true) => {
                         info!("File watcher started successfully");
-                        // 将 watcher 重新放回 Mutex
-                        let mut watcher_guard = self_arc.watcher.lock().await;
-                        *watcher_guard = Some(watcher);
                         Ok(true)
                     }
                     Ok(false) => {
                         info!("File watcher not started (may be unsupported platform)");
-                        // 将 watcher 重新放回 Mutex
-                        let mut watcher_guard = self_arc.watcher.lock().await;
-                        *watcher_guard = Some(watcher);
                         Ok(false)
                     }
                     Err(e) => {
                         error!("Failed to start file watcher: {}", e);
-                        // 将 watcher 重新放回 Mutex
-                        let mut watcher_guard = self_arc.watcher.lock().await;
-                        *watcher_guard = Some(watcher);
                         Err(AppError::Other(format!("Failed to start watcher: {}", e)))
                     }
-                };
-                result
+                }
             } else {
                 Ok(false)
             }
@@ -363,50 +349,6 @@ impl FileIndexService {
         }
     }
 
-    /// 检查并清理索引中不存在的文件
-    /// 返回清理的文件数量和新的当前索引
-    pub async fn cleanup_missing_files(&self) -> Result<(usize, Option<usize>), AppError> {
-        let mut index = self.index.write().await;
-        let _original_len = index.files.len();
-        let original_current = index.current_index;
-
-        // 找出不存在的文件
-        let mut missing_positions = Vec::new();
-        for (pos, file) in index.files.iter().enumerate() {
-            if !tokio::fs::try_exists(&file.path).await.unwrap_or(false) {
-                missing_positions.push(pos);
-            }
-        }
-
-        if missing_positions.is_empty() {
-            return Ok((0, original_current));
-        }
-
-        // 从后向前删除，避免索引偏移问题
-        for &pos in missing_positions.iter().rev() {
-            index.files.remove(pos);
-            info!("Cleaned up missing file from index: position {}", pos);
-        }
-
-        // 重新计算 current_index
-        let new_current = if index.files.is_empty() {
-            None
-        } else if let Some(current) = original_current {
-            // 统计在当前位置之前删除了多少个文件
-            let removed_before = missing_positions.iter().filter(|&&p| p < current).count();
-            let new_pos = current.saturating_sub(removed_before);
-            Some(new_pos.min(index.files.len() - 1))
-        } else {
-            Some(0)
-        };
-
-        index.current_index = new_current;
-
-        let cleaned_count = missing_positions.len();
-        info!("Cleanup complete: removed {} files, current index: {:?}", cleaned_count, new_current);
-        Ok((cleaned_count, new_current))
-    }
-
     /// 获取文件列表
     pub async fn get_files(&self) -> Arc<Vec<FileInfo>> {
         let index = self.index.read().await;
@@ -509,7 +451,7 @@ impl FileIndexService {
     }
 
     /// 获取文件数量
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub async fn get_file_count(&self) -> usize {
         let index = self.index.read().await;
         index.files.len()

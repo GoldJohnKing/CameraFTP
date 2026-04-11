@@ -66,18 +66,12 @@ pub async fn start_server(
     let app_config = config_service
         .get()
         .map_err(|e| AppError::Other(format!("Failed to read config from service: {}", e)))?;
-    let (username, password_info) = if app_config.advanced_connection.enabled {
-        if app_config.advanced_connection.auth.anonymous {
-            (None, None)
-        } else {
-            (
-                Some(app_config.advanced_connection.auth.username),
-                Some("(配置密码)".to_string()),
-            )
-        }
+    let auth_config = if app_config.advanced_connection.enabled {
+        crate::ftp::types::FtpAuthConfig::from(&app_config.advanced_connection.auth)
     } else {
-        (None, None)
+        crate::ftp::types::FtpAuthConfig::Anonymous
     };
+    let (username, password_info) = auth_config.to_display_credentials();
 
     Ok(ServerInfo::new(ctx.ip.clone(), ctx.port, username, password_info))
 }

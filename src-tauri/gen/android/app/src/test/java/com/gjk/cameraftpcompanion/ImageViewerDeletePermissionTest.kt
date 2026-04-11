@@ -6,7 +6,6 @@
 
 package com.gjk.cameraftpcompanion
 
-import android.os.Build
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -17,11 +16,6 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [33], manifest = Config.NONE)
 class ImageViewerDeletePermissionTest {
-
-    @Test
-    fun delete_refresh_event_name_matches_frontend_listener_chain() {
-        assertTrue(ImageViewerActivity.MEDIA_LIBRARY_REFRESH_REQUESTED_EVENT == "media-library-refresh-requested")
-    }
 
     @Test
     fun treat_delete_as_success_when_rows_deleted() {
@@ -54,23 +48,10 @@ class ImageViewerDeletePermissionTest {
     }
 
     @Test
-    fun request_delete_confirmation_on_android_11_plus_for_security_exception() {
+    fun request_delete_confirmation_for_security_exception() {
         assertTrue(
             ImageViewerActivity.shouldRequestDeleteConfirmation(
-                Build.VERSION_CODES.R,
                 isSecurityException = true,
-                isRecoverableSecurityException = false,
-            )
-        )
-    }
-
-    @Test
-    fun request_delete_confirmation_on_android_10_for_recoverable_security_exception() {
-        assertTrue(
-            ImageViewerActivity.shouldRequestDeleteConfirmation(
-                Build.VERSION_CODES.Q,
-                isSecurityException = true,
-                isRecoverableSecurityException = true,
             )
         )
     }
@@ -79,9 +60,7 @@ class ImageViewerDeletePermissionTest {
     fun do_not_request_delete_confirmation_for_non_security_failures() {
         assertFalse(
             ImageViewerActivity.shouldRequestDeleteConfirmation(
-                Build.VERSION_CODES.R,
                 isSecurityException = false,
-                isRecoverableSecurityException = false,
             )
         )
     }

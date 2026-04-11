@@ -9,7 +9,12 @@ package com.gjk.cameraftpcompanion
 import android.provider.Settings
 import org.junit.Test
 import org.junit.Assert.*
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [33], manifest = Config.NONE)
 class PermissionBridgeTest {
 
     @Test
@@ -28,6 +33,12 @@ class PermissionBridgeTest {
     fun requests_read_media_visual_user_selected_for_android14_plus() {
         val perms = PermissionBridge.get_required_permissions()
         assertTrue(perms.contains("android.permission.READ_MEDIA_VISUAL_USER_SELECTED"))
+    }
+
+    @Test
+    fun does_not_request_write_external_storage() {
+        val perms = PermissionBridge.get_required_permissions()
+        assertFalse(perms.contains("android.permission.WRITE_EXTERNAL_STORAGE"))
     }
 
     @Test
@@ -52,4 +63,5 @@ class PermissionBridgeTest {
         assertFalse(PermissionBridge.should_open_settings_for_storage_request(true, false))
         assertFalse(PermissionBridge.should_open_settings_for_storage_request(true, true))
     }
+
 }

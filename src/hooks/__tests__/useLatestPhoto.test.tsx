@@ -89,11 +89,6 @@ describe('useLatestPhoto', () => {
     vi.unstubAllGlobals();
   });
 
-  it('does not expose test-only reset export', async () => {
-    const module = await import('../useLatestPhoto');
-    expect(module).not.toHaveProperty('__resetLatestPhotoStoreForTests');
-  });
-
   it('loads latest photo on mount and on refresh request events', async () => {
     await act(async () => {
       root.render(<LatestPhotoHarness />);

@@ -52,21 +52,6 @@ impl UploadLimiter {
     }
 }
 
-/// RAII guard for an acquired upload permit.
-///
-/// When this guard is dropped, the permit is automatically released.
-#[derive(Debug)]
-pub struct UploadGuard<'a> {
-    _permit: SemaphorePermit<'a>,
-}
-
-impl<'a> UploadGuard<'a> {
-    /// Creates a new upload guard from an acquired permit.
-    pub fn new(permit: SemaphorePermit<'a>) -> Self {
-        Self { _permit: permit }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -144,14 +144,12 @@ export function VirtualGalleryGrid({
       .map((item) => item.mediaId)
       .filter((id) => !visibleIds.includes(id));
 
-    console.log(`[VGrid] onRangeChange: visible=${visibleIds.length} nearby=${nearbyIds.length} containerH=${containerHeight} totalRows=${totalRows}`);
     onRangeChange(visibleIds, nearbyIds);
 
     // Trigger infinite scroll when near the end
     if (onNearEnd && totalRows > 0) {
       const rowsRemaining = totalRows - visibleEndRow - 1;
       if (rowsRemaining <= nearEndThreshold) {
-        console.log(`[VGrid] Near end triggered: rowsRemaining=${rowsRemaining}`);
         onNearEnd();
       }
     }

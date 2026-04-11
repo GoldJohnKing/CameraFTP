@@ -9,4 +9,4 @@
 pub mod fs;
 
 // 公开常用函数以便直接使用
-pub use fs::{ensure_dir_exists, is_path_writable, wait_for_file_ready};
+pub use fs::{is_path_writable, wait_for_file_ready};

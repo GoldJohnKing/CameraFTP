@@ -31,14 +31,9 @@ pub async fn check_permission_status() -> Result<PermissionStatus, AppError> {
 /// 请求"所有文件访问权限"
 #[command]
 pub async fn request_all_files_permission(app: AppHandle) -> Result<(), AppError> {
-    let platform = get_platform_service();
-    
-    platform
+    get_platform_service()
         .request_all_files_permission(&app)
         .map_err(AppError::StoragePermissionError)?;
-
-    // 如果返回 false，说明需要用户去设置页面授权
-    // 这里我们不返回错误，让前端决定如何处理
     Ok(())
 }
 

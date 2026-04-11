@@ -251,7 +251,6 @@ class MainActivity : TauriActivity() {
      * @param detailJson JSON detail object as string
      */
     fun emitWindowEvent(name: String, detailJson: String) {
-        getWebView() ?: return
         val script = "window.dispatchEvent(new CustomEvent('$name', { detail: $detailJson }))"
         runOnUiThread {
             getWebView()?.evaluateJavascript(script, null)
@@ -290,12 +289,6 @@ class MainActivity : TauriActivity() {
    * Flag to track if we're in selection mode (for back button handling)
    */
   private var isInSelectionMode = false
-
-  override fun onResume() {
-    super.onResume()
-    // Incremental delete events are handled by ImageViewerActivity via gallery-items-deleted
-    // Full refresh is no longer needed on resume, preserving scroll position
-  }
 
     /**
      * Register back press callback to intercept back button

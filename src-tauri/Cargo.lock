@@ -313,7 +313,6 @@ version = "1.4.0"
 dependencies = [
  "argon2",
  "async-trait",
- "chrono",
  "dashmap",
  "dirs 5.0.1",
  "image",

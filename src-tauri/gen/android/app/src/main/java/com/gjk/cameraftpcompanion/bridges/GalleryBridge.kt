@@ -9,9 +9,7 @@ package com.gjk.cameraftpcompanion.bridges
 import android.content.ClipData
 import android.content.Context
 import android.content.Intent
-import android.app.RecoverableSecurityException
 import android.net.Uri
-import android.os.Build
 import android.provider.MediaStore
 import android.util.Log
 import com.gjk.cameraftpcompanion.MainActivity
@@ -25,28 +23,9 @@ class GalleryBridge(private val context: Context) : BaseJsBridge(context as andr
 
         @JvmStatic
         fun shouldRequestDeleteConfirmation(
-            apiLevel: Int,
             isSecurityException: Boolean,
-            isRecoverableSecurityException: Boolean,
         ): Boolean {
-            if (!isSecurityException) {
-                return false
-            }
-
-            return when {
-                apiLevel >= Build.VERSION_CODES.R -> true
-                apiLevel == Build.VERSION_CODES.Q -> isRecoverableSecurityException
-                else -> false
-            }
-        }
-
-        @JvmStatic
-        fun shouldRequestDeleteConfirmation(apiLevel: Int, throwable: Throwable): Boolean {
-            return shouldRequestDeleteConfirmation(
-                apiLevel = apiLevel,
-                isSecurityException = throwable is SecurityException,
-                isRecoverableSecurityException = throwable is RecoverableSecurityException,
-            )
+            return isSecurityException
         }
 
         /**
@@ -113,12 +92,7 @@ class GalleryBridge(private val context: Context) : BaseJsBridge(context as andr
                     val rowsDeleted = context.contentResolver.delete(uri, null, null)
                     classifyDeleteResult(uriString, rowsDeleted, deleted, notFound, failed)
                 } catch (e: Exception) {
-                    if (Build.VERSION.SDK_INT == Build.VERSION_CODES.Q && e is RecoverableSecurityException) {
-                        val approved = (activity as? MainActivity)
-                            ?.requestDeleteConfirmation(e.userAction.actionIntent.intentSender)
-                            ?: false
-                        classifyDeleteResult(uriString, if (approved) 1 else 0, deleted, notFound, failed)
-                    } else if (shouldRequestDeleteConfirmation(Build.VERSION.SDK_INT, e)) {
+                    if (shouldRequestDeleteConfirmation(e is SecurityException)) {
                         pendingConfirmationUris.add(Uri.parse(uriString))
                         Log.w(TAG, "deleteImages: delete confirmation required for uri=$uriString", e)
                     } else {
@@ -154,18 +128,8 @@ class GalleryBridge(private val context: Context) : BaseJsBridge(context as andr
         val mainActivity = activity as? MainActivity ?: return false
 
         return try {
-            when {
-                Build.VERSION.SDK_INT >= Build.VERSION_CODES.R -> {
-                    val pendingIntent = MediaStore.createDeleteRequest(context.contentResolver, uris)
-                    mainActivity.requestDeleteConfirmation(pendingIntent.intentSender)
-                }
-
-                Build.VERSION.SDK_INT == Build.VERSION_CODES.Q -> {
-                    false
-                }
-
-                else -> false
-            }
+            val pendingIntent = MediaStore.createDeleteRequest(context.contentResolver, uris)
+            mainActivity.requestDeleteConfirmation(pendingIntent.intentSender)
         } catch (e: Exception) {
             Log.e(TAG, "requestDeleteConfirmation failed", e)
             false

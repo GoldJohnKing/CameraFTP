@@ -28,16 +28,4 @@ export type { AndroidImageOpenMethod } from '../../src-tauri/bindings/AndroidIma
 export * from './global';
 
 // ===== Re-export from gallery-v2.ts =====
-export type {
-  MediaCursor,
-  MediaPageRequest,
-  MediaItemDto,
-  MediaPageResponse,
-  ThumbSizeBucket,
-  ThumbPriority,
-  ThumbRequest,
-  ThumbStatus,
-  ThumbResult,
-  ThumbErrorCode,
-  ThumbResultListener,
-} from './gallery-v2';
+export type { MediaItemDto } from './gallery-v2';

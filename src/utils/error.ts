@@ -19,7 +19,7 @@ export function formatError(err: unknown): string {
     if (typeof err === 'string') {
         return err;
     }
-    if (err === null || err === undefined) {
+    if (err == null) {
         return 'Unknown error';
     }
     try {

@@ -122,18 +122,3 @@ pub fn is_path_writable(path: &Path) -> bool {
     }
 }
 
-/// 确保目录存在，如果不存在则创建
-///
-/// # Arguments
-/// * `path` - 目录路径
-///
-/// # Returns
-/// * `Ok(())` - 目录已存在或创建成功
-/// * `Err(String)` - 创建失败，包含错误信息
-pub fn ensure_dir_exists(path: &Path) -> Result<(), String> {
-    if !path.exists() {
-        std::fs::create_dir_all(path)
-            .map_err(|e| format!("无法创建目录 '{}': {}", path.display(), e))?;
-    }
-    Ok(())
-}

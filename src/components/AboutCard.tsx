@@ -17,21 +17,16 @@ import alipayLogo from '../assets/alipay-logo.png';
 import donateQrcode from '../assets/donate-qrcode.png';
 
 async function openExternalLink(url: string) {
-  console.log('[openExternalLink] called with url:', url);
-  
   // Android 平台：使用 JS Bridge
   if (window.PermissionAndroid?.openExternalLink) {
-    console.log('[openExternalLink] calling Android bridge');
     try {
       window.PermissionAndroid.openExternalLink(url);
-      console.log('[openExternalLink] bridge call completed');
     } catch (err) {
-      console.error('[openExternalLink] bridge call failed:', err);
+      console.warn('[openExternalLink] bridge call failed:', err);
     }
     return;
   }
 
-  console.log('[openExternalLink] falling back to Tauri invoke');
   try {
     await invoke('open_external_link', { url });
   } catch (err) {
@@ -435,7 +430,7 @@ export function AboutCard() {
             {/* 关于项目按钮 */}
             <button
               onClick={() => setIsAboutOpen(true)}
-              className="text-left p-3 bg-gray-50 hover:bg-gray-100 rounded-lg transition-colors flex items-center gap-3 group"
+              className="text-left p-3 bg-gray-50 hover:bg-gray-100 rounded-lg transition-colors flex items-center gap-3"
             >
               <div className="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center flex-shrink-0">
                 <Info className="w-5 h-5 text-white" />
@@ -449,7 +444,7 @@ export function AboutCard() {
             {/* 捐赠渠道按钮 */}
             <button
               onClick={() => setIsDonateOpen(true)}
-              className="text-left p-3 bg-gray-50 hover:bg-gray-100 rounded-lg transition-colors flex items-center gap-3 group"
+              className="text-left p-3 bg-gray-50 hover:bg-gray-100 rounded-lg transition-colors flex items-center gap-3"
             >
               <div className="w-10 h-10 bg-pink-500 rounded-lg flex items-center justify-center flex-shrink-0">
                 <Heart className="w-5 h-5 text-white" />

@@ -7,7 +7,6 @@
 package com.gjk.cameraftpcompanion
 
 import android.app.Activity
-import android.app.RecoverableSecurityException
 import android.content.Context
 import android.content.Intent
 import android.content.IntentSender
@@ -48,8 +47,6 @@ class ImageViewerActivity : AppCompatActivity() {
         private const val TAG = "ImageViewerActivity"
         const val EXTRA_URIS = "uris"
         const val EXTRA_TARGET_INDEX = "target_index"
-        const val MEDIA_LIBRARY_REFRESH_REQUESTED_EVENT = "media-library-refresh-requested"
-
         /** Active instance, set by onResume/cleared by onDestroy for bridge access */
         var instance: ImageViewerActivity? = null
             private set
@@ -60,14 +57,10 @@ class ImageViewerActivity : AppCompatActivity() {
 
         @JvmStatic
         fun shouldRequestDeleteConfirmation(
-            apiLevel: Int,
             isSecurityException: Boolean,
-            isRecoverableSecurityException: Boolean,
         ): Boolean {
             return GalleryBridge.shouldRequestDeleteConfirmation(
-                apiLevel = apiLevel,
                 isSecurityException = isSecurityException,
-                isRecoverableSecurityException = isRecoverableSecurityException,
             )
         }
 
@@ -416,21 +409,10 @@ class ImageViewerActivity : AppCompatActivity() {
             }
         } catch (e: Exception) {
             if (allowDeleteConfirmation) {
-                when {
-                    Build.VERSION.SDK_INT == Build.VERSION_CODES.Q && e is RecoverableSecurityException -> {
-                        requestDeleteConfirmation(uriString, e.userAction.actionIntent.intentSender)
-                        return
-                    }
-
-                    shouldRequestDeleteConfirmation(
-                        apiLevel = Build.VERSION.SDK_INT,
-                        isSecurityException = e is SecurityException,
-                        isRecoverableSecurityException = e is RecoverableSecurityException,
-                    ) -> {
-                        val pendingIntent = MediaStore.createDeleteRequest(contentResolver, listOf(uri))
-                        requestDeleteConfirmation(uriString, pendingIntent.intentSender)
-                        return
-                    }
+                if (shouldRequestDeleteConfirmation(isSecurityException = e is SecurityException)) {
+                    val pendingIntent = MediaStore.createDeleteRequest(contentResolver, listOf(uri))
+                    requestDeleteConfirmation(uriString, pendingIntent.intentSender)
+                    return
                 }
             }
 

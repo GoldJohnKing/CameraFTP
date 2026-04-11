@@ -149,12 +149,3 @@ fn generate_and_save_certificates(
         key_path: key_path.to_path_buf(),
     })
 }
-
-/// 获取证书文件路径（不检查有效性）
-pub fn get_certificate_paths() -> crate::error::AppResult<CertificatePaths> {
-    let certs_dir = get_certs_directory()?;
-    Ok(CertificatePaths {
-        cert_path: certs_dir.join(CERT_FILE),
-        key_path: certs_dir.join(KEY_FILE),
-    })
-}

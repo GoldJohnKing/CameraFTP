@@ -24,9 +24,54 @@ const CLSID_APPLICATION_ACTIVATION_MANAGER: windows::core::GUID = windows::core:
     data4: [0x8F, 0x95, 0xD7, 0x52, 0x57, 0x69, 0xF0, 0xC1],
 };
 
+#[allow(dead_code)]
+struct ShellExecutePayload {
+    file_utf16: Vec<u16>,
+    operation_utf16: Option<Vec<u16>>,
+    arguments_utf16: Option<Vec<u16>>,
+    file: PCWSTR,
+    operation: PCWSTR,
+    arguments: PCWSTR,
+}
+
+impl ShellExecutePayload {
+    fn new(file_path: &PathBuf, operation: Option<&str>, arguments: Option<&PathBuf>) -> Self {
+        let file_utf16: Vec<u16> = file_path.as_os_str().encode_wide().chain(Some(0)).collect();
+        let operation_utf16 = operation.map(|value| {
+            OsStr::new(value)
+                .encode_wide()
+                .chain(Some(0))
+                .collect::<Vec<u16>>()
+        });
+        let arguments_utf16 = arguments.map(|value| {
+            format!("\"{}\"", value.to_string_lossy())
+                .encode_utf16()
+                .chain(Some(0))
+                .collect::<Vec<u16>>()
+        });
+
+        let file = PCWSTR(file_utf16.as_ptr());
+        let operation = operation_utf16
+            .as_ref()
+            .map_or(PCWSTR(ptr::null()), |value| PCWSTR(value.as_ptr()));
+        let arguments = arguments_utf16
+            .as_ref()
+            .map_or(PCWSTR(ptr::null()), |value| PCWSTR(value.as_ptr()));
+
+        Self {
+            file_utf16,
+            operation_utf16,
+            arguments_utf16,
+            file,
+            operation,
+            arguments,
+        }
+    }
+}
+
 /// 使用系统默认程序打开
 pub fn open_with_default(file_path: &PathBuf) -> Result<(), AppError> {
-    open_with_shell_execute(file_path, None)
+    open_with_shell_execute(file_path, None, None)
 }
 
 /// 使用 Windows 照片应用打开
@@ -99,7 +144,8 @@ unsafe fn activate_uwp_app_for_file(
 
 /// 使用自定义程序打开
 pub fn open_with_program(file_path: &PathBuf, program: &str) -> Result<(), AppError> {
-    open_with_program_execute(file_path, program)
+    let program_path = PathBuf::from(program);
+    open_with_shell_execute(&program_path, None, Some(file_path))
 }
 
 /// 打开文件夹并选中文件
@@ -140,35 +186,28 @@ pub fn open_folder_and_select_file(file_path: &PathBuf) -> Result<(), AppError> 
     Ok(())
 }
 
-fn open_with_shell_execute(file_path: &PathBuf, operation: Option<&str>) -> Result<(), AppError> {
+fn open_with_shell_execute(
+    file_path: &PathBuf,
+    operation: Option<&str>,
+    arguments: Option<&PathBuf>,
+) -> Result<(), AppError> {
     unsafe {
         let _ = CoInitialize(None);
     }
 
-    // 直接将 PathBuf 转换为宽字符
-    let file_wide: Vec<u16> = file_path.as_os_str().encode_wide().chain(Some(0)).collect();
-
-    // 处理 operation 参数
-    let operation_ptr = if let Some(op) = operation {
-        let op_wide: Vec<u16> = OsStr::new(op).encode_wide().chain(Some(0)).collect();
-        PCWSTR(op_wide.as_ptr())
-    } else {
-        PCWSTR(ptr::null())
-    };
+    let payload = ShellExecutePayload::new(file_path, operation, arguments);
 
     let result = unsafe {
         ShellExecuteW(
             None,
-            operation_ptr,
-            PCWSTR(file_wide.as_ptr()),
-            None,
+            payload.operation,
+            payload.file,
+            payload.arguments,
             None,
             SW_SHOWNORMAL,
         )
     };
 
-    // ShellExecuteW 返回 HINSTANCE，成功时大于 32，失败时小于等于 32
-    // 在 windows 0.58 中 HINSTANCE 是一个结构体，其 .0 字段是 *mut c_void
     if result.0 as usize <= 32 {
         return Err(AppError::Other(format!(
             "ShellExecute failed with code {:?}",
@@ -179,34 +218,50 @@ fn open_with_shell_execute(file_path: &PathBuf, operation: Option<&str>) -> Resu
     Ok(())
 }
 
-fn open_with_program_execute(file_path: &PathBuf, program: &str) -> Result<(), AppError> {
-    unsafe {
-        let _ = CoInitialize(None);
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn shell_execute_payload_keeps_program_and_argument_buffers_alive() {
+        let file_path = PathBuf::from(r"C:\photos\latest image.jpg");
+        let payload = ShellExecutePayload::new(
+            &PathBuf::from(r"C:\Program Files\Viewer\viewer.exe"),
+            None,
+            Some(&file_path),
+        );
+
+        assert_eq!(payload.file_utf16.last(), Some(&0));
+        assert_eq!(
+            payload.arguments_utf16.as_ref().and_then(|buf| buf.last()),
+            Some(&0)
+        );
+        assert_eq!(payload.file.as_ptr(), payload.file_utf16.as_ptr());
+        assert_eq!(
+            payload.arguments.as_ptr(),
+            payload.arguments_utf16.as_ref().unwrap().as_ptr(),
+        );
     }
 
-    // 程序路径转换为宽字符
-    let program_wide: Vec<u16> = OsStr::new(program).encode_wide().chain(Some(0)).collect();
-
-    // 文件路径转换为宽字符
-    let file_wide: Vec<u16> = file_path.as_os_str().encode_wide().chain(Some(0)).collect();
-
-    let result = unsafe {
-        ShellExecuteW(
+    #[test]
+    fn shell_execute_payload_quotes_file_argument_for_custom_programs() {
+        let file_path = PathBuf::from(r"C:\photos\latest image.jpg");
+        let payload = ShellExecutePayload::new(
+            &PathBuf::from(r"C:\Program Files\Viewer\viewer.exe"),
             None,
-            None,
-            PCWSTR(program_wide.as_ptr()),
-            PCWSTR(file_wide.as_ptr()),
-            None,
-            SW_SHOWNORMAL,
-        )
-    };
+            Some(&file_path),
+        );
 
-    if result.0 as usize <= 32 {
-        return Err(AppError::Other(format!(
-            "ShellExecute failed with code {:?}",
-            result.0
-        )));
+        let encoded_argument = payload.arguments_utf16.as_ref().unwrap();
+        let argument = String::from_utf16_lossy(&encoded_argument[..encoded_argument.len() - 1]);
+        assert_eq!(argument, format!("\"{}\"", file_path.display()));
     }
 
-    Ok(())
+    #[test]
+    fn source_has_no_redundant_program_execute_wrapper() {
+        let source = include_str!("windows.rs");
+        let forbidden = ["fn", "open_with_program_execute"].join(" ");
+
+        assert!(!source.contains(&forbidden));
+    }
 }

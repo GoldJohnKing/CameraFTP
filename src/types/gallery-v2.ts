@@ -44,10 +44,10 @@ export interface MediaPageResponse {
 // ===== Thumbnails =====
 
 /** Size bucket for thumbnail generation */
-export type ThumbSizeBucket = 's' | 'm';
+type ThumbSizeBucket = 's' | 'm';
 
 /** Priority level for thumbnail request scheduling */
-export type ThumbPriority = 'visible' | 'nearby' | 'prefetch';
+type ThumbPriority = 'visible' | 'nearby' | 'prefetch';
 
 /** Request to enqueue a single thumbnail for generation */
 export interface ThumbRequest {
@@ -61,7 +61,7 @@ export interface ThumbRequest {
 }
 
 /** Status of a completed thumbnail result */
-export type ThumbStatus = 'ready' | 'failed' | 'cancelled';
+type ThumbStatus = 'ready' | 'failed' | 'cancelled';
 
 /** Result delivered via listener when a thumbnail is ready or failed */
 export interface ThumbResult {
@@ -75,7 +75,7 @@ export interface ThumbResult {
 // ===== Error Codes =====
 
 /** Known thumbnail pipeline error codes */
-export type ThumbErrorCode =
+type ThumbErrorCode =
   | 'io_transient'
   | 'decode_corrupt'
   | 'permission_denied'

@@ -218,36 +218,6 @@ impl FileWatcher {
             }
         }
     }
-
-    /// 更新监听路径
-    pub fn update_path(&mut self, new_path: PathBuf) {
-        if self.watch_path != new_path {
-            info!("Updating watch path from {:?} to {:?}", self.watch_path, new_path);
-            self.stop();
-            self.watch_path = new_path;
-        }
-    }
-
-    /// 手动触发文件创建事件（供 Android 调用）
-    pub async fn notify_created(&self, path: PathBuf) {
-        if let Some(tx) = &self.event_sender {
-            let _ = tx.try_send(FileSystemEvent::Created(path));
-        }
-    }
-
-    /// 手动触发文件删除事件（供 Android 调用）
-    pub async fn notify_deleted(&self, path: PathBuf) {
-        if let Some(tx) = &self.event_sender {
-            let _ = tx.try_send(FileSystemEvent::Deleted(path));
-        }
-    }
-
-    /// 手动触发文件重命名事件（供 Android 调用）
-    pub async fn notify_renamed(&self, from: PathBuf, to: PathBuf) {
-        if let Some(tx) = &self.event_sender {
-            let _ = tx.try_send(FileSystemEvent::Renamed { from, to });
-        }
-    }
 }
 
 impl Drop for FileWatcher {

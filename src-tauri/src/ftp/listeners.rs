@@ -99,8 +99,8 @@ impl DataListener for FtpDataListener {
                     }
                 }
                 DataEvent::Got { path, bytes } => {
-                    stats.record_download(path.clone(), bytes).await;
                     info!(file = %path, size = bytes, "File downloaded");
+                    stats.record_download(path, bytes).await;
                 }
                 DataEvent::Deleted { path } => {
                     stats.record_delete(path.clone()).await;
@@ -128,16 +128,16 @@ impl DataListener for FtpDataListener {
                     }
                 }
                 DataEvent::MadeDir { path } => {
-                    stats.record_mkdir(path.clone()).await;
                     info!(dir = %path, "Directory created");
+                    stats.record_mkdir(path).await;
                 }
                 DataEvent::RemovedDir { path } => {
-                    stats.record_rmdir(path.clone()).await;
                     info!(dir = %path, "Directory removed");
+                    stats.record_rmdir(path).await;
                 }
                 DataEvent::Renamed { from, to } => {
-                    stats.record_rename(from.clone(), to.clone()).await;
                     info!(from = %from, to = %to, "File renamed");
+                    stats.record_rename(from, to).await;
                 }
             }
         })

@@ -4,7 +4,7 @@
 
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
-use tokio::sync::{broadcast, watch, RwLock};
+use tokio::sync::{watch, RwLock};
 use ts_rs::TS;
 use std::sync::Arc;
 
@@ -34,14 +34,6 @@ pub struct ServerStats {
 }
 
 impl ServerStats {
-    /// 检查是否与另一个统计对象不同（用于增量更新）
-    pub fn has_changed(&self, other: &Self) -> bool {
-        self.active_connections != other.active_connections
-            || self.total_uploads != other.total_uploads
-            || self.total_bytes_received != other.total_bytes_received
-            || self.last_uploaded_file != other.last_uploaded_file
-    }
-
     pub fn with_connected_clients(mut self, connected_clients: u64) -> Self {
         self.active_connections = connected_clients;
         self
@@ -68,21 +60,6 @@ impl Default for FtpAuthConfig {
     }
 }
 
-impl FtpAuthConfig {
-    /// 检查是否是匿名访问
-    pub fn is_anonymous(&self) -> bool {
-        matches!(self, Self::Anonymous)
-    }
-
-    /// 获取用户名（如果是认证模式）
-    pub fn username(&self) -> Option<&str> {
-        match self {
-            Self::Anonymous => None,
-            Self::Authenticated { username, .. } => Some(username),
-        }
-    }
-}
-
 impl From<&AuthConfig> for FtpAuthConfig {
     fn from(auth: &AuthConfig) -> Self {
         let should_be_anonymous =
@@ -94,6 +71,18 @@ impl From<&AuthConfig> for FtpAuthConfig {
             Self::Authenticated {
                 username: auth.username.clone(),
                 password_hash: auth.password_hash.clone(),
+            }
+        }
+    }
+}
+
+impl FtpAuthConfig {
+    /// Returns (username, password_info) suitable for display in UI.
+    pub fn to_display_credentials(&self) -> (Option<String>, Option<String>) {
+        match self {
+            Self::Anonymous => (None, None),
+            Self::Authenticated { username, .. } => {
+                (Some(username.clone()), Some("(配置密码)".to_string()))
             }
         }
     }
@@ -350,37 +339,25 @@ mod tests {
     }
 
     #[test]
+    fn ftp_auth_config_to_display_credentials() {
+        let anonymous = crate::ftp::types::FtpAuthConfig::Anonymous;
+        assert_eq!(anonymous.to_display_credentials(), (None, None));
+
+        let authed = crate::ftp::types::FtpAuthConfig::Authenticated {
+            username: "admin".to_string(),
+            password_hash: "hash123".to_string(),
+        };
+        let (user, pass_info) = authed.to_display_credentials();
+        assert_eq!(user.as_deref(), Some("admin"));
+        assert_eq!(pass_info.as_deref(), Some("(配置密码)"));
+    }
+
+    #[test]
     fn future_server_info_contract_falls_back_to_ipv4_loopback_for_ipv6_like_host() {
         let info = ServerInfo::new("::1".to_string(), 2121, None, None);
 
         assert_eq!(info.ip, "127.0.0.1");
         assert_eq!(info.url, "ftp://127.0.0.1:2121");
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct TransientEventBus {
-    tx: broadcast::Sender<DomainEvent>,
-}
-
-impl Default for TransientEventBus {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl TransientEventBus {
-    pub fn new() -> Self {
-        let (tx, _) = broadcast::channel(100);
-        Self { tx }
-    }
-
-    pub fn subscribe(&self) -> broadcast::Receiver<DomainEvent> {
-        self.tx.subscribe()
-    }
-
-    pub fn emit(&self, event: DomainEvent) {
-        let _ = self.tx.send(event);
     }
 }
 
@@ -442,6 +419,39 @@ impl ServerInfo {
             url: format_ipv4_ftp_url(&ip, port),
             username: username.unwrap_or_else(|| "anonymous".to_string()),
             password_info: password_info.unwrap_or_else(|| "(任意密码)".to_string()),
+        }
+    }
+}
+
+#[cfg(test)]
+pub mod test_utils {
+    use super::DomainEvent;
+    use tokio::sync::broadcast;
+
+    /// Test-only event bus that doesn't persist events
+    #[derive(Debug, Clone)]
+    pub struct TransientEventBus {
+        tx: broadcast::Sender<DomainEvent>,
+    }
+
+    impl Default for TransientEventBus {
+        fn default() -> Self {
+            Self::new()
+        }
+    }
+
+    impl TransientEventBus {
+        pub fn new() -> Self {
+            let (tx, _) = broadcast::channel(100);
+            Self { tx }
+        }
+
+        pub fn subscribe(&self) -> broadcast::Receiver<DomainEvent> {
+            self.tx.subscribe()
+        }
+
+        pub fn emit(&self, event: DomainEvent) {
+            let _ = self.tx.send(event);
         }
     }
 }

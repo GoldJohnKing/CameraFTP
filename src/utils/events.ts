@@ -13,29 +13,14 @@ export interface EventRegistration<T = unknown> {
   handler: EventHandler<T>;
 }
 
-async function registerEvents(
-  registrations: EventRegistration<unknown>[]
-): Promise<UnlistenFn> {
-  const unlisteners: UnlistenFn[] = [];
-
-  for (const { name, handler } of registrations) {
+function cleanupUnlisteners(unlisteners: UnlistenFn[]): void {
+  unlisteners.forEach((unlisten) => {
     try {
-      const unlisten = await listen(name, handler);
-      unlisteners.push(unlisten);
+      unlisten();
     } catch {
-      // Silently ignore registration errors
+      // Silently ignore cleanup errors
     }
-  }
-
-  return () => {
-    unlisteners.forEach((unlisten) => {
-      try {
-        unlisten();
-      } catch {
-        // Silently ignore cleanup errors
-      }
-    });
-  };
+  });
 }
 
 export function createEventManager() {
@@ -43,37 +28,26 @@ export function createEventManager() {
   let isCleanedUp = false;
 
   return {
-    async on<T>(name: string, handler: EventHandler<T>): Promise<void> {
-      if (isCleanedUp) {
-        return;
-      }
-      try {
-        const unlisten = await listen<T>(name, handler);
-        unlisteners.push(unlisten);
-      } catch {
-        // Silently ignore registration errors
-      }
-    },
-
     async registerAll(registrations: EventRegistration<unknown>[]): Promise<void> {
       if (isCleanedUp) {
         return;
       }
-      const cleanup = await registerEvents(registrations);
-      unlisteners.push(cleanup);
+
+      for (const { name, handler } of registrations) {
+        try {
+          const unlisten = await listen(name, handler);
+          unlisteners.push(unlisten);
+        } catch {
+          // Silently ignore registration errors
+        }
+      }
     },
 
     cleanup(): void {
       if (isCleanedUp) return;
       isCleanedUp = true;
 
-      unlisteners.forEach((unlisten) => {
-        try {
-          unlisten();
-        } catch {
-          // Silently ignore cleanup errors
-        }
-      });
+      cleanupUnlisteners(unlisteners);
       unlisteners.length = 0;
     },
   };

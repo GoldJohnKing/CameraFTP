@@ -20,11 +20,9 @@ interface ConfigState {
 
   loadConfig: () => Promise<void>;
   updateDraft: (updater: (draft: AppConfig) => AppConfig) => void;
-  commitDraft: () => Promise<void>;
   saveAuthConfig: (auth: { anonymous: boolean; username: string; password: string }) => Promise<void>;
   updatePreviewConfig: (updates: Partial<PreviewWindowConfig>) => Promise<PreviewWindowConfig | null>;
   applyPreviewConfig: (previewConfig: PreviewWindowConfig) => void;
-  resetDraft: () => void;
   setAutostart: (enabled: boolean) => Promise<void>;
   setActiveTab: (tab: 'home' | 'gallery' | 'config') => void;
   loadPlatform: () => Promise<void>;
@@ -46,6 +44,11 @@ export const useConfigStore = create<ConfigState>((set, get) => {
     return queuedOperation;
   };
 
+  const preserveIfDirty = <K extends keyof AppConfig>(
+    next: AppConfig, current: AppConfig, draft: AppConfig, key: K,
+  ): AppConfig[K] =>
+    draft[key] !== current[key] ? draft[key] : next[key];
+
   const mergeDraftWithBackend = (
     nextConfig: AppConfig,
     currentConfig: AppConfig | null,
@@ -56,26 +59,25 @@ export const useConfigStore = create<ConfigState>((set, get) => {
       return nextConfig;
     }
 
+    const preserveAdvancedEnabled = currentDraft.advancedConnection.enabled
+      !== currentConfig.advancedConnection.enabled;
     const preserveAuth = preserveMode !== 'excludeAuth'
       && currentDraft.advancedConnection.auth !== currentConfig.advancedConnection.auth;
+
     return {
       ...nextConfig,
-      savePath: currentDraft.savePath !== currentConfig.savePath ? currentDraft.savePath : nextConfig.savePath,
-      port: currentDraft.port !== currentConfig.port ? currentDraft.port : nextConfig.port,
-      autoSelectPort: currentDraft.autoSelectPort !== currentConfig.autoSelectPort
-        ? currentDraft.autoSelectPort
-        : nextConfig.autoSelectPort,
+      savePath: preserveIfDirty(nextConfig, currentConfig, currentDraft, 'savePath'),
+      port: preserveIfDirty(nextConfig, currentConfig, currentDraft, 'port'),
+      autoSelectPort: preserveIfDirty(nextConfig, currentConfig, currentDraft, 'autoSelectPort'),
       advancedConnection: {
         ...nextConfig.advancedConnection,
-        enabled: currentDraft.advancedConnection.enabled !== currentConfig.advancedConnection.enabled
+        enabled: preserveAdvancedEnabled
           ? currentDraft.advancedConnection.enabled
           : nextConfig.advancedConnection.enabled,
         auth: preserveAuth ? currentDraft.advancedConnection.auth : nextConfig.advancedConnection.auth,
       },
       previewConfig: nextConfig.previewConfig,
-      androidImageViewer: currentDraft.androidImageViewer !== currentConfig.androidImageViewer
-        ? currentDraft.androidImageViewer
-        : nextConfig.androidImageViewer,
+      androidImageViewer: preserveIfDirty(nextConfig, currentConfig, currentDraft, 'androidImageViewer'),
     };
   };
 
@@ -158,10 +160,6 @@ export const useConfigStore = create<ConfigState>((set, get) => {
       debouncedSave(newDraft, newRevision);
     },
 
-    commitDraft: async () => {
-      await waitForWholeConfigSaveBarrier();
-    },
-
     saveAuthConfig: async ({ anonymous, username, password }) => {
       await waitForWholeConfigSaveBarrier();
       await enqueueWrite(async () => {
@@ -199,21 +197,9 @@ export const useConfigStore = create<ConfigState>((set, get) => {
       });
     },
 
-    resetDraft: () => {
-      const { config } = get();
-      if (config) {
-        set({ draft: config });
-        debouncedSave.cancel();
-      }
-    },
-
     // Note: This doesn't modify global isLoading to avoid triggering re-renders
     setAutostart: async (enabled: boolean) => {
-      try {
-        await invoke('set_autostart_command', { enable: enabled });
-      } catch (e) {
-        throw e;
-      }
+      await invoke('set_autostart_command', { enable: enabled });
     },
 
     setActiveTab: (tab: 'home' | 'gallery' | 'config') => {

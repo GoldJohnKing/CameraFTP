@@ -11,6 +11,10 @@ use tracing::{error, info};
 use crate::config::AppConfig;
 use crate::error::AppError;
 
+fn lock_result<T>(result: std::sync::LockResult<T>) -> Result<T, AppError> {
+    result.map_err(|e| AppError::Other(format!("Config lock poisoned: {}", e)))
+}
+
 #[derive(Clone)]
 pub struct ConfigService {
     config: Arc<RwLock<AppConfig>>,
@@ -33,32 +37,25 @@ impl ConfigService {
 
     pub fn load(&self) -> Result<AppConfig, AppError> {
         let loaded_config = Self::load_from_path(&self.config_path)?;
-        let mut guard = self
-            .config
-            .write()
-            .map_err(|e| AppError::Other(format!("Config lock poisoned: {}", e)))?;
-        *guard = loaded_config.clone();
-        Ok(loaded_config)
+        let mut guard = lock_result(self.config.write())?;
+        let result = loaded_config.clone();
+        *guard = loaded_config;
+        Ok(result)
     }
 
     pub fn get(&self) -> Result<AppConfig, AppError> {
-        let guard = self
-            .config
-            .read()
-            .map_err(|e| AppError::Other(format!("Config lock poisoned: {}", e)))?;
+        let guard = lock_result(self.config.read())?;
         Ok(guard.clone())
     }
 
     pub fn update(&self, new_config: AppConfig) -> Result<(), AppError> {
-        let new_config = Self::normalize_for_runtime(new_config);
-        let mut guard = self
-            .config
-            .write()
-            .map_err(|e| AppError::Other(format!("Config lock poisoned: {}", e)))?;
+        let new_config = new_config.normalized_for_current_platform();
+        let mut guard = lock_result(self.config.write())?;
         *guard = new_config;
         Ok(())
     }
 
+    #[cfg(test)]
     pub fn save(&self) -> Result<(), AppError> {
         let config = self.get()?;
         Self::save_to_path(&self.config_path, &config)
@@ -68,14 +65,11 @@ impl ConfigService {
     where
         F: FnOnce(&mut AppConfig) -> R,
     {
-        let mut guard = self
-            .config
-            .write()
-            .map_err(|e| AppError::Other(format!("Config lock poisoned: {}", e)))?;
+        let mut guard = lock_result(self.config.write())?;
 
         let mut next_config = guard.clone();
         let result = mutate(&mut next_config);
-        next_config = Self::normalize_for_runtime(next_config);
+        next_config = next_config.normalized_for_current_platform();
         Self::save_to_path(&self.config_path, &next_config)?;
         *guard = next_config;
 
@@ -102,7 +96,7 @@ impl ConfigService {
             AppConfig::default()
         };
 
-        config = Self::normalize_for_runtime(config);
+        config = config.normalized_for_current_platform();
 
         if !path.exists() {
             Self::save_to_path(path, &config)?;
@@ -117,16 +111,12 @@ impl ConfigService {
             fs::create_dir_all(parent)?;
         }
 
-        let config_to_save = Self::normalize_for_runtime(config.clone());
+        let config_to_save = config.clone().normalized_for_current_platform();
 
         let content = serde_json::to_string_pretty(&config_to_save)?;
         fs::write(path, content)?;
         info!(config_path = ?path, "Config persisted by ConfigService");
         Ok(())
-    }
-
-    fn normalize_for_runtime(config: AppConfig) -> AppConfig {
-        config.normalized_for_current_platform()
     }
 }
 

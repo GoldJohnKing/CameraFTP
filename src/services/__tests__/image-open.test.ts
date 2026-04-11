@@ -21,12 +21,11 @@ describe('image-open service', () => {
   });
 
   it('opens built-in viewer with provided URI list and requests EXIF', async () => {
-    const openViewer = vi.fn().mockReturnValue(true);
+    const openOrNavigateTo = vi.fn().mockReturnValue(true);
     const onExifResult = vi.fn();
 
     window.ImageViewerAndroid = {
-      openViewer,
-      openOrNavigateTo: vi.fn().mockReturnValue(false),
+      openOrNavigateTo,
       isAppVisible: vi.fn().mockReturnValue(true),
       onExifResult,
       resolveFilePath: vi.fn().mockReturnValue('/real/path.jpg'),
@@ -40,17 +39,16 @@ describe('image-open service', () => {
       allUris: ['content://media/1', 'content://media/2'],
     });
 
-    expect(openViewer).toHaveBeenCalledWith('content://media/1', JSON.stringify(['content://media/1', 'content://media/2']));
+    expect(openOrNavigateTo).toHaveBeenCalledWith('content://media/1', JSON.stringify(['content://media/1', 'content://media/2']));
     await Promise.resolve();
     expect(invoke).toHaveBeenCalledWith('get_image_exif', { filePath: '/real/path.jpg' });
     expect(onExifResult).toHaveBeenCalledWith(JSON.stringify({ iso: 100 }));
   });
 
   it('uses filePath URI when URI list provider is not provided', async () => {
-    const openViewer = vi.fn().mockReturnValue(true);
+    const openOrNavigateTo = vi.fn().mockReturnValue(true);
     window.ImageViewerAndroid = {
-      openViewer,
-      openOrNavigateTo: vi.fn().mockReturnValue(false),
+      openOrNavigateTo,
       isAppVisible: vi.fn().mockReturnValue(true),
       onExifResult: vi.fn(),
       resolveFilePath: vi.fn().mockReturnValue('content://media/3'),
@@ -63,15 +61,13 @@ describe('image-open service', () => {
       openMethod: 'built-in-viewer',
     });
 
-    expect(openViewer).toHaveBeenCalledWith('content://media/3', JSON.stringify(['content://media/3']));
+    expect(openOrNavigateTo).toHaveBeenCalledWith('content://media/3', JSON.stringify(['content://media/3']));
   });
 
-  it('uses openOrNavigateTo when preferReuse is true', async () => {
-    const openViewer = vi.fn().mockReturnValue(true);
+  it('uses openOrNavigateTo to open built-in viewer', async () => {
     const openOrNavigateTo = vi.fn().mockReturnValue(true);
 
     window.ImageViewerAndroid = {
-      openViewer,
       openOrNavigateTo,
       isAppVisible: vi.fn().mockReturnValue(true),
       onExifResult: vi.fn(),
@@ -84,21 +80,18 @@ describe('image-open service', () => {
       filePath: 'content://media/1',
       openMethod: 'built-in-viewer',
       allUris: ['content://media/1', 'content://media/2'],
-      preferReuse: true,
     });
 
     expect(openOrNavigateTo).toHaveBeenCalledWith(
       'content://media/1',
       JSON.stringify(['content://media/1', 'content://media/2']),
     );
-    expect(openViewer).not.toHaveBeenCalled();
   });
 
   it('uses getAllUris provider to construct URI list', async () => {
-    const openViewer = vi.fn().mockReturnValue(true);
+    const openOrNavigateTo = vi.fn().mockReturnValue(true);
     window.ImageViewerAndroid = {
-      openViewer,
-      openOrNavigateTo: vi.fn().mockReturnValue(false),
+      openOrNavigateTo,
       isAppVisible: vi.fn().mockReturnValue(true),
       onExifResult: vi.fn(),
       resolveFilePath: vi.fn().mockReturnValue('/real/path.jpg'),
@@ -110,18 +103,21 @@ describe('image-open service', () => {
       getAllUris: async () => ['content://media/5', 'content://media/4'],
     });
 
-    expect(openViewer).toHaveBeenCalledWith(
+    expect(openOrNavigateTo).toHaveBeenCalledWith(
       'content://media/5',
       JSON.stringify(['content://media/5', 'content://media/4']),
     );
   });
 
-  it('falls back to openViewer when openOrNavigateTo returns false', async () => {
-    const openViewer = vi.fn().mockReturnValue(true);
+  it('falls back to chooser when openOrNavigateTo returns false', async () => {
+    const openImageWithChooser = vi.fn();
+    window.PermissionAndroid = {
+      openImageWithChooser,
+    } as unknown as Window['PermissionAndroid'];
+
     const openOrNavigateTo = vi.fn().mockReturnValue(false);
 
     window.ImageViewerAndroid = {
-      openViewer,
       openOrNavigateTo,
       isAppVisible: vi.fn().mockReturnValue(true),
       onExifResult: vi.fn(),
@@ -132,14 +128,10 @@ describe('image-open service', () => {
       filePath: 'content://media/1',
       openMethod: 'built-in-viewer',
       allUris: ['content://media/1', 'content://media/2'],
-      preferReuse: true,
     });
 
     expect(openOrNavigateTo).toHaveBeenCalledTimes(1);
-    expect(openViewer).toHaveBeenCalledWith(
-      'content://media/1',
-      JSON.stringify(['content://media/1', 'content://media/2']),
-    );
+    expect(openImageWithChooser).toHaveBeenCalledWith('content://media/1');
   });
 
   it('falls back to chooser when built-in viewer bridge call fails', async () => {
@@ -149,10 +141,9 @@ describe('image-open service', () => {
     } as unknown as Window['PermissionAndroid'];
 
     window.ImageViewerAndroid = {
-      openViewer: vi.fn().mockImplementation(() => {
+      openOrNavigateTo: vi.fn().mockImplementation(() => {
         throw new Error('bridge failed');
       }),
-      openOrNavigateTo: vi.fn().mockReturnValue(false),
       isAppVisible: vi.fn().mockReturnValue(true),
       onExifResult: vi.fn(),
       resolveFilePath: vi.fn().mockReturnValue('/real/path.jpg'),

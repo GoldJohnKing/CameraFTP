@@ -304,7 +304,6 @@ window.GalleryAndroidV2?.enqueueThumbnails(requestsJson)
 window.GalleryAndroidV2?.registerThumbnailListener(viewId, listenerId)
 
 // 图片查看
-window.ImageViewerAndroid?.openViewer(uri, allUrisJson)
 window.ImageViewerAndroid?.openOrNavigateTo(uri, allUrisJson)
 window.ImageViewerAndroid?.closeViewer()
 ```

@@ -28,6 +28,13 @@ use super::types::MediaStoreBridgeClient;
 #[cfg(not(target_os = "android"))]
 use tempfile::TempDir;
 
+#[test]
+fn android_mediastore_mod_source_does_not_reexport_create_bridge() {
+    let source = include_str!("mod.rs");
+
+    assert!(!source.contains("pub use bridge::create_bridge;"));
+}
+
 // ============================================================================
 // Tests for display_name_from_path
 // ============================================================================

@@ -6,7 +6,7 @@ use crate::ftp::events::EventBus;
 use crate::ftp::types::ServerStats;
 use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};
-use tracing::{debug, info, warn};
+use tracing::{debug, info};
 
 /// 统计信息Actor命令
 #[derive(Debug)]
@@ -48,7 +48,7 @@ impl StatsActor {
     /// 记录文件上传
     pub async fn record_upload(&self, path: String, bytes: u64) {
         if let Err(e) = self.tx.send(StatsCommand::RecordUpload { path, bytes }).await {
-            warn!("record_upload: channel send failed: {}", e);
+            tracing::warn!("Failed to send record_upload command: {}", e);
         }
     }
 

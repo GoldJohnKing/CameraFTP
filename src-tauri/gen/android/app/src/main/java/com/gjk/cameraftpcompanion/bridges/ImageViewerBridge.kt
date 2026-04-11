@@ -20,12 +20,6 @@ class ImageViewerBridge(activity: android.app.Activity) : BaseJsBridge(activity)
     }
 
     @android.webkit.JavascriptInterface
-    fun openViewer(uri: String, allUrisJson: String): Boolean {
-        Log.d(TAG, "openViewer: uri=$uri")
-        return openOrNavigateTo(uri, allUrisJson)
-    }
-
-    @android.webkit.JavascriptInterface
     fun isAppVisible(): Boolean {
         return MainActivity.isAppVisible
     }

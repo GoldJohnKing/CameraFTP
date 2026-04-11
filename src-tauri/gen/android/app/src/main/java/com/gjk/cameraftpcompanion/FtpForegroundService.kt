@@ -63,7 +63,7 @@ class FtpForegroundService : Service() {
         Log.d(TAG, "onCreate: initializing service")
         super.onCreate()
         instance = this
-        restoreStateFromCoordinator()
+        refreshFromCoordinator()
         createNotificationChannel()
         acquireLocks()
 
@@ -326,10 +326,6 @@ class FtpForegroundService : Service() {
 
         // Update notification with new stats
         updateNotification()
-    }
-
-    private fun restoreStateFromCoordinator() {
-        refreshFromCoordinator()
     }
 
     private fun restoreStateFromSnapshot(snapshot: AndroidServiceStateSnapshot) {

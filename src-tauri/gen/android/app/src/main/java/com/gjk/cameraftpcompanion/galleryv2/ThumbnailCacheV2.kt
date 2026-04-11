@@ -145,18 +145,6 @@ class ThumbnailCacheV2(
     }
 
     /**
-     * Remove all cached entries whose key matches exactly.
-     *
-     * @param keys Set of cache keys to invalidate
-     */
-    fun invalidate(keys: Set<String>) {
-        for (key in keys) {
-            l1.remove(key)
-            deleteDiskEntries(key)
-        }
-    }
-
-    /**
      * Evict entries until total L2 usage is within [maxBytes].
      * Eviction is LRU (oldest files by last-modified time).
      */
@@ -189,17 +177,6 @@ class ThumbnailCacheV2(
     private fun diskFile(mediaId: String, key: String, sizeBucket: String): File {
         val root = cacheRoot ?: throw IllegalStateException("ThumbnailCacheV2 not initialized")
         return File(root, "$sizeBucket/${mediaId}_$key.jpg")
-    }
-
-    private fun deleteDiskEntries(key: String) {
-        val root = cacheRoot ?: return
-        root.walkTopDown()
-            .filter { it.isFile && it.nameWithoutExtension.endsWith("_$key") }
-            .forEach {
-                if (it.delete()) {
-                    Log.d(TAG, "Invalidated disk entry: ${it.name}")
-                }
-            }
     }
 
     private fun enforceL2Capacity() {

@@ -730,12 +730,6 @@ impl MediaStoreBridgeClient for MockMediaStoreBridge {
 }
 
 #[cfg(target_os = "android")]
-pub type PlatformBridge = JniMediaStoreBridge;
-
-#[cfg(not(target_os = "android"))]
-pub type PlatformBridge = MockMediaStoreBridge;
-
-#[cfg(target_os = "android")]
 pub fn create_bridge() -> Arc<dyn MediaStoreBridgeClient> {
     Arc::new(JniMediaStoreBridge::new())
 }

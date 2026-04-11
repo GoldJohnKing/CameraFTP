@@ -38,29 +38,8 @@ pub trait PlatformService: Send + Sync {
     }
 
     /// 检查服务器启动前提条件
-    fn check_server_start_prerequisites(&self) -> ServerStartCheckResult {
-        let storage_info = self.get_storage_info();
-        let permission_status = self.check_permission_status();
-
-        let can_start = storage_info.writable
-            || (permission_status.has_all_files_access && !storage_info.exists);
-
-        let reason = if !can_start {
-            if !storage_info.has_all_files_access {
-                Some("需要授予\"所有文件访问权限\"才能启动服务器。请在设置中开启权限。".to_string())
-            } else {
-                Some("存储路径不可写，请检查权限设置".to_string())
-            }
-        } else {
-            None
-        };
-
-        ServerStartCheckResult {
-            can_start,
-            reason,
-            storage_info: Some(storage_info),
-        }
-    }
+    /// Each platform provides its own implementation
+    fn check_server_start_prerequisites(&self) -> ServerStartCheckResult;
 
     // ========== 默认存储路径 ==========
 

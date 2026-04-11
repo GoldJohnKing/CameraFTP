@@ -11,7 +11,6 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
-import android.os.Build
 import android.os.Environment
 import android.os.PowerManager
 import android.provider.Settings
@@ -26,7 +25,6 @@ import android.content.ClipData
 import android.content.ContentUris
 import android.provider.MediaStore
 import java.io.File
-import java.io.FileOutputStream
 import kotlin.concurrent.thread
 
 /**
@@ -93,43 +91,19 @@ class PermissionBridge(activity: MainActivity) : BaseJsBridge(activity) {
      * Internal helper - not exposed to JavaScript
      */
     fun checkStoragePermission(): Boolean {
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            val hasFullImageAccess = ContextCompat.checkSelfPermission(
-                activity,
-                Manifest.permission.READ_MEDIA_IMAGES
-            ) == PackageManager.PERMISSION_GRANTED
+        val hasFullImageAccess = ContextCompat.checkSelfPermission(
+            activity,
+            Manifest.permission.READ_MEDIA_IMAGES
+        ) == PackageManager.PERMISSION_GRANTED
 
-            if (hasFullImageAccess) {
-                true
-            } else {
-                val hasSelectedPhotoAccess = ContextCompat.checkSelfPermission(
-                    activity,
-                    Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED
-                ) == PackageManager.PERMISSION_GRANTED
-                if (hasSelectedPhotoAccess) {
-                    Log.d(TAG, "checkStoragePermission: partial photo access only")
-                }
-                false
-            }
-        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            ContextCompat.checkSelfPermission(
-                activity,
-                Manifest.permission.READ_MEDIA_IMAGES
-            ) == PackageManager.PERMISSION_GRANTED
-        } else {
-            // For Android 11-12, still need WRITE_EXTERNAL_STORAGE
-            ContextCompat.checkSelfPermission(
-                activity,
-                Manifest.permission.WRITE_EXTERNAL_STORAGE
-            ) == PackageManager.PERMISSION_GRANTED
+        if (!hasFullImageAccess && hasPartialStoragePermission()) {
+            Log.d(TAG, "checkStoragePermission: partial photo access only")
         }
+
+        return hasFullImageAccess
     }
 
     private fun hasPartialStoragePermission(): Boolean {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            return false
-        }
-
         val hasFullImageAccess = ContextCompat.checkSelfPermission(
             activity,
             Manifest.permission.READ_MEDIA_IMAGES
@@ -146,14 +120,10 @@ class PermissionBridge(activity: MainActivity) : BaseJsBridge(activity) {
      * Internal helper - not exposed to JavaScript
      */
     fun checkNotificationPermission(): Boolean {
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            ContextCompat.checkSelfPermission(
-                activity,
-                Manifest.permission.POST_NOTIFICATIONS
-            ) == PackageManager.PERMISSION_GRANTED
-        } else {
-            true // Not required before Android 13
-        }
+        return ContextCompat.checkSelfPermission(
+            activity,
+            Manifest.permission.POST_NOTIFICATIONS
+        ) == PackageManager.PERMISSION_GRANTED
     }
 
     /**
@@ -161,12 +131,8 @@ class PermissionBridge(activity: MainActivity) : BaseJsBridge(activity) {
      * Internal helper - not exposed to JavaScript
      */
     fun checkBatteryOptimization(): Boolean {
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            val powerManager = activity.getSystemService(Context.POWER_SERVICE) as PowerManager
-            powerManager.isIgnoringBatteryOptimizations(activity.packageName)
-        } else {
-            true // Not required before Android 6
-        }
+        val powerManager = activity.getSystemService(Context.POWER_SERVICE) as PowerManager
+        return powerManager.isIgnoringBatteryOptimizations(activity.packageName)
     }
 
     /**
@@ -194,17 +160,9 @@ class PermissionBridge(activity: MainActivity) : BaseJsBridge(activity) {
         }
 
         Log.d(TAG, "requestStoragePermission: denied access, requesting runtime permissions")
-        val permissions = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            get_required_permissions().toTypedArray()
-        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            arrayOf(Manifest.permission.READ_MEDIA_IMAGES)
-        } else {
-            arrayOf(Manifest.permission.WRITE_EXTERNAL_STORAGE)
-        }
-
         ActivityCompat.requestPermissions(
             activity,
-            permissions,
+            get_required_permissions().toTypedArray(),
             REQUEST_POST_NOTIFICATIONS
         )
     }
@@ -215,13 +173,11 @@ class PermissionBridge(activity: MainActivity) : BaseJsBridge(activity) {
     @JavascriptInterface
     fun requestNotificationPermission() {
         Log.d(TAG, "requestNotificationPermission: requesting notification permission")
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            ActivityCompat.requestPermissions(
-                activity,
-                arrayOf(Manifest.permission.POST_NOTIFICATIONS),
-                REQUEST_POST_NOTIFICATIONS
-            )
-        }
+        ActivityCompat.requestPermissions(
+            activity,
+            arrayOf(Manifest.permission.POST_NOTIFICATIONS),
+            REQUEST_POST_NOTIFICATIONS
+        )
     }
 
     /**
@@ -230,20 +186,18 @@ class PermissionBridge(activity: MainActivity) : BaseJsBridge(activity) {
     @JavascriptInterface
     fun requestBatteryOptimization() {
         Log.d(TAG, "requestBatteryOptimization: requesting battery optimization whitelist")
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            val powerManager = activity.getSystemService(Context.POWER_SERVICE) as PowerManager
-            if (!powerManager.isIgnoringBatteryOptimizations(activity.packageName)) {
-                try {
-                    val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
-                        data = Uri.parse("package:${activity.packageName}")
-                    }
-                    activity.startActivity(intent)
-                } catch (e: Exception) {
-                    Log.e(TAG, "Failed to open battery optimization settings", e)
+        val powerManager = activity.getSystemService(Context.POWER_SERVICE) as PowerManager
+        if (!powerManager.isIgnoringBatteryOptimizations(activity.packageName)) {
+            try {
+                val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                    data = Uri.parse("package:${activity.packageName}")
                 }
-            } else {
-                Log.d(TAG, "requestBatteryOptimization: already whitelisted")
+                activity.startActivity(intent)
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to open battery optimization settings", e)
             }
+        } else {
+            Log.d(TAG, "requestBatteryOptimization: already whitelisted")
         }
     }
 
@@ -269,7 +223,7 @@ class PermissionBridge(activity: MainActivity) : BaseJsBridge(activity) {
                 Log.e(TAG, "openExternalLink: failed to open URL", e)
                 // Try to show a toast or handle the error
                 try {
-                    android.widget.Toast.makeText(activity, "无法打开链接: ${e.message}", android.widget.Toast.LENGTH_SHORT).show()
+                    Toast.makeText(activity, "无法打开链接: ${e.message}", Toast.LENGTH_SHORT).show()
                 } catch (toastError: Exception) {
                     Log.e(TAG, "Failed to show toast", toastError)
                 }

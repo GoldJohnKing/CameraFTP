@@ -7,14 +7,14 @@
 export const GALLERY_REFRESH_REQUESTED_EVENT = 'gallery-refresh-requested';
 export const LATEST_PHOTO_REFRESH_REQUESTED_EVENT = 'latest-photo-refresh-requested';
 
-export type MediaLibraryRefreshReason =
+type MediaLibraryRefreshReason =
   | 'manual'
   | 'upload'
   | 'delete'
   | 'permission-granted'
   | 'activity-resume';
 
-export interface MediaLibraryRefreshDetail {
+interface MediaLibraryRefreshDetail {
   reason: MediaLibraryRefreshReason;
   uri?: string;
   displayName?: string;

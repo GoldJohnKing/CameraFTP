@@ -167,14 +167,6 @@ interface GalleryAndroidV2 {
  */
 interface ImageViewerAndroid {
   /**
-   * Open the built-in image viewer
-   * @param uri Content URI of the target image
-   * @param allUrisJson JSON array of all image URIs for navigation
-   * @returns true if viewer opened successfully
-   */
-  openViewer(uri: string, allUrisJson: string): boolean;
-
-  /**
    * Reuse existing viewer if visible, otherwise open viewer
    * @param uri Content URI of the target image
    * @param allUrisJson JSON array of all image URIs for navigation

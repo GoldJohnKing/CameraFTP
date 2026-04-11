@@ -37,15 +37,6 @@ impl MediaStoreCollection {
     }
 }
 
-/// Result of a MediaStore insert operation.
-#[derive(Debug, Clone)]
-pub struct InsertResult {
-    /// Content URI of the inserted file (e.g., content://media/external/images/media/123)
-    pub content_uri: String,
-    /// The display name of the file
-    pub display_name: String,
-}
-
 /// Result of a MediaStore query operation.
 #[derive(Debug, Clone)]
 pub struct QueryResult {

@@ -180,6 +180,48 @@ describe('configStore coordination', () => {
     expect(useConfigStore.getState().config?.advancedConnection.auth.username).toBe('narrow-user');
   });
 
+  it('does not preserve stale advancedConnection enabled when only auth changed locally during full resync', async () => {
+    const backendConfigAfterAuth: AppConfig = {
+      ...baseConfig,
+      advancedConnection: {
+        enabled: false,
+        auth: {
+          ...baseConfig.advancedConnection.auth,
+          username: 'backend-user',
+        },
+      },
+    };
+
+    invokeMock.mockImplementation(async (command: string) => {
+      if (command === 'update_preview_config') return {
+        ...baseConfig.previewConfig,
+        autoBringToFront: true,
+      };
+      if (command === 'load_config') return backendConfigAfterAuth;
+      return null;
+    });
+
+    useConfigStore.setState((state) => ({
+      ...state,
+      config: baseConfig,
+      draft: {
+        ...baseConfig,
+        advancedConnection: {
+          ...baseConfig.advancedConnection,
+          auth: {
+            ...baseConfig.advancedConnection.auth,
+            username: 'draft-user',
+          },
+        },
+      },
+    }));
+
+    await useConfigStore.getState().updatePreviewConfig({ autoBringToFront: true });
+
+    expect(useConfigStore.getState().draft?.advancedConnection.enabled).toBe(false);
+    expect(useConfigStore.getState().draft?.advancedConnection.auth.username).toBe('draft-user');
+  });
+
   it('serializes overlapping preview saves to avoid clobbering', async () => {
     const firstPreviewSaveDeferred = createDeferred();
     let previewConfig = { ...baseConfig.previewConfig };

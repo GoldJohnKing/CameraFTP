@@ -6,7 +6,6 @@
 
 package com.gjk.cameraftpcompanion.bridges
 
-import android.os.Build
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -19,23 +18,10 @@ import org.robolectric.annotation.Config
 class GalleryDeletePermissionTest {
 
     @Test
-    fun request_delete_confirmation_on_android_11_plus_for_security_exception() {
+    fun request_delete_confirmation_for_security_exception() {
         assertTrue(
             GalleryBridge.shouldRequestDeleteConfirmation(
-                Build.VERSION_CODES.R,
                 isSecurityException = true,
-                isRecoverableSecurityException = false,
-            )
-        )
-    }
-
-    @Test
-    fun request_delete_confirmation_on_android_10_for_recoverable_security_exception() {
-        assertTrue(
-            GalleryBridge.shouldRequestDeleteConfirmation(
-                Build.VERSION_CODES.Q,
-                isSecurityException = true,
-                isRecoverableSecurityException = true,
             )
         )
     }
@@ -44,9 +30,7 @@ class GalleryDeletePermissionTest {
     fun do_not_request_delete_confirmation_for_other_failures() {
         assertFalse(
             GalleryBridge.shouldRequestDeleteConfirmation(
-                Build.VERSION_CODES.R,
                 isSecurityException = false,
-                isRecoverableSecurityException = false,
             )
         )
     }

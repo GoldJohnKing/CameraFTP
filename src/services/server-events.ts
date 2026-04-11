@@ -14,36 +14,35 @@ import { requestMediaLibraryRefresh } from '../utils/gallery-refresh';
 // while delete-triggered bridge refresh remains as a compatibility fallback.
 
 import { useServerStore } from '../stores/serverStore';
-type ServerStartedPayload = { ip: string; port: number };
 
-type ServerRuntimeView = {
-  serverInfo: ServerInfo | null;
-  stats: ServerStateSnapshot;
-};
-
-function normalizeIpv4Host(host: string): string {
+function buildFallbackServerInfo(host: string, port: number): Pick<ServerInfo, 'ip' | 'url'> {
   const trimmedHost = host.trim();
   const octets = trimmedHost.split('.');
   if (octets.length !== 4) {
-    return '127.0.0.1';
+    return {
+      ip: '127.0.0.1',
+      url: `ftp://127.0.0.1:${port}`,
+    };
   }
 
   for (const octet of octets) {
     if (!/^\d+$/.test(octet)) {
-      return '127.0.0.1';
+      return {
+        ip: '127.0.0.1',
+        url: `ftp://127.0.0.1:${port}`,
+      };
     }
 
     const value = Number(octet);
     if (!Number.isInteger(value) || value < 0 || value > 255) {
-      return '127.0.0.1';
+      return {
+        ip: '127.0.0.1',
+        url: `ftp://127.0.0.1:${port}`,
+      };
     }
   }
 
-  return octets.map((octet) => String(Number(octet))).join('.');
-}
-
-function buildNormalizedIpv4ServerInfo(ip: string, port: number): Pick<ServerInfo, 'ip' | 'url'> {
-  const normalizedIp = normalizeIpv4Host(ip);
+  const normalizedIp = octets.map((octet) => String(Number(octet))).join('.');
   return {
     ip: normalizedIp,
     url: `ftp://${normalizedIp}:${port}`,
@@ -52,16 +51,15 @@ function buildNormalizedIpv4ServerInfo(ip: string, port: number): Pick<ServerInf
 
 async function syncRuntimeStateFromBackend(): Promise<boolean> {
   try {
-    const runtimeState = await invoke<ServerRuntimeView>('get_server_runtime_state');
+    const runtimeState = await invoke<{ serverInfo: ServerInfo | null; stats: ServerStateSnapshot }>('get_server_runtime_state');
     if (runtimeState.serverInfo?.isRunning) {
       useServerStore.getState().setServerRunning(runtimeState.serverInfo, {
         stats: runtimeState.stats,
-        immediate: true,
       });
       return true;
     }
 
-    useServerStore.getState().setServerStopped({ immediate: true });
+    useServerStore.getState().setServerStopped();
     return true;
   } catch (err) {
     console.warn('[server-events] Runtime state sync failed:', err);
@@ -73,13 +71,13 @@ function createEventRegistrations(): EventRegistration<any>[] {
   return [
     {
       name: 'server-started',
-      handler: async (event: Event<ServerStartedPayload>) => {
+      handler: async (event: Event<{ ip: string; port: number }>) => {
         const { ip, port } = event.payload;
         if (await syncRuntimeStateFromBackend()) {
           return;
         }
 
-        const normalizedServerInfo = buildNormalizedIpv4ServerInfo(ip, port);
+        const normalizedServerInfo = buildFallbackServerInfo(ip, port);
 
         useServerStore.getState().setServerRunning({
           isRunning: true,

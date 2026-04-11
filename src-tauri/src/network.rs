@@ -2,6 +2,8 @@
 // Copyright (C) 2026 GoldJohnKing <GoldJohnKing@Live.cn>
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+use std::net::SocketAddr;
+
 use tokio::net::TcpListener;
 use local_ip_address::{local_ip, list_afinet_netifas};
 
@@ -43,21 +45,14 @@ impl NetworkManager {
     /// 判断是否为 WiFi 接口
     fn is_wifi_interface(name: &str) -> bool {
         let name_lower = name.to_lowercase();
-        name_lower.contains("wlan") 
-            || name_lower.contains("wi-fi")
-            || name_lower.contains("wifi")
-            || name_lower.contains("wl")
-            || name_lower.contains("wireless")
+        ["wlan", "wi-fi", "wifi", "wl", "wireless"].iter().any(|k| name_lower.contains(k))
     }
 
     /// 判断是否为以太网接口
     fn is_ethernet_interface(name: &str) -> bool {
         let name_lower = name.to_lowercase();
-        (name_lower.contains("eth")
-            || name_lower.contains("en")
-            || name_lower.contains("ethernet")
-            || name_lower.contains("lan"))
-        && !Self::is_virtual_interface(name)
+        ["eth", "en", "ethernet", "lan"].iter().any(|k| name_lower.contains(k))
+            && !Self::is_virtual_interface(name)
     }
 
     /// 获取所有网络接口
@@ -130,37 +125,27 @@ impl NetworkManager {
     /// 优先级：WiFi > 以太网 > 其他
     pub fn recommended_ip() -> Option<String> {
         let interfaces = Self::list_interfaces();
-        
+
         if interfaces.is_empty() {
             tracing::error!("No valid network interface found");
             return None;
         }
-        
-        // 优先 WiFi
-        if let Some(iface) = interfaces.iter().find(|i| i.is_wifi) {
-            tracing::info!("Selected WiFi interface: {} ({})", iface.name, iface.ip);
-            return Some(iface.ip.clone());
-        }
-        
-        // 其次以太网
-        if let Some(iface) = interfaces.iter().find(|i| i.is_ethernet) {
-            tracing::info!("Selected Ethernet interface: {} ({})", iface.name, iface.ip);
-            return Some(iface.ip.clone());
-        }
-        
-        // 最后选择任何可用接口（但排除链路本地和虚拟网卡后应该不会走到这里）
-        if let Some(iface) = interfaces.first() {
-            tracing::info!("Selected fallback interface: {} ({})", iface.name, iface.ip);
-            return Some(iface.ip.clone());
-        }
-        
-        None
+
+        interfaces
+            .iter()
+            .find(|i| i.is_wifi)
+            .or_else(|| interfaces.iter().find(|i| i.is_ethernet))
+            .or_else(|| interfaces.first())
+            .map(|iface| {
+                tracing::info!("Selected interface: {} ({})", iface.name, iface.ip);
+                iface.ip.clone()
+            })
     }
     
     /// 检查端口是否可用
     pub async fn is_port_available(port: u16) -> bool {
-        let addr = format!("0.0.0.0:{}", port);
-        matches!(TcpListener::bind(&addr).await, Ok(_))
+        let addr: SocketAddr = ([0, 0, 0, 0], port).into();
+        TcpListener::bind(addr).await.is_ok()
     }
     
     /// 查找从起始端口开始的可用端口

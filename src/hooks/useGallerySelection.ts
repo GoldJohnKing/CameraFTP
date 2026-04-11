@@ -153,7 +153,6 @@ export function useGallerySelection({ activeTab, onDeleteApplied, getUriForId }:
     try {
       const resultJson = await window.GalleryAndroid?.deleteImages(JSON.stringify(urisToDelete));
       if (!resultJson) {
-        setShowMenu(false);
         return;
       }
 
@@ -186,7 +185,6 @@ export function useGallerySelection({ activeTab, onDeleteApplied, getUriForId }:
       }
 
       setDeletingIds(mediaIdsToAnimate);
-      setShowMenu(false);
 
       await new Promise((resolve) => setTimeout(resolve, 300));
 
@@ -276,10 +274,10 @@ export function useGallerySelection({ activeTab, onDeleteApplied, getUriForId }:
       }
     };
 
-    (window as Window & { __galleryOnBackPressed?: () => void }).__galleryOnBackPressed = onBackPressed;
+    window.__galleryOnBackPressed = onBackPressed;
 
     return () => {
-      delete (window as Window & { __galleryOnBackPressed?: () => void }).__galleryOnBackPressed;
+      delete window.__galleryOnBackPressed;
     };
   }, [handleCancelSelection]);
 

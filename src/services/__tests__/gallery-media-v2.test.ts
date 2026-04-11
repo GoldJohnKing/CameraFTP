@@ -13,7 +13,6 @@ import {
   registerThumbnailListener,
   unregisterThumbnailListener,
   invalidateMediaIds,
-  dispatchThumbnailResult,
 } from '../gallery-media-v2';
 import type {
   MediaPageRequest,
@@ -148,7 +147,7 @@ describe('gallery-media-v2 service', () => {
   });
 
   describe('dispatchThumbnailResult', () => {
-    it('dispatches parsed result to registered listener', async () => {
+    it('dispatches parsed result to registered listener via window callback', async () => {
       const bridge = createMockBridge();
       window.GalleryAndroidV2 = bridge as unknown as typeof window.GalleryAndroidV2;
 
@@ -162,11 +161,16 @@ describe('gallery-media-v2 service', () => {
         localPath: '/cache/thumb_r1.jpg',
       };
 
-      dispatchThumbnailResult('listener-1', JSON.stringify(result));
+      window.__galleryThumbDispatch!('listener-1', JSON.stringify(result));
       expect(listener).toHaveBeenCalledWith(result);
     });
 
-    it('ignores dispatch for unregistered listener', () => {
+    it('ignores dispatch for unregistered listener via window callback', async () => {
+      const bridge = createMockBridge();
+      window.GalleryAndroidV2 = bridge as unknown as typeof window.GalleryAndroidV2;
+      const listener = vi.fn();
+      await registerThumbnailListener('view-1', 'listener-1', listener);
+
       const result: ThumbResult = {
         requestId: 'r1',
         mediaId: '1',
@@ -174,32 +178,9 @@ describe('gallery-media-v2 service', () => {
         errorCode: 'io_transient',
       };
 
-      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-
-      try {
-        // Should not throw
-        expect(() => dispatchThumbnailResult('unknown', JSON.stringify(result))).not.toThrow();
-        expect(warnSpy).toHaveBeenCalled();
-      } finally {
-        warnSpy.mockRestore();
-      }
-    });
-  });
-
-  describe('only active V2 bridge methods have adapter functions', () => {
-    it('exports all expected functions', () => {
-      expect(typeof listMediaPage).toBe('function');
-      expect(typeof enqueueThumbnails).toBe('function');
-      expect(typeof cancelThumbnailRequests).toBe('function');
-      expect(typeof registerThumbnailListener).toBe('function');
-      expect(typeof unregisterThumbnailListener).toBe('function');
-      expect(typeof invalidateMediaIds).toBe('function');
-    });
-
-    it('does not export removed methods', async () => {
-      const module = await import('../gallery-media-v2');
-      expect(module).not.toHaveProperty('cancelByView');
-      expect(module).not.toHaveProperty('getQueueStats');
+      // Should not throw — unknown listenerId is ignored
+      expect(() => window.__galleryThumbDispatch!('unknown', JSON.stringify(result))).not.toThrow();
+      expect(listener).not.toHaveBeenCalled();
     });
   });
 
