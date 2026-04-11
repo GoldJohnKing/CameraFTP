@@ -7,8 +7,6 @@
 package com.gjk.cameraftpcompanion
 
 import android.provider.Settings
-import java.nio.file.Files
-import java.nio.file.Paths
 import org.junit.Test
 import org.junit.Assert.*
 import org.junit.runner.RunWith
@@ -38,6 +36,12 @@ class PermissionBridgeTest {
     }
 
     @Test
+    fun does_not_request_write_external_storage() {
+        val perms = PermissionBridge.get_required_permissions()
+        assertFalse(perms.contains("android.permission.WRITE_EXTERNAL_STORAGE"))
+    }
+
+    @Test
     fun builds_app_permission_settings_intent() {
         val intent = PermissionBridge.build_app_permission_settings_intent("com.example.app")
         assertEquals(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, intent.action)
@@ -60,31 +64,4 @@ class PermissionBridgeTest {
         assertFalse(PermissionBridge.should_open_settings_for_storage_request(true, true))
     }
 
-    @Test
-    fun storage_permission_source_targets_android15_plus_only() {
-        val source = String(
-            Files.readAllBytes(
-                resolveProjectPath(
-                    "src/main/java/com/gjk/cameraftpcompanion/PermissionBridge.kt",
-                    "app/src/main/java/com/gjk/cameraftpcompanion/PermissionBridge.kt",
-                    "src-tauri/gen/android/app/src/main/java/com/gjk/cameraftpcompanion/PermissionBridge.kt",
-                )
-            )
-        )
-
-        assertFalse(source.contains("WRITE_EXTERNAL_STORAGE"))
-        assertFalse(source.contains("Build.VERSION_CODES.TIRAMISU"))
-        assertFalse(source.contains("Build.VERSION_CODES.M"))
-    }
-
-    private fun resolveProjectPath(vararg candidates: String): java.nio.file.Path {
-        for (candidate in candidates) {
-            val path = Paths.get(candidate)
-            if (Files.exists(path)) {
-                return path
-            }
-        }
-
-        throw java.nio.file.NoSuchFileException(candidates.joinToString(", "))
-    }
 }

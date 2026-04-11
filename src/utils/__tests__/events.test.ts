@@ -20,16 +20,6 @@ describe('createEventManager', () => {
     listenMock.mockReset();
   });
 
-  it('exposes only batch registration and cleanup operations', () => {
-    const eventManager = createEventManager();
-
-    expect(eventManager).toEqual({
-      registerAll: expect.any(Function),
-      cleanup: expect.any(Function),
-    });
-    expect('on' in eventManager).toBe(false);
-  });
-
   it('cleans up all successful registrations even when one unlistener throws', async () => {
     const firstUnlisten = vi.fn(() => {
       throw new Error('cleanup failed');

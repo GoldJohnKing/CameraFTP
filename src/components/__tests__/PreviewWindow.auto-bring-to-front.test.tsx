@@ -6,9 +6,12 @@
 
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
+import { within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { PreviewWindow } from '../PreviewWindow';
 import type { ConfigChangedEvent } from '../../types/events';
+
+const AUTO_BRING_TO_FRONT_ACCESSIBLE_NAME = '接收到新图片时自动前台显示';
 
 const state = {
   isOpen: true,
@@ -118,13 +121,19 @@ describe('PreviewWindow autoBringToFront sync', () => {
     vi.unstubAllGlobals();
   });
 
-  it('updates the local toggle title when preview-config-changed event arrives', async () => {
+  const getAutoBringToFrontToggle = (): HTMLButtonElement => {
+    return within(container).getByRole('button', {
+      name: AUTO_BRING_TO_FRONT_ACCESSIBLE_NAME,
+    });
+  };
+
+  it('updates local autoBringToFront toggle state when preview-config-changed event arrives', async () => {
     await act(async () => {
       root.render(<PreviewWindow />);
       await Promise.resolve();
     });
 
-    expect(container.querySelector('button[title="新图片时自动前台显示 (已关闭)"]')).toBeTruthy();
+    expect(getAutoBringToFrontToggle().getAttribute('aria-pressed')).toBe('false');
 
     const listener = listenMock.mock.calls[0]?.[1] as (event: { payload: ConfigChangedEvent }) => void;
 
@@ -142,6 +151,6 @@ describe('PreviewWindow autoBringToFront sync', () => {
       await Promise.resolve();
     });
 
-    expect(container.querySelector('button[title="新图片时自动前台显示 (已开启)"]')).toBeTruthy();
+    expect(getAutoBringToFrontToggle().getAttribute('aria-pressed')).toBe('true');
   });
 });

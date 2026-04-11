@@ -61,7 +61,9 @@ impl AutoOpenService {
             if !config.enabled {
                 return Ok(());
             }
-            self.dispatch_open(&_file_path, config.auto_bring_to_front).await?;
+            self
+                .dispatch_open(&_file_path, &config, config.auto_bring_to_front)
+                .await?;
         }
         Ok(())
     }
@@ -70,16 +72,20 @@ impl AutoOpenService {
     pub async fn open_image(&self, _file_path: &PathBuf) -> Result<(), AppError> {
         #[cfg(target_os = "windows")]
         {
-            self.dispatch_open(_file_path, true).await?;
+            let config = self.current_config();
+            self.dispatch_open(_file_path, &config, true).await?;
         }
         Ok(())
     }
 
     /// 根据配置分发打开操作
     #[cfg(target_os = "windows")]
-    async fn dispatch_open(&self, file_path: &PathBuf, bring_to_front: bool) -> Result<(), AppError> {
-        let config = self.current_config();
-
+    async fn dispatch_open(
+        &self,
+        file_path: &PathBuf,
+        config: &PreviewWindowConfig,
+        bring_to_front: bool,
+    ) -> Result<(), AppError> {
         match &config.method {
             ImageOpenMethod::BuiltInPreview => {
                 self.open_or_update_preview_window(file_path, bring_to_front).await?;

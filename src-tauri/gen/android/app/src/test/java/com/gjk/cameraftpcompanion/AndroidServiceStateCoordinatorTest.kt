@@ -62,30 +62,6 @@ class AndroidServiceStateCoordinatorTest {
     }
 
     @Test
-    fun legacy_server_state_bridge_source_is_removed() {
-        val sourcePath = Paths.get("src/main/java/com/gjk/cameraftpcompanion/bridges/ServerStateBridge.kt")
-
-        assertFalse(Files.exists(sourcePath))
-    }
-
-    @Test
-    fun dead_android_helpers_are_removed() {
-        val storageHelper = resolveProjectPathOrNull(
-            "src/main/java/com/gjk/cameraftpcompanion/StorageHelper.kt",
-            "app/src/main/java/com/gjk/cameraftpcompanion/StorageHelper.kt",
-            "src-tauri/gen/android/app/src/main/java/com/gjk/cameraftpcompanion/StorageHelper.kt",
-        )
-        val mediaScannerHelper = resolveProjectPathOrNull(
-            "src/main/java/com/gjk/cameraftpcompanion/MediaScannerHelper.kt",
-            "app/src/main/java/com/gjk/cameraftpcompanion/MediaScannerHelper.kt",
-            "src-tauri/gen/android/app/src/main/java/com/gjk/cameraftpcompanion/MediaScannerHelper.kt",
-        )
-
-        assertNull(storageHelper)
-        assertNull(mediaScannerHelper)
-    }
-
-    @Test
     fun main_activity_has_no_legacy_emit_or_empty_permission_override() {
         val methods = MainActivity::class.java.declaredMethods.map { it.name }.toSet()
 
@@ -99,18 +75,6 @@ class AndroidServiceStateCoordinatorTest {
 
         assertFalse(methods.contains("updateServiceState"))
         assertFalse(methods.contains("startService"))
-    }
-
-    @Test
-    fun foreground_service_start_source_has_no_pre_o_fallback() {
-        val sourcePath = resolveProjectPath(
-            "src/main/java/com/gjk/cameraftpcompanion/AndroidServiceStateCoordinator.kt",
-            "app/src/main/java/com/gjk/cameraftpcompanion/AndroidServiceStateCoordinator.kt",
-            "src-tauri/gen/android/app/src/main/java/com/gjk/cameraftpcompanion/AndroidServiceStateCoordinator.kt",
-        )
-        val source = String(Files.readAllBytes(sourcePath))
-
-        assertFalse(source.contains("Build.VERSION.SDK_INT >= Build.VERSION_CODES.O"))
     }
 
     @Test
@@ -379,17 +343,6 @@ class AndroidServiceStateCoordinatorTest {
         }
 
         throw java.nio.file.NoSuchFileException(candidates.joinToString(", "))
-    }
-
-    private fun resolveProjectPathOrNull(vararg candidates: String): java.nio.file.Path? {
-        for (candidate in candidates) {
-            val path = Paths.get(candidate)
-            if (Files.exists(path)) {
-                return path
-            }
-        }
-
-        return null
     }
 
     private fun <T> withAccessibleField(

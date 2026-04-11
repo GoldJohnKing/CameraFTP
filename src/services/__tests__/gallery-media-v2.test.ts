@@ -180,6 +180,7 @@ describe('gallery-media-v2 service', () => {
 
       // Should not throw — unknown listenerId is ignored
       expect(() => window.__galleryThumbDispatch!('unknown', JSON.stringify(result))).not.toThrow();
+      expect(listener).not.toHaveBeenCalled();
     });
   });
 

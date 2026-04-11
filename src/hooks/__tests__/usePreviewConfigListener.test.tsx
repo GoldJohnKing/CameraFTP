@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
 
-import { act, renderHook } from '@testing-library/react';
+import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { usePreviewConfigListener } from '../usePreviewConfigListener';
 import type { ConfigChangedEvent } from '../../types/events';
@@ -19,7 +19,7 @@ vi.mock('@tauri-apps/api/event', () => ({
 
 describe('usePreviewConfigListener', () => {
   beforeEach(() => {
-    vi.clearAllMocks();
+    vi.resetAllMocks();
   });
 
   it('subscribes to preview-config-changed and forwards config payload to callback', async () => {
@@ -67,5 +67,44 @@ describe('usePreviewConfigListener', () => {
     await Promise.resolve();
 
     expect(unlisten).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not subscribe when listener is disabled', () => {
+    renderHook(() => usePreviewConfigListener(vi.fn(), false));
+
+    expect(listenMock).not.toHaveBeenCalled();
+  });
+
+  it('subscribes when enabled changes from false to true', () => {
+    const callback = vi.fn();
+    listenMock.mockResolvedValue(vi.fn());
+
+    const { rerender } = renderHook(
+      ({ enabled }) => usePreviewConfigListener(callback, enabled),
+      { initialProps: { enabled: false } },
+    );
+
+    expect(listenMock).not.toHaveBeenCalled();
+
+    rerender({ enabled: true });
+
+    expect(listenMock).toHaveBeenCalledTimes(1);
+    expect(listenMock).toHaveBeenCalledWith('preview-config-changed', expect.any(Function));
+  });
+
+  it('cleans up existing listener when enabled changes from true to false', async () => {
+    const unlisten = vi.fn();
+    listenMock.mockResolvedValue(unlisten);
+
+    const { rerender } = renderHook(
+      ({ enabled }) => usePreviewConfigListener(vi.fn(), enabled),
+      { initialProps: { enabled: true } },
+    );
+
+    rerender({ enabled: false });
+
+    await waitFor(() => {
+      expect(unlisten).toHaveBeenCalledTimes(1);
+    });
   });
 });
