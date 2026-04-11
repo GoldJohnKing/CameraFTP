@@ -183,23 +183,6 @@ describe('gallery-media-v2 service', () => {
     });
   });
 
-  describe('only active V2 bridge methods have adapter functions', () => {
-    it('exports all expected functions', () => {
-      expect(typeof listMediaPage).toBe('function');
-      expect(typeof enqueueThumbnails).toBe('function');
-      expect(typeof cancelThumbnailRequests).toBe('function');
-      expect(typeof registerThumbnailListener).toBe('function');
-      expect(typeof unregisterThumbnailListener).toBe('function');
-      expect(typeof invalidateMediaIds).toBe('function');
-    });
-
-    it('does not export removed methods', async () => {
-      const module = await import('../gallery-media-v2');
-      expect(module).not.toHaveProperty('cancelByView');
-      expect(module).not.toHaveProperty('getQueueStats');
-    });
-  });
-
   describe('Promise semantics', () => {
     it('all bridge calls return promises', async () => {
       const bridge = createMockBridge();

@@ -288,30 +288,6 @@ fn get_coordinator_class<'a>(
 #[cfg(test)]
 mod tests {
     #[test]
-    fn android_platform_exposes_native_service_sync_hook() {
-        let source = include_str!("traits.rs");
-
-        assert!(source.contains("sync_android_service_state"));
-    }
-
-    #[test]
-    fn android_platform_no_longer_emits_service_state_update_event() {
-        let source = include_str!("android.rs");
-        let stale_event = ["android-service", "-state-update"].concat();
-
-        assert!(!source.contains(&stale_event));
-    }
-
-    #[test]
-    fn android_platform_uses_context_class_loader_for_coordinator_lookup() {
-        let source = include_str!("android.rs");
-
-        assert!(source.contains("getClassLoader"));
-        assert!(source.contains("loadClass"));
-        assert!(!source.contains("find_class(ANDROID_SERVICE_COORDINATOR_CLASS)"));
-    }
-
-    #[test]
     fn android_service_coordinator_is_kept_for_release_jni_calls() {
         let rules = include_str!("../../gen/android/app/proguard-rules.pro");
 

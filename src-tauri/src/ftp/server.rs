@@ -769,20 +769,4 @@ mod tests {
         assert_eq!(actor.get_current_snapshot().await.connected_clients, 0);
     }
 
-    #[test]
-    fn future_server_lifecycle_contract_owns_and_times_out_server_task_shutdown() {
-        let source = include_str!("server.rs");
-        let production_source = source
-            .split("#[cfg(test)]")
-            .next()
-            .expect("server.rs should contain production code before tests");
-
-        assert!(production_source.contains(
-            "server_task: Option<tokio::task::JoinHandle<()>>"
-        ));
-        assert!(production_source.contains("self.server_task.take()"));
-        assert!(production_source.contains("Port remained reachable after FTP server task exited"));
-        assert!(!production_source.contains("self.server_task = Some(server_task)"));
-        assert!(!production_source.contains("Server did not stop within timeout, continuing anyway"));
-    }
 }

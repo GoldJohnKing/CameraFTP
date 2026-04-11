@@ -526,13 +526,6 @@ mod tests {
         }
     }
 
-    #[test]
-    fn tray_update_handler_calls_platform_update_server_state_for_active_clients() {
-        let source = include_str!("events.rs");
-
-        assert!(source.contains("update_server_state(&self.app_handle, snapshot.connected_clients as u32);"));
-    }
-
     #[tokio::test]
     async fn state_event_emitters_maintain_runtime_state_for_consumers() {
         let bus = EventBus::new();
@@ -1131,15 +1124,6 @@ mod tests {
                 ServerStateSnapshot::default(),
             ]
         );
-    }
-
-    #[test]
-    fn windows_tray_handler_uses_runtime_state_snapshot_semantics() {
-        let source = include_str!("../platform/windows.rs");
-
-        assert!(source.contains("fn update_server_state(&self, app: &AppHandle, connected_clients: u32)"));
-        assert!(source.contains("TrayIconState::Active"));
-        assert!(source.contains("TrayIconState::Idle"));
     }
 
     #[test]

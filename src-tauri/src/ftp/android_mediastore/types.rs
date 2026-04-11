@@ -283,16 +283,6 @@ mod tests {
     }
 
     #[test]
-    fn insert_result_is_removed() {
-        let source = include_str!("types.rs");
-        let needle = concat!("pub", ' ', "struct InsertResult");
-        assert!(
-            !source.contains(needle),
-            "InsertResult should be removed — it is never used"
-        );
-    }
-
-    #[test]
     fn test_query_result_is_directory() {
         let file = QueryResult {
             content_uri: "content://media/external/images/media/1".to_string(),

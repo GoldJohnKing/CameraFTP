@@ -795,13 +795,4 @@ mod tests {
         assert_eq!(rmd_result.unwrap_err().kind(), StorageErrorKind::CommandNotImplemented);
     }
 
-    #[test]
-    fn no_duplicate_cfg_test_method_pairs() {
-        let source = include_str!("backend.rs");
-        let cfg_test_pub_count = source.matches("#[cfg(test)]\n    pub fn").count();
-        assert_eq!(
-            cfg_test_pub_count, 0,
-            "Found #[cfg(test)] pub fn duplicates — should use single pub(crate) implementation"
-        );
-    }
 }

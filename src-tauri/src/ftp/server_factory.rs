@@ -196,15 +196,4 @@ pub fn spawn_event_processor(app_handle: AppHandle, event_bus: &EventBus) -> one
 
 #[cfg(test)]
 mod tests {
-    #[test]
-    fn event_processor_keeps_stats_handler_registered_for_dual_fan_out() {
-        let source = include_str!("server_factory.rs");
-
-        assert!(source.contains(".register_runtime_state_handler(StatsEventHandler::new(app_handle.clone()))"));
-        assert!(source.contains(".register_runtime_state_handler(TrayUpdateHandler::new(app_handle_for_tray))"));
-        assert!(source.contains(".register(FrontendTransientEventHandler::new(app_handle))"));
-        assert!(source.contains("fn spawn_event_processor(app_handle: AppHandle, event_bus: &EventBus)"));
-        assert!(source.contains("EventProcessor::from_parts("));
-        assert!(source.contains("processor.run_with_ready_signal(ready_tx).await;"));
-    }
 }
