@@ -243,7 +243,9 @@ pub struct PreviewEvent {
 }
 
 #[cfg(target_os = "windows")]
-#[derive(Clone, serde::Serialize)]
+#[derive(Clone, serde::Serialize, ts_rs::TS)]
+#[ts(export)]
+#[serde(rename_all = "camelCase")]
 pub struct ConfigChangedEvent {
     pub config: PreviewWindowConfig,
 }

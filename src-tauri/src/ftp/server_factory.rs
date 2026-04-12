@@ -197,6 +197,29 @@ pub fn spawn_event_processor(app_handle: AppHandle, event_bus: &EventBus) -> one
     ready_rx
 }
 
+/// Complete server startup sequence: start FTP server, spawn event processor, wire file index.
+///
+/// This encapsulates the shared logic used by both manual start (`start_server` command)
+/// and autostart (`execute_autostart_server` on Windows).
+pub async fn start_server_with_event_pipeline(
+    state: &Arc<Mutex<Option<FtpServerHandle>>>,
+    app_handle: AppHandle,
+    ready_timeout: std::time::Duration,
+) -> Result<ServerStartupContext, AppError> {
+    let ctx = start_ftp_server(state, Default::default(), app_handle.clone()).await?;
+
+    let ready_rx = spawn_event_processor(app_handle.clone(), &ctx.event_bus);
+
+    if tokio::time::timeout(ready_timeout, ready_rx).await.is_err() {
+        info!("Event processor readiness timed out during startup");
+    }
+
+    let file_index = app_handle.state::<Arc<crate::file_index::FileIndexService>>();
+    file_index.set_event_bus(ctx.event_bus.clone()).await;
+
+    Ok(ctx)
+}
+
 #[cfg(test)]
 mod tests {
     #[test]

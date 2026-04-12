@@ -165,6 +165,7 @@ impl FileIndexService {
         let mut index = self.index.write().await;
         index.files = files;
         index.current_index = index.files.first().map(|_| 0);
+        index.refresh_arc();
         
         info!("Directory scan complete: {} files found", index.files.len());
 
@@ -305,6 +306,7 @@ impl FileIndexService {
             }
         }
 
+        index.refresh_arc();
         drop(index);
         info!("Added file to index: {:?}", path);
 
@@ -337,6 +339,7 @@ impl FileIndexService {
                 }
             }
 
+            index.refresh_arc();
             drop(index);
             info!("Removed file from index: {:?}", path);
 
@@ -352,7 +355,7 @@ impl FileIndexService {
     /// 获取文件列表
     pub async fn get_files(&self) -> Arc<Vec<FileInfo>> {
         let index = self.index.read().await;
-        Arc::new(index.files.clone())
+        index.files_arc.clone()
     }
 
     /// 获取当前索引
@@ -402,6 +405,7 @@ impl FileIndexService {
         index.files.remove(pos);
         let new_len = index.files.len();
         Self::adjust_current_index_after_removal(&mut index.current_index, pos, new_len);
+        index.refresh_arc();
         info!("Removed missing file from index: {:?}", path);
     }
 

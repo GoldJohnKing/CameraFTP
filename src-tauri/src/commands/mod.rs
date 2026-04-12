@@ -7,7 +7,7 @@ use tokio::sync::Mutex;
 
 use crate::ftp::FtpServerHandle;
 
-mod config;
+pub(crate) mod config;
 mod exif;
 mod file_index;
 mod server;

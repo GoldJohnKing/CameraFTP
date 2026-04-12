@@ -12,7 +12,7 @@ use crate::ftp::listeners::{FtpDataListener, FtpPresenceListener};
 use crate::ftp::stats::{StatsActor, StatsActorWorker};
 use crate::ftp::types::{
     format_ipv4_socket_addr, normalize_ipv4_host, FtpAuthConfig, ServerConfig, ServerInfo,
-    ServerRuntimeState, ServerStateSnapshot, ServerStatus,
+    ServerRuntimeState, ServerStatus,
 };
 use crate::ftp::FtpStorageBackend;
 use dashmap::DashSet;
@@ -483,7 +483,7 @@ impl FtpServerActor {
 
         let recommended_ip = crate::network::NetworkManager::recommended_ip();
         let ip = normalize_ipv4_host(
-            &recommended_ip.clone().unwrap_or_else(|| "127.0.0.1".to_string()),
+            recommended_ip.as_deref().unwrap_or("127.0.0.1"),
         );
         self.advertised_ip = Some(ip);
 
@@ -594,8 +594,8 @@ impl FtpServerActor {
         *self.status.read().await
     }
 
-    /// 获取当前快照
-    #[allow(dead_code)]
+    /// 获取当前快照（仅供测试使用）
+    #[cfg(test)]
     async fn get_current_snapshot(&self) -> ServerStateSnapshot {
         let status = self.get_current_status().await;
         let stats = self.stats_actor.get_stats_direct().await;
@@ -633,7 +633,7 @@ fn advertised_server_addr(bind_addr: SocketAddr, recommended_ip: Option<String>)
     format_ipv4_socket_addr(&ip, bind_addr.port())
 }
 
-#[allow(dead_code)]
+#[cfg(test)]
 fn build_server_snapshot(
     status: ServerStatus,
     stats: &crate::ftp::types::ServerStats,

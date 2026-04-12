@@ -35,8 +35,9 @@ pub use events::{EventBus, EventProcessor, FrontendTransientEventHandler, StatsE
 pub(crate) use events::TrayUpdateHandler;
 pub use server::{create_ftp_server, FtpServerHandle};
 pub use server_factory::{
-    spawn_event_processor, start_ftp_server, ServerStartupContext, ServerStartupOptions,
+    spawn_event_processor, start_ftp_server, start_server_with_event_pipeline,
+    ServerStartupContext, ServerStartupOptions,
 };
 pub use types::{
-    FtpAuthConfig, ServerInfo, ServerStateSnapshot, ServerStatus,
+    FtpAuthConfig, ServerInfo, ServerStateSnapshot,
 };

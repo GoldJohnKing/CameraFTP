@@ -6,7 +6,7 @@
 
 import { invoke } from '@tauri-apps/api/core';
 import type { Event } from '@tauri-apps/api/event';
-import type { ServerInfo, ServerStateSnapshot } from '../types';
+import type { ServerInfo, ServerStateSnapshot, ServerRuntimeView } from '../types';
 
 import { createEventManager, type EventRegistration } from '../utils/events';
 import { requestMediaLibraryRefresh } from '../utils/gallery-refresh';
@@ -51,7 +51,7 @@ function buildFallbackServerInfo(host: string, port: number): Pick<ServerInfo, '
 
 async function syncRuntimeStateFromBackend(): Promise<boolean> {
   try {
-    const runtimeState = await invoke<{ serverInfo: ServerInfo | null; stats: ServerStateSnapshot }>('get_server_runtime_state');
+    const runtimeState = await invoke<ServerRuntimeView>('get_server_runtime_state');
     if (runtimeState.serverInfo?.isRunning) {
       useServerStore.getState().setServerRunning(runtimeState.serverInfo, {
         stats: runtimeState.stats,

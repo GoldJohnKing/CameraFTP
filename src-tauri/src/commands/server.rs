@@ -2,14 +2,12 @@
 // Copyright (C) 2026 GoldJohnKing <GoldJohnKing@Live.cn>
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-use tauri::{command, AppHandle, Manager, State};
+use tauri::{command, AppHandle, State};
 use tracing::{error, info, instrument};
 
 use crate::commands::FtpServerState;
 use crate::error::AppError;
-use crate::file_index::FileIndexService;
 use crate::ftp::types::{ServerInfo, ServerRuntimeView, ServerStateSnapshot};
-use std::sync::Arc;
 use std::time::Duration;
 use crate::network::NetworkManager;
 
@@ -32,27 +30,11 @@ pub async fn start_server(
         }
     }
 
-    // 使用 server_factory 启动服务器
-    let ctx = crate::ftp::server_factory::start_ftp_server(
+    let ctx = crate::ftp::server_factory::start_server_with_event_pipeline(
         &state.0,
-        Default::default(),
-        app.clone()
-    ).await?;
-
-    // 先启动事件处理器，并等待其订阅建立
-    // 注意：传递 event_bus 的引用，不要克隆，以确保处理器和服务器共享同一个状态通道
-    let ready_rx = crate::ftp::server_factory::spawn_event_processor(
         app.clone(),
-        &ctx.event_bus,
-    );
-
-    if tokio::time::timeout(Duration::from_secs(2), ready_rx).await.is_err() {
-        info!("Event processor readiness timed out during manual start");
-    }
-
-    // 再将事件总线交给文件索引服务，避免其在订阅建立前发射瞬时事件
-    let file_index = app.state::<Arc<FileIndexService>>();
-    file_index.set_event_bus(ctx.event_bus).await;
+        Duration::from_secs(2),
+    ).await?;
 
     info!(
         ip = %ctx.ip,

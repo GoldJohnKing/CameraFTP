@@ -331,11 +331,14 @@ fn fan_out_runtime_state(
         let should_emit_stats = previous_state
             .is_none_or(|previous| previous.snapshot != current_state.snapshot);
         if should_emit_stats {
-            target.emit_frontend_json(
-                "stats-update",
-                serde_json::to_value(snapshot.clone())
-                    .expect("server snapshot should serialize for frontend events"),
-            );
+            match serde_json::to_value(snapshot.clone()) {
+                Ok(value) => {
+                    target.emit_frontend_json("stats-update", value);
+                }
+                Err(e) => {
+                    warn!(error = %e, "Failed to serialize server state snapshot for frontend");
+                }
+            }
         }
     } else if previous_state.is_some_and(|previous| previous.snapshot.is_running) {
         target.emit_frontend_json("server-stopped", serde_json::Value::Null);
@@ -1145,6 +1148,24 @@ mod tests {
         assert_eq!(parse_bind_addr_future_contract_view("192.168.1.8"), None);
         assert_eq!(parse_bind_addr_future_contract_view("192.168.1.8:not-a-port"), None);
         assert_eq!(parse_bind_addr_future_contract_view("not-an-ip:2121"), None);
+    }
+
+    #[test]
+    fn runtime_state_fanout_handles_serialization_failure_gracefully_without_panic() {
+        let mut fanout = RecordingFanout::default();
+        let started_state = ServerRuntimeSnapshot {
+            bind_addr: Some("127.0.0.1:2121".to_string()),
+            is_running: true,
+            stats: None,
+        };
+
+        // Normal operation: stats-update is emitted when server starts
+        fan_out_runtime_state(&mut fanout, None, &started_state);
+
+        assert!(
+            fanout.frontend_events.iter().any(|(name, _)| name == "stats-update"),
+            "stats-update event should be emitted for running server"
+        );
     }
 
     #[test]

@@ -14,7 +14,7 @@ use crate::error::AppError;
 use crate::file_index::FileIndexService;
 use std::sync::Arc;
 
-fn load_config_from_service(config_service: &ConfigService) -> AppConfig {
+pub(crate) fn load_config_from_service_or_default(config_service: &ConfigService) -> AppConfig {
     match config_service.get() {
         Ok(config) => config,
         Err(e) => {
@@ -97,7 +97,7 @@ fn update_preview_config_with_service(
 #[command]
 #[instrument(skip(config_service))]
 pub fn load_config(config_service: State<'_, Arc<ConfigService>>) -> AppConfig {
-    load_config_from_service(config_service.inner().as_ref())
+    load_config_from_service_or_default(config_service.inner().as_ref())
 }
 
 #[command]
@@ -306,7 +306,7 @@ mod tests {
         updated.port = 3777;
         service.update(updated).expect("failed to update config");
 
-        let loaded = load_config_from_service(&service);
+        let loaded = load_config_from_service_or_default(&service);
         assert_eq!(loaded.port, 3777);
     }
 
