@@ -22,7 +22,7 @@ use serde::Deserialize;
 use tracing::debug;
 
 #[cfg(not(target_os = "android"))]
-use super::types::{mime_type_from_filename, relative_path_from_full_path};
+use super::types::{display_name_from_path, mime_type_from_filename, relative_path_from_full_path};
 
 #[cfg(target_os = "android")]
 const MEDIASTORE_BRIDGE_CLASS: &str = "com.gjk.cameraftpcompanion.bridges.MediaStoreBridge";
@@ -746,6 +746,18 @@ impl MediaStoreBridgeClient for MockMediaStoreBridge {
             .file_name()
             .map(|n| n.to_string_lossy().to_string())
             .unwrap_or_default();
+
+        let expected_display_name = display_name_from_path(path);
+        let expected_relative_path = normalize_relative_path_for_match(&relative_path_from_full_path(path));
+
+        if name != expected_display_name {
+            return Err(MediaStoreError::NotFound(path.to_string()));
+        }
+
+        let actual_relative_path = normalize_relative_path_for_match(&relative_path_from_full_path(path));
+        if actual_relative_path != expected_relative_path {
+            return Err(MediaStoreError::NotFound(path.to_string()));
+        }
 
         Ok(QueryResult {
             content_uri: format!("content://mock/media/{}", path.trim_start_matches('/')),

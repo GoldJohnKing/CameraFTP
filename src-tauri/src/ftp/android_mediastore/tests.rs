@@ -452,7 +452,7 @@ fn test_backend_resolve_path() {
 }
 
 #[test]
-fn test_backend_resolve_path_preserves_exact_virtual_roots_only() {
+fn test_backend_resolve_path_only_preserves_explicit_virtual_root_paths() {
     let backend = AndroidMediaStoreBackend::new();
     
     // DCIM virtual-root paths should be preserved
@@ -1325,4 +1325,29 @@ fn test_backend_name() {
 fn test_backend_supported_features() {
     let backend = AndroidMediaStoreBackend::new();
     assert_eq!(backend.supported_features(), 0);
+}
+
+#[cfg(all(not(target_os = "android"), unix))]
+#[tokio::test]
+async fn test_backend_non_media_upload_preserves_virtual_subdir_in_listing() {
+    let temp_dir = TempDir::new().unwrap();
+    let bridge = Arc::new(MockMediaStoreBridge::new(temp_dir.path().to_path_buf()));
+    let backend = AndroidMediaStoreBackend::with_bridge(bridge);
+
+    // Upload a non-media file to a virtual subdirectory
+    let data = b"notes content".repeat(100);
+    let reader = std::io::Cursor::new(data.clone());
+    let bytes_written = backend
+        .put(&DefaultUser {}, reader, "subdir/notes.txt", 0)
+        .await
+        .expect("put should succeed");
+    assert_eq!(bytes_written, data.len() as u64);
+
+    // The file should be listable under the virtual subdirectory
+    let items = backend.list(&DefaultUser {}, "subdir").await.expect("list subdir should succeed");
+    let names: Vec<String> = items.iter().map(|i| i.path.to_string_lossy().to_string()).collect();
+    assert!(
+        names.contains(&"notes.txt".to_string()),
+        "Expected notes.txt in subdir listing, got: {names:?}"
+    );
 }

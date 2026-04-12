@@ -164,6 +164,9 @@ impl AndroidMediaStoreBackend {
             match part {
                 "" | "." => {}
                 ".." => {
+                    // Defense-in-depth: validate_path rejects ".." components before
+                    // normalize_path is reached, so this branch is unreachable on public
+                    // API paths. Kept for safety in case normalize_path is called directly.
                     components.pop();
                 }
                 _ => components.push(part),
@@ -261,7 +264,14 @@ impl AndroidMediaStoreBackend {
     }
 
     fn is_within_virtual_root(path: &str, root: &str) -> bool {
-        path == root || path.starts_with(&format!("{root}/"))
+        if path == root {
+            return true;
+        }
+        let root_bytes = root.as_bytes();
+        let path_bytes = path.as_bytes();
+        path_bytes.len() > root_bytes.len()
+            && path_bytes[root_bytes.len()] == b'/'
+            && path_bytes[..root_bytes.len()] == *root_bytes
     }
 
     fn virtual_path_candidates(&self, path: &Path, for_directory: bool) -> Vec<String> {
@@ -332,6 +342,7 @@ impl AndroidMediaStoreBackend {
         let file_candidates = self.virtual_file_candidates(path);
         let mut first_file_match: Option<(String, QueryResult)> = None;
         let mut secondary_file_collision: Option<String> = None;
+        let mut found_directory_in_non_primary = false;
 
         for (index, candidate_path) in file_candidates.into_iter().enumerate() {
             let operation = if index == 0 {
@@ -343,6 +354,9 @@ impl AndroidMediaStoreBackend {
             match self.query_file_entry(operation, &candidate_path).await {
                 Ok(entry) => {
                     if entry.is_directory() {
+                        if index > 0 {
+                            found_directory_in_non_primary = true;
+                        }
                         continue;
                     }
 
@@ -362,15 +376,21 @@ impl AndroidMediaStoreBackend {
             }
         }
 
-        if let Some(modified) = self.directory_modified_millis(path).await? {
-            if let Some((primary_file_path, _)) = &first_file_match {
-                warn!(
-                    path = %path.display(),
-                    primary = %primary_file_path,
-                    "Virtual path resolves to directory over file during read lookup"
-                );
+        // Only check for directory collision if there might be one:
+        // - secondary file collision exists, or
+        // - no file was found (might be a directory-only virtual path), or
+        // - a non-primary candidate resolved as a directory (could shadow the primary file)
+        if secondary_file_collision.is_some() || first_file_match.is_none() || found_directory_in_non_primary {
+            if let Some(modified) = self.directory_modified_millis(path).await? {
+                if let Some((primary_file_path, _)) = &first_file_match {
+                    warn!(
+                        path = %path.display(),
+                        primary = %primary_file_path,
+                        "Virtual path resolves to directory over file during read lookup"
+                    );
+                }
+                return Ok(FileLookupResolution::Directory { modified });
             }
-            return Ok(FileLookupResolution::Directory { modified });
         }
 
         if let Some((candidate_path, entry)) = first_file_match {
@@ -677,24 +697,29 @@ impl StorageBackend<DefaultUser> for AndroidMediaStoreBackend {
         let path = path.as_ref();
         self.validate_path(path)?;
 
-        if !self.is_root_path(path) && !self.directory_exists(path).await? {
-            return Err(Self::storage_error(
-                StorageErrorKind::PermanentDirectoryNotAvailable,
-                format!("Directory not found: {}", path.display()),
-            ));
-        }
-        
+        let is_root = self.is_root_path(path);
         let directory_candidates = self.virtual_directory_candidates(path);
         debug!(path = %path.display(), candidates = ?directory_candidates, "Listing directory");
 
         let mut merged_listing = Vec::new();
+        let mut any_candidate_had_results = false;
         for (index, directory_candidate) in directory_candidates.into_iter().enumerate() {
             let operation = if index == 0 { "list_primary" } else { "list_secondary" };
             let results = self
                 .query_directory_entries(operation, &directory_candidate)
                 .await?;
+            if !results.is_empty() {
+                any_candidate_had_results = true;
+            }
             let listing = self.build_directory_listing(&directory_candidate, results);
             merged_listing = Self::merge_directory_listings(merged_listing, listing);
+        }
+
+        if !is_root && !any_candidate_had_results {
+            return Err(Self::storage_error(
+                StorageErrorKind::PermanentDirectoryNotAvailable,
+                format!("Directory not found: {}", path.display()),
+            ));
         }
 
         Ok(merged_listing)
@@ -1040,11 +1065,15 @@ mod tests {
     #[test]
     fn test_resolve_path() {
         let backend = AndroidMediaStoreBackend::new();
-        
-        // Paths starting with DCIM/ or Pictures/ are used as-is
-        assert!(backend.resolve_path(Path::new("DCIM/test.jpg")).starts_with("DCIM/"));
-        
-        // Other paths are prefixed with base path
+
+        // Only virtual-root paths are preserved as-is
+        assert_eq!(backend.resolve_path(Path::new("DCIM/CameraFTP/test.jpg")), "DCIM/CameraFTP/test.jpg");
+        assert_eq!(backend.resolve_path(Path::new("Download/CameraFTP/test.jpg")), "Download/CameraFTP/test.jpg");
+
+        // Non-virtual-root DCIM paths get the base prefix
+        assert_eq!(backend.resolve_path(Path::new("DCIM/test.jpg")), "DCIM/CameraFTP/DCIM/test.jpg");
+
+        // Bare filenames get the base prefix
         let resolved = backend.resolve_path(Path::new("test.jpg"));
         assert!(resolved.starts_with("DCIM/CameraFTP/"));
     }

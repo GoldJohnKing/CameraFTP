@@ -31,8 +31,27 @@ let snapshot: LatestPhotoSnapshot = {
 const listeners = new Set<StoreListener>();
 let isInitialized = false;
 let teardownFn: (() => void) | null = null;
-let inFlightRefresh: Promise<LatestPhotoFile | null> | null = null;
-let needsFollowUpRefresh = false;
+
+/** Encapsulates in-flight refresh state with a dirty flag for follow-up. */
+const refreshCoordinator = {
+  _inFlight: null as Promise<LatestPhotoFile | null> | null,
+  _dirty: false,
+
+  trigger(): Promise<LatestPhotoFile | null> {
+    if (!this._inFlight) {
+      this._inFlight = runRefreshLatestPhoto().finally(() => {
+        this._inFlight = null;
+        if (this._dirty) {
+          this._dirty = false;
+          void this.trigger();
+        }
+      });
+    } else {
+      this._dirty = true;
+    }
+    return this._inFlight;
+  },
+};
 
 function emit(): void {
   listeners.forEach((listener) => listener());
@@ -76,19 +95,7 @@ async function runRefreshLatestPhoto(): Promise<LatestPhotoFile | null> {
 }
 
 function refreshLatestPhoto(): Promise<LatestPhotoFile | null> {
-  if (!inFlightRefresh) {
-    inFlightRefresh = runRefreshLatestPhoto().finally(() => {
-      inFlightRefresh = null;
-      if (needsFollowUpRefresh) {
-        needsFollowUpRefresh = false;
-        void refreshLatestPhoto();
-      }
-    });
-  } else {
-    needsFollowUpRefresh = true;
-  }
-
-  return inFlightRefresh;
+  return refreshCoordinator.trigger();
 }
 
 function initializeStore(): void {
