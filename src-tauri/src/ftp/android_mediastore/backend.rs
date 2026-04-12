@@ -15,6 +15,7 @@ use super::types::{
     MediaStoreError, MediaStoreCollection, QueryResult,
 };
 use async_trait::async_trait;
+use futures::future::join_all;
 use std::collections::BTreeMap;
 use std::fmt::Debug;
 use std::path::{Path, PathBuf};
@@ -317,25 +318,8 @@ impl AndroidMediaStoreBackend {
         self.virtual_path_candidates(path, true)
     }
 
-    #[allow(dead_code)]
     pub(crate) fn virtual_file_candidates(&self, path: &Path) -> Vec<String> {
         self.virtual_path_candidates(path, false)
-    }
-
-    async fn query_file_entry(
-        &self,
-        operation: &'static str,
-        file_path: &str,
-    ) -> Result<QueryResult, MediaStoreError> {
-        let bridge = self.bridge.clone();
-        let query_path = file_path.to_string();
-
-        retry_with_backoff(&self.retry_config, operation, || {
-            let bridge = bridge.clone();
-            let query_path = query_path.clone();
-            async move { bridge.query_file(&query_path).await }
-        })
-        .await
     }
 
     async fn resolve_file_lookup(&self, path: &Path) -> Result<FileLookupResolution, StorageError> {
@@ -344,14 +328,26 @@ impl AndroidMediaStoreBackend {
         let mut secondary_file_collision: Option<String> = None;
         let mut found_directory_in_non_primary = false;
 
-        for (index, candidate_path) in file_candidates.into_iter().enumerate() {
-            let operation = if index == 0 {
-                "query_file_primary"
-            } else {
-                "query_file_secondary"
-            };
+        // Query all file candidates in parallel to reduce latency
+        let results: Vec<(usize, String, Result<QueryResult, MediaStoreError>)> =
+            futures::future::join_all(file_candidates.into_iter().enumerate().map(|(index, candidate_path)| {
+                let bridge = self.bridge.clone();
+                let retry_config = self.retry_config.clone();
+                async move {
+                    let operation = if index == 0 { "query_file_primary" } else { "query_file_secondary" };
+                    let result = retry_with_backoff(&retry_config, operation, || {
+                        let bridge = bridge.clone();
+                        let query_path = candidate_path.clone();
+                        async move { bridge.query_file(&query_path).await }
+                    })
+                    .await;
+                    (index, candidate_path, result)
+                }
+            }))
+            .await;
 
-            match self.query_file_entry(operation, &candidate_path).await {
+        for (index, candidate_path, result) in results {
+            match result {
                 Ok(entry) => {
                     if entry.is_directory() {
                         if index > 0 {
@@ -413,19 +409,33 @@ impl AndroidMediaStoreBackend {
 
     async fn directory_modified_millis(&self, path: &Path) -> Result<Option<u64>, StorageError> {
         let directory_candidates = self.virtual_directory_candidates(path);
+        let bridge = self.bridge.clone();
+        let retry_config = self.retry_config.clone();
+
+        let all_results: Vec<Vec<QueryResult>> = join_all(
+            directory_candidates.into_iter().map(|directory_path| {
+                let bridge = bridge.clone();
+                let retry_config = retry_config.clone();
+                async move {
+                    Self::query_directory_entries_with_bridge(
+                        &bridge, &retry_config, "query_directory", &directory_path,
+                    )
+                    .await
+                    .unwrap_or_default()
+                }
+            }),
+        )
+        .await;
+
         let mut found_directory = false;
         let mut max_modified = 0_u64;
-
-        for directory_path in directory_candidates {
-            let results = self
-                .query_directory_entries("query_directory", &directory_path)
-                .await?;
+        for results in all_results {
             if !results.is_empty() {
                 found_directory = true;
                 if let Some(candidate_modified) = results.iter().map(|entry| entry.date_modified).max() {
                     max_modified = max_modified.max(candidate_modified);
                 }
-                }
+            }
         }
 
         if found_directory {
@@ -510,15 +520,18 @@ impl AndroidMediaStoreBackend {
         listing
     }
 
-    async fn query_directory_entries(
-        &self,
+    /// Queries directory entries with explicit bridge/retry_config for use in parallel closures.
+    async fn query_directory_entries_with_bridge(
+        bridge: &Arc<dyn MediaStoreBridgeClient>,
+        retry_config: &RetryConfig,
         operation: &'static str,
         directory_path: &str,
     ) -> Result<Vec<QueryResult>, StorageError> {
-        let bridge = self.bridge.clone();
+        let bridge = bridge.clone();
         let query_path = directory_path.to_string();
+        let retry_config = retry_config.clone();
 
-        retry_with_backoff(&self.retry_config, operation, || {
+        retry_with_backoff(&retry_config, operation, || {
             let bridge = bridge.clone();
             let query_path = query_path.clone();
             async move { bridge.query_files(&query_path).await }
@@ -701,13 +714,27 @@ impl StorageBackend<DefaultUser> for AndroidMediaStoreBackend {
         let directory_candidates = self.virtual_directory_candidates(path);
         debug!(path = %path.display(), candidates = ?directory_candidates, "Listing directory");
 
+        // Query all directory candidates in parallel
+        let candidate_results: Vec<(String, Vec<QueryResult>)> = join_all(
+            directory_candidates.into_iter().enumerate().map(|(index, directory_candidate)| {
+                let bridge = self.bridge.clone();
+                let retry_config = self.retry_config.clone();
+                async move {
+                    let operation = if index == 0 { "list_primary" } else { "list_secondary" };
+                    let results = Self::query_directory_entries_with_bridge(
+                        &bridge, &retry_config, operation, &directory_candidate,
+                    )
+                    .await
+                    .unwrap_or_default();
+                    (directory_candidate, results)
+                }
+            }),
+        )
+        .await;
+
         let mut merged_listing = Vec::new();
         let mut any_candidate_had_results = false;
-        for (index, directory_candidate) in directory_candidates.into_iter().enumerate() {
-            let operation = if index == 0 { "list_primary" } else { "list_secondary" };
-            let results = self
-                .query_directory_entries(operation, &directory_candidate)
-                .await?;
+        for (directory_candidate, results) in candidate_results {
             if !results.is_empty() {
                 any_candidate_had_results = true;
             }

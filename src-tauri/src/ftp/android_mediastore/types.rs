@@ -92,9 +92,16 @@ fn classify_from_system_mime(mime: &str) -> MediaFileClass {
 }
 
 /// Classifies a file by querying the Android system MimeTypeMap.
-/// Falls back to `NonMedia` for unrecognized extensions.
 ///
-/// This replaces the old hardcoded `collection_from_filename()` for Android.
+/// Returns a `(mime_type, class)` tuple. On Android, queries the system's
+/// `MimeTypeMap` via JNI for accurate MIME detection. On non-Android (tests,
+/// Windows build), `system_mime_from_extension` returns `None` and everything
+/// is classified as `(application/octet-stream, NonMedia)`.
+///
+/// This is only meaningful on Android because `AndroidMediaStoreBackend::put()`
+/// is the sole consumer. Windows uses a different storage backend entirely.
+///
+/// Replaces the old hardcoded `collection_from_filename()` for Android uploads.
 pub fn classify_file(filename: &str) -> (String, MediaFileClass) {
     let extension = filename.rsplit('.').next().unwrap_or("");
     if extension.is_empty() {
@@ -270,6 +277,7 @@ pub fn relative_path_from_full_path(path: &str) -> String {
 }
 
 /// Checks if a lowercase filename ends with a supported RAW photo extension.
+#[deprecated(note = "Use classify_file() + collection_from_class() instead of hardcoded extension lists")]
 fn is_raw_extension(lower: &str) -> bool {
     lower.ends_with(".dng")
         || lower.ends_with(".nef")
@@ -329,6 +337,8 @@ pub fn mime_type_from_filename(filename: &str) -> &'static str {
 ///
 /// Media files that need gallery refresh go to images/videos collections,
 /// while all other files go to downloads.
+#[deprecated(note = "Use classify_file() + collection_from_class() for Android uploads instead")]
+#[allow(deprecated)]
 pub fn collection_from_filename(filename: &str) -> MediaStoreCollection {
     let lower = filename.to_lowercase();
     if lower.ends_with(".jpg")
@@ -386,6 +396,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(deprecated)]
     fn test_collection_from_filename() {
         assert_eq!(collection_from_filename("a.jpg"), MediaStoreCollection::Images);
         assert_eq!(collection_from_filename("a.jpeg"), MediaStoreCollection::Images);

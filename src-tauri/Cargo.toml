@@ -39,6 +39,7 @@ async-trait = "0.1"
 image = { version = "0.25", default-features = false, features = ["png"] }
 # EXIF 元数据读取 - 使用 nom-exif 支持全格式 (JPG/RAW/CR3/NEF等)
 nom-exif = "2.7"
+futures = "0.3"
 
 # 密码哈希
 argon2 = "0.5"
@@ -66,3 +67,4 @@ windows = { version = "0.58", features = [
 
 [dev-dependencies]
 tempfile = "3.12"
+filetime = "0.2"

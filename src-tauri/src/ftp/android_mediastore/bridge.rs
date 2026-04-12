@@ -748,14 +748,8 @@ impl MediaStoreBridgeClient for MockMediaStoreBridge {
             .unwrap_or_default();
 
         let expected_display_name = display_name_from_path(path);
-        let expected_relative_path = normalize_relative_path_for_match(&relative_path_from_full_path(path));
 
         if name != expected_display_name {
-            return Err(MediaStoreError::NotFound(path.to_string()));
-        }
-
-        let actual_relative_path = normalize_relative_path_for_match(&relative_path_from_full_path(path));
-        if actual_relative_path != expected_relative_path {
             return Err(MediaStoreError::NotFound(path.to_string()));
         }
 
