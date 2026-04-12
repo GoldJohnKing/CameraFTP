@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
 
-import { useCallback, useEffect, useRef, useState, type RefObject, type TouchEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type RefObject } from 'react';
 import { toast } from 'sonner';
 import { buildDeleteFailureMessage } from '../utils/gallery-delete';
 import type { DeleteImagesResult } from '../types';
@@ -24,8 +24,8 @@ type UseGallerySelectionResult = {
   showMenu: boolean;
   deletingIds: Set<string>;
   menuRef: RefObject<HTMLDivElement>;
-  handleTouchStart: (imagePath: string, event: TouchEvent, isScrolling: boolean) => void;
-  handleTouchMove: (event: TouchEvent) => void;
+  handleTouchStart: (imagePath: string, event: React.TouchEvent, isScrolling: boolean) => void;
+  handleTouchMove: (event: React.TouchEvent) => void;
   handleTouchEnd: () => void;
   handleSelectionClick: (imagePath: string) => boolean;
   handleRefreshStart: () => void;

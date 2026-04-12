@@ -68,6 +68,12 @@ function checkAllGranted(perms: PermissionCheckResult): boolean {
 const POLLING_INTERVAL_MS = 200; // Poll every 200ms when active
 const POLLING_TIMEOUT_MS = 30000;
 
+function shouldStopPolling(mode: 'all' | 'storage', perms: PermissionCheckResult): boolean {
+  return mode === 'storage'
+    ? perms.storage
+    : perms.storage && perms.notification && perms.batteryOptimization;
+}
+
 /**
  * Permission Store using Zustand
  * Uses polling instead of events for reliability
@@ -185,11 +191,7 @@ export const usePermissionStore = create<PermissionStoreState>()((set, get) => (
           previousState = perms;
           get().setPermissions(perms);
           
-          const shouldStopImmediately = mode === 'storage'
-            ? perms.storage
-            : perms.storage && perms.notification && perms.batteryOptimization;
-
-          if (shouldStopImmediately) {
+          if (shouldStopPolling(mode, perms)) {
             get().stopPolling();
             return;
           }
@@ -225,11 +227,7 @@ export const usePermissionStore = create<PermissionStoreState>()((set, get) => (
             }
           }
           
-          const shouldStopPolling = mode === 'storage'
-            ? perms.storage
-            : perms.storage && perms.notification && perms.batteryOptimization;
-
-          if (shouldStopPolling) {
+          if (shouldStopPolling(mode, perms)) {
             stopPollingRequested = true;
             // Delay stop to ensure state is propagated
             window.setTimeout(() => {

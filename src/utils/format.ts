@@ -14,3 +14,19 @@ export function formatBytes(bytes: number): string {
   const mb = bytes / (1024 * 1024);
   return `${mb.toFixed(1)} MB`;
 }
+
+/**
+ * 确保异步操作至少执行指定的毫秒数，
+ * 用于让 UI 动画（如 loading spinner）在快速操作中仍然可见。
+ */
+export async function withMinDuration<T>(fn: () => Promise<T>, minMs: number = 200): Promise<T> {
+  const start = Date.now();
+  try {
+    return await fn();
+  } finally {
+    const remaining = Math.max(0, minMs - (Date.now() - start));
+    if (remaining > 0) {
+      await new Promise<void>((resolve) => setTimeout(resolve, remaining));
+    }
+  }
+}

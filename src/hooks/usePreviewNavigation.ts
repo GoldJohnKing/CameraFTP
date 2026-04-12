@@ -9,6 +9,15 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import type { FileInfo } from '../types';
 
+/**
+ * Generates indices scanning outward from `start`: forward first, then backward.
+ * E.g., start=2, length=5 → [3, 4, 1, 0]
+ */
+function* forwardThenBackwardRange(start: number, length: number): Generator<number> {
+  for (let i = start + 1; i < length; i++) yield i;
+  for (let i = start - 1; i >= 0; i--) yield i;
+}
+
 interface UsePreviewNavigationParams {
   imagePath: string | null;
   onImagePathChange: (path: string | null) => void;
@@ -86,19 +95,19 @@ export function usePreviewNavigation({
           return;
         }
 
-        const newIndex = Math.min(targetIndex, files.length - 1);
-        setCurrentIndex(newIndex);
+        const startIndex = Math.min(targetIndex, files.length - 1);
 
-        try {
-          const file = await invoke<FileInfo>('navigate_to_file', { index: newIndex });
-          onImagePathChange(file.path);
-          onBeforeNavigation();
-          onNavigationSettled();
-        } catch {
-          if (newIndex < files.length - 1) {
-            void navigateTo(newIndex + 1);
-          } else if (newIndex > 0) {
-            void navigateTo(newIndex - 1);
+        // Scan outward from startIndex: first forward, then backward
+        for (const candidate of [startIndex, ...forwardThenBackwardRange(startIndex, files.length)]) {
+          try {
+            const file = await invoke<FileInfo>('navigate_to_file', { index: candidate });
+            setCurrentIndex(candidate);
+            onBeforeNavigation();
+            onImagePathChange(file.path);
+            onNavigationSettled();
+            return;
+          } catch {
+            continue;
           }
         }
       } catch {
@@ -123,51 +132,8 @@ export function usePreviewNavigation({
 
   const goToLatest = useCallback(async () => {
     if (totalFiles === 0) return;
-
-    try {
-      const file = await invoke<FileInfo>('navigate_to_file', { index: 0 });
-      setCurrentIndex(0);
-      onBeforeNavigation();
-      setTotalFiles((prev) => Math.max(prev, 1));
-      onImagePathChange(file.path);
-      onNavigationSettled();
-    } catch {
-      try {
-        const files = await invoke<FileInfo[]>('get_file_list');
-        setTotalFiles(files.length);
-
-        if (files.length === 0) {
-          setCurrentIndex(0);
-          onImagePathChange(null);
-          return;
-        }
-
-        if (files.length > 0) {
-          try {
-            const file = await invoke<FileInfo>('navigate_to_file', { index: 0 });
-            setCurrentIndex(0);
-            onBeforeNavigation();
-            onImagePathChange(file.path);
-            onNavigationSettled();
-          } catch {
-            for (let i = 0; i < files.length; i++) {
-              try {
-                const file = await invoke<FileInfo>('navigate_to_file', { index: i });
-                setCurrentIndex(i);
-                onBeforeNavigation();
-                onImagePathChange(file.path);
-                onNavigationSettled();
-                break;
-              } catch {
-                continue;
-              }
-            }
-          }
-        }
-      } catch {
-      }
-    }
-  }, [onBeforeNavigation, onImagePathChange, onNavigationSettled, totalFiles]);
+    await navigateTo(0);
+  }, [navigateTo, totalFiles]);
 
   return {
     currentIndex,

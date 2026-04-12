@@ -9,6 +9,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { PREVIEW_NAVIGATE_EVENT } from '../preview-window-events';
 import { usePreviewWindowLifecycle } from '../usePreviewWindowLifecycle';
+import { flush } from '../../test-utils/flush';
 
 const { invokeMock, listenMock } = vi.hoisted(() => ({
   invokeMock: vi.fn(),
@@ -36,11 +37,6 @@ function Harness() {
       <span data-testid="bring-front">{state.autoBringToFront ? 'yes' : 'no'}</span>
     </div>
   );
-}
-
-async function flush(): Promise<void> {
-  await Promise.resolve();
-  await Promise.resolve();
 }
 
 describe('usePreviewWindowLifecycle', () => {

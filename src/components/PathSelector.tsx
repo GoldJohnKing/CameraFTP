@@ -7,9 +7,9 @@
 import { useState, memo } from 'react';
 import { Folder, RefreshCw } from 'lucide-react';
 import type { StorageInfo } from '../types';
+import { usePlatform } from '../hooks/usePlatform';
 
 interface PathSelectorProps {
-  platform: string;
   storageInfo: StorageInfo | null;
   needsPermission: boolean;
   savePath: string | null;
@@ -20,7 +20,6 @@ interface PathSelectorProps {
 }
 
 export const PathSelector = memo(function PathSelector({
-  platform,
   storageInfo,
   needsPermission,
   savePath,
@@ -31,8 +30,7 @@ export const PathSelector = memo(function PathSelector({
 }: PathSelectorProps) {
   const [isCreatingDir, setIsCreatingDir] = useState(false);
 
-  const isAndroid = platform === 'android';
-  const isDesktop = platform === 'windows';
+  const { isAndroid, isWindows: isDesktop } = usePlatform();
 
   const handleEnsureReady = async () => {
     setIsCreatingDir(true);

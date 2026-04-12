@@ -8,6 +8,7 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { LATEST_PHOTO_REFRESH_REQUESTED_EVENT } from '../../utils/gallery-refresh';
+import { flush } from '../../test-utils/flush';
 
 const { listenMock, fetchLatestPhotoFileMock, isGalleryV2AvailableMock } = vi.hoisted(() => ({
   listenMock: vi.fn(),
@@ -52,11 +53,6 @@ function MultiConsumerHarness() {
       <LatestPhotoHarness />
     </div>
   );
-}
-
-async function flush(): Promise<void> {
-  await Promise.resolve();
-  await Promise.resolve();
 }
 
 describe('useLatestPhoto', () => {

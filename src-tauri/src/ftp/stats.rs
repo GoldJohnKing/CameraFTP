@@ -41,7 +41,8 @@ impl StatsActor {
 
     /// 直接获取当前统计（从共享状态读取，不经过 channel）
     /// 这是更可靠的方式，避免 channel 竞争问题
-    pub async fn get_stats_direct(&self) -> ServerStats {
+    #[allow(dead_code)]
+    pub(crate) async fn get_stats_direct(&self) -> ServerStats {
         self.stats.read().await.clone()
     }
 

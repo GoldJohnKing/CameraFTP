@@ -14,6 +14,7 @@
 // ===== Re-export from ts-rs generated bindings =====
 export type { ServerInfo } from '../../src-tauri/bindings/ServerInfo';
 export type { ServerStateSnapshot } from '../../src-tauri/bindings/ServerStateSnapshot';
+export type { ServerRuntimeView } from '../../src-tauri/bindings/ServerRuntimeView';
 export type { AdvancedConnectionConfig } from '../../src-tauri/bindings/AdvancedConnectionConfig';
 export type { AppConfig } from '../../src-tauri/bindings/AppConfig';
 export type { StorageInfo } from '../../src-tauri/bindings/StorageInfo';
@@ -28,4 +29,7 @@ export type { AndroidImageOpenMethod } from '../../src-tauri/bindings/AndroidIma
 export * from './global';
 
 // ===== Re-export from gallery-v2.ts =====
-export type { MediaItemDto } from './gallery-v2';
+export type { MediaItemDto, MediaCursor, MediaPageRequest, MediaPageResponse, ThumbRequest, ThumbResult, ThumbResultListener } from './gallery-v2';
+
+// ===== Re-export from events.ts =====
+export type { ConfigChangedEvent } from './events';

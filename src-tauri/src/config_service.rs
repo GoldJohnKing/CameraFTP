@@ -111,9 +111,7 @@ impl ConfigService {
             fs::create_dir_all(parent)?;
         }
 
-        let config_to_save = config.clone().normalized_for_current_platform();
-
-        let content = serde_json::to_string_pretty(&config_to_save)?;
+        let content = serde_json::to_string_pretty(config)?;
         fs::write(path, content)?;
         info!(config_path = ?path, "Config persisted by ConfigService");
         Ok(())

@@ -16,6 +16,8 @@ import { PathSelector } from './PathSelector';
 import { AdvancedConnectionConfigPanel } from './AdvancedConnectionConfig';
 import { PreviewConfigCard } from './PreviewConfigCard';
 import { AboutCard } from './AboutCard';
+import { usePlatform } from '../hooks/usePlatform';
+import { withMinDuration } from '../utils/format';
 import type { AdvancedConnectionConfig, AppConfig } from '../types';
 
 const DEFAULT_ADVANCED_CONFIG: AdvancedConnectionConfig = {
@@ -27,7 +29,6 @@ export const ConfigCard = memo(function ConfigCard() {
   const {
     isLoading,
     error,
-    platform,
     setAutostart,
     updateDraft,
   } = useConfigStore();
@@ -43,13 +44,10 @@ export const ConfigCard = memo(function ConfigCard() {
   } = usePermissionStore();
 
   const { isRunning } = useServerStore();
+  const { platform, isWindows: isDesktop, isAndroid } = usePlatform();
 
   const [autostartEnabled, setAutostartEnabled] = useState(false);
   const [isCheckingPermissions, setIsCheckingPermissions] = useState(false);
-
-  // Platform detection
-  const isDesktop = platform === 'windows';
-  const isAndroid = platform === 'android';
 
   useEffect(() => {
     const isCancelled = { current: false };
@@ -86,19 +84,11 @@ export const ConfigCard = memo(function ConfigCard() {
 
   const handleRefreshPermissions = useCallback(async () => {
     setIsCheckingPermissions(true);
-    const startTime = Date.now();
-    
+
     try {
-      await checkPermissions();
+      await withMinDuration(() => checkPermissions());
     } finally {
-      // 确保动画至少持续 200ms，让用户能看到刷新效果
-      const elapsed = Date.now() - startTime;
-      const minDuration = 200;
-      const remaining = Math.max(0, minDuration - elapsed);
-      
-      setTimeout(() => {
-        setIsCheckingPermissions(false);
-      }, remaining);
+      setIsCheckingPermissions(false);
     }
   }, [checkPermissions]);
 
@@ -131,7 +121,6 @@ export const ConfigCard = memo(function ConfigCard() {
         <div className="p-4 space-y-6">
           {/* 路径选择 */}
           <PathSelector
-            platform={platform}
             storageInfo={storageInfo}
             needsPermission={needsPermission}
             savePath={draft?.savePath ?? null}
@@ -200,7 +189,7 @@ export const ConfigCard = memo(function ConfigCard() {
       </Card>
 
       {/* 预览配置卡片（Windows 专属） */}
-      <PreviewConfigCard platform={platform} />
+      <PreviewConfigCard />
 
       {/* 图片查看设置（Android 专属） */}
       {isAndroid && draft?.androidImageViewer && (

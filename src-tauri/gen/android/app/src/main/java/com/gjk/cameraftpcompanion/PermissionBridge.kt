@@ -25,7 +25,6 @@ import android.content.ClipData
 import android.content.ContentUris
 import android.provider.MediaStore
 import java.io.File
-import kotlin.concurrent.thread
 
 /**
  * Permission JavaScript Bridge
@@ -43,7 +42,6 @@ class PermissionBridge(activity: MainActivity) : BaseJsBridge(activity) {
          * Get required permissions for MediaStore-based operations
          * Uses READ_MEDIA_IMAGES instead of MANAGE_EXTERNAL_STORAGE
          */
-        @JvmStatic
         fun get_required_permissions(): List<String> {
             return listOf(
                 Manifest.permission.READ_MEDIA_IMAGES,
@@ -51,7 +49,6 @@ class PermissionBridge(activity: MainActivity) : BaseJsBridge(activity) {
             )
         }
 
-        @JvmStatic
         fun build_app_permission_settings_intent(packageName: String): Intent {
             return Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
                 data = Uri.fromParts("package", packageName, null)
@@ -59,7 +56,6 @@ class PermissionBridge(activity: MainActivity) : BaseJsBridge(activity) {
             }
         }
 
-        @JvmStatic
         fun should_open_settings_for_storage_request(hasFullAccess: Boolean, hasPartialAccess: Boolean): Boolean {
             return !hasFullAccess && hasPartialAccess
         }
@@ -252,16 +248,12 @@ class PermissionBridge(activity: MainActivity) : BaseJsBridge(activity) {
         // Handle MediaStore URI directly
         if (path.startsWith("content://")) {
             val uri = Uri.parse(path)
-            thread(name = "open-image-uri") {
+            runOnUiThread {
                 try {
-                    runOnUiThread {
-                        openWithMediaStoreUri(uri)
-                    }
+                    openWithMediaStoreUri(uri)
                 } catch (e: Exception) {
                     Log.e(TAG, "openImageWithChooser: failed to open URI", e)
-                    runOnUiThread {
-                        Toast.makeText(activity, "无法打开图片: ${e.message}", Toast.LENGTH_SHORT).show()
-                    }
+                    Toast.makeText(activity, "无法打开图片: ${e.message}", Toast.LENGTH_SHORT).show()
                 }
             }
             result.put("success", true)
@@ -280,16 +272,12 @@ class PermissionBridge(activity: MainActivity) : BaseJsBridge(activity) {
             return result.toString()
         }
 
-        thread(name = "open-image") {
+        runOnUiThread {
             try {
-                runOnUiThread {
-                    openWithMediaStoreUri(resolvedUri)
-                }
+                openWithMediaStoreUri(resolvedUri)
             } catch (e: Exception) {
                 Log.e(TAG, "openImageWithChooser: failed to open image", e)
-                runOnUiThread {
-                    Toast.makeText(activity, "无法打开图片", Toast.LENGTH_SHORT).show()
-                }
+                Toast.makeText(activity, "无法打开图片: ${e.message}", Toast.LENGTH_SHORT).show()
             }
         }
 

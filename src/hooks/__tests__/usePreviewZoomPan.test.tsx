@@ -8,6 +8,7 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { usePreviewZoomPan } from '../usePreviewZoomPan';
+import { flush } from '../../test-utils/flush';
 
 const { getCurrentWindowMock, onResizedMock } = vi.hoisted(() => ({
   getCurrentWindowMock: vi.fn(),
@@ -30,11 +31,6 @@ function Harness({ imagePath }: { imagePath: string | null }) {
       <span data-testid="scale">{zoomPan.scale}</span>
     </div>
   );
-}
-
-async function flush(): Promise<void> {
-  await Promise.resolve();
-  await Promise.resolve();
 }
 
 describe('usePreviewZoomPan', () => {

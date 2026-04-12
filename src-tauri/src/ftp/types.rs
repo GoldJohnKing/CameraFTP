@@ -10,23 +10,23 @@ use std::sync::Arc;
 
 use crate::config::AuthConfig;
 
-pub fn normalize_ipv4_host(host: &str) -> String {
+pub(crate) fn normalize_ipv4_host(host: &str) -> String {
     host.parse::<std::net::Ipv4Addr>()
         .map(|ip| ip.to_string())
         .unwrap_or_else(|_| "127.0.0.1".to_string())
 }
 
-pub fn format_ipv4_socket_addr(host: &str, port: u16) -> String {
+pub(crate) fn format_ipv4_socket_addr(host: &str, port: u16) -> String {
     format!("{}:{}", normalize_ipv4_host(host), port)
 }
 
-pub fn format_ipv4_ftp_url(host: &str, port: u16) -> String {
+pub(crate) fn format_ipv4_ftp_url(host: &str, port: u16) -> String {
     format!("ftp://{}", format_ipv4_socket_addr(host, port))
 }
 
 /// FTP 服务器统计数据快照
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
-pub struct ServerStats {
+pub(crate) struct ServerStats {
     pub active_connections: u64,
     pub total_uploads: u64,
     pub total_bytes_received: u64,
@@ -34,6 +34,7 @@ pub struct ServerStats {
 }
 
 impl ServerStats {
+    #[cfg(test)]
     pub fn with_connected_clients(mut self, connected_clients: u64) -> Self {
         self.active_connections = connected_clients;
         self
@@ -90,7 +91,7 @@ impl FtpAuthConfig {
 
 /// FTP 服务器配置
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct ServerConfig {
+pub(crate) struct ServerConfig {
     pub port: u16,
     pub root_path: PathBuf,
     pub idle_timeout_seconds: u64,
@@ -149,10 +150,11 @@ impl From<&ServerStateSnapshot> for ServerStats {
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
+#[allow(dead_code)] // Internal fields used within ftp module
 pub struct ServerRuntimeSnapshot {
     pub bind_addr: Option<String>,
     pub is_running: bool,
-    pub stats: Option<ServerStats>,
+    pub(crate) stats: Option<ServerStats>,
 }
 
 #[derive(Debug, Clone, Serialize, TS)]
@@ -204,7 +206,7 @@ impl ServerRuntimeState {
         let _ = self.tx.send(state.clone());
     }
 
-    pub async fn record_stats(&self, stats: ServerStats) {
+    pub(crate) async fn record_stats(&self, stats: ServerStats) {
         let mut state = self.state.write().await;
         if !state.is_running {
             return;
@@ -363,7 +365,7 @@ mod tests {
 
 /// 服务器运行状态
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
-pub enum ServerStatus {
+pub(crate) enum ServerStatus {
     Stopped,
     Starting,
     Running,
@@ -379,7 +381,7 @@ impl ServerStatus {
 /// 领域事件 - 用于事件驱动架构
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
 #[serde(tag = "type", content = "data")]
-pub enum DomainEvent {
+pub(crate) enum DomainEvent {
     FileUploaded {
         path: String,
         size: u64,

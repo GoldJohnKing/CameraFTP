@@ -7,10 +7,11 @@
 import { memo } from 'react';
 import { Home, Settings, Images } from 'lucide-react';
 import { useConfigStore } from '../stores/configStore';
+import { usePlatform } from '../hooks/usePlatform';
 
 export const BottomNav = memo(function BottomNav() {
-  const { activeTab, setActiveTab, platform } = useConfigStore();
-  const isAndroid = platform === 'android';
+  const { activeTab, setActiveTab } = useConfigStore();
+  const { isAndroid } = usePlatform();
 
   return (
     <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200">

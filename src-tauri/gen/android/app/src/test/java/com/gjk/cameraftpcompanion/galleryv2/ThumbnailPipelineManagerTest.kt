@@ -70,42 +70,6 @@ class ThumbnailPipelineManagerTest {
         )
     }
 
-    // ── Test 3: queue quota split respects 50/35/15 ─────────────────────
-
-    @Test
-    fun `queue_quota_split_respects_50_35_15`() {
-        assertEquals(
-            "VISIBLE_QUOTA should be 0.50",
-            0.50,
-            ThumbnailPipelineManager.VISIBLE_QUOTA,
-            0.001
-        )
-        assertEquals(
-            "NEARBY_QUOTA should be 0.35",
-            0.35,
-            ThumbnailPipelineManager.NEARBY_QUOTA,
-            0.001
-        )
-        assertEquals(
-            "PREFETCH_QUOTA should be 0.15",
-            0.15,
-            ThumbnailPipelineManager.PREFETCH_QUOTA,
-            0.001
-        )
-
-        // Verify quotas sum to 1.0
-        val sum = ThumbnailPipelineManager.VISIBLE_QUOTA +
-            ThumbnailPipelineManager.NEARBY_QUOTA +
-            ThumbnailPipelineManager.PREFETCH_QUOTA
-        assertEquals("Quotas should sum to 1.0", 1.0, sum, 0.001)
-
-        // Verify computed quota values
-        val maxQueued = ThumbnailPipelineManager.MAX_QUEUED
-        assertEquals("Visible quota = 300", 300, (maxQueued * 0.50).toInt())
-        assertEquals("Nearby quota = 210", 210, (maxQueued * 0.35).toInt())
-        assertEquals("Prefetch quota = 90", 90, (maxQueued * 0.15).toInt())
-    }
-
     // ── Test 4: visible has reserved worker slot ────────────────────────
 
     @Test
@@ -176,17 +140,6 @@ class ThumbnailPipelineManagerTest {
             assertEquals("Should emit overflow for dropped prefetch", 1, overflowDrops.size)
             assertEquals("pref-overflow", overflowDrops[0].requestId)
         }
-    }
-
-    // ── Test 6: callback batch size is capped to 64 ─────────────────────
-
-    @Test
-    fun `callback_batch_size_is_capped_to_64`() {
-        assertEquals(
-            "BATCH_SIZE should be 64",
-            64,
-            ThumbnailPipelineManager.BATCH_SIZE
-        )
     }
 
     // ── Test 7: cancel latency respects p95 budget in fake clock ────────

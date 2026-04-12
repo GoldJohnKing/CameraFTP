@@ -8,6 +8,7 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { usePreviewExif } from '../usePreviewExif';
+import { flush } from '../../test-utils/flush';
 
 const { invokeMock } = vi.hoisted(() => ({
   invokeMock: vi.fn(),
@@ -25,11 +26,6 @@ function Harness({ imagePath }: { imagePath: string | null }) {
       <span data-testid="iso">{exifInfo?.iso ?? ''}</span>
     </div>
   );
-}
-
-async function flush(): Promise<void> {
-  await Promise.resolve();
-  await Promise.resolve();
 }
 
 describe('usePreviewExif', () => {

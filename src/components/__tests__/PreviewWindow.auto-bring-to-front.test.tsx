@@ -9,7 +9,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { PreviewWindow } from '../PreviewWindow';
-import type { ConfigChangedEvent } from '../../types/events';
+import type { ConfigChangedEvent } from '../../types';
 
 const AUTO_BRING_TO_FRONT_ACCESSIBLE_NAME = '接收到新图片时自动前台显示';
 

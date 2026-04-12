@@ -49,11 +49,4 @@ pub mod types;
 mod tests;
 
 // Re-export main types for convenience
-pub use backend::{AndroidMediaStoreBackend, MediaStoreMetadata};
-pub use limiter::UploadLimiter;
-pub use retry::{retry_with_backoff, RetryConfig};
-pub use types::{
-    default_relative_path, display_name_from_path, mime_type_from_filename,
-    relative_path_from_full_path, FileDescriptorInfo, MediaStoreBridgeClient,
-    MediaStoreError, QueryResult,
-};
+pub use backend::AndroidMediaStoreBackend;

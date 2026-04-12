@@ -8,6 +8,7 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useGallerySelection } from '../useGallerySelection';
+import { flush } from '../../test-utils/flush';
 
 const { toastErrorMock } = vi.hoisted(() => ({
   toastErrorMock: vi.fn(),
@@ -88,11 +89,6 @@ function GallerySelectionHarness({
       <button data-testid="cancel-selection" onClick={handleCancelSelection}>cancel-selection</button>
     </div>
   );
-}
-
-async function flush(): Promise<void> {
-  await Promise.resolve();
-  await Promise.resolve();
 }
 
 describe('useGallerySelection', () => {

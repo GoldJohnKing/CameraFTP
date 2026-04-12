@@ -8,6 +8,7 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { usePreviewNavigation } from '../usePreviewNavigation';
+import { flush } from '../../test-utils/flush';
 
 const { invokeMock, listenMock } = vi.hoisted(() => ({
   invokeMock: vi.fn(),
@@ -39,11 +40,6 @@ function Harness() {
       <button data-testid="oldest" onClick={navigation.goToOldest}>oldest</button>
     </div>
   );
-}
-
-async function flush(): Promise<void> {
-  await Promise.resolve();
-  await Promise.resolve();
 }
 
 describe('usePreviewNavigation', () => {

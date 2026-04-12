@@ -1,9 +1,0 @@
-Metadata-Version: 2.4
-Name: cameraftp-stress-test
-Version: 1.0.0
-Summary: CameraFTP stress testing tool
-Requires-Python: >=3.8
-License-File: LICENSE
-Requires-Dist: pillow>=10.0.0
-Requires-Dist: numpy>=1.24.0
-Dynamic: license-file

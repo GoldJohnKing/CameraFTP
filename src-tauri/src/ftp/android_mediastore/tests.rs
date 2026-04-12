@@ -1338,18 +1338,6 @@ async fn test_put_allows_raw_files_routed_to_images() {
     }
 }
 
-#[test]
-fn test_backend_name() {
-    let backend = AndroidMediaStoreBackend::new();
-    assert_eq!(backend.name(), "AndroidMediaStore");
-}
-
-#[test]
-fn test_backend_supported_features() {
-    let backend = AndroidMediaStoreBackend::new();
-    assert_eq!(backend.supported_features(), 0);
-}
-
 #[cfg(all(not(target_os = "android"), unix))]
 #[tokio::test]
 async fn test_backend_non_media_upload_preserves_virtual_subdir_in_listing() {

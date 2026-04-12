@@ -8,21 +8,10 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { GalleryCard } from '../GalleryCard';
-import type { MediaItemDto } from '../../types/gallery-v2';
+import type { MediaItemDto } from '../../types';
+import { makeItems } from '../../test-utils/media-factory';
 
 // ---- Mocks ----
-
-function makeItems(count: number): MediaItemDto[] {
-  return Array.from({ length: count }, (_, i) => ({
-    mediaId: `media-${i}`,
-    uri: `content://media/${i}`,
-    dateModifiedMs: 1000 + i,
-    width: 100,
-    height: 100,
-    mimeType: 'image/jpeg',
-    displayName: null,
-  }));
-}
 
 const mockItems = makeItems(300);
 let mockLoadNextPage = vi.fn();
@@ -98,48 +87,8 @@ vi.mock('../../stores/configStore', () => ({
   useConfigStore: () => ({ activeTab: 'gallery' }),
 }));
 
-function createMockRectObserver() {
-  const callbacks: Map<Element, ResizeObserverCallback> = new Map();
-
-  class MockResizeObserver {
-    private _cb: ResizeObserverCallback;
-    private _el: Element | null = null;
-
-    constructor(cb: ResizeObserverCallback) {
-      this._cb = cb;
-    }
-
-    observe(el: Element) {
-      this._el = el;
-      callbacks.set(el, this._cb);
-    }
-
-    unobserve(el: Element) {
-      callbacks.delete(el);
-    }
-
-    disconnect() {
-      if (this._el) callbacks.delete(this._el);
-    }
-  }
-
-  const triggerResize = (el: Element, height: number) => {
-    const cb = callbacks.get(el);
-    if (cb) {
-      cb(
-        [{ contentRect: { height } } as ResizeObserverEntry],
-        {} as ResizeObserver,
-      );
-    }
-  };
-
-  return { MockResizeObserver, triggerResize };
-}
-
-async function flush(): Promise<void> {
-  await Promise.resolve();
-  await Promise.resolve();
-}
+import { flush } from '../../test-utils/flush';
+import { createMockRectObserver } from '../../test-utils/mock-resize-observer';
 
 // ---- Tests ----
 

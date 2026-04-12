@@ -11,13 +11,10 @@ import { ImagePlay } from 'lucide-react';
 import { Card, CardHeader, ToggleSwitch } from './ui';
 import { useConfigStore } from '../stores/configStore';
 import { usePreviewConfigListener } from '../hooks/usePreviewConfigListener';
+import { usePlatform } from '../hooks/usePlatform';
 
-interface PreviewConfigCardProps {
-  platform: string;
-}
-
-export function PreviewConfigCard({ platform }: PreviewConfigCardProps) {
-  const isWindows = platform === 'windows';
+export function PreviewConfigCard() {
+  const { isWindows } = usePlatform();
   const updatePreviewConfig = useConfigStore(state => state.updatePreviewConfig);
   const applyPreviewConfig = useConfigStore(state => state.applyPreviewConfig);
   const config = useConfigStore(state => state.draft?.previewConfig ?? null);

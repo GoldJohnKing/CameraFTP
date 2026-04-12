@@ -8,6 +8,7 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useQuitFlow } from '../useQuitFlow';
+import { flush } from '../../test-utils/flush';
 
 const { invokeMock, listenMock } = vi.hoisted(() => ({
   invokeMock: vi.fn(),
@@ -35,11 +36,6 @@ function QuitFlowHarness({ enabled = true }: { enabled?: boolean }) {
       <button onClick={() => handleQuitConfirm(true)} data-testid="quit">quit</button>
     </div>
   );
-}
-
-async function flush(): Promise<void> {
-  await Promise.resolve();
-  await Promise.resolve();
 }
 
 describe('useQuitFlow', () => {

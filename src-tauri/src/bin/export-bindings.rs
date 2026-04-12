@@ -33,6 +33,10 @@ fn main() -> Result<(), ExportError> {
     export_type::<ServerStartCheckResult>()?;
     export_type::<ServerStateSnapshot>()?;
     export_type::<ServerInfo>()?;
+    export_type::<camera_ftp_companion_lib::ftp::types::ServerRuntimeView>()?;
+
+    #[cfg(target_os = "windows")]
+    export_type::<camera_ftp_companion_lib::auto_open::ConfigChangedEvent>()?;
 
     Ok(())
 }

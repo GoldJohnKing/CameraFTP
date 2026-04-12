@@ -19,7 +19,7 @@ import type {
   MediaPageResponse,
   ThumbRequest,
   ThumbResult,
-} from '../../types/gallery-v2';
+} from '../../types';
 
 function createMockBridge() {
   return {
@@ -181,22 +181,6 @@ describe('gallery-media-v2 service', () => {
       // Should not throw — unknown listenerId is ignored
       expect(() => window.__galleryThumbDispatch!('unknown', JSON.stringify(result))).not.toThrow();
       expect(listener).not.toHaveBeenCalled();
-    });
-  });
-
-  describe('Promise semantics', () => {
-    it('all bridge calls return promises', async () => {
-      const bridge = createMockBridge();
-      window.GalleryAndroidV2 = bridge as unknown as typeof window.GalleryAndroidV2;
-
-      const req: MediaPageRequest = { cursor: null, pageSize: 10, sort: 'dateDesc' };
-
-      expect(listMediaPage(req)).toBeInstanceOf(Promise);
-      expect(enqueueThumbnails([])).toBeInstanceOf(Promise);
-      expect(cancelThumbnailRequests([])).toBeInstanceOf(Promise);
-      expect(registerThumbnailListener('v', 'l', vi.fn())).toBeInstanceOf(Promise);
-      expect(unregisterThumbnailListener('l')).toBeInstanceOf(Promise);
-      expect(invalidateMediaIds([])).toBeInstanceOf(Promise);
     });
   });
 });

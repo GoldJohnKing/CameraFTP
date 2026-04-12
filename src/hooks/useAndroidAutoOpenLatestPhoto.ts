@@ -6,7 +6,7 @@
 
 import { useEffect, useRef } from 'react';
 import type { AndroidImageOpenMethod } from '../types';
-import type { MediaItemDto } from '../types/gallery-v2';
+import type { MediaItemDto } from '../types';
 import { openImagePreview } from '../services/image-open';
 
 interface UseAndroidAutoOpenLatestPhotoParams {

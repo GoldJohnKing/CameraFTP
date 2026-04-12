@@ -20,7 +20,7 @@ import {
   registerThumbnailListener,
   unregisterThumbnailListener,
 } from '../services/gallery-media-v2';
-import type { ThumbRequest, ThumbResult } from '../types/gallery-v2';
+import type { ThumbRequest, ThumbResult } from '../types';
 
 const DEBOUNCE_MS = 60;
 const VIEW_ID = 'gallery-grid';

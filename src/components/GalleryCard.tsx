@@ -8,9 +8,10 @@ import { memo, useCallback, useEffect, useState } from 'react';
 import { RefreshCw, ImageOff, X, Trash2, Share2, MoreVertical } from 'lucide-react';
 import { useConfigStore } from '../stores/configStore';
 import { usePermissionStore } from '../stores/permissionStore';
-import type { MediaItemDto } from '../types/gallery-v2';
+import type { MediaItemDto } from '../types';
 import { isGalleryV2Available, invalidateMediaIds } from '../services/gallery-media-v2';
 import { GALLERY_REFRESH_REQUESTED_EVENT } from '../utils/gallery-refresh';
+import { withMinDuration } from '../utils/format';
 import { permissionBridge } from '../types';
 import { useGalleryPager } from '../hooks/useGalleryPager';
 import { useThumbnailScheduler } from '../hooks/useThumbnailScheduler';
@@ -120,17 +121,15 @@ export const GalleryCard = memo(function GalleryCard() {
     }
 
     setIsRefreshing(true);
-    const startTime = Date.now();
 
     try {
-      handleRefreshStart();
-      scheduler.cleanup();
-      await pager.reload();
+      await withMinDuration(async () => {
+        handleRefreshStart();
+        scheduler.cleanup();
+        await pager.reload();
+      });
     } finally {
-      // Ensure animation shows for at least 200ms
-      const elapsed = Date.now() - startTime;
-      const remaining = Math.max(0, 200 - elapsed);
-      setTimeout(() => setIsRefreshing(false), remaining);
+      setIsRefreshing(false);
     }
   }, [handleRefreshStart, pager, scheduler, requestStoragePermission, startPermissionPolling]);
 

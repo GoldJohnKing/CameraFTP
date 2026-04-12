@@ -26,8 +26,6 @@ pub enum FileSystemEvent {
     Deleted(PathBuf),
     /// 文件重命名
     Renamed { from: PathBuf, to: PathBuf },
-    /// 文件修改
-    Modified(PathBuf),
 }
 
 /// Windows 文件系统监听器
@@ -124,13 +122,7 @@ impl FileWatcher {
                 }
             }
             EventKind::Modify(_) => {
-                // 修改事件通常意味着文件内容变化，对于图片预览来说不需要特殊处理
-                // 但如果需要重新读取 EXIF，可以在这里触发
-                for path in &event.paths {
-                    if FileIndexService::is_supported_image(path) {
-                        let _ = tx.try_send(FileSystemEvent::Modified(path.clone()));
-                    }
-                }
+                // 修改事件不需要索引更新
             }
             EventKind::Remove(_) => {
                 for path in &event.paths {
@@ -210,11 +202,6 @@ impl FileWatcher {
                 } else {
                     warn!("Renamed file not ready after timeout: {:?}", to);
                 }
-            }
-            FileSystemEvent::Modified(path) => {
-                debug!("File modified: {:?}", path);
-                // 修改事件通常不需要处理索引
-                // 但如果需要重新读取 EXIF 或其他元数据，可以在这里实现
             }
         }
     }

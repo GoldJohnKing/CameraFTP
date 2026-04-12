@@ -6,7 +6,7 @@
 
 import { useEffect } from 'react';
 import { listen } from '@tauri-apps/api/event';
-import type { ConfigChangedEvent } from '../types/events';
+import type { ConfigChangedEvent } from '../types';
 
 export function usePreviewConfigListener(
   callback: (config: ConfigChangedEvent['config']) => void,

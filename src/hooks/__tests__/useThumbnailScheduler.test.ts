@@ -13,7 +13,7 @@ import {
   registerThumbnailListener,
   unregisterThumbnailListener,
 } from '../../services/gallery-media-v2';
-import type { ThumbRequest, ThumbResult } from '../../types/gallery-v2';
+import type { ThumbRequest, ThumbResult } from '../../types';
 
 vi.mock('@tauri-apps/api/core', () => ({
   convertFileSrc: (path: string) => `asset://localhost${path}`,

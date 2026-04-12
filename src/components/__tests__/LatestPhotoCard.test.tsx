@@ -41,10 +41,7 @@ const galleryAndroidV2 = {
   listMediaPage: listMediaPageMock,
 } as Pick<NonNullable<Window['GalleryAndroidV2']>, 'listMediaPage'>;
 
-async function flush(): Promise<void> {
-  await Promise.resolve();
-  await Promise.resolve();
-}
+import { flush } from '../../test-utils/flush';
 
 describe('LatestPhotoCard', () => {
   let container: HTMLDivElement;

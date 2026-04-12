@@ -6,7 +6,7 @@
 
 import { type TouchEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Check, Loader2 } from 'lucide-react';
-import type { MediaItemDto } from '../types/gallery-v2';
+import type { MediaItemDto } from '../types';
 
 const COLUMNS = 3;
 const DEFAULT_ROW_HEIGHT = 120;

@@ -5,7 +5,7 @@
  */
 
 import { useCallback, useRef, useState } from 'react';
-import type { MediaItemDto, MediaCursor } from '../types/gallery-v2';
+import type { MediaItemDto, MediaCursor } from '../types';
 import { listMediaPage } from '../services/gallery-media-v2';
 
 const PAGE_SIZE = 120;

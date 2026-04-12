@@ -20,9 +20,12 @@ pub struct FileInfo {
     pub sort_time: u64, // 时间戳（毫秒）用于TypeScript
 }
 
+use std::sync::Arc;
+
 #[derive(Debug, Clone)]
 pub struct FileIndex {
     pub files: Vec<FileInfo>,
+    pub files_arc: Arc<Vec<FileInfo>>,
     pub current_index: Option<usize>,
 }
 
@@ -30,8 +33,15 @@ impl FileIndex {
     pub fn new() -> Self {
         Self {
             files: Vec::new(),
+            files_arc: Arc::new(Vec::new()),
             current_index: None,
         }
+    }
+
+    /// Refresh `files_arc` to match the current `files` vector.
+    /// Call this after any mutation to `files`.
+    pub fn refresh_arc(&mut self) {
+        self.files_arc = Arc::new(self.files.clone());
     }
 }
 

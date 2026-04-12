@@ -12,8 +12,9 @@ use crate::constants::{
 use crate::error::AppError;
 use crate::ftp::{
     create_ftp_server, EventBus, EventProcessor, FtpServerHandle, FtpAuthConfig,
-    FrontendTransientEventHandler, ServerConfig, StatsEventHandler, TrayUpdateHandler,
+    FrontendTransientEventHandler, StatsEventHandler, TrayUpdateHandler,
 };
+use crate::ftp::types::ServerConfig;
 use crate::network::NetworkManager;
 use std::sync::Arc;
 use tauri::{AppHandle, Manager};
@@ -25,24 +26,11 @@ pub struct ServerStartupContext {
     pub port: u16,
     pub ip: String,
     pub event_bus: EventBus,
-}
-
-#[derive(Debug, Clone)]
-pub struct ServerStartupOptions {
-    pub min_port: u16,
-}
-
-impl Default for ServerStartupOptions {
-    fn default() -> Self {
-        Self {
-            min_port: MIN_PORT,
-        }
-    }
+    pub display_credentials: (Option<String>, Option<String>),
 }
 
 pub async fn start_ftp_server(
     state: &Arc<Mutex<Option<FtpServerHandle>>>,
-    options: ServerStartupOptions,
     app_handle: AppHandle,
 ) -> Result<ServerStartupContext, AppError> {
     // 检查是否已在运行
@@ -90,7 +78,7 @@ pub async fn start_ftp_server(
             requested_port = requested_port,
             "Port not available, searching for alternative"
         );
-        NetworkManager::find_available_port(options.min_port)
+        NetworkManager::find_available_port(MIN_PORT)
             .await
             .ok_or_else(|| {
                 error!("No available port found");
@@ -118,6 +106,8 @@ pub async fn start_ftp_server(
             FtpAuthConfig::default()
         },
     };
+
+    let display_credentials = server_config.auth.to_display_credentials();
 
     // 创建FTP服务器Actor
     let (server_handle, server_actor, stats_worker, event_bus) = create_ftp_server(Some(app_handle));
@@ -152,6 +142,7 @@ pub async fn start_ftp_server(
                 port,
                 ip,
                 event_bus,
+                display_credentials,
             })
         }
         Err(e) => {
@@ -190,6 +181,29 @@ pub fn spawn_event_processor(app_handle: AppHandle, event_bus: &EventBus) -> one
     });
 
     ready_rx
+}
+
+/// Complete server startup sequence: start FTP server, spawn event processor, wire file index.
+///
+/// This encapsulates the shared logic used by both manual start (`start_server` command)
+/// and autostart (`execute_autostart_server` on Windows).
+pub async fn start_server_with_event_pipeline(
+    state: &Arc<Mutex<Option<FtpServerHandle>>>,
+    app_handle: AppHandle,
+    ready_timeout: std::time::Duration,
+) -> Result<ServerStartupContext, AppError> {
+    let ctx = start_ftp_server(state, app_handle.clone()).await?;
+
+    let ready_rx = spawn_event_processor(app_handle.clone(), &ctx.event_bus);
+
+    if tokio::time::timeout(ready_timeout, ready_rx).await.is_err() {
+        info!("Event processor readiness timed out during startup");
+    }
+
+    let file_index = app_handle.state::<Arc<crate::file_index::FileIndexService>>();
+    file_index.set_event_bus(ctx.event_bus.clone()).await;
+
+    Ok(ctx)
 }
 
 #[cfg(test)]

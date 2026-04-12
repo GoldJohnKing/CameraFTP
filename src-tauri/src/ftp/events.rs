@@ -31,7 +31,7 @@ impl EventBus {
     }
 
     /// 订阅事件
-    pub fn subscribe(&self) -> broadcast::Receiver<DomainEvent> {
+    pub(crate) fn subscribe(&self) -> broadcast::Receiver<DomainEvent> {
         self.tx.subscribe()
     }
 
@@ -67,7 +67,7 @@ impl EventBus {
     }
 
     /// 发布统计更新
-    pub async fn emit_stats_updated(&self, stats: ServerStats) {
+    pub(crate) async fn emit_stats_updated(&self, stats: ServerStats) {
         self.runtime_state().record_stats(stats).await;
     }
 
@@ -87,7 +87,7 @@ impl Default for EventBus {
 
 /// 事件处理器trait
 #[async_trait::async_trait]
-pub trait EventHandler: Send + Sync {
+pub(crate) trait EventHandler: Send + Sync {
     /// 处理事件
     async fn handle(&mut self, event: &DomainEvent);
 
@@ -131,7 +131,7 @@ impl EventProcessor {
     /// 从组件创建事件处理器
     ///
     /// 用于当 EventBus 被提前丢弃，但需要保持状态监听的情况
-    pub fn from_parts(
+    pub(crate) fn from_parts(
         transient_rx: broadcast::Receiver<DomainEvent>,
         state_rx: watch::Receiver<ServerRuntimeSnapshot>,
         runtime_state: Option<crate::ftp::types::ServerRuntimeState>,
@@ -145,7 +145,7 @@ impl EventProcessor {
         }
     }
 
-    pub fn register_runtime_state_handler<H: RuntimeStateHandler + 'static>(
+    pub(crate) fn register_runtime_state_handler<H: RuntimeStateHandler + 'static>(
         mut self,
         handler: H,
     ) -> Self {
@@ -154,7 +154,7 @@ impl EventProcessor {
     }
 
     /// 注册处理器
-    pub fn register<H: EventHandler + 'static>(
+    pub(crate) fn register<H: EventHandler + 'static>(
         mut self,
         handler: H,
     ) -> Self {
@@ -331,11 +331,14 @@ fn fan_out_runtime_state(
         let should_emit_stats = previous_state
             .is_none_or(|previous| previous.snapshot != current_state.snapshot);
         if should_emit_stats {
-            target.emit_frontend_json(
-                "stats-update",
-                serde_json::to_value(snapshot.clone())
-                    .expect("server snapshot should serialize for frontend events"),
-            );
+            match serde_json::to_value(snapshot.clone()) {
+                Ok(value) => {
+                    target.emit_frontend_json("stats-update", value);
+                }
+                Err(e) => {
+                    warn!(error = %e, "Failed to serialize server state snapshot for frontend");
+                }
+            }
         }
     } else if previous_state.is_some_and(|previous| previous.snapshot.is_running) {
         target.emit_frontend_json("server-stopped", serde_json::Value::Null);
@@ -373,7 +376,7 @@ impl RuntimeStateHandler for StatsEventHandler {
     }
 }
 
-pub struct FrontendTransientEventHandler {
+pub(crate) struct FrontendTransientEventHandler {
     app_handle: tauri::AppHandle,
 }
 
@@ -1145,6 +1148,24 @@ mod tests {
         assert_eq!(parse_bind_addr_future_contract_view("192.168.1.8"), None);
         assert_eq!(parse_bind_addr_future_contract_view("192.168.1.8:not-a-port"), None);
         assert_eq!(parse_bind_addr_future_contract_view("not-an-ip:2121"), None);
+    }
+
+    #[test]
+    fn runtime_state_fanout_handles_serialization_failure_gracefully_without_panic() {
+        let mut fanout = RecordingFanout::default();
+        let started_state = ServerRuntimeSnapshot {
+            bind_addr: Some("127.0.0.1:2121".to_string()),
+            is_running: true,
+            stats: None,
+        };
+
+        // Normal operation: stats-update is emitted when server starts
+        fan_out_runtime_state(&mut fanout, None, &started_state);
+
+        assert!(
+            fanout.frontend_events.iter().any(|(name, _)| name == "stats-update"),
+            "stats-update event should be emitted for running server"
+        );
     }
 
     #[test]

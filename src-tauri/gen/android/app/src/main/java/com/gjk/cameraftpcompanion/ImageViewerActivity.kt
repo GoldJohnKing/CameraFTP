@@ -32,7 +32,6 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.exifinterface.media.ExifInterface
-import com.gjk.cameraftpcompanion.bridges.GalleryBridge
 import androidx.viewpager2.widget.ViewPager2
 import com.davemorrissey.labs.subscaleview.SubsamplingScaleImageView
 import org.json.JSONArray
@@ -54,20 +53,6 @@ class ImageViewerActivity : AppCompatActivity() {
         @Volatile
         var isViewerVisible: Boolean = false
             private set
-
-        @JvmStatic
-        fun shouldRequestDeleteConfirmation(
-            isSecurityException: Boolean,
-        ): Boolean {
-            return GalleryBridge.shouldRequestDeleteConfirmation(
-                isSecurityException = isSecurityException,
-            )
-        }
-
-        @JvmStatic
-        fun shouldTreatDeleteAsSuccess(rowsDeleted: Int, stillExists: Boolean): Boolean {
-            return rowsDeleted > 0 || !stillExists
-        }
 
         fun start(context: Context, uris: List<String>, targetIndex: Int) {
             val intent = Intent(context, ImageViewerActivity::class.java).apply {
@@ -402,14 +387,14 @@ class ImageViewerActivity : AppCompatActivity() {
         try {
             val rowsDeleted = contentResolver.delete(uri, null, null)
             val stillExists = uriStillExists(uri)
-            if (shouldTreatDeleteAsSuccess(rowsDeleted, stillExists)) {
+            if (rowsDeleted > 0 || !stillExists) {
                 applyDeleteSuccess(uriString)
             } else {
                 Toast.makeText(this, "删除失败：文件不存在", Toast.LENGTH_SHORT).show()
             }
         } catch (e: Exception) {
             if (allowDeleteConfirmation) {
-                if (shouldRequestDeleteConfirmation(isSecurityException = e is SecurityException)) {
+                if (e is SecurityException) {
                     val pendingIntent = MediaStore.createDeleteRequest(contentResolver, listOf(uri))
                     requestDeleteConfirmation(uriString, pendingIntent.intentSender)
                     return
@@ -438,7 +423,7 @@ class ImageViewerActivity : AppCompatActivity() {
         try {
             val rowsDeleted = contentResolver.delete(uri, null, null)
             val stillExists = uriStillExists(uri)
-            if (shouldTreatDeleteAsSuccess(rowsDeleted, stillExists)) {
+            if (rowsDeleted > 0 || !stillExists) {
                 applyDeleteSuccess(uriString)
                 return
             }

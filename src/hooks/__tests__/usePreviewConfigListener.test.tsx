@@ -7,7 +7,7 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { usePreviewConfigListener } from '../usePreviewConfigListener';
-import type { ConfigChangedEvent } from '../../types/events';
+import type { ConfigChangedEvent } from '../../types';
 
 const { listenMock } = vi.hoisted(() => ({
   listenMock: vi.fn(),

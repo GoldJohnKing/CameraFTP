@@ -8,8 +8,9 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useGalleryPager } from '../useGalleryPager';
+import { flush } from '../../test-utils/flush';
 type UseGalleryPagerResult = ReturnType<typeof useGalleryPager>;
-import type { MediaItemDto, MediaPageResponse } from '../../types/gallery-v2';
+import type { MediaItemDto, MediaPageResponse } from '../../types';
 
 const { listMediaPageMock } = vi.hoisted(() => ({
   listMediaPageMock: vi.fn(),
@@ -45,11 +46,6 @@ function PagerHarness() {
       </button>
     </div>
   );
-}
-
-async function flush(): Promise<void> {
-  await Promise.resolve();
-  await Promise.resolve();
 }
 
 function makePage(

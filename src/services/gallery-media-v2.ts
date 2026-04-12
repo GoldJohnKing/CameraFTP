@@ -17,7 +17,7 @@ import type {
   ThumbRequest,
   ThumbResult,
   ThumbResultListener,
-} from '../types/gallery-v2';
+} from '../types';
 
 /** Internal listener registry keyed by listenerId */
 const listeners = new Map<string, ThumbResultListener>();

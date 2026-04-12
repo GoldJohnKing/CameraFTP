@@ -11,7 +11,7 @@ import { createPortal } from 'react-dom';
 import { Info, X, ExternalLink, ChevronDown, ChevronUp, Heart } from 'lucide-react';
 import { Card, CardHeader } from './ui';
 import { WeChatDonateDialog } from './WeChatDonateDialog';
-import { useConfigStore } from '../stores/configStore';
+import { usePlatform } from '../hooks/usePlatform';
 import wechatLogo from '../assets/wechat-logo.png';
 import alipayLogo from '../assets/alipay-logo.png';
 import donateQrcode from '../assets/donate-qrcode.png';
@@ -134,16 +134,13 @@ const DEPENDENCIES: DependencyGroup[] = [
 interface DonateDialogProps {
   isOpen: boolean;
   onClose: () => void;
-  platform: string;
 }
 
-function DonateDialog({ isOpen, onClose, platform }: DonateDialogProps) {
+function DonateDialog({ isOpen, onClose }: DonateDialogProps) {
   const [isWeChatDonateOpen, setIsWeChatDonateOpen] = useState(false);
+  const { isAndroid, isWindows: isDesktop } = usePlatform();
 
   if (!isOpen) return null;
-
-  const isAndroid = platform === 'android';
-  const isDesktop = platform === 'windows';
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
@@ -409,7 +406,6 @@ export function AboutCard() {
   const [isAboutOpen, setIsAboutOpen] = useState(false);
   const [isDonateOpen, setIsDonateOpen] = useState(false);
   const [version, setVersion] = useState<string>('');
-  const platform = useConfigStore(state => state.platform);
 
   useEffect(() => {
     getVersion().then(setVersion).catch(() => setVersion(''));
@@ -466,7 +462,7 @@ export function AboutCard() {
 
       {/* 捐赠对话框 - 使用 Portal 渲染到 body 下 */}
       {createPortal(
-        <DonateDialog isOpen={isDonateOpen} onClose={() => setIsDonateOpen(false)} platform={platform} />,
+        <DonateDialog isOpen={isDonateOpen} onClose={() => setIsDonateOpen(false)} />,
         document.body
       )}
     </>

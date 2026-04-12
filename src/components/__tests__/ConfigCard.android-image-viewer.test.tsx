@@ -43,10 +43,7 @@ vi.mock('../AutoStartToggle', () => ({ AutoStartToggle: () => <div>AutoStartTogg
 vi.mock('../PreviewConfigCard', () => ({ PreviewConfigCard: () => <div>PreviewConfigCard</div> }));
 vi.mock('../AboutCard', () => ({ AboutCard: () => <div>AboutCard</div> }));
 
-async function flush(): Promise<void> {
-  await Promise.resolve();
-  await Promise.resolve();
-}
+import { flush } from '../../test-utils/flush';
 
 describe('ConfigCard Android image viewer settings', () => {
   let container: HTMLDivElement;

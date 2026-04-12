@@ -31,16 +31,7 @@ pub type FtpStorageBackend = crate::ftp::android_mediastore::AndroidMediaStoreBa
 pub type FtpStorageBackend = unftp_sbe_fs::Filesystem;
 
 // 重新导出主要类型
-pub use events::{
-    EventBus, EventProcessor, FrontendTransientEventHandler, StatsEventHandler,
-    TrayUpdateHandler,
-};
-pub use server::{create_ftp_server, FtpServerActor, FtpServerHandle};
-pub use server_factory::{
-    spawn_event_processor, start_ftp_server, ServerStartupContext, ServerStartupOptions,
-};
-pub use stats::{StatsActor, StatsActorWorker};
-pub use types::{
-    DomainEvent, FtpAuthConfig, ServerConfig, ServerInfo, ServerStateSnapshot, ServerStatus,
-    ServerStats,
-};
+pub use events::EventBus;
+pub(crate) use events::{EventProcessor, FrontendTransientEventHandler, StatsEventHandler, TrayUpdateHandler};
+pub use server::{create_ftp_server, FtpServerHandle};
+pub use types::{FtpAuthConfig, ServerInfo, ServerStateSnapshot};

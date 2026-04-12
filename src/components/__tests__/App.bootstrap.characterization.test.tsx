@@ -87,10 +87,7 @@ vi.mock('../BottomNav', () => ({ BottomNav: () => <div>BottomNav</div> }));
 vi.mock('../PermissionDialog', () => ({ PermissionDialog: () => null }));
 vi.mock('../PreviewWindow', () => ({ PreviewWindow: () => <div>PreviewWindow</div> }));
 
-async function flush(): Promise<void> {
-  await Promise.resolve();
-  await Promise.resolve();
-}
+import { flush } from '../../test-utils/flush';
 
 describe('App bootstrap characterization', () => {
   let container: HTMLDivElement;

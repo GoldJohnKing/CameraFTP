@@ -66,18 +66,8 @@ class MainActivity : TauriActivity() {
 
         @JvmStatic
         fun markActivityHidden() {
-            while (true) {
-                val currentCount = visibleActivityCount.get()
-                if (currentCount <= 0) {
-                    isAppVisible = false
-                    return
-                }
-
-                if (visibleActivityCount.compareAndSet(currentCount, currentCount - 1)) {
-                    isAppVisible = currentCount - 1 > 0
-                    return
-                }
-            }
+            val visibleCount = visibleActivityCount.updateAndGet { curr -> (curr - 1).coerceAtLeast(0) }
+            isAppVisible = visibleCount > 0
         }
     }
 

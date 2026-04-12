@@ -24,10 +24,12 @@ const CLSID_APPLICATION_ACTIVATION_MANAGER: windows::core::GUID = windows::core:
     data4: [0x8F, 0x95, 0xD7, 0x52, 0x57, 0x69, 0xF0, 0xC1],
 };
 
-#[allow(dead_code)]
 struct ShellExecutePayload {
+    #[allow(dead_code)] // Keeps UTF-16 buffers alive for PCWSTR pointers
     file_utf16: Vec<u16>,
+    #[allow(dead_code)]
     operation_utf16: Option<Vec<u16>>,
+    #[allow(dead_code)]
     arguments_utf16: Option<Vec<u16>>,
     file: PCWSTR,
     operation: PCWSTR,

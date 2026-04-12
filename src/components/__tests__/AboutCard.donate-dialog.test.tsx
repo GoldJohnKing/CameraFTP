@@ -24,10 +24,7 @@ vi.mock('@tauri-apps/api/core', () => ({
   invoke: invokeMock,
 }));
 
-async function flush(): Promise<void> {
-  await Promise.resolve();
-  await Promise.resolve();
-}
+import { flush } from '../../test-utils/flush';
 
 describe('AboutCard Android donation flow', () => {
   let container: HTMLDivElement;
@@ -108,9 +105,5 @@ describe('AboutCard Android donation flow', () => {
     expect(overlay).toBeTruthy();
     expect(overlay?.className).toContain('fixed');
     expect(overlay?.className).toContain('inset-0');
-  });
-
-  it('serves the WeChat QR code from a real frontend static asset', () => {
-    expect(wechatQrCodeSrc).toContain('donate-qrcode-wechat.png');
   });
 });

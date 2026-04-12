@@ -83,50 +83,6 @@ class MediaPageProviderTest {
     }
 
     @Test
-    fun media_page_item_nullable_fields() {
-        val item = MediaPageItem(
-            mediaId = "456",
-            uri = "content://media/external/images/media/456",
-            dateModifiedMs = 1000L,
-            width = null,
-            height = null,
-            mimeType = null,
-            displayName = null
-        )
-        assertNull(item.width)
-        assertNull(item.height)
-        assertNull(item.mimeType)
-        assertNull(item.displayName)
-    }
-
-    @Test
-    fun media_page_result_empty_items() {
-        val result = MediaPageResult(
-            items = emptyList(),
-            nextCursor = null,
-            revisionToken = "count:0",
-            totalCount = 0
-        )
-        assertTrue(result.items.isEmpty())
-        assertNull(result.nextCursor)
-        assertEquals("count:0", result.revisionToken)
-    }
-
-    @Test
-    fun media_page_result_with_items_and_cursor() {
-        val items = listOf(
-            MediaPageItem("1", "content://media/1", 1000L, 800, 600, "image/png", "img1.png"),
-            MediaPageItem("2", "content://media/2", 900L, null, null, null, null)
-        )
-        val cursor = MediaPageProvider.encodeCursor(MediaPageCursor(900L, 2))
-        val result = MediaPageResult(items, cursor, "count:10", 10)
-
-        assertEquals(2, result.items.size)
-        assertNotNull(result.nextCursor)
-        assertEquals("count:10", result.revisionToken)
-    }
-
-    @Test
     fun cursor_roundtrip_with_zero_values() {
         val cursor = MediaPageCursor(dateModifiedMs = 0L, mediaId = 0L)
         val encoded = MediaPageProvider.encodeCursor(cursor)

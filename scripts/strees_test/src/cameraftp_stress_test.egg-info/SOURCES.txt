@@ -1,8 +1,0 @@
-LICENSE
-README.md
-pyproject.toml
-src/cameraftp_stress_test.egg-info/PKG-INFO
-src/cameraftp_stress_test.egg-info/SOURCES.txt
-src/cameraftp_stress_test.egg-info/dependency_links.txt
-src/cameraftp_stress_test.egg-info/requires.txt
-src/cameraftp_stress_test.egg-info/top_level.txt

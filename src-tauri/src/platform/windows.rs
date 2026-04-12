@@ -198,9 +198,7 @@ pub struct WindowsPlatform;
 
 fn load_config_from_service(app: &AppHandle) -> Result<crate::config::AppConfig, String> {
     let config_service = app.state::<Arc<ConfigService>>();
-    config_service
-        .get()
-        .map_err(|e| format!("读取配置失败: {}", e))
+    Ok(crate::commands::config::load_config_from_service_or_default(config_service.inner().as_ref()))
 }
 
 impl PlatformService for WindowsPlatform {
@@ -337,28 +335,13 @@ impl PlatformService for WindowsPlatform {
             // 短暂延迟，让应用完全初始化（而非等待服务器启动的1秒）
             tokio::time::sleep(tokio::time::Duration::from_millis(AUTOSTART_DELAY_MS)).await;
 
-            match crate::ftp::server_factory::start_ftp_server(&state_clone, Default::default(), app_handle.clone()).await {
+            match crate::ftp::server_factory::start_server_with_event_pipeline(
+                &state_clone,
+                app_handle.clone(),
+                tokio::time::Duration::from_secs(SERVER_READY_TIMEOUT_SECS),
+            ).await {
                 Ok(ctx) => {
                     tracing::info!("FTP server auto-started on {}:{}", ctx.ip, ctx.port);
-
-                    // 先启动事件处理器（获取就绪信号）
-                    // 注意：传递 event_bus 的引用，不要克隆，以确保处理器和服务器共享同一个状态通道
-                    let ready_rx = crate::ftp::server_factory::spawn_event_processor(
-                        app_handle.clone(),
-                        &ctx.event_bus,
-                    );
-
-                    // 等待事件处理器就绪（而非固定延迟）
-                    match tokio::time::timeout(
-                        tokio::time::Duration::from_secs(SERVER_READY_TIMEOUT_SECS),
-                        ready_rx
-                    ).await {
-                        Ok(_) => tracing::debug!("Event processor ready"),
-                        Err(_) => tracing::warn!("Event processor ready timeout, continuing anyway"),
-                    }
-
-                    let file_index = app_handle.state::<Arc<crate::file_index::FileIndexService>>();
-                    file_index.set_event_bus(ctx.event_bus).await;
                 }
                 Err(e) => {
                     tracing::error!("Failed to auto-start server: {}", e);
@@ -393,8 +376,4 @@ impl PlatformService for WindowsPlatform {
         // Windows 平台通过前端对话框选择，这里返回 None 表示使用前端选择
         Ok(None)
     }
-}
-
-#[cfg(test)]
-mod tests {
 }

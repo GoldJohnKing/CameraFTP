@@ -1,7 +1,0 @@
-bootstrap
-components
-hooks
-services
-stores
-types
-utils

@@ -8,6 +8,7 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useImagePreviewOpener } from '../useImagePreviewOpener';
+import { flush } from '../../test-utils/flush';
 
 const { useDraftConfigMock, openImagePreviewMock } = vi.hoisted(() => ({
   useDraftConfigMock: vi.fn(),
@@ -40,11 +41,6 @@ function Harness({ filePath, allUris }: HarnessProps) {
       open
     </button>
   );
-}
-
-async function flush(): Promise<void> {
-  await Promise.resolve();
-  await Promise.resolve();
 }
 
 describe('useImagePreviewOpener', () => {

@@ -2,8 +2,10 @@
 // Copyright (C) 2026 GoldJohnKing <GoldJohnKing@Live.cn>
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-mod service;
+pub(crate) mod service;
 #[cfg(target_os = "windows")]
 pub mod windows;
 
 pub use service::AutoOpenService;
+#[cfg(target_os = "windows")]
+pub use service::ConfigChangedEvent;

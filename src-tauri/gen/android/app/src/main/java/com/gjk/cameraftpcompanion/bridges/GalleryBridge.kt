@@ -7,7 +7,6 @@
 package com.gjk.cameraftpcompanion.bridges
 
 import android.content.ClipData
-import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.provider.MediaStore
@@ -16,10 +15,18 @@ import com.gjk.cameraftpcompanion.MainActivity
 import org.json.JSONArray
 import org.json.JSONObject
 
-class GalleryBridge(private val context: Context) : BaseJsBridge(context as android.app.Activity) {
+class GalleryBridge(activity: MainActivity) : BaseJsBridge(activity) {
 
     companion object {
         private const val TAG = "GalleryBridge"
+
+        private fun emptyDeleteResult(): String {
+            return JSONObject().apply {
+                put("deleted", JSONArray())
+                put("notFound", JSONArray())
+                put("failed", JSONArray())
+            }.toString()
+        }
 
         @JvmStatic
         fun shouldRequestDeleteConfirmation(
@@ -76,7 +83,7 @@ class GalleryBridge(private val context: Context) : BaseJsBridge(context as andr
 
             if (uris.isEmpty()) {
                 Log.w(TAG, "deleteImages: no URIs provided")
-                return """{"deleted":[],"notFound":[],"failed":[]}"""
+                return emptyDeleteResult()
             }
 
             val deleted = mutableListOf<String>()
@@ -89,7 +96,7 @@ class GalleryBridge(private val context: Context) : BaseJsBridge(context as andr
                     val uri = Uri.parse(uriString)
                     
                     // Delete via MediaStore using URI
-                    val rowsDeleted = context.contentResolver.delete(uri, null, null)
+                    val rowsDeleted = activity.contentResolver.delete(uri, null, null)
                     classifyDeleteResult(uriString, rowsDeleted, deleted, notFound, failed)
                 } catch (e: Exception) {
                     if (shouldRequestDeleteConfirmation(e is SecurityException)) {
@@ -120,7 +127,7 @@ class GalleryBridge(private val context: Context) : BaseJsBridge(context as andr
             response.toString()
         } catch (e: Exception) {
             Log.e(TAG, "deleteImages error", e)
-            """{"deleted":[],"notFound":[],"failed":[]}"""
+            emptyDeleteResult()
         }
     }
 
@@ -128,7 +135,7 @@ class GalleryBridge(private val context: Context) : BaseJsBridge(context as andr
         val mainActivity = activity as? MainActivity ?: return false
 
         return try {
-            val pendingIntent = MediaStore.createDeleteRequest(context.contentResolver, uris)
+            val pendingIntent = MediaStore.createDeleteRequest(activity.contentResolver, uris)
             mainActivity.requestDeleteConfirmation(pendingIntent.intentSender)
         } catch (e: Exception) {
             Log.e(TAG, "requestDeleteConfirmation failed", e)
@@ -144,7 +151,7 @@ class GalleryBridge(private val context: Context) : BaseJsBridge(context as andr
         failed: MutableList<String>,
     ) {
         val stillExists = try {
-            val cursor = context.contentResolver.query(Uri.parse(uriString), null, null, null, null)
+            val cursor = activity.contentResolver.query(Uri.parse(uriString), null, null, null, null)
             cursor?.use { it.count > 0 } ?: false
         } catch (_: Exception) {
             false
@@ -185,7 +192,7 @@ class GalleryBridge(private val context: Context) : BaseJsBridge(context as andr
             val chooser = Intent.createChooser(intent, "分享图片").apply {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
-            context.startActivity(chooser)
+            activity.startActivity(chooser)
 
             Log.d(TAG, "shareImages: shared ${uris.size} images")
             true
