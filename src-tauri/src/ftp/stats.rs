@@ -132,27 +132,22 @@ impl StatsActorWorker {
                     true // 连接数变化需要发送事件
                 }
                 StatsCommand::RecordDownload { path, bytes } => {
-                    // Log-only: no stats storage needed for downloads
                     debug!(file = %path, size = bytes, "File downloaded");
                     false
                 }
                 StatsCommand::RecordDelete { path } => {
-                    // Log-only: no stats storage needed for deletions
                     debug!(file = %path, "File deleted");
                     false
                 }
                 StatsCommand::RecordMkdir { path } => {
-                    // Log-only: no stats storage needed for directory creation
                     debug!(dir = %path, "Directory created");
                     false
                 }
                 StatsCommand::RecordRmdir { path } => {
-                    // Log-only: no stats storage needed for directory removal
                     debug!(dir = %path, "Directory removed");
                     false
                 }
                 StatsCommand::RecordRename { from, to } => {
-                    // Log-only: no stats storage needed for renames
                     debug!(from = %from, to = %to, "File renamed");
                     false
                 }

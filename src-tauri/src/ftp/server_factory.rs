@@ -206,4 +206,3 @@ pub async fn start_server_with_event_pipeline(
     Ok(ctx)
 }
 
-

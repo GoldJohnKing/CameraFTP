@@ -239,8 +239,8 @@ impl PlatformService for WindowsPlatform {
             })?;
         }
 
-        if !crate::utils::fs::is_path_writable(&save_path) {
-            return Err(format!("保存目录 '{}' 没有写入权限", save_path.display()));
+        if let Err(e) = crate::utils::fs::is_path_writable(&save_path) {
+            return Err(format!("保存目录 '{}' 没有写入权限 ({e})", save_path.display()));
         }
 
         Ok(save_path.to_string_lossy().to_string())

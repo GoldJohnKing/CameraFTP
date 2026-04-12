@@ -111,14 +111,14 @@ async fn is_file_readable(path: &Path) -> Result<bool, std::io::Error> {
 ///
 /// let writable = is_path_writable(Path::new("/tmp"));
 /// ```
-pub fn is_path_writable(path: &Path) -> bool {
+pub fn is_path_writable(path: &Path) -> Result<bool, std::io::Error> {
     let test_file = path.join(".write_test");
     match std::fs::File::create(&test_file) {
         Ok(_) => {
             let _ = std::fs::remove_file(&test_file);
-            true
+            Ok(true)
         }
-        Err(_) => false,
+        Err(e) => Err(e),
     }
 }
 
