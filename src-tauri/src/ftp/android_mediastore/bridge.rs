@@ -30,6 +30,16 @@ const MEDIASTORE_BRIDGE_CLASS: &str = "com.gjk.cameraftpcompanion.bridges.MediaS
 #[cfg(any(target_os = "android", test))]
 const FINALIZE_ENTRY_METHOD_NAME: &str = "finalizeEntryAndEmitGalleryItemsAddedNative";
 
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
+fn normalize_relative_path_for_match(relative_path: &str) -> String {
+    let trimmed = relative_path.trim_matches('/');
+    if trimmed.is_empty() {
+        String::new()
+    } else {
+        format!("{trimmed}/")
+    }
+}
+
 #[cfg(target_os = "android")]
 const FINALIZE_ENTRY_METHOD_SIGNATURE: &str =
     "(Landroid/content/Context;Ljava/lang/String;Ljava/lang/Long;)Z";
@@ -495,12 +505,15 @@ impl MediaStoreBridgeClient for JniMediaStoreBridge {
         debug!(path, "Querying single file");
 
         let display_name = display_name_from_path(path);
-        let relative_path = relative_path_from_full_path(path);
+        let relative_path = normalize_relative_path_for_match(&relative_path_from_full_path(path));
 
         let files = self.query_files(&relative_path).await?;
         files
             .into_iter()
-            .find(|f| f.display_name == display_name)
+            .find(|f| {
+                f.display_name == display_name
+                    && normalize_relative_path_for_match(&f.relative_path) == relative_path
+            })
             .ok_or_else(|| MediaStoreError::NotFound(path.to_string()))
     }
 
@@ -796,6 +809,14 @@ mod tests {
             FINALIZE_ENTRY_METHOD_NAME,
             "finalizeEntryAndEmitGalleryItemsAddedNative"
         );
+    }
+
+    #[test]
+    fn test_normalize_relative_path_for_match() {
+        assert_eq!(normalize_relative_path_for_match(""), "");
+        assert_eq!(normalize_relative_path_for_match("DCIM/CameraFTP"), "DCIM/CameraFTP/");
+        assert_eq!(normalize_relative_path_for_match("DCIM/CameraFTP/"), "DCIM/CameraFTP/");
+        assert_eq!(normalize_relative_path_for_match("/DCIM/CameraFTP//"), "DCIM/CameraFTP/");
     }
 
     #[cfg(all(not(target_os = "android"), unix))]
