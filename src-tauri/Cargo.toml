@@ -1,6 +1,6 @@
 [package]
 name = "cameraftp"
-version = "1.4.0"
+version = "1.5.0"
 description = "Cross-platform FTP companion for camera photo transfer"
 authors = ["GoldJohnKing <GoldJohnKing@Live.cn>"]
 repository = "https://github.com/GoldJohnKing/CameraFTP"
