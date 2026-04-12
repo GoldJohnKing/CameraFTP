@@ -7,6 +7,8 @@ source "$SCRIPT_DIR/build-common.sh"
 
 cd "$SCRIPT_DIR/.."
 
+DEPLOY_PATH="${DEPLOY_PATH:-/mnt/ext1/shared-files/nginx}"
+
 declare -A SELECTED_TOOLS
 declare -A SELECTED_PATHS
 
