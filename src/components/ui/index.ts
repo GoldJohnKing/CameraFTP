@@ -10,3 +10,5 @@ export { ToggleSwitch } from './ToggleSwitch';
 export { Card, CardHeader } from './Card';
 export { IconContainer } from './IconContainer';
 export { ErrorBoundary } from './ErrorBoundary';
+export { Dialog } from './Dialog';
+export { RefreshButton } from './RefreshButton';

@@ -67,8 +67,8 @@ impl FileIndexService {
             let latest_filename;
             {
                 let index = self.index.read().await;
-                count = index.files.len();
-                latest_filename = index.files.first().map(|f| f.filename.clone());
+                count = index.files().len();
+                latest_filename = index.files().first().map(|f| f.filename.clone());
             }
             trace!("File index changed event emitted: count={}, latest={:?}", count, latest_filename);
             event_bus.emit_file_index_changed(count, latest_filename);
@@ -163,11 +163,11 @@ impl FileIndexService {
         files.sort_by(|a, b| b.sort_time.cmp(&a.sort_time));
         
         let mut index = self.index.write().await;
-        index.files = files;
-        index.current_index = index.files.first().map(|_| 0);
-        index.refresh_arc();
+        index.current_index = files.first().map(|_| 0);
+        let count = files.len();
+        index.set_files(files);
         
-        info!("Directory scan complete: {} files found", index.files.len());
+        info!("Directory scan complete: {} files found", count);
 
         drop(index);
         self.emit_file_index_changed().await;
@@ -293,11 +293,12 @@ impl FileIndexService {
         let mut index = self.index.write().await;
 
         // 插入到正确位置（保持排序：新→旧）
-        let insert_pos = index.files.iter()
+        let mut files = index.files().as_ref().clone();
+        let insert_pos = files.iter()
             .position(|f| f.sort_time < file_info.sort_time)
-            .unwrap_or(index.files.len());
+            .unwrap_or(files.len());
 
-        index.files.insert(insert_pos, file_info);
+        files.insert(insert_pos, file_info);
 
         // 更新 current_index 如果插入位置在 current_index 之前
         if let Some(current) = index.current_index {
@@ -306,7 +307,7 @@ impl FileIndexService {
             }
         }
 
-        index.refresh_arc();
+        index.set_files(files);
         drop(index);
         info!("Added file to index: {:?}", path);
 
@@ -320,8 +321,9 @@ impl FileIndexService {
     pub async fn remove_file(&self, path: &Path) -> Result<bool, AppError> {
         let mut index = self.index.write().await;
 
-        if let Some(pos) = index.files.iter().position(|f| f.path == path) {
-            index.files.remove(pos);
+        if let Some(pos) = index.files().iter().position(|f| f.path == path) {
+            let mut files = index.files().as_ref().clone();
+            files.remove(pos);
 
             // 调整 current_index
             if let Some(current) = index.current_index {
@@ -330,16 +332,16 @@ impl FileIndexService {
                     index.current_index = Some(current - 1);
                 } else if pos == current {
                     // 删除的是当前文件，尝试保持有效索引
-                    if index.files.is_empty() {
+                    if files.is_empty() {
                         index.current_index = None;
-                    } else if current >= index.files.len() {
-                        index.current_index = Some(index.files.len() - 1);
+                    } else if current >= files.len() {
+                        index.current_index = Some(files.len() - 1);
                     }
                     // 否则保持 current 不变（指向下一个文件）
                 }
             }
 
-            index.refresh_arc();
+            index.set_files(files);
             drop(index);
             info!("Removed file from index: {:?}", path);
 
@@ -355,7 +357,7 @@ impl FileIndexService {
     /// 获取文件列表
     pub async fn get_files(&self) -> Arc<Vec<FileInfo>> {
         let index = self.index.read().await;
-        index.files_arc.clone()
+        index.files().clone()
     }
 
     /// 获取当前索引
@@ -384,10 +386,10 @@ impl FileIndexService {
     /// 获取指定索引处的文件信息
     async fn get_file_at_index(&self, index: usize) -> Result<FileInfo, AppError> {
         let idx = self.index.read().await;
-        if index >= idx.files.len() {
+        if index >= idx.files().len() {
             return Err(AppError::Other("Index out of bounds".to_string()));
         }
-        Ok(idx.files[index].clone())
+        Ok(idx.files()[index].clone())
     }
 
     /// 验证文件是否存在
@@ -398,14 +400,15 @@ impl FileIndexService {
     /// 从索引中移除不存在的文件，并调整当前索引
     async fn remove_missing_file(&self, path: &Path) {
         let mut index = self.index.write().await;
-        let Some(pos) = index.files.iter().position(|f| f.path == path) else {
+        let Some(pos) = index.files().iter().position(|f| f.path == path) else {
             return;
         };
 
-        index.files.remove(pos);
-        let new_len = index.files.len();
+        let mut files = index.files().as_ref().clone();
+        files.remove(pos);
+        let new_len = files.len();
         Self::adjust_current_index_after_removal(&mut index.current_index, pos, new_len);
-        index.refresh_arc();
+        index.set_files(files);
         info!("Removed missing file from index: {:?}", path);
     }
 
@@ -434,7 +437,7 @@ impl FileIndexService {
     pub async fn get_latest_file(&self) -> Option<FileInfo> {
         {
             let index = self.index.read().await;
-            if let Some(file) = index.files.first() {
+            if let Some(file) = index.files().first() {
                 return Some(file.clone());
             }
         }
@@ -445,20 +448,20 @@ impl FileIndexService {
         }
 
         let index = self.index.read().await;
-        index.files.first().cloned()
+        index.files().first().cloned()
     }
 
     /// 根据文件路径查找索引
     pub async fn find_file_index(&self, path: &Path) -> Option<usize> {
         let index = self.index.read().await;
-        index.files.iter().position(|f| f.path == path)
+        index.files().iter().position(|f| f.path == path)
     }
 
     /// 获取文件数量
     #[cfg(test)]
     pub async fn get_file_count(&self) -> usize {
         let index = self.index.read().await;
-        index.files.len()
+        index.files().len()
     }
 
     /// 更新存储路径并重新扫描

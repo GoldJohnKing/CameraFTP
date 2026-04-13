@@ -8,7 +8,6 @@ import { act } from 'react';
 import { within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { PreviewWindow } from '../PreviewWindow';
-import type { ConfigChangedEvent } from '../../types';
 import { setupReactRoot } from '../../test-utils/react-root';
 
 const AUTO_BRING_TO_FRONT_ACCESSIBLE_NAME = '接收到新图片时自动前台显示';
@@ -114,7 +113,9 @@ describe('PreviewWindow autoBringToFront sync', () => {
     });
   };
 
-  it('updates local autoBringToFront toggle state when preview-config-changed event arrives', async () => {
+  it('reflects autoBringToFront prop changes in toggle state', async () => {
+    state.autoBringToFront = false;
+
     await act(async () => {
       getRoot().render(<PreviewWindow />);
       await Promise.resolve();
@@ -122,19 +123,11 @@ describe('PreviewWindow autoBringToFront sync', () => {
 
     expect(getAutoBringToFrontToggle().getAttribute('aria-pressed')).toBe('false');
 
-    const listener = listenMock.mock.calls[0]?.[1] as (event: { payload: ConfigChangedEvent }) => void;
+    // Simulate the lifecycle hook detecting a config change
+    state.autoBringToFront = true;
 
     await act(async () => {
-      listener({
-        payload: {
-          config: {
-            enabled: true,
-            method: 'built-in-preview',
-            customPath: null,
-            autoBringToFront: true,
-          },
-        },
-      });
+      getRoot().render(<PreviewWindow />);
       await Promise.resolve();
     });
 

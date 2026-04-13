@@ -158,7 +158,7 @@ export function VirtualGalleryGrid({
       data-testid="virtual-grid-container"
       onScroll={handleScroll}
     >
-      <div style={{ height: totalHeight, position: 'relative' }}>
+      <div className="relative" style={{ height: totalHeight }}>
         <div
           className="grid grid-cols-3 gap-1.5 px-0.5 pt-1 pb-1.5"
           style={{

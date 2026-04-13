@@ -13,46 +13,29 @@ export const BottomNav = memo(function BottomNav() {
   const { activeTab, setActiveTab } = useConfigStore();
   const { isAndroid } = usePlatform();
 
+  const navItems = [
+    { id: 'home' as const, icon: Home, label: '主页' },
+    ...(isAndroid ? [{ id: 'gallery' as const, icon: Images, label: '图库' }] : []),
+    { id: 'config' as const, icon: Settings, label: '配置' },
+  ];
+
   return (
     <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200">
       <div className="max-w-md mx-auto flex">
-        <button
-          onClick={() => setActiveTab('home')}
-          className={`flex-1 flex flex-col items-center py-3 px-4 transition-colors ${
-            activeTab === 'home'
-              ? 'text-blue-600'
-              : 'text-gray-500 hover:text-gray-700'
-          }`}
-        >
-          <Home className="w-6 h-6" />
-          <span className="text-xs mt-1 font-medium">主页</span>
-        </button>
-        
-        {isAndroid && (
+        {navItems.map(({ id, icon: Icon, label }) => (
           <button
-            onClick={() => setActiveTab('gallery')}
+            key={id}
+            onClick={() => setActiveTab(id)}
             className={`flex-1 flex flex-col items-center py-3 px-4 transition-colors ${
-              activeTab === 'gallery'
+              activeTab === id
                 ? 'text-blue-600'
                 : 'text-gray-500 hover:text-gray-700'
             }`}
           >
-            <Images className="w-6 h-6" />
-            <span className="text-xs mt-1 font-medium">图库</span>
+            <Icon className="w-6 h-6" />
+            <span className="text-xs mt-1 font-medium">{label}</span>
           </button>
-        )}
-        
-        <button
-          onClick={() => setActiveTab('config')}
-          className={`flex-1 flex flex-col items-center py-3 px-4 transition-colors ${
-            activeTab === 'config'
-              ? 'text-blue-600'
-              : 'text-gray-500 hover:text-gray-700'
-          }`}
-        >
-          <Settings className="w-6 h-6" />
-          <span className="text-xs mt-1 font-medium">配置</span>
-        </button>
+        ))}
       </div>
     </nav>
   );

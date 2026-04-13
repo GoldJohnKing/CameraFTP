@@ -51,21 +51,8 @@ export const LatestPhotoCard = memo(function LatestPhotoCard() {
   const openPreview = useImagePreviewOpener();
   const { latestPhoto, refreshLatestPhoto } = useLatestPhoto();
 
-  // 获取显示用的文件名
-  // 优先使用实时扫描的文件（更及时地反映删除操作）
-  const getFilename = () => {
-    if (latestPhoto) {
-      // 优先显示扫描到的文件（实时更新）
-      return latestPhoto.filename;
-    } else if (stats.lastFile) {
-      // 回退到上传的文件
-      const parts = stats.lastFile.split(/[\\/]/);
-      return parts.pop() || stats.lastFile;
-    }
-    return '无';
-  };
-
-  const filename = getFilename();
+  const filename = latestPhoto?.filename
+    ?? (stats.lastFile ? stats.lastFile.split(/[\\/]/).pop() || stats.lastFile : '无');
 
   const handleOpenPreview = useCallback(async () => {
     try {

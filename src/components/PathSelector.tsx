@@ -41,13 +41,7 @@ export const PathSelector = memo(function PathSelector({
     }
   };
 
-  // 获取显示的路径文本
-  const getPathDisplay = () => {
-    if (isAndroid) {
-      return storageInfo?.displayName ?? 'DCIM/CameraFTP';
-    }
-    return savePath || '未设置';
-  };
+  const pathDisplay = isAndroid ? (storageInfo?.displayName ?? 'DCIM/CameraFTP') : (savePath || '未设置');
 
   return (
     <div className="space-y-3">
@@ -57,7 +51,7 @@ export const PathSelector = memo(function PathSelector({
             存储路径
           </label>
           <p className="text-xs text-gray-500 mt-1 truncate">
-            {getPathDisplay()}
+            {pathDisplay}
           </p>
         </div>
         {/* 仅在桌面平台显示更改按钮 */}

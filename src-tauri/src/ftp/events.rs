@@ -1035,7 +1035,13 @@ mod tests {
                 ),
                 (
                     "stats-update".to_string(),
-                    serde_json::to_value(ServerStateSnapshot::from(&stats))
+                    serde_json::to_value(ServerStateSnapshot {
+                        is_running: true,
+                        connected_clients: stats.active_connections as usize,
+                        files_received: stats.total_uploads,
+                        bytes_received: stats.total_bytes_received,
+                        last_file: stats.last_uploaded_file.clone(),
+                    })
                         .expect("server snapshot should serialize"),
                 ),
                 ("server-stopped".to_string(), serde_json::Value::Null),
@@ -1048,7 +1054,13 @@ mod tests {
                     is_running: true,
                     ..ServerStateSnapshot::default()
                 },
-                ServerStateSnapshot::from(&stats),
+                ServerStateSnapshot {
+                    is_running: true,
+                    connected_clients: stats.active_connections as usize,
+                    files_received: stats.total_uploads,
+                    bytes_received: stats.total_bytes_received,
+                    last_file: stats.last_uploaded_file.clone(),
+                },
                 ServerStateSnapshot::default(),
             ]
         );

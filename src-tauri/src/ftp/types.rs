@@ -118,28 +118,7 @@ impl Default for ServerStateSnapshot {
     }
 }
 
-impl From<&ServerStats> for ServerStateSnapshot {
-    fn from(stats: &ServerStats) -> Self {
-        Self {
-            is_running: true,
-            connected_clients: stats.active_connections as usize,
-            files_received: stats.total_uploads,
-            bytes_received: stats.total_bytes_received,
-            last_file: stats.last_uploaded_file.clone(),
-        }
-    }
-}
 
-impl From<&ServerStateSnapshot> for ServerStats {
-    fn from(snapshot: &ServerStateSnapshot) -> Self {
-        Self {
-            active_connections: snapshot.connected_clients as u64,
-            total_uploads: snapshot.files_received,
-            total_bytes_received: snapshot.bytes_received,
-            last_uploaded_file: snapshot.last_file.clone(),
-        }
-    }
-}
 
 #[derive(Debug, Clone, Default, PartialEq)]
 #[allow(dead_code)] // Internal fields used within ftp module
@@ -183,7 +162,12 @@ impl ServerRuntimeState {
         let mut state = self.state.write().await;
         state.is_running = snapshot.is_running;
         if snapshot.is_running {
-            state.stats = Some(ServerStats::from(&snapshot));
+            state.stats = Some(ServerStats {
+                active_connections: snapshot.connected_clients as u64,
+                total_uploads: snapshot.files_received,
+                total_bytes_received: snapshot.bytes_received,
+                last_uploaded_file: snapshot.last_file.clone(),
+            });
         } else {
             state.bind_addr = None;
             state.stats = None;

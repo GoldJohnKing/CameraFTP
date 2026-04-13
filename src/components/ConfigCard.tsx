@@ -10,7 +10,7 @@ import { Settings, Wifi, Shield, Image } from 'lucide-react';
 import { useConfigStore, useDraftConfig } from '../stores/configStore';
 import { usePermissionStore } from '../stores/permissionStore';
 import { useServerStore } from '../stores/serverStore';
-import { Card, CardHeader, ToggleSwitch } from './ui';
+import { Card, CardHeader, ToggleSwitch, RefreshButton } from './ui';
 import { PermissionList } from './PermissionList';
 import { PathSelector } from './PathSelector';
 import { AdvancedConnectionConfigPanel } from './AdvancedConnectionConfig';
@@ -50,24 +50,9 @@ export const ConfigCard = memo(function ConfigCard() {
   const [isCheckingPermissions, setIsCheckingPermissions] = useState(false);
 
   useEffect(() => {
-    const isCancelled = { current: false };
-
-    const loadAutostartStatus = async () => {
-      try {
-        const status = await invoke<boolean>('get_autostart_status');
-        if (!isCancelled.current) {
-          setAutostartEnabled(status);
-        }
-      } catch {
-        // Silently ignore autostart status load errors
-      }
-    };
-
-    void loadAutostartStatus();
-
-    return () => {
-      isCancelled.current = true;
-    };
+    invoke<boolean>('get_autostart_status')
+      .then(setAutostartEnabled)
+      .catch(() => {});
   }, []);
 
   const handleAutostartToggle = async () => {
@@ -245,21 +230,7 @@ export const ConfigCard = memo(function ConfigCard() {
             description="管理应用所需权限"
             icon={<Shield className="w-5 h-5 text-emerald-600" />}
             action={
-              <button
-                onClick={handleRefreshPermissions}
-                disabled={isCheckingPermissions}
-                className="text-sm text-blue-500 hover:text-blue-600 flex items-center gap-1.5 disabled:opacity-50 transition-colors"
-              >
-                <svg
-                  className={`w-4 h-4 ${isCheckingPermissions ? 'animate-spin' : ''}`}
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                </svg>
-                <span>{isCheckingPermissions ? '刷新中...' : '刷新'}</span>
-              </button>
+              <RefreshButton onClick={handleRefreshPermissions} isLoading={isCheckingPermissions} />
             }
           />
 

@@ -17,7 +17,6 @@ pub const DEFAULT_MAX_CONCURRENT_UPLOADS: usize = 4;
 #[derive(Debug, Clone)]
 pub struct UploadLimiter {
     semaphore: Arc<Semaphore>,
-    max_concurrent: usize,
 }
 
 impl UploadLimiter {
@@ -25,7 +24,6 @@ impl UploadLimiter {
     pub fn new(max_concurrent: usize) -> Self {
         Self {
             semaphore: Arc::new(Semaphore::new(max_concurrent)),
-            max_concurrent,
         }
     }
 
@@ -39,11 +37,6 @@ impl UploadLimiter {
     /// The permit is automatically released when dropped.
     pub async fn acquire(&self) -> SemaphorePermit<'_> {
         self.semaphore.acquire().await.expect("semaphore is closed")
-    }
-
-    /// Returns the maximum number of concurrent uploads allowed.
-    pub fn max_concurrent(&self) -> usize {
-        self.max_concurrent
     }
 
     /// Returns the number of currently available permits.

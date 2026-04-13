@@ -4,9 +4,11 @@
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
 
-import { useEffect, useCallback, useRef } from 'react';
+import { useEffect, useCallback } from 'react';
+import { Shield } from 'lucide-react';
 import { usePermissionStore } from '../stores/permissionStore';
 import { PermissionList } from './PermissionList';
+import { Dialog } from './ui';
 
 interface PermissionDialogProps {
   isOpen: boolean;
@@ -21,24 +23,11 @@ export function PermissionDialog({ isOpen, onClose, onAllGranted }: PermissionDi
   const stopPolling = usePermissionStore((state) => state.stopPolling);
   const allGranted = usePermissionStore((state) => state.allGranted);
 
-  // Track if we started polling to clean up correctly
-  const wasPollingRef = useRef(false);
-
-  // Check permissions when dialog opens and start polling
   useEffect(() => {
-    if (isOpen) {
-      checkPermissions();
-      startPolling();
-      wasPollingRef.current = true;
-    }
-    
-    // Stop polling on cleanup only if we started it
-    return () => {
-      if (wasPollingRef.current) {
-        stopPolling();
-        wasPollingRef.current = false;
-      }
-    };
+    if (!isOpen) return;
+    checkPermissions();
+    startPolling();
+    return () => stopPolling();
   }, [isOpen, checkPermissions, startPolling, stopPolling]);
 
   // Handle continue button
@@ -49,26 +38,20 @@ export function PermissionDialog({ isOpen, onClose, onAllGranted }: PermissionDi
     }
   }, [allGranted, onAllGranted, onClose]);
 
-  if (!isOpen) return null;
-
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-2xl max-w-md w-full shadow-xl">
-        {/* Header */}
-        <div className="p-6 border-b">
-          <h2 className="text-xl font-semibold text-gray-900">权限检查</h2>
-          <p className="text-sm text-gray-500 mt-1">
-            为确保FTP服务正常运行，请授予以下权限
-          </p>
+    <Dialog
+      isOpen={isOpen}
+      onClose={onClose}
+      title="权限检查"
+      subtitle="为确保FTP服务正常运行，请授予以下权限"
+      icon={
+        <div className="bg-blue-500 rounded-xl w-10 h-10 flex items-center justify-center">
+          <Shield className="w-5 h-5 text-white" />
         </div>
-
-        {/* Permission List */}
-        <div className="p-6">
-          <PermissionList />
-        </div>
-
-        {/* Footer */}
-        <div className="p-6 border-t flex gap-3">
+      }
+      contentClassName="p-6"
+      footer={
+        <div className="flex gap-3 w-full">
           <button
             onClick={onClose}
             className="flex-1 px-4 py-3 bg-gray-100 text-gray-700 rounded-xl hover:bg-gray-200"
@@ -87,7 +70,9 @@ export function PermissionDialog({ isOpen, onClose, onAllGranted }: PermissionDi
             {allGranted ? '开始服务' : '请授予权限'}
           </button>
         </div>
-      </div>
-    </div>
+      }
+    >
+      <PermissionList />
+    </Dialog>
   );
 }
