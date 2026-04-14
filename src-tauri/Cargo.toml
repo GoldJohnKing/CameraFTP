@@ -35,8 +35,8 @@ thiserror = "2.0"
 local-ip-address = "0.6"
 # 异步trait
 async-trait = "0.1"
-# 图像处理（用于托盘图标）
-image = { version = "0.25", default-features = false, features = ["png", "jpeg", "heic"] }
+# 图像处理（用于托盘图标 + AI修图图片预处理）
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 # HTTP client for AI Edit API calls
 reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
 # Base64 encoding for AI Edit image upload
