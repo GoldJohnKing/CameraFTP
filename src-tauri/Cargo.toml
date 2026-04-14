@@ -36,7 +36,11 @@ local-ip-address = "0.6"
 # 异步trait
 async-trait = "0.1"
 # 图像处理（用于托盘图标）
-image = { version = "0.25", default-features = false, features = ["png"] }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "heic"] }
+# HTTP client for AI Edit API calls
+reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
+# Base64 encoding for AI Edit image upload
+base64 = "0.22"
 # EXIF 元数据读取 - 使用 nom-exif 支持全格式 (JPG/RAW/CR3/NEF等)
 nom-exif = "2.7"
 futures = "0.3"
