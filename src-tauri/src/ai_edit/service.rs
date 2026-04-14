@@ -2,6 +2,7 @@
 // Copyright (C) 2026 GoldJohnKing <GoldJohnKing@Live.cn>
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+use chrono::Local;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::{mpsc, oneshot};
@@ -150,47 +151,5 @@ async fn process_task(task: &AiEditTask, config_service: &ConfigService) -> Resu
 }
 
 fn chrono_now_string() -> String {
-    let now = std::time::SystemTime::now();
-    let duration = now.duration_since(std::time::UNIX_EPOCH).unwrap_or_default();
-    let secs = duration.as_secs();
-
-    let days = secs / 86400;
-    let time_secs = secs % 86400;
-    let hours = time_secs / 3600;
-    let minutes = (time_secs % 3600) / 60;
-    let seconds = time_secs % 60;
-
-    let (year, month, day) = days_to_ymd(days);
-
-    format!("{:04}{:02}{:02}_{:02}{:02}{:02}", year, month, day, hours, minutes, seconds)
-}
-
-fn days_to_ymd(mut days: u64) -> (u64, u64, u64) {
-    let mut year = 1970u64;
-    loop {
-        let days_in_year = if is_leap_year(year) { 366 } else { 365 };
-        if days < days_in_year {
-            break;
-        }
-        days -= days_in_year;
-        year += 1;
-    }
-
-    let leap = is_leap_year(year);
-    let month_days = [31, if leap { 29 } else { 28 }, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
-
-    let mut month = 1u64;
-    for &md in &month_days {
-        if days < md {
-            break;
-        }
-        days -= md;
-        month += 1;
-    }
-
-    (year, month, days + 1)
-}
-
-fn is_leap_year(year: u64) -> bool {
-    (year % 4 == 0 && year % 100 != 0) || year % 400 == 0
+    Local::now().format("%Y%m%d_%H%M%S").to_string()
 }

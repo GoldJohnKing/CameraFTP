@@ -41,6 +41,8 @@ image = { version = "0.25", default-features = false, features = ["png", "jpeg"]
 reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
 # Base64 encoding for AI Edit image upload
 base64 = "0.22"
+# Date/time formatting for AI edit output filenames
+chrono = "0.4"
 # EXIF 元数据读取 - 使用 nom-exif 支持全格式 (JPG/RAW/CR3/NEF等)
 nom-exif = "2.7"
 futures = "0.3"
