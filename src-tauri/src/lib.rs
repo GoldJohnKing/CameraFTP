@@ -49,10 +49,11 @@ use commands::{
     select_executable_file,
     select_save_directory,
     set_autostart_command,
-    update_preview_config,
     show_main_window,
     start_server,
     stop_server,
+    trigger_ai_edit,
+    update_preview_config,
     FtpServerState,
 };
 
@@ -217,6 +218,9 @@ pub fn run() {
 
             // EXIF 信息
             get_image_exif,
+
+            // AI 修图
+            trigger_ai_edit,
         ])
         .run(tauri::generate_context!())
         .unwrap_or_else(|e| {
