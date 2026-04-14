@@ -35,6 +35,8 @@ const PreviewWindowContent = memo(function PreviewWindowContent({
   autoBringToFront: boolean;
 }) {
   const updatePreviewConfig = useConfigStore(state => state.updatePreviewConfig);
+  const storeAutoBringToFront = useConfigStore(state => state.config?.previewConfig?.autoBringToFront);
+  const effectiveAutoBringToFront = storeAutoBringToFront ?? autoBringToFront;
   const [imageError, setImageError] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
 
@@ -162,7 +164,7 @@ const PreviewWindowContent = memo(function PreviewWindowContent({
 
   const handleToggleAutoFront = async () => {
     try {
-      await updatePreviewConfig({ autoBringToFront: !autoBringToFront });
+      await updatePreviewConfig({ autoBringToFront: !effectiveAutoBringToFront });
     } catch {
       // Silently ignore
     }
@@ -382,15 +384,15 @@ const PreviewWindowContent = memo(function PreviewWindowContent({
           <button
             onClick={handleToggleAutoFront}
             aria-label="接收到新图片时自动前台显示"
-            aria-pressed={autoBringToFront}
+            aria-pressed={effectiveAutoBringToFront}
             className={`
               p-2 rounded-lg transition-colors
-              ${autoBringToFront
+              ${effectiveAutoBringToFront
                 ? 'text-blue-300 bg-blue-500/20 hover:bg-blue-500/30'
                 : 'text-gray-300 hover:text-white hover:bg-white/10'
               }
             `}
-            title={autoBringToFront ? '接收到新图片时自动前台显示 (已开启)' : '接收到新图片时自动前台显示 (已关闭)'}
+            title={effectiveAutoBringToFront ? '接收到新图片时自动前台显示 (已开启)' : '接收到新图片时自动前台显示 (已关闭)'}
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
               <path strokeLinecap="round" strokeLinejoin="round" d="M12 20V10M12 10l-5 5M12 10l5 5" />

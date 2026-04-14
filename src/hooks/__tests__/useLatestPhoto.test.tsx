@@ -5,7 +5,7 @@
  */
 
 import { act } from 'react';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { LATEST_PHOTO_REFRESH_REQUESTED_EVENT } from '../../utils/gallery-refresh';
 import { flush } from '../../test-utils/flush';
 import { setupReactRoot } from '../../test-utils/react-root';
@@ -77,10 +77,6 @@ describe('useLatestPhoto', () => {
       }
       return Promise.resolve(() => {});
     });
-  });
-
-  afterEach(() => {
-    vi.unstubAllGlobals();
   });
 
   it('loads latest photo on mount and on refresh request events', async () => {
