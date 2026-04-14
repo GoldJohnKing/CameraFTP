@@ -2,6 +2,7 @@
 // Copyright (C) 2026 GoldJohnKing <GoldJohnKing@Live.cn>
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+pub mod ai_edit;
 pub mod auto_open;
 pub mod commands;
 pub mod config;
