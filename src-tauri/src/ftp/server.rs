@@ -673,12 +673,7 @@ mod tests {
     use super::*;
 
     fn test_stats(active: u64, uploads: u64, bytes: u64, last_file: Option<&str>) -> crate::ftp::types::ServerStats {
-        crate::ftp::types::ServerStats {
-            active_connections: active,
-            total_uploads: uploads,
-            total_bytes_received: bytes,
-            last_uploaded_file: last_file.map(String::from),
-        }
+        crate::ftp::types::test_utils::test_stats(active, uploads, bytes, last_file)
     }
 
     #[test]

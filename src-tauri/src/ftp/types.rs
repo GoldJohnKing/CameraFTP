@@ -227,12 +227,7 @@ mod tests {
     };
 
     fn test_stats(active: u64, uploads: u64, bytes: u64, last_file: Option<&str>) -> ServerStats {
-        ServerStats {
-            active_connections: active,
-            total_uploads: uploads,
-            total_bytes_received: bytes,
-            last_uploaded_file: last_file.map(String::from),
-        }
+        super::test_utils::test_stats(active, uploads, bytes, last_file)
     }
 
     #[test]
@@ -400,8 +395,17 @@ impl ServerInfo {
 
 #[cfg(test)]
 pub mod test_utils {
-    use super::DomainEvent;
+    use super::{DomainEvent, ServerStats};
     use tokio::sync::broadcast;
+
+    pub fn test_stats(active: u64, uploads: u64, bytes: u64, last_file: Option<&str>) -> ServerStats {
+        ServerStats {
+            active_connections: active,
+            total_uploads: uploads,
+            total_bytes_received: bytes,
+            last_uploaded_file: last_file.map(String::from),
+        }
+    }
 
     /// Test-only event bus that doesn't persist events
     #[derive(Debug, Clone)]

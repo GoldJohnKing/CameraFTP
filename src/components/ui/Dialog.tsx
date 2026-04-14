@@ -46,11 +46,7 @@ export function Dialog({
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b shrink-0">
           <div className="flex items-center gap-3">
-            {icon && (
-              <div className="w-10 h-10 rounded-xl flex items-center justify-center">
-                {icon}
-              </div>
-            )}
+            {icon}
             <div>
               <h2 className="text-lg font-semibold text-gray-900">{title}</h2>
               {subtitle && (
