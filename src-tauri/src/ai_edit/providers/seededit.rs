@@ -56,11 +56,11 @@ struct SeedEditImageData {
 
 #[async_trait]
 impl AiEditProvider for SeedEditProvider {
-    async fn edit_image(&self, image_base64: &str, prompt: &str) -> Result<Vec<u8>, AppError> {
+    async fn edit_image(&self, image_base64: &str, mime_type: &str, prompt: &str) -> Result<Vec<u8>, AppError> {
         let request = SeedEditRequest {
             model: MODEL,
             prompt: prompt.to_string(),
-            image: format!("data:image/jpeg;base64,{}", image_base64),
+            image: format!("data:{};base64,{}", mime_type, image_base64),
             response_format: "url",
         };
 

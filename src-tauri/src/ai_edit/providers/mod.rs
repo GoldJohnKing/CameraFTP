@@ -10,7 +10,7 @@ use super::config::ProviderConfig;
 
 #[async_trait]
 pub trait AiEditProvider: Send + Sync {
-    async fn edit_image(&self, image_base64: &str, prompt: &str) -> Result<Vec<u8>, AppError>;
+    async fn edit_image(&self, image_base64: &str, mime_type: &str, prompt: &str) -> Result<Vec<u8>, AppError>;
 }
 
 pub fn create_provider(config: &ProviderConfig) -> Result<Box<dyn AiEditProvider>, AppError> {

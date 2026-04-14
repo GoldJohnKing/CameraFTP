@@ -122,7 +122,7 @@ async fn process_task(task: &AiEditTask, config_service: &ConfigService) -> Resu
         return Err(AppError::AiEditError("API Key is not configured".to_string()));
     }
 
-    let base64_image = image_processor::prepare_for_upload(&task.file_path)
+    let prepared = image_processor::prepare_for_upload(&task.file_path)
         .map_err(|e| AppError::AiEditError(format!("Image preprocessing failed: {}", e)))?;
 
     let provider = providers::create_provider(&ai_config.provider)?;
@@ -131,7 +131,7 @@ async fn process_task(task: &AiEditTask, config_service: &ConfigService) -> Resu
     } else {
         &ai_config.prompt
     };
-    let image_bytes = provider.edit_image(&base64_image, prompt).await?;
+    let image_bytes = provider.edit_image(&prepared.base64_data, prepared.mime_type, prompt).await?;
 
     let output_dir = config.save_path.join(AIEDIT_SUBDIR);
     tokio::fs::create_dir_all(&output_dir).await
