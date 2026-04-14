@@ -5,9 +5,9 @@
  */
 
 import { act } from 'react';
-import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import App from '../../App';
+import { setupReactRoot } from '../../test-utils/react-root';
 
 const {
   initializeServerEventsMock,
@@ -90,14 +90,9 @@ vi.mock('../PreviewWindow', () => ({ PreviewWindow: () => <div>PreviewWindow</di
 import { flush } from '../../test-utils/flush';
 
 describe('App bootstrap characterization', () => {
-  let container: HTMLDivElement;
-  let root: Root;
+  const { getContainer, getRoot } = setupReactRoot();
 
   beforeEach(() => {
-    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
-    container = document.createElement('div');
-    document.body.appendChild(container);
-    root = createRoot(container);
     initializeServerEventsMock.mockReset();
     closePermissionDialogMock.mockReset();
     closeQuitDialogMock.mockReset();
@@ -114,11 +109,6 @@ describe('App bootstrap characterization', () => {
   });
 
   afterEach(() => {
-    act(() => {
-      root.unmount();
-    });
-    container.remove();
-    vi.unstubAllGlobals();
     document.documentElement.className = '';
   });
 
@@ -127,7 +117,7 @@ describe('App bootstrap characterization', () => {
     initializeServerEventsMock.mockResolvedValue(cleanupMock);
 
     await act(async () => {
-      root.render(<App />);
+      getRoot().render(<App />);
       await flush();
     });
 
@@ -139,7 +129,7 @@ describe('App bootstrap characterization', () => {
     expect(document.documentElement.className).toBe('platform-android');
 
     act(() => {
-      root.unmount();
+      getRoot().unmount();
     });
 
     expect(cleanupMock).toHaveBeenCalledTimes(1);
@@ -155,12 +145,12 @@ describe('App bootstrap characterization', () => {
     );
 
     await act(async () => {
-      root.render(<App />);
+      getRoot().render(<App />);
       await flush();
     });
 
     act(() => {
-      root.unmount();
+      getRoot().unmount();
     });
 
     await act(async () => {
@@ -175,11 +165,11 @@ describe('App bootstrap characterization', () => {
     currentWindowLabel = 'preview';
 
     await act(async () => {
-      root.render(<App />);
+      getRoot().render(<App />);
       await flush();
     });
 
-    expect(container.textContent).toContain('PreviewWindow');
+    expect(getContainer().textContent).toContain('PreviewWindow');
     expect(loadPlatformMock).not.toHaveBeenCalled();
     expect(initializePermissionsMock).not.toHaveBeenCalled();
     expect(initializeServerEventsMock).not.toHaveBeenCalled();
@@ -191,7 +181,7 @@ describe('App bootstrap characterization', () => {
     currentPlatform = 'unknown';
 
     await act(async () => {
-      root.render(<App />);
+      getRoot().render(<App />);
       await flush();
     });
 

@@ -130,14 +130,6 @@ impl JniMediaStoreBridge {
         Ok(JObject::from(s))
     }
 
-    fn finalize_entry_method_name() -> &'static str {
-        FINALIZE_ENTRY_METHOD_NAME
-    }
-
-    fn finalize_entry_method_signature() -> &'static str {
-        FINALIZE_ENTRY_METHOD_SIGNATURE
-    }
-
     fn optional_long<'a>(
         env: &mut JNIEnv<'a>,
         value: Option<u64>,
@@ -433,8 +425,8 @@ impl MediaStoreBridgeClient for JniMediaStoreBridge {
 
             let ok = Self::call_static_bool(
                 env,
-                Self::finalize_entry_method_name(),
-                Self::finalize_entry_method_signature(),
+                FINALIZE_ENTRY_METHOD_NAME,
+                FINALIZE_ENTRY_METHOD_SIGNATURE,
                 &[
                     JValue::Object(&context),
                     JValue::Object(&j_uri),
@@ -564,10 +556,6 @@ impl MediaStoreBridgeClient for JniMediaStoreBridge {
                 "deleteEntryNative returned false for {path}"
             )))
         }
-    }
-
-    async fn create_directory(&self, _path: &str) -> Result<(), MediaStoreError> {
-        Ok(())
     }
 }
 
@@ -783,14 +771,6 @@ impl MediaStoreBridgeClient for MockMediaStoreBridge {
         }
         Ok(())
     }
-
-    async fn create_directory(&self, path: &str) -> Result<(), MediaStoreError> {
-        let full_path = self.base_path.join(path.trim_start_matches('/'));
-        tokio::fs::create_dir_all(&full_path)
-            .await
-            .map_err(MediaStoreError::IoError)?;
-        Ok(())
-    }
 }
 
 #[cfg(target_os = "android")]
@@ -808,14 +788,6 @@ mod tests {
     use super::*;
     #[cfg(all(not(target_os = "android"), unix))]
     use tempfile::TempDir;
-
-    #[test]
-    fn test_finalize_entry_uses_current_native_method() {
-        assert_eq!(
-            FINALIZE_ENTRY_METHOD_NAME,
-            "finalizeEntryAndEmitGalleryItemsAddedNative"
-        );
-    }
 
     #[test]
     fn test_normalize_relative_path_for_match() {

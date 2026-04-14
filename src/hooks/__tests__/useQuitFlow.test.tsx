@@ -5,10 +5,10 @@
  */
 
 import { act } from 'react';
-import { createRoot, type Root } from 'react-dom/client';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 import { useQuitFlow } from '../useQuitFlow';
 import { flush } from '../../test-utils/flush';
+import { setupReactRoot } from '../../test-utils/react-root';
 
 const { invokeMock, listenMock } = vi.hoisted(() => ({
   invokeMock: vi.fn(),
@@ -39,15 +39,9 @@ function QuitFlowHarness({ enabled = true }: { enabled?: boolean }) {
 }
 
 describe('useQuitFlow', () => {
-  let container: HTMLDivElement;
-  let root: Root;
+  const { getContainer, getRoot } = setupReactRoot();
 
   beforeEach(() => {
-    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
-    container = document.createElement('div');
-    document.body.appendChild(container);
-    root = createRoot(container);
-
     eventHandlers.clear();
     invokeMock.mockReset();
     listenMock.mockReset();
@@ -58,17 +52,12 @@ describe('useQuitFlow', () => {
   });
 
   afterEach(() => {
-    act(() => {
-      root.unmount();
-    });
-    container.remove();
     eventHandlers.clear();
-    vi.unstubAllGlobals();
   });
 
   it('opens quit dialog after window-close-requested and requests window show', async () => {
     await act(async () => {
-      root.render(<QuitFlowHarness />);
+      getRoot().render(<QuitFlowHarness />);
       await flush();
     });
 
@@ -78,17 +67,17 @@ describe('useQuitFlow', () => {
     });
 
     expect(invokeMock).toHaveBeenCalledWith('show_main_window');
-    expect(container.querySelector('[data-testid="visible"]')?.textContent).toBe('yes');
+    expect(getContainer().querySelector('[data-testid="visible"]')?.textContent).toBe('yes');
   });
 
   it('quits application when confirmed', async () => {
     await act(async () => {
-      root.render(<QuitFlowHarness />);
+      getRoot().render(<QuitFlowHarness />);
       await flush();
     });
 
     await act(async () => {
-      container.querySelector('[data-testid="quit"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      getContainer().querySelector('[data-testid="quit"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
       await flush();
     });
 
@@ -97,7 +86,7 @@ describe('useQuitFlow', () => {
 
   it('hides main window and closes dialog when minimizing', async () => {
     await act(async () => {
-      root.render(<QuitFlowHarness />);
+      getRoot().render(<QuitFlowHarness />);
       await flush();
     });
 
@@ -107,17 +96,17 @@ describe('useQuitFlow', () => {
     });
 
     await act(async () => {
-      container.querySelector('[data-testid="minimize"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      getContainer().querySelector('[data-testid="minimize"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
       await flush();
     });
 
     expect(invokeMock).toHaveBeenCalledWith('hide_main_window');
-    expect(container.querySelector('[data-testid="visible"]')?.textContent).toBe('no');
+    expect(getContainer().querySelector('[data-testid="visible"]')?.textContent).toBe('no');
   });
 
   it('skips event subscription when quit flow is disabled', async () => {
     await act(async () => {
-      root.render(<QuitFlowHarness enabled={false} />);
+      getRoot().render(<QuitFlowHarness enabled={false} />);
       await flush();
     });
 
@@ -135,12 +124,12 @@ describe('useQuitFlow', () => {
     );
 
     await act(async () => {
-      root.render(<QuitFlowHarness />);
+      getRoot().render(<QuitFlowHarness />);
       await flush();
     });
 
     act(() => {
-      root.unmount();
+      getRoot().unmount();
     });
 
     await act(async () => {

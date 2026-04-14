@@ -5,65 +5,57 @@
  */
 
 import { act } from 'react';
-import { createRoot, type Root } from 'react-dom/client';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 import { VirtualGalleryGrid } from '../VirtualGalleryGrid';
 import { flush } from '../../test-utils/flush';
 import { makeItems } from '../../test-utils/media-factory';
 import { createMockRectObserver } from '../../test-utils/mock-resize-observer';
+import { setupReactRoot } from '../../test-utils/react-root';
 
 describe('VirtualGalleryGrid', () => {
-  let container: HTMLDivElement;
-  let root: Root;
+  const { getContainer, getRoot } = setupReactRoot();
   let resizeMock: ReturnType<typeof createMockRectObserver>;
   let originalResizeObserver: typeof ResizeObserver;
 
   beforeEach(() => {
-    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
-    container = document.createElement('div');
-    document.body.appendChild(container);
-    root = createRoot(container);
-
     resizeMock = createMockRectObserver();
     originalResizeObserver = window.ResizeObserver;
     window.ResizeObserver = resizeMock.MockResizeObserver as unknown as typeof ResizeObserver;
   });
 
   afterEach(() => {
-    act(() => {
-      root.unmount();
-    });
-    container.remove();
     window.ResizeObserver = originalResizeObserver;
-    vi.unstubAllGlobals();
   });
 
   it('renders only visible + overscan cells, not all items', async () => {
+    const CONTAINER_HEIGHT = 360;
+    // ROW_HEIGHT=120, COLUMNS=3, OVERSCAN_ROWS=3 (component-internal constants)
+    // visibleRows = ceil(360/120) = 3, overscan=3, renderedRows = 3+3+1 = 7
+    const COLUMNS = 3;
+    const expectedCellCount = 7 * COLUMNS; // 21
     const items = makeItems(300); // 100 rows at 3 columns
     const onRangeChange = vi.fn();
 
     await act(async () => {
-      root.render(
+      getRoot().render(
         <VirtualGalleryGrid
           items={items}
           thumbnails={new Map()}
           loadingThumbs={new Set()}
           onItemClick={vi.fn()}
           onRangeChange={onRangeChange}
-          rowHeight={120}
-          overscanRows={3}
         />
       );
       await flush();
     });
 
     // Simulate container height = 360px (3 visible rows)
-    const gridContainer = container.querySelector('[data-testid="virtual-grid-container"]');
+    const gridContainer = getContainer().querySelector('[data-testid="virtual-grid-container"]');
     expect(gridContainer).toBeTruthy();
 
     if (gridContainer) {
       act(() => {
-        resizeMock.triggerResize(gridContainer, 360);
+        resizeMock.triggerResize(gridContainer, CONTAINER_HEIGHT);
       });
     }
 
@@ -72,10 +64,10 @@ describe('VirtualGalleryGrid', () => {
     // With 360px height and 120px rowHeight: visibleEndRow = floor(360/120) = 3 (rows 0-3)
     // With 3 overscan rows below: endRow = min(99, 3+3) = 6
     // At scrollTop=0, startRow = max(0, 0-3) = 0, so rows 0-6 = 7 rows = 21 cells
-    const renderedCells = container.querySelectorAll('[data-media-id]');
+    const renderedCells = getContainer().querySelectorAll('[data-media-id]');
     expect(renderedCells.length).toBeLessThan(items.length);
     expect(renderedCells.length).toBeGreaterThan(0);
-    expect(renderedCells.length).toBe(21);
+    expect(renderedCells.length).toBe(expectedCellCount);
   });
 
   it('reports visible range changes on scroll', async () => {
@@ -83,21 +75,19 @@ describe('VirtualGalleryGrid', () => {
     const onRangeChange = vi.fn();
 
     await act(async () => {
-      root.render(
+      getRoot().render(
         <VirtualGalleryGrid
           items={items}
           thumbnails={new Map()}
           loadingThumbs={new Set()}
           onItemClick={vi.fn()}
           onRangeChange={onRangeChange}
-          rowHeight={120}
-          overscanRows={2}
         />
       );
       await flush();
     });
 
-    const gridContainer = container.querySelector('[data-testid="virtual-grid-container"]');
+    const gridContainer = getContainer().querySelector('[data-testid="virtual-grid-container"]');
     expect(gridContainer).toBeTruthy();
 
     // Simulate container height = 360px (3 visible rows)
@@ -141,7 +131,7 @@ describe('VirtualGalleryGrid', () => {
     const items = makeItems(3);
 
     await act(async () => {
-      root.render(
+      getRoot().render(
         <VirtualGalleryGrid
           items={items}
           thumbnails={new Map()}
@@ -152,7 +142,7 @@ describe('VirtualGalleryGrid', () => {
       await flush();
     });
 
-    const gridContainer = container.querySelector('[data-testid="virtual-grid-container"]');
+    const gridContainer = getContainer().querySelector('[data-testid="virtual-grid-container"]');
     if (gridContainer) {
       act(() => {
         resizeMock.triggerResize(gridContainer, 360);
@@ -160,7 +150,7 @@ describe('VirtualGalleryGrid', () => {
     }
     await flush();
 
-    const pulseElements = container.querySelectorAll('.animate-pulse');
+    const pulseElements = getContainer().querySelectorAll('.animate-pulse');
     expect(pulseElements.length).toBe(3);
   });
 
@@ -169,7 +159,7 @@ describe('VirtualGalleryGrid', () => {
     const loadingThumbs = new Set(['media-0', 'media-1', 'media-2']);
 
     await act(async () => {
-      root.render(
+      getRoot().render(
         <VirtualGalleryGrid
           items={items}
           thumbnails={new Map()}
@@ -180,7 +170,7 @@ describe('VirtualGalleryGrid', () => {
       await flush();
     });
 
-    const gridContainer = container.querySelector('[data-testid="virtual-grid-container"]');
+    const gridContainer = getContainer().querySelector('[data-testid="virtual-grid-container"]');
     if (gridContainer) {
       act(() => {
         resizeMock.triggerResize(gridContainer, 360);
@@ -188,7 +178,7 @@ describe('VirtualGalleryGrid', () => {
     }
     await flush();
 
-    const spinners = container.querySelectorAll('.animate-spin');
+    const spinners = getContainer().querySelectorAll('.animate-spin');
     expect(spinners.length).toBe(3);
   });
 
@@ -201,7 +191,7 @@ describe('VirtualGalleryGrid', () => {
     ]);
 
     await act(async () => {
-      root.render(
+      getRoot().render(
         <VirtualGalleryGrid
           items={items}
           thumbnails={thumbnails}
@@ -212,7 +202,7 @@ describe('VirtualGalleryGrid', () => {
       await flush();
     });
 
-    const gridContainer = container.querySelector('[data-testid="virtual-grid-container"]');
+    const gridContainer = getContainer().querySelector('[data-testid="virtual-grid-container"]');
     if (gridContainer) {
       act(() => {
         resizeMock.triggerResize(gridContainer, 360);
@@ -220,7 +210,7 @@ describe('VirtualGalleryGrid', () => {
     }
     await flush();
 
-    const images = container.querySelectorAll('img');
+    const images = getContainer().querySelectorAll('img');
     expect(images.length).toBe(3);
     expect(images[0].getAttribute('src')).toBe('blob://thumb-0');
   });
@@ -230,7 +220,7 @@ describe('VirtualGalleryGrid', () => {
     const onItemClick = vi.fn();
 
     await act(async () => {
-      root.render(
+      getRoot().render(
         <VirtualGalleryGrid
           items={items}
           thumbnails={new Map()}
@@ -241,7 +231,7 @@ describe('VirtualGalleryGrid', () => {
       await flush();
     });
 
-    const gridContainer = container.querySelector('[data-testid="virtual-grid-container"]');
+    const gridContainer = getContainer().querySelector('[data-testid="virtual-grid-container"]');
     if (gridContainer) {
       act(() => {
         resizeMock.triggerResize(gridContainer, 360);
@@ -249,7 +239,7 @@ describe('VirtualGalleryGrid', () => {
     }
     await flush();
 
-    const firstCell = container.querySelector('[data-media-id="media-0"]');
+    const firstCell = getContainer().querySelector('[data-media-id="media-0"]');
     expect(firstCell).toBeTruthy();
 
     act(() => {

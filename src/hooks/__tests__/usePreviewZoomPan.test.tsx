@@ -5,10 +5,10 @@
  */
 
 import { act } from 'react';
-import { createRoot, type Root } from 'react-dom/client';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { usePreviewZoomPan } from '../usePreviewZoomPan';
 import { flush } from '../../test-utils/flush';
+import { setupReactRoot } from '../../test-utils/react-root';
 
 const { getCurrentWindowMock, onResizedMock } = vi.hoisted(() => ({
   getCurrentWindowMock: vi.fn(),
@@ -34,37 +34,23 @@ function Harness({ imagePath }: { imagePath: string | null }) {
 }
 
 describe('usePreviewZoomPan', () => {
-  let container: HTMLDivElement;
-  let root: Root;
+  const { getContainer, getRoot } = setupReactRoot();
 
   beforeEach(() => {
-    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
-    container = document.createElement('div');
-    document.body.appendChild(container);
-    root = createRoot(container);
-
     onResizedMock.mockResolvedValue(vi.fn());
     getCurrentWindowMock.mockReturnValue({
       onResized: onResizedMock,
     });
   });
 
-  afterEach(() => {
-    act(() => {
-      root.unmount();
-    });
-    container.remove();
-    vi.unstubAllGlobals();
-  });
-
   it('zooms in on wheel and resets when image path changes', async () => {
     await act(async () => {
-      root.render(<Harness imagePath="/photos/a.jpg" />);
+      getRoot().render(<Harness imagePath="/photos/a.jpg" />);
       await flush();
     });
 
-    const containerEl = container.querySelector('[data-testid="container"]') as HTMLDivElement;
-    const imageEl = container.querySelector('[data-testid="image"]') as HTMLImageElement;
+    const containerEl = getContainer().querySelector('[data-testid="container"]') as HTMLDivElement;
+    const imageEl = getContainer().querySelector('[data-testid="image"]') as HTMLImageElement;
 
     vi.spyOn(containerEl, 'getBoundingClientRect').mockReturnValue({
       left: 0,
@@ -95,13 +81,13 @@ describe('usePreviewZoomPan', () => {
       await flush();
     });
 
-    expect(Number(container.querySelector('[data-testid="scale"]')?.textContent ?? '1')).toBeGreaterThan(1);
+    expect(Number(getContainer().querySelector('[data-testid="scale"]')?.textContent ?? '1')).toBeGreaterThan(1);
 
     await act(async () => {
-      root.render(<Harness imagePath="/photos/b.jpg" />);
+      getRoot().render(<Harness imagePath="/photos/b.jpg" />);
       await flush();
     });
 
-    expect(container.querySelector('[data-testid="scale"]')?.textContent).toBe('1');
+    expect(getContainer().querySelector('[data-testid="scale"]')?.textContent).toBe('1');
   });
 });

@@ -5,10 +5,10 @@
  */
 
 import { act } from 'react';
-import { createRoot, type Root } from 'react-dom/client';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useGalleryPager } from '../useGalleryPager';
 import { flush } from '../../test-utils/flush';
+import { setupReactRoot } from '../../test-utils/react-root';
 type UseGalleryPagerResult = ReturnType<typeof useGalleryPager>;
 import type { MediaItemDto, MediaPageResponse } from '../../types';
 
@@ -18,6 +18,7 @@ const { listMediaPageMock } = vi.hoisted(() => ({
 
 vi.mock('../../services/gallery-media-v2', () => ({
   listMediaPage: listMediaPageMock,
+  GALLERY_PAGE_SIZE: 120,
 }));
 
 let latestResult: UseGalleryPagerResult | null = null;
@@ -30,7 +31,6 @@ function PagerHarness() {
       <span data-testid="loading">{latestResult.isLoading ? 'yes' : 'no'}</span>
       <span data-testid="error">{latestResult.error ?? ''}</span>
       <span data-testid="cursor">{latestResult.cursor ?? 'null'}</span>
-      <span data-testid="revision">{latestResult.revisionToken}</span>
       <span data-testid="total-count">{latestResult.totalCount}</span>
       <button onClick={() => void latestResult!.loadNextPage()} data-testid="load-next">
         load-next
@@ -51,10 +51,10 @@ function PagerHarness() {
 function makePage(
   items: MediaItemDto[],
   nextCursor: string | null,
-  revisionToken = 'rev-1',
+  _revisionToken = 'rev-1',
   totalCount = 0,
 ): MediaPageResponse {
-  return { items, nextCursor, revisionToken, totalCount };
+  return { items, nextCursor, revisionToken: _revisionToken, totalCount };
 }
 
 function makeItem(mediaId: string, dateModifiedMs = 1000): MediaItemDto {
@@ -69,40 +69,24 @@ function makeItem(mediaId: string, dateModifiedMs = 1000): MediaItemDto {
   };
 }
 
-async function clickLoadNext(): Promise<void> {
+async function clickLoadNext(getContainer: () => HTMLDivElement): Promise<void> {
   await act(async () => {
-    container.querySelector('[data-testid="load-next"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    getContainer().querySelector('[data-testid="load-next"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     await flush();
   });
 }
 
-let container: HTMLDivElement;
-
 describe('useGalleryPager', () => {
-  let root: Root;
+  const { getContainer, getRoot } = setupReactRoot();
 
   beforeEach(() => {
-    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
-
-    container = document.createElement('div');
-    document.body.appendChild(container);
-    root = createRoot(container);
-
     listMediaPageMock.mockReset();
     latestResult = null;
   });
 
-  afterEach(() => {
-    act(() => {
-      root.unmount();
-    });
-    container.remove();
-    vi.unstubAllGlobals();
-  });
-
   async function renderHarness(): Promise<void> {
     await act(async () => {
-      root.render(<PagerHarness />);
+      getRoot().render(<PagerHarness />);
       await flush();
     });
   }
@@ -113,7 +97,7 @@ describe('useGalleryPager', () => {
     );
 
     await renderHarness();
-    await clickLoadNext();
+    await clickLoadNext(getContainer);
 
     expect(listMediaPageMock).toHaveBeenCalledTimes(1);
     expect(listMediaPageMock).toHaveBeenCalledWith({
@@ -121,11 +105,10 @@ describe('useGalleryPager', () => {
       pageSize: 120,
       sort: 'dateDesc',
     });
-    expect(container.querySelector('[data-testid="count"]')?.textContent).toBe('2');
-    expect(container.querySelector('[data-testid="loading"]')?.textContent).toBe('no');
-    expect(container.querySelector('[data-testid="cursor"]')?.textContent).toBe('cursor-1');
-    expect(container.querySelector('[data-testid="revision"]')?.textContent).toBe('rev-1');
-    expect(container.querySelector('[data-testid="error"]')?.textContent).toBe('');
+    expect(getContainer().querySelector('[data-testid="count"]')?.textContent).toBe('2');
+    expect(getContainer().querySelector('[data-testid="loading"]')?.textContent).toBe('no');
+    expect(getContainer().querySelector('[data-testid="cursor"]')?.textContent).toBe('cursor-1');
+    expect(getContainer().querySelector('[data-testid="error"]')?.textContent).toBe('');
   });
 
   it('appends items on subsequent loadNextPage calls', async () => {
@@ -134,15 +117,15 @@ describe('useGalleryPager', () => {
     );
 
     await renderHarness();
-    await clickLoadNext();
+    await clickLoadNext(getContainer);
 
-    expect(container.querySelector('[data-testid="count"]')?.textContent).toBe('1');
+    expect(getContainer().querySelector('[data-testid="count"]')?.textContent).toBe('1');
 
     listMediaPageMock.mockResolvedValueOnce(
       makePage([makeItem('media-2')], 'cursor-2', 'rev-1'),
     );
 
-    await clickLoadNext();
+    await clickLoadNext(getContainer);
 
     expect(listMediaPageMock).toHaveBeenCalledTimes(2);
     expect(listMediaPageMock).toHaveBeenLastCalledWith({
@@ -150,8 +133,8 @@ describe('useGalleryPager', () => {
       pageSize: 120,
       sort: 'dateDesc',
     });
-    expect(container.querySelector('[data-testid="count"]')?.textContent).toBe('2');
-    expect(container.querySelector('[data-testid="cursor"]')?.textContent).toBe('cursor-2');
+    expect(getContainer().querySelector('[data-testid="count"]')?.textContent).toBe('2');
+    expect(getContainer().querySelector('[data-testid="cursor"]')?.textContent).toBe('cursor-2');
   });
 
   it('restarts from first page when stale_cursor returned', async () => {
@@ -160,23 +143,22 @@ describe('useGalleryPager', () => {
     );
 
     await renderHarness();
-    await clickLoadNext();
+    await clickLoadNext(getContainer);
 
-    expect(container.querySelector('[data-testid="count"]')?.textContent).toBe('1');
+    expect(getContainer().querySelector('[data-testid="count"]')?.textContent).toBe('1');
 
     listMediaPageMock.mockRejectedValueOnce(new Error('stale_cursor'));
     listMediaPageMock.mockResolvedValueOnce(
       makePage([makeItem('media-1'), makeItem('media-3')], null, 'rev-2'),
     );
 
-    await clickLoadNext();
+    await clickLoadNext(getContainer);
 
     expect(listMediaPageMock).toHaveBeenCalledTimes(3);
-    expect(container.querySelector('[data-testid="error"]')?.textContent).toBe('');
-    expect(container.querySelector('[data-testid="cursor"]')?.textContent).toBe('null');
-    expect(container.querySelector('[data-testid="count"]')?.textContent).toBe('1');
+    expect(getContainer().querySelector('[data-testid="error"]')?.textContent).toBe('');
+    expect(getContainer().querySelector('[data-testid="cursor"]')?.textContent).toBe('null');
+    expect(getContainer().querySelector('[data-testid="count"]')?.textContent).toBe('1');
     expect(latestResult!.items.map((i) => i.mediaId)).toEqual(['media-3']);
-    expect(container.querySelector('[data-testid="revision"]')?.textContent).toBe('rev-2');
   });
 
   it.each([
@@ -188,9 +170,9 @@ describe('useGalleryPager', () => {
     );
 
     await renderHarness();
-    await clickLoadNext();
+    await clickLoadNext(getContainer);
 
-    expect(container.querySelector('[data-testid="count"]')?.textContent).toBe('2');
+    expect(getContainer().querySelector('[data-testid="count"]')?.textContent).toBe('2');
 
     listMediaPageMock.mockRejectedValueOnce(new Error('stale_cursor'));
     listMediaPageMock.mockResolvedValueOnce(
@@ -201,14 +183,13 @@ describe('useGalleryPager', () => {
       ),
     );
 
-    await clickLoadNext();
+    await clickLoadNext(getContainer);
 
     expect(listMediaPageMock).toHaveBeenCalledTimes(3);
-    expect(container.querySelector('[data-testid="count"]')?.textContent).toBe('1');
+    expect(getContainer().querySelector('[data-testid="count"]')?.textContent).toBe('1');
     expect(latestResult!.items.map((i) => i.mediaId)).toEqual(['media-3']);
-    expect(container.querySelector('[data-testid="error"]')?.textContent).toBe('');
-    expect(container.querySelector('[data-testid="revision"]')?.textContent).toBe('rev-2');
-    expect(container.querySelector('[data-testid="cursor"]')?.textContent).toBe(nextCursor ?? 'null');
+    expect(getContainer().querySelector('[data-testid="error"]')?.textContent).toBe('');
+    expect(getContainer().querySelector('[data-testid="cursor"]')?.textContent).toBe(nextCursor ?? 'null');
   });
 
   it('resets everything on reload', async () => {
@@ -217,16 +198,16 @@ describe('useGalleryPager', () => {
     );
 
     await renderHarness();
-    await clickLoadNext();
+    await clickLoadNext(getContainer);
 
-    expect(container.querySelector('[data-testid="count"]')?.textContent).toBe('1');
+    expect(getContainer().querySelector('[data-testid="count"]')?.textContent).toBe('1');
 
     listMediaPageMock.mockResolvedValueOnce(
       makePage([makeItem('media-10'), makeItem('media-11')], 'cursor-new', 'rev-2'),
     );
 
     await act(async () => {
-      container.querySelector('[data-testid="reload"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      getContainer().querySelector('[data-testid="reload"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
       await flush();
     });
 
@@ -236,9 +217,8 @@ describe('useGalleryPager', () => {
       pageSize: 120,
       sort: 'dateDesc',
     });
-    expect(container.querySelector('[data-testid="count"]')?.textContent).toBe('2');
-    expect(container.querySelector('[data-testid="cursor"]')?.textContent).toBe('cursor-new');
-    expect(container.querySelector('[data-testid="revision"]')?.textContent).toBe('rev-2');
+    expect(getContainer().querySelector('[data-testid="count"]')?.textContent).toBe('2');
+    expect(getContainer().querySelector('[data-testid="cursor"]')?.textContent).toBe('cursor-new');
   });
 
   it('removes items by mediaId', async () => {
@@ -247,18 +227,18 @@ describe('useGalleryPager', () => {
     );
 
     await renderHarness();
-    await clickLoadNext();
+    await clickLoadNext(getContainer);
 
-    expect(container.querySelector('[data-testid="count"]')?.textContent).toBe('3');
-    expect(container.querySelector('[data-testid="total-count"]')?.textContent).toBe('3');
+    expect(getContainer().querySelector('[data-testid="count"]')?.textContent).toBe('3');
+    expect(getContainer().querySelector('[data-testid="total-count"]')?.textContent).toBe('3');
 
     await act(async () => {
-      container.querySelector('[data-testid="remove-media-2"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      getContainer().querySelector('[data-testid="remove-media-2"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
       await flush();
     });
 
-    expect(container.querySelector('[data-testid="count"]')?.textContent).toBe('2');
-    expect(container.querySelector('[data-testid="total-count"]')?.textContent).toBe('2');
+    expect(getContainer().querySelector('[data-testid="count"]')?.textContent).toBe('2');
+    expect(getContainer().querySelector('[data-testid="total-count"]')?.textContent).toBe('2');
     expect(latestResult!.items.map((i) => i.mediaId)).toEqual(['media-1', 'media-3']);
   });
 
@@ -268,28 +248,28 @@ describe('useGalleryPager', () => {
     );
 
     await renderHarness();
-    await clickLoadNext();
+    await clickLoadNext(getContainer);
 
-    expect(container.querySelector('[data-testid="count"]')?.textContent).toBe('1');
-    expect(container.querySelector('[data-testid="total-count"]')?.textContent).toBe('1');
+    expect(getContainer().querySelector('[data-testid="count"]')?.textContent).toBe('1');
+    expect(getContainer().querySelector('[data-testid="total-count"]')?.textContent).toBe('1');
 
     await act(async () => {
       latestResult!.removeItems(new Set(['media-1', 'missing-media-id']));
       await flush();
     });
 
-    expect(container.querySelector('[data-testid="count"]')?.textContent).toBe('0');
-    expect(container.querySelector('[data-testid="total-count"]')?.textContent).toBe('0');
+    expect(getContainer().querySelector('[data-testid="count"]')?.textContent).toBe('0');
+    expect(getContainer().querySelector('[data-testid="total-count"]')?.textContent).toBe('0');
   });
 
   it('sets error on non-stale-cursor failure', async () => {
     listMediaPageMock.mockRejectedValueOnce(new Error('Network timeout'));
 
     await renderHarness();
-    await clickLoadNext();
+    await clickLoadNext(getContainer);
 
-    expect(container.querySelector('[data-testid="error"]')?.textContent).toBe('Network timeout');
-    expect(container.querySelector('[data-testid="count"]')?.textContent).toBe('0');
+    expect(getContainer().querySelector('[data-testid="error"]')?.textContent).toBe('Network timeout');
+    expect(getContainer().querySelector('[data-testid="count"]')?.textContent).toBe('0');
   });
 
   it('prevents concurrent loadNextPage calls', async () => {
@@ -302,14 +282,14 @@ describe('useGalleryPager', () => {
     await renderHarness();
 
     await act(async () => {
-      container.querySelector('[data-testid="load-next"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      getContainer().querySelector('[data-testid="load-next"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
       await flush();
     });
 
-    expect(container.querySelector('[data-testid="loading"]')?.textContent).toBe('yes');
+    expect(getContainer().querySelector('[data-testid="loading"]')?.textContent).toBe('yes');
 
     await act(async () => {
-      container.querySelector('[data-testid="load-next"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      getContainer().querySelector('[data-testid="load-next"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
       await flush();
     });
 
@@ -320,7 +300,7 @@ describe('useGalleryPager', () => {
       await flush();
     });
 
-    expect(container.querySelector('[data-testid="loading"]')?.textContent).toBe('no');
-    expect(container.querySelector('[data-testid="count"]')?.textContent).toBe('1');
+    expect(getContainer().querySelector('[data-testid="loading"]')?.textContent).toBe('no');
+    expect(getContainer().querySelector('[data-testid="count"]')?.textContent).toBe('1');
   });
 });

@@ -47,8 +47,8 @@ fn can_write_to_dcim() -> bool {
     writable
 }
 
-/// 验证路径是否可写
-fn validate_path_writable(path: &str) -> bool {
+/// 确保路径可写（不存在时创建）
+fn ensure_path_writable(path: &str) -> bool {
     let path_buf = std::path::PathBuf::from(path);
 
     // 如果路径不存在，尝试创建
@@ -109,7 +109,7 @@ impl PlatformService for AndroidPlatform {
 
         let exists = path_buf.exists();
         let writable = if exists {
-            validate_path_writable(path)
+            ensure_path_writable(path)
         } else {
             false
         };

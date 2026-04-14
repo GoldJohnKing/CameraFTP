@@ -39,9 +39,7 @@ describe('permissionStore', () => {
       },
       isLoading: false,
       error: null,
-      isPolling: false,
       allGranted: false,
-      isInitialized: false,
       storageInfo: null,
       needsPermission: false,
       pollingIntervalId: null,
@@ -80,7 +78,7 @@ describe('permissionStore', () => {
     await vi.advanceTimersByTimeAsync(300);
 
     expect(refreshHandler).toHaveBeenCalledTimes(1);
-    expect(usePermissionStore.getState().isPolling).toBe(false);
+    expect(usePermissionStore.getState().pollingIntervalId).toBeNull();
 
     window.removeEventListener(GALLERY_REFRESH_REQUESTED_EVENT, refreshHandler);
   });

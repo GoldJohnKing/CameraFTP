@@ -180,20 +180,11 @@ pub enum MediaStoreError {
     #[error("File not found: {0}")]
     NotFound(String),
 
-    #[error("Invalid path: {0}")]
-    InvalidPath(String),
-
-    #[error("Permission denied: {0}")]
-    PermissionDenied(String),
-
     #[error("IO error: {0}")]
     IoError(#[from] std::io::Error),
 
     #[error("Bridge error: {0}")]
     BridgeError(String),
-
-    #[error("Operation cancelled")]
-    Cancelled,
 }
 
 /// Trait for MediaStore bridge client.
@@ -239,9 +230,6 @@ pub trait MediaStoreBridgeClient: Send + Sync + std::fmt::Debug {
 
     /// Deletes a file from MediaStore.
     async fn delete_file(&self, path: &str) -> Result<(), MediaStoreError>;
-
-    /// Creates a directory in MediaStore (via relative path convention).
-    async fn create_directory(&self, path: &str) -> Result<(), MediaStoreError>;
 }
 
 /// Extracts the display name (filename) from a path.

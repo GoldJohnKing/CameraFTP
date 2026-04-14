@@ -5,11 +5,11 @@
  */
 
 import { act } from 'react';
-import { createRoot, type Root } from 'react-dom/client';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AboutCard } from '../AboutCard';
 import wechatQrCodeSrc from '../../assets/donate-qrcode-wechat.png';
 import { useConfigStore } from '../../stores/configStore';
+import { setupReactRoot } from '../../test-utils/react-root';
 
 const { getVersionMock, invokeMock } = vi.hoisted(() => ({
   getVersionMock: vi.fn(),
@@ -27,12 +27,10 @@ vi.mock('@tauri-apps/api/core', () => ({
 import { flush } from '../../test-utils/flush';
 
 describe('AboutCard Android donation flow', () => {
-  let container: HTMLDivElement;
-  let root: Root;
+  const { getRoot } = setupReactRoot();
   let saveImageToGalleryMock: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
-    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
     getVersionMock.mockReset();
     getVersionMock.mockResolvedValue('1.3.1');
     invokeMock.mockReset();
@@ -50,23 +48,11 @@ describe('AboutCard Android donation flow', () => {
       ...state,
       platform: 'android',
     }));
-
-    container = document.createElement('div');
-    document.body.appendChild(container);
-    root = createRoot(container);
-  });
-
-  afterEach(() => {
-    act(() => {
-      root.unmount();
-    });
-    container.remove();
-    vi.unstubAllGlobals();
   });
 
   it('opens a full-screen WeChat QR dialog instead of saving the QR image locally', async () => {
     await act(async () => {
-      root.render(<AboutCard />);
+      getRoot().render(<AboutCard />);
       await flush();
     });
 

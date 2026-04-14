@@ -60,7 +60,6 @@ describe('configStore coordination', () => {
       error: null,
       activeTab: 'home',
       platform: 'windows',
-      draftRevision: 0,
     });
   });
 

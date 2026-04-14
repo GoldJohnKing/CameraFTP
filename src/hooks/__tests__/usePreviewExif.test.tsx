@@ -5,10 +5,10 @@
  */
 
 import { act } from 'react';
-import { createRoot, type Root } from 'react-dom/client';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { usePreviewExif } from '../usePreviewExif';
 import { flush } from '../../test-utils/flush';
+import { setupReactRoot } from '../../test-utils/react-root';
 
 const { invokeMock } = vi.hoisted(() => ({
   invokeMock: vi.fn(),
@@ -29,23 +29,10 @@ function Harness({ imagePath }: { imagePath: string | null }) {
 }
 
 describe('usePreviewExif', () => {
-  let container: HTMLDivElement;
-  let root: Root;
+  const { getContainer, getRoot } = setupReactRoot();
 
   beforeEach(() => {
-    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
-    container = document.createElement('div');
-    document.body.appendChild(container);
-    root = createRoot(container);
     invokeMock.mockReset();
-  });
-
-  afterEach(() => {
-    act(() => {
-      root.unmount();
-    });
-    container.remove();
-    vi.unstubAllGlobals();
   });
 
   it('loads exif for image path and clears on failure', async () => {
@@ -53,20 +40,20 @@ describe('usePreviewExif', () => {
     invokeMock.mockRejectedValueOnce(new Error('no exif'));
 
     await act(async () => {
-      root.render(<Harness imagePath="/photos/a.jpg" />);
+      getRoot().render(<Harness imagePath="/photos/a.jpg" />);
       await flush();
     });
 
     expect(invokeMock).toHaveBeenCalledWith('get_image_exif', { filePath: '/photos/a.jpg' });
-    expect(container.querySelector('[data-testid="iso"]')?.textContent).toBe('640');
+    expect(      getContainer().querySelector('[data-testid="iso"]')?.textContent).toBe('640');
 
     await act(async () => {
-      root.render(<Harness imagePath="/photos/b.jpg" />);
+      getRoot().render(<Harness imagePath="/photos/b.jpg" />);
       await flush();
     });
 
     expect(invokeMock).toHaveBeenCalledWith('get_image_exif', { filePath: '/photos/b.jpg' });
-    expect(container.querySelector('[data-testid="iso"]')?.textContent).toBe('');
+    expect(      getContainer().querySelector('[data-testid="iso"]')?.textContent).toBe('');
   });
 
   it('clears stale exif immediately when switching between non-null images', async () => {
@@ -92,24 +79,24 @@ describe('usePreviewExif', () => {
     });
 
     await act(async () => {
-      root.render(<Harness imagePath="/photos/a.jpg" />);
+      getRoot().render(<Harness imagePath="/photos/a.jpg" />);
       await flush();
     });
 
-    expect(container.querySelector('[data-testid="iso"]')?.textContent).toBe('320');
+    expect(      getContainer().querySelector('[data-testid="iso"]')?.textContent).toBe('320');
 
     await act(async () => {
-      root.render(<Harness imagePath="/photos/b.jpg" />);
+      getRoot().render(<Harness imagePath="/photos/b.jpg" />);
       await flush();
     });
 
-    expect(container.querySelector('[data-testid="iso"]')?.textContent).toBe('');
+    expect(      getContainer().querySelector('[data-testid="iso"]')?.textContent).toBe('');
 
     await act(async () => {
       resolveSecond?.({ iso: 800 });
       await flush();
     });
 
-    expect(container.querySelector('[data-testid="iso"]')?.textContent).toBe('800');
+    expect(      getContainer().querySelector('[data-testid="iso"]')?.textContent).toBe('800');
   });
 });

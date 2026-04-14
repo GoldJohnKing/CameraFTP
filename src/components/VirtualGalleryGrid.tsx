@@ -9,8 +9,9 @@ import { Check, Loader2 } from 'lucide-react';
 import type { MediaItemDto } from '../types';
 
 const COLUMNS = 3;
-const DEFAULT_ROW_HEIGHT = 120;
-const DEFAULT_OVERSCAN_ROWS = 3;
+const ROW_HEIGHT = 120;
+const OVERSCAN_ROWS = 3;
+const NEAR_END_THRESHOLD = 5;
 const SCROLL_END_DELAY = 150;
 
 export interface VirtualGalleryGridProps {
@@ -19,8 +20,6 @@ export interface VirtualGalleryGridProps {
   loadingThumbs: Set<string>;
   onItemClick: (item: MediaItemDto) => void;
   onRangeChange?: (visibleIds: string[], nearbyIds: string[]) => void;
-  rowHeight?: number;
-  overscanRows?: number;
   /** Selection mode overlay support */
   isSelectionMode?: boolean;
   selectedIds?: Set<string>;
@@ -30,8 +29,6 @@ export interface VirtualGalleryGridProps {
   onTouchEnd?: () => void;
   /** Called when scrolling near the end to trigger infinite scroll */
   onNearEnd?: () => void;
-  /** Threshold in rows before end to trigger onNearEnd (default: 5) */
-  nearEndThreshold?: number;
 }
 
 export function VirtualGalleryGrid({
@@ -40,8 +37,6 @@ export function VirtualGalleryGrid({
   loadingThumbs,
   onItemClick,
   onRangeChange,
-  rowHeight = DEFAULT_ROW_HEIGHT,
-  overscanRows = DEFAULT_OVERSCAN_ROWS,
   isSelectionMode = false,
   selectedIds,
   deletingIds,
@@ -49,7 +44,6 @@ export function VirtualGalleryGrid({
   onTouchMove,
   onTouchEnd,
   onNearEnd,
-  nearEndThreshold = 5,
 }: VirtualGalleryGridProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [scrollTop, setScrollTop] = useState(0);
@@ -58,7 +52,7 @@ export function VirtualGalleryGrid({
   const scrollEndTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const totalRows = Math.ceil(items.length / COLUMNS);
-  const totalHeight = totalRows * rowHeight;
+  const totalHeight = totalRows * ROW_HEIGHT;
 
   // Observe container height
   useEffect(() => {
@@ -107,17 +101,17 @@ export function VirtualGalleryGrid({
 
   // Calculate visible range
   const { startRow, endRow, visibleStartRow, visibleEndRow } = useMemo(() => {
-    const visibleStartRow = Math.max(0, Math.floor(scrollTop / rowHeight));
+    const visibleStartRow = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT));
     const visibleEndRow = Math.min(
       totalRows - 1,
-      Math.floor((scrollTop + containerHeight) / rowHeight)
+      Math.floor((scrollTop + containerHeight) / ROW_HEIGHT)
     );
 
-    const startRow = Math.max(0, visibleStartRow - overscanRows);
-    const endRow = Math.min(totalRows - 1, visibleEndRow + overscanRows);
+    const startRow = Math.max(0, visibleStartRow - OVERSCAN_ROWS);
+    const endRow = Math.min(totalRows - 1, visibleEndRow + OVERSCAN_ROWS);
 
     return { startRow, endRow, visibleStartRow, visibleEndRow };
-  }, [scrollTop, containerHeight, rowHeight, totalRows, overscanRows]);
+  }, [scrollTop, containerHeight, totalRows]);
 
   // Build visible items slice
   const visibleItems = useMemo(() => {
@@ -149,13 +143,13 @@ export function VirtualGalleryGrid({
     // Trigger infinite scroll when near the end
     if (onNearEnd && totalRows > 0) {
       const rowsRemaining = totalRows - visibleEndRow - 1;
-      if (rowsRemaining <= nearEndThreshold) {
+      if (rowsRemaining <= NEAR_END_THRESHOLD) {
         onNearEnd();
       }
     }
-  }, [items, visibleStartRow, visibleEndRow, startRow, endRow, onRangeChange, onNearEnd, containerHeight, totalRows, nearEndThreshold]);
+  }, [items, visibleStartRow, visibleEndRow, startRow, endRow, onRangeChange, onNearEnd, containerHeight, totalRows]);
 
-  const offsetY = startRow * rowHeight;
+  const offsetY = startRow * ROW_HEIGHT;
 
   return (
     <div
@@ -164,7 +158,7 @@ export function VirtualGalleryGrid({
       data-testid="virtual-grid-container"
       onScroll={handleScroll}
     >
-      <div style={{ height: totalHeight, position: 'relative' }}>
+      <div className="relative" style={{ height: totalHeight }}>
         <div
           className="grid grid-cols-3 gap-1.5 px-0.5 pt-1 pb-1.5"
           style={{

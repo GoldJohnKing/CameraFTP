@@ -100,10 +100,8 @@ impl DataListener for FtpDataListener {
                 }
                 DataEvent::Got { path, bytes } => {
                     info!(file = %path, size = bytes, "File downloaded");
-                    stats.record_download(path, bytes).await;
                 }
                 DataEvent::Deleted { path } => {
-                    stats.record_delete(path.clone()).await;
                     info!(file = %path, "File deleted");
 
                     let is_image = FileIndexService::is_supported_image(std::path::Path::new(&path));
@@ -129,15 +127,12 @@ impl DataListener for FtpDataListener {
                 }
                 DataEvent::MadeDir { path } => {
                     info!(dir = %path, "Directory created");
-                    stats.record_mkdir(path).await;
                 }
                 DataEvent::RemovedDir { path } => {
                     info!(dir = %path, "Directory removed");
-                    stats.record_rmdir(path).await;
                 }
                 DataEvent::Renamed { from, to } => {
                     info!(from = %from, to = %to, "File renamed");
-                    stats.record_rename(from, to).await;
                 }
             }
         })

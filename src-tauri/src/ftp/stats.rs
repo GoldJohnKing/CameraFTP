@@ -6,17 +6,12 @@ use crate::ftp::events::EventBus;
 use crate::ftp::types::ServerStats;
 use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};
-use tracing::{debug, info};
+use tracing::info;
 
 /// 统计信息Actor命令
 #[derive(Debug)]
 pub enum StatsCommand {
     RecordUpload { path: String, bytes: u64 },
-    RecordDownload { path: String, bytes: u64 },
-    RecordDelete { path: String },
-    RecordMkdir { path: String },
-    RecordRmdir { path: String },
-    RecordRename { from: String, to: String },
     UpdateConnectionCount { count: u64 },
 }
 
@@ -51,41 +46,6 @@ impl StatsActor {
     pub async fn record_upload(&self, path: String, bytes: u64) {
         if let Err(e) = self.tx.send(StatsCommand::RecordUpload { path, bytes }).await {
             tracing::warn!("Failed to send record_upload command: {}", e);
-        }
-    }
-
-    /// 记录文件下载
-    pub async fn record_download(&self, path: String, bytes: u64) {
-        if let Err(e) = self.tx.send(StatsCommand::RecordDownload { path, bytes }).await {
-            tracing::warn!("Failed to send record_download command: {}", e);
-        }
-    }
-
-    /// 记录文件删除
-    pub async fn record_delete(&self, path: String) {
-        if let Err(e) = self.tx.send(StatsCommand::RecordDelete { path }).await {
-            tracing::warn!("Failed to send record_delete command: {}", e);
-        }
-    }
-
-    /// 记录目录创建
-    pub async fn record_mkdir(&self, path: String) {
-        if let Err(e) = self.tx.send(StatsCommand::RecordMkdir { path }).await {
-            tracing::warn!("Failed to send record_mkdir command: {}", e);
-        }
-    }
-
-    /// 记录目录删除
-    pub async fn record_rmdir(&self, path: String) {
-        if let Err(e) = self.tx.send(StatsCommand::RecordRmdir { path }).await {
-            tracing::warn!("Failed to send record_rmdir command: {}", e);
-        }
-    }
-
-    /// 记录文件重命名
-    pub async fn record_rename(&self, from: String, to: String) {
-        if let Err(e) = self.tx.send(StatsCommand::RecordRename { from, to }).await {
-            tracing::warn!("Failed to send record_rename command: {}", e);
         }
     }
 
@@ -130,26 +90,6 @@ impl StatsActorWorker {
                     let mut stats = self.stats.write().await;
                     stats.active_connections = count;
                     true // 连接数变化需要发送事件
-                }
-                StatsCommand::RecordDownload { path, bytes } => {
-                    debug!(file = %path, size = bytes, "File downloaded");
-                    false
-                }
-                StatsCommand::RecordDelete { path } => {
-                    debug!(file = %path, "File deleted");
-                    false
-                }
-                StatsCommand::RecordMkdir { path } => {
-                    debug!(dir = %path, "Directory created");
-                    false
-                }
-                StatsCommand::RecordRmdir { path } => {
-                    debug!(dir = %path, "Directory removed");
-                    false
-                }
-                StatsCommand::RecordRename { from, to } => {
-                    debug!(from = %from, to = %to, "File renamed");
-                    false
                 }
             };
 

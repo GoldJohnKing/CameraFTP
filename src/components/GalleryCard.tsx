@@ -5,7 +5,7 @@
  */
 
 import { memo, useCallback, useEffect, useState } from 'react';
-import { RefreshCw, ImageOff, X, Trash2, Share2, MoreVertical } from 'lucide-react';
+import { ImageOff, X, Trash2, Share2, MoreVertical } from 'lucide-react';
 import { useConfigStore } from '../stores/configStore';
 import { usePermissionStore } from '../stores/permissionStore';
 import type { MediaItemDto, GalleryItemsAddedEvent, GalleryItemsDeletedEvent } from '../types';
@@ -19,6 +19,7 @@ import { useGallerySelection } from '../hooks/useGallerySelection';
 import { useImagePreviewOpener } from '../hooks/useImagePreviewOpener';
 import { useAndroidAutoOpenLatestPhoto } from '../hooks/useAndroidAutoOpenLatestPhoto';
 import { VirtualGalleryGrid } from './VirtualGalleryGrid';
+import { RefreshButton } from './ui';
 
 export const GalleryCard = memo(function GalleryCard() {
   const { activeTab } = useConfigStore();
@@ -189,14 +190,12 @@ export const GalleryCard = memo(function GalleryCard() {
     return (
       <div className="flex flex-col items-center justify-center py-20">
         <p className="text-red-500">{pager.error}</p>
-        <button
+        <RefreshButton
           onClick={handleRefresh}
-          disabled={isRefreshing}
+          isLoading={isRefreshing}
+          label="重试"
           className="mt-4 flex items-center gap-2 px-4 py-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors disabled:opacity-50"
-        >
-          <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
-          <span>{isRefreshing ? '刷新中...' : '重试'}</span>
-        </button>
+        />
       </div>
     );
   }
@@ -207,14 +206,12 @@ export const GalleryCard = memo(function GalleryCard() {
       <div className="flex flex-col items-center justify-center py-20">
         <ImageOff className="w-12 h-12 text-gray-300" />
         <p className="mt-3 text-gray-500">暂无图片</p>
-        <button
+        <RefreshButton
           onClick={handleRefresh}
-          disabled={isRefreshing}
+          isLoading={isRefreshing}
+          label="刷新"
           className="mt-4 flex items-center gap-2 px-4 py-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors disabled:opacity-50"
-        >
-          <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
-          <span>{isRefreshing ? '刷新中...' : '刷新'}</span>
-        </button>
+        />
       </div>
     );
   }
@@ -226,14 +223,7 @@ export const GalleryCard = memo(function GalleryCard() {
         <h2 className="text-lg font-semibold text-gray-900">
           图库 ({pager.totalCount})
         </h2>
-        <button
-          onClick={handleRefresh}
-          disabled={isRefreshing}
-          className="text-sm text-blue-500 hover:text-blue-600 flex items-center gap-1.5 disabled:opacity-50 transition-colors"
-        >
-          <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
-          <span>{isRefreshing ? '刷新中...' : '刷新'}</span>
-        </button>
+        <RefreshButton onClick={handleRefresh} isLoading={isRefreshing} />
       </div>
 
       {/* Virtualized image grid */}

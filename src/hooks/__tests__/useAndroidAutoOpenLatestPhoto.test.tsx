@@ -6,11 +6,11 @@
 
 import { act } from 'react';
 import { flushSync } from 'react-dom';
-import { createRoot, type Root } from 'react-dom/client';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AndroidImageOpenMethod } from '../../types';
 import type { MediaItemDto } from '../../types';
 import { useAndroidAutoOpenLatestPhoto } from '../useAndroidAutoOpenLatestPhoto';
+import { setupReactRoot } from '../../test-utils/react-root';
 
 const { openImagePreviewMock } = vi.hoisted(() => ({
   openImagePreviewMock: vi.fn(),
@@ -44,25 +44,11 @@ function createItem(mediaId: string, uri: string): MediaItemDto {
 }
 
 describe('useAndroidAutoOpenLatestPhoto', () => {
-  let container: HTMLDivElement;
-  let root: Root;
+  const { getRoot } = setupReactRoot();
 
   beforeEach(() => {
-    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
-    container = document.createElement('div');
-    document.body.appendChild(container);
-    root = createRoot(container);
-
     openImagePreviewMock.mockReset();
     window.ImageViewerAndroid = undefined;
-  });
-
-  afterEach(() => {
-    act(() => {
-      root.unmount();
-    });
-    container.remove();
-    vi.unstubAllGlobals();
   });
 
   it('auto-opens newest added item when built-in mode, enabled, and app visible', async () => {
@@ -85,7 +71,7 @@ describe('useAndroidAutoOpenLatestPhoto', () => {
     ];
 
     await act(async () => {
-      root.render(
+      getRoot().render(
         <Harness
           galleryItems={existing}
           openMethod="built-in-viewer"
@@ -118,7 +104,7 @@ describe('useAndroidAutoOpenLatestPhoto', () => {
     };
 
     await act(async () => {
-      root.render(
+      getRoot().render(
         <Harness
           galleryItems={[createItem('existing-1', 'content://existing/1')]}
           openMethod="built-in-viewer"
@@ -147,7 +133,7 @@ describe('useAndroidAutoOpenLatestPhoto', () => {
     };
 
     await act(async () => {
-      root.render(
+      getRoot().render(
         <Harness
           galleryItems={[createItem('existing-1', 'content://existing/1')]}
           openMethod="external-app"
@@ -176,7 +162,7 @@ describe('useAndroidAutoOpenLatestPhoto', () => {
     };
 
     await act(async () => {
-      root.render(
+      getRoot().render(
         <Harness
           galleryItems={[]}
           openMethod="built-in-viewer"
@@ -186,7 +172,7 @@ describe('useAndroidAutoOpenLatestPhoto', () => {
     });
 
     act(() => {
-      root.unmount();
+      getRoot().unmount();
     });
 
     act(() => {
@@ -219,7 +205,7 @@ describe('useAndroidAutoOpenLatestPhoto', () => {
 
     act(() => {
       flushSync(() => {
-        root.render(
+        getRoot().render(
           <Harness
             galleryItems={[]}
             openMethod="built-in-viewer"
@@ -237,7 +223,7 @@ describe('useAndroidAutoOpenLatestPhoto', () => {
       );
 
       flushSync(() => {
-        root.render(
+        getRoot().render(
           <Harness
             galleryItems={firstBatch}
             openMethod="built-in-viewer"
@@ -285,7 +271,7 @@ describe('useAndroidAutoOpenLatestPhoto', () => {
 
     act(() => {
       flushSync(() => {
-        root.render(
+        getRoot().render(
           <Harness
             galleryItems={[]}
             openMethod="built-in-viewer"

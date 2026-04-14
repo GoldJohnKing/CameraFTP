@@ -5,11 +5,11 @@
  */
 
 import { act } from 'react';
-import { createRoot, type Root } from 'react-dom/client';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 import { GalleryCard } from '../GalleryCard';
 import type { MediaItemDto } from '../../types';
 import { makeItems } from '../../test-utils/media-factory';
+import { setupReactRoot } from '../../test-utils/react-root';
 
 // ---- Mocks ----
 
@@ -93,17 +93,11 @@ import { createMockRectObserver } from '../../test-utils/mock-resize-observer';
 // ---- Tests ----
 
 describe('GalleryCard (virtualized)', () => {
-  let container: HTMLDivElement;
-  let root: Root;
+  const { getContainer, getRoot } = setupReactRoot();
   let resizeMock: ReturnType<typeof createMockRectObserver>;
   let originalResizeObserver: typeof ResizeObserver;
 
   beforeEach(() => {
-    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
-    container = document.createElement('div');
-    document.body.appendChild(container);
-    root = createRoot(container);
-
     resizeMock = createMockRectObserver();
     originalResizeObserver = window.ResizeObserver;
     window.ResizeObserver = resizeMock.MockResizeObserver as unknown as typeof ResizeObserver;
@@ -122,22 +116,17 @@ describe('GalleryCard (virtualized)', () => {
   });
 
   afterEach(() => {
-    act(() => {
-      root.unmount();
-    });
-    container.remove();
     window.ResizeObserver = originalResizeObserver;
-    vi.unstubAllGlobals();
   });
 
   it('renders with virtualized grid and does not mount all items', async () => {
     await act(async () => {
-      root.render(<GalleryCard />);
+      getRoot().render(<GalleryCard />);
       await flush();
     });
 
     // Simulate container height = 360px (3 visible rows at 120px each)
-    const gridContainer = container.querySelector('[data-testid="virtual-grid-container"]');
+    const gridContainer = getContainer().querySelector('[data-testid="virtual-grid-container"]');
     expect(gridContainer).toBeTruthy();
 
     if (gridContainer) {
@@ -149,7 +138,7 @@ describe('GalleryCard (virtualized)', () => {
     await flush();
 
     // With 300 items but only visible+overscan rendered, we should see far fewer cells
-    const renderedCells = container.querySelectorAll('[data-media-id]');
+    const renderedCells = getContainer().querySelectorAll('[data-media-id]');
     expect(renderedCells.length).toBeGreaterThan(0);
     expect(renderedCells.length).toBeLessThan(mockItems.length);
     // Virtual grid renders only visible rows + overscan, not all 300 items
@@ -158,7 +147,7 @@ describe('GalleryCard (virtualized)', () => {
 
   it('calls loadNextPage on mount', async () => {
     await act(async () => {
-      root.render(<GalleryCard />);
+      getRoot().render(<GalleryCard />);
       await flush();
     });
 
@@ -167,7 +156,7 @@ describe('GalleryCard (virtualized)', () => {
 
   it('calls registerMedia when items are available', async () => {
     await act(async () => {
-      root.render(<GalleryCard />);
+      getRoot().render(<GalleryCard />);
       await flush();
     });
 
@@ -178,12 +167,12 @@ describe('GalleryCard (virtualized)', () => {
     mockError = 'Network failure';
 
     await act(async () => {
-      root.render(<GalleryCard />);
+      getRoot().render(<GalleryCard />);
       await flush();
     });
 
-    expect(container.textContent).toContain('Network failure');
-    expect(container.querySelector('[data-testid="virtual-grid-container"]')).toBeNull();
+    expect(getContainer().textContent).toContain('Network failure');
+    expect(getContainer().querySelector('[data-testid="virtual-grid-container"]')).toBeNull();
   });
 
   it('shows empty state when no items and not loading', async () => {
@@ -191,11 +180,11 @@ describe('GalleryCard (virtualized)', () => {
     (mockItems as MediaItemDto[]).length = 0;
 
     await act(async () => {
-      root.render(<GalleryCard />);
+      getRoot().render(<GalleryCard />);
       await flush();
     });
 
-    expect(container.textContent).toContain('暂无图片');
+    expect(getContainer().textContent).toContain('暂无图片');
 
     // Restore
     (mockItems as MediaItemDto[]).length = savedLength;
@@ -203,12 +192,12 @@ describe('GalleryCard (virtualized)', () => {
 
   it('reports viewport range changes to scheduler', async () => {
     await act(async () => {
-      root.render(<GalleryCard />);
+      getRoot().render(<GalleryCard />);
     });
     await flush();
     await flush();
 
-    const gridContainer = container.querySelector('[data-testid="virtual-grid-container"]');
+    const gridContainer = getContainer().querySelector('[data-testid="virtual-grid-container"]');
 
     if (gridContainer) {
       act(() => {
@@ -228,11 +217,11 @@ describe('GalleryCard (virtualized)', () => {
 
   it('calls reload and cleanup on refresh', async () => {
     await act(async () => {
-      root.render(<GalleryCard />);
+      getRoot().render(<GalleryCard />);
       await flush();
     });
 
-    const refreshButton = container.querySelector('button');
+    const refreshButton = getContainer().querySelector('button');
     expect(refreshButton).toBeTruthy();
 
     await act(async () => {
@@ -258,11 +247,11 @@ describe('GalleryCard (virtualized)', () => {
     };
 
     await act(async () => {
-      root.render(<GalleryCard />);
+      getRoot().render(<GalleryCard />);
       await flush();
     });
 
-    const deleteButton = Array.from(container.querySelectorAll('button')).find((btn) =>
+    const deleteButton = Array.from(getContainer().querySelectorAll('button')).find((btn) =>
       btn.textContent?.includes('删除'),
     );
     expect(deleteButton).toBeTruthy();

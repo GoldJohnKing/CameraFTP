@@ -5,11 +5,11 @@
  */
 
 import { act } from 'react';
-import { createRoot, type Root } from 'react-dom/client';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { PREVIEW_NAVIGATE_EVENT } from '../preview-window-events';
 import { usePreviewWindowLifecycle } from '../usePreviewWindowLifecycle';
 import { flush } from '../../test-utils/flush';
+import { setupReactRoot } from '../../test-utils/react-root';
 
 const { invokeMock, listenMock } = vi.hoisted(() => ({
   invokeMock: vi.fn(),
@@ -40,15 +40,9 @@ function Harness() {
 }
 
 describe('usePreviewWindowLifecycle', () => {
-  let container: HTMLDivElement;
-  let root: Root;
+  const { getContainer, getRoot } = setupReactRoot();
 
   beforeEach(() => {
-    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
-    container = document.createElement('div');
-    document.body.appendChild(container);
-    root = createRoot(container);
-
     previewHandler = undefined;
     invokeMock.mockReset();
     listenMock.mockReset();
@@ -62,17 +56,9 @@ describe('usePreviewWindowLifecycle', () => {
     });
   });
 
-  afterEach(() => {
-    act(() => {
-      root.unmount();
-    });
-    container.remove();
-    vi.unstubAllGlobals();
-  });
-
   it('loads platform class and handles preview and navigate events', async () => {
     await act(async () => {
-      root.render(<Harness />);
+      getRoot().render(<Harness />);
       await flush();
     });
 
@@ -83,15 +69,15 @@ describe('usePreviewWindowLifecycle', () => {
       await flush();
     });
 
-    expect(container.querySelector('[data-testid="is-open"]')?.textContent).toBe('yes');
-    expect(container.querySelector('[data-testid="image"]')?.textContent).toBe('/photos/a.jpg');
-    expect(container.querySelector('[data-testid="bring-front"]')?.textContent).toBe('yes');
+    expect(getContainer().querySelector('[data-testid="is-open"]')?.textContent).toBe('yes');
+    expect(getContainer().querySelector('[data-testid="image"]')?.textContent).toBe('/photos/a.jpg');
+    expect(getContainer().querySelector('[data-testid="bring-front"]')?.textContent).toBe('yes');
 
     await act(async () => {
       window.dispatchEvent(new CustomEvent(PREVIEW_NAVIGATE_EVENT, { detail: '/photos/b.jpg' }));
       await flush();
     });
 
-    expect(container.querySelector('[data-testid="image"]')?.textContent).toBe('/photos/b.jpg');
+    expect(getContainer().querySelector('[data-testid="image"]')?.textContent).toBe('/photos/b.jpg');
   });
 });

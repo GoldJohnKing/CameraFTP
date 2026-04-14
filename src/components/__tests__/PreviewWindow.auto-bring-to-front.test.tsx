@@ -5,11 +5,10 @@
  */
 
 import { act } from 'react';
-import { createRoot, type Root } from 'react-dom/client';
 import { within } from '@testing-library/react';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { PreviewWindow } from '../PreviewWindow';
-import type { ConfigChangedEvent } from '../../types';
+import { setupReactRoot } from '../../test-utils/react-root';
 
 const AUTO_BRING_TO_FRONT_ACCESSIBLE_NAME = '接收到新图片时自动前台显示';
 
@@ -95,11 +94,9 @@ const { updatePreviewConfigMock } = vi.hoisted(() => ({
 }));
 
 describe('PreviewWindow autoBringToFront sync', () => {
-  let container: HTMLDivElement;
-  let root: Root;
+  const { getContainer, getRoot } = setupReactRoot();
 
   beforeEach(() => {
-    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
     invokeMock.mockReset();
     invokeMock.mockResolvedValue(undefined);
     listenMock.mockReset();
@@ -108,46 +105,29 @@ describe('PreviewWindow autoBringToFront sync', () => {
     state.isOpen = true;
     state.currentImage = '/tmp/example.jpg';
     state.autoBringToFront = false;
-    container = document.createElement('div');
-    document.body.appendChild(container);
-    root = createRoot(container);
-  });
-
-  afterEach(() => {
-    act(() => {
-      root.unmount();
-    });
-    container.remove();
-    vi.unstubAllGlobals();
   });
 
   const getAutoBringToFrontToggle = (): HTMLButtonElement => {
-    return within(container).getByRole('button', {
+    return within(getContainer()).getByRole('button', {
       name: AUTO_BRING_TO_FRONT_ACCESSIBLE_NAME,
     });
   };
 
-  it('updates local autoBringToFront toggle state when preview-config-changed event arrives', async () => {
+  it('reflects autoBringToFront prop changes in toggle state', async () => {
+    state.autoBringToFront = false;
+
     await act(async () => {
-      root.render(<PreviewWindow />);
+      getRoot().render(<PreviewWindow />);
       await Promise.resolve();
     });
 
     expect(getAutoBringToFrontToggle().getAttribute('aria-pressed')).toBe('false');
 
-    const listener = listenMock.mock.calls[0]?.[1] as (event: { payload: ConfigChangedEvent }) => void;
+    // Simulate the lifecycle hook detecting a config change
+    state.autoBringToFront = true;
 
     await act(async () => {
-      listener({
-        payload: {
-          config: {
-            enabled: true,
-            method: 'built-in-preview',
-            customPath: null,
-            autoBringToFront: true,
-          },
-        },
-      });
+      getRoot().render(<PreviewWindow />);
       await Promise.resolve();
     });
 

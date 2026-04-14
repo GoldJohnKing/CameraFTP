@@ -5,10 +5,10 @@
  */
 
 import { act } from 'react';
-import { createRoot, type Root } from 'react-dom/client';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useImagePreviewOpener } from '../useImagePreviewOpener';
 import { flush } from '../../test-utils/flush';
+import { setupReactRoot } from '../../test-utils/react-root';
 
 const { useDraftConfigMock, openImagePreviewMock } = vi.hoisted(() => ({
   useDraftConfigMock: vi.fn(),
@@ -44,25 +44,11 @@ function Harness({ filePath, allUris }: HarnessProps) {
 }
 
 describe('useImagePreviewOpener', () => {
-  let container: HTMLDivElement;
-  let root: Root;
+  const { getContainer, getRoot } = setupReactRoot();
 
   beforeEach(() => {
-    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
-    container = document.createElement('div');
-    document.body.appendChild(container);
-    root = createRoot(container);
-
     useDraftConfigMock.mockReset();
     openImagePreviewMock.mockReset();
-  });
-
-  afterEach(() => {
-    act(() => {
-      root.unmount();
-    });
-    container.remove();
-    vi.unstubAllGlobals();
   });
 
   it('passes configured Android open method to image-open service', async () => {
@@ -74,12 +60,12 @@ describe('useImagePreviewOpener', () => {
     });
 
     await act(async () => {
-      root.render(<Harness filePath="content://media/1" allUris={['content://media/1', 'content://media/2']} />);
+      getRoot().render(<Harness filePath="content://media/1" allUris={['content://media/1', 'content://media/2']} />);
       await flush();
     });
 
     await act(async () => {
-      container.querySelector('[data-testid="open"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      getContainer().querySelector('[data-testid="open"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
       await flush();
     });
 
@@ -95,12 +81,12 @@ describe('useImagePreviewOpener', () => {
     useDraftConfigMock.mockReturnValue(null);
 
     await act(async () => {
-      root.render(<Harness filePath="/tmp/image.jpg" />);
+      getRoot().render(<Harness filePath="/tmp/image.jpg" />);
       await flush();
     });
 
     await act(async () => {
-      container.querySelector('[data-testid="open"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      getContainer().querySelector('[data-testid="open"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
       await flush();
     });
 

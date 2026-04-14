@@ -29,7 +29,7 @@ pub struct ServerStartupContext {
     pub display_credentials: (Option<String>, Option<String>),
 }
 
-pub async fn start_ftp_server(
+pub(crate) async fn start_ftp_server(
     state: &Arc<Mutex<Option<FtpServerHandle>>>,
     app_handle: AppHandle,
 ) -> Result<ServerStartupContext, AppError> {
@@ -153,7 +153,7 @@ pub async fn start_ftp_server(
     }
 }
 
-pub fn spawn_event_processor(app_handle: AppHandle, event_bus: &EventBus) -> oneshot::Receiver<()> {
+pub(crate) fn spawn_event_processor(app_handle: AppHandle, event_bus: &EventBus) -> oneshot::Receiver<()> {
     let app_handle_for_tray = app_handle.clone();
     let (ready_tx, ready_rx) = oneshot::channel();
 

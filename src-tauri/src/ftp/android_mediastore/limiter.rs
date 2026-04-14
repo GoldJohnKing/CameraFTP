@@ -17,7 +17,6 @@ pub const DEFAULT_MAX_CONCURRENT_UPLOADS: usize = 4;
 #[derive(Debug, Clone)]
 pub struct UploadLimiter {
     semaphore: Arc<Semaphore>,
-    max_concurrent: usize,
 }
 
 impl UploadLimiter {
@@ -25,7 +24,6 @@ impl UploadLimiter {
     pub fn new(max_concurrent: usize) -> Self {
         Self {
             semaphore: Arc::new(Semaphore::new(max_concurrent)),
-            max_concurrent,
         }
     }
 
@@ -41,11 +39,6 @@ impl UploadLimiter {
         self.semaphore.acquire().await.expect("semaphore is closed")
     }
 
-    /// Returns the maximum number of concurrent uploads allowed.
-    pub fn max_concurrent(&self) -> usize {
-        self.max_concurrent
-    }
-
     /// Returns the number of currently available permits.
     pub fn available_permits(&self) -> usize {
         self.semaphore.available_permits()
@@ -56,19 +49,6 @@ impl UploadLimiter {
 mod tests {
     use super::*;
     use std::time::Duration;
-
-    #[test]
-    fn test_upload_limiter_creation() {
-        let limiter = UploadLimiter::new(4);
-        assert_eq!(limiter.max_concurrent(), 4);
-        assert_eq!(limiter.available_permits(), 4);
-    }
-
-    #[test]
-    fn test_default_limiter() {
-        let limiter = UploadLimiter::default_limiter();
-        assert_eq!(limiter.max_concurrent(), DEFAULT_MAX_CONCURRENT_UPLOADS);
-    }
 
     #[tokio::test]
     async fn test_acquire_releases_permit() {
@@ -112,8 +92,13 @@ mod tests {
             tokio::time::sleep(Duration::from_millis(50)).await;
         });
         
-        // Wait a bit for tasks to acquire permits
-        tokio::time::sleep(Duration::from_millis(10)).await;
+        // Wait for spawned tasks to acquire permits
+        for _ in 0..100 {
+            if limiter.available_permits() == 0 {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
         
         // Both permits should be in use
         assert_eq!(limiter.available_permits(), 0);

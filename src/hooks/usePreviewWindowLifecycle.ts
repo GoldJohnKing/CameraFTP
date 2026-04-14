@@ -5,8 +5,8 @@
  */
 
 import { useEffect, useState } from 'react';
-import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
+import { useConfigStore } from '../stores/configStore';
 import { PREVIEW_NAVIGATE_EVENT } from './preview-window-events';
 
 interface PreviewEvent {
@@ -32,9 +32,11 @@ export function usePreviewWindowLifecycle(): PreviewWindowState {
   useEffect(() => {
     const loadPlatform = async () => {
       try {
-        const platformValue = await invoke<string>('get_platform');
-        document.documentElement.className = `platform-${platformValue}`;
+        await useConfigStore.getState().loadPlatform();
+        const platform = useConfigStore.getState().platform;
+        document.documentElement.className = `platform-${platform}`;
       } catch {
+        // ignore
       }
     };
 

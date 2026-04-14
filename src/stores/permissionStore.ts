@@ -17,9 +17,7 @@ interface PermissionStoreState {
   permissions: PermissionCheckResult;
   isLoading: boolean;
   error: string | null;
-  isPolling: boolean;
-  allGranted: boolean; // 实际状态字段，不是计算属性
-  isInitialized: boolean; // Track if store has been initialized
+  allGranted: boolean;
   
   // Storage states (merged from useStoragePermission)
   storageInfo: StorageInfo | null;
@@ -27,7 +25,7 @@ interface PermissionStoreState {
   
   // Actions
   setPermissions: (permissions: PermissionCheckResult) => void;
-  initialize: () => void; // Initialize store - call once on app start
+  initialize: () => void;
   
   // Check permissions from Android
   checkPermissions: () => Promise<PermissionCheckResult>;
@@ -68,6 +66,8 @@ function checkAllGranted(perms: PermissionCheckResult): boolean {
 const POLLING_INTERVAL_MS = 200; // Poll every 200ms when active
 const POLLING_TIMEOUT_MS = 30000;
 
+let isInitialized = false;
+
 function shouldStopPolling(mode: 'all' | 'storage', perms: PermissionCheckResult): boolean {
   return mode === 'storage'
     ? perms.storage
@@ -87,9 +87,7 @@ export const usePermissionStore = create<PermissionStoreState>()((set, get) => (
     },
     isLoading: false,
     error: null,
-    isPolling: false,
     allGranted: false,
-    isInitialized: false,
     
     // Storage states
     storageInfo: null,
@@ -109,10 +107,10 @@ export const usePermissionStore = create<PermissionStoreState>()((set, get) => (
     
     // Initialize store - call once on app start (Android only)
     initialize: () => {
-      if (get().isInitialized) return;
+      if (isInitialized) return;
       if (!permissionBridge.isAvailable()) return;
       
-      set({ isInitialized: true });
+      isInitialized = true;
       
       // Check permissions
       permissionCheckInternal().then(perms => {
@@ -177,8 +175,6 @@ export const usePermissionStore = create<PermissionStoreState>()((set, get) => (
       if (state.pollingIntervalId !== null) {
         window.clearInterval(state.pollingIntervalId);
       }
-      
-      set({ isPolling: true });
       
       // Store previous state to detect changes
       let previousState = { ...state.permissions };
@@ -246,7 +242,7 @@ export const usePermissionStore = create<PermissionStoreState>()((set, get) => (
       if (pollingIntervalId !== null) {
         window.clearInterval(pollingIntervalId);
       }
-      set({ isPolling: false, pollingIntervalId: null });
+      set({ pollingIntervalId: null });
     },
     
     // === Storage operations (merged from useStoragePermission) ===

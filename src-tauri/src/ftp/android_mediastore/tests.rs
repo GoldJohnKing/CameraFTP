@@ -74,31 +74,29 @@ fn test_classify_file_empty_extension_returns_non_media() {
     assert_eq!(mime, MIME_TYPE_DEFAULT);
 }
 
-#[test]
-fn test_collection_from_class_mapping() {
-    assert_eq!(collection_from_class(MediaFileClass::Image), MediaStoreCollection::Images);
-    assert_eq!(collection_from_class(MediaFileClass::Video), MediaStoreCollection::Videos);
-    assert_eq!(collection_from_class(MediaFileClass::NonMedia), MediaStoreCollection::Downloads);
-}
-
 // ============================================================================
 // RAW MIME format tests (not covered by inline mime_type_from_filename test)
 // ============================================================================
 
 #[test]
 fn test_mime_type_raw_formats() {
-    assert_eq!(mime_type_from_filename("photo.dng"), "image/x-adobe-dng");
-    assert_eq!(mime_type_from_filename("photo.nef"), "image/x-nikon-nef");
-    assert_eq!(mime_type_from_filename("photo.nrw"), "image/x-nikon-nrw");
-    assert_eq!(mime_type_from_filename("photo.cr2"), "image/x-canon-cr2");
-    assert_eq!(mime_type_from_filename("photo.cr3"), "image/x-canon-cr3");
-    assert_eq!(mime_type_from_filename("photo.arw"), "image/x-sony-arw");
-    assert_eq!(mime_type_from_filename("photo.sr2"), "image/x-sony-sr2");
-    assert_eq!(mime_type_from_filename("photo.raf"), "image/x-fuji-raf");
-    assert_eq!(mime_type_from_filename("photo.orf"), "image/x-olympus-orf");
-    assert_eq!(mime_type_from_filename("photo.rw2"), "image/x-panasonic-rw2");
-    assert_eq!(mime_type_from_filename("photo.pef"), "image/x-pentax-pef");
-    assert_eq!(mime_type_from_filename("photo.x3f"), "image/x-sigma-x3f");
+    let cases = [
+        ("photo.dng", "image/x-adobe-dng"),
+        ("photo.nef", "image/x-nikon-nef"),
+        ("photo.nrw", "image/x-nikon-nrw"),
+        ("photo.cr2", "image/x-canon-cr2"),
+        ("photo.cr3", "image/x-canon-cr3"),
+        ("photo.arw", "image/x-sony-arw"),
+        ("photo.sr2", "image/x-sony-sr2"),
+        ("photo.raf", "image/x-fuji-raf"),
+        ("photo.orf", "image/x-olympus-orf"),
+        ("photo.rw2", "image/x-panasonic-rw2"),
+        ("photo.pef", "image/x-pentax-pef"),
+        ("photo.x3f", "image/x-sigma-x3f"),
+    ];
+    for (filename, expected) in cases {
+        assert_eq!(mime_type_from_filename(filename), expected, "failed for {filename}");
+    }
 }
 
 #[test]

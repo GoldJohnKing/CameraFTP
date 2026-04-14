@@ -16,7 +16,6 @@ interface ConfigState {
   error: string | null;
   activeTab: 'home' | 'gallery' | 'config';
   platform: string;
-  draftRevision: number;
 
   loadConfig: () => Promise<void>;
   updateDraft: (updater: (draft: AppConfig) => AppConfig) => void;
@@ -29,6 +28,8 @@ interface ConfigState {
 }
 
 const DEBOUNCE_DELAY = 100;
+
+let draftRevision = 0;
 
 export const useConfigStore = create<ConfigState>((set, get) => {
   let wholeConfigSavePromise: Promise<void> | null = null;
@@ -84,12 +85,11 @@ export const useConfigStore = create<ConfigState>((set, get) => {
   const runWholeConfigSave = async (config: AppConfig, savedRevision: number) => {
     const savePromise = enqueueWrite(async () => {
       try {
-        if (get().draftRevision !== savedRevision) {
+        if (draftRevision !== savedRevision) {
           return;
         }
 
         await invoke('save_config', { config });
-        const { draftRevision } = get();
         if (draftRevision === savedRevision) {
           set({ config, error: null });
         }
@@ -122,10 +122,10 @@ export const useConfigStore = create<ConfigState>((set, get) => {
 
   const resyncFromBackend = async (preserveMode: 'all' | 'excludeAuth') => {
     const nextConfig = await invoke<AppConfig>('load_config');
+    draftRevision += 1;
     set((state) => ({
       config: nextConfig,
       draft: mergeDraftWithBackend(nextConfig, state.config, state.draft, preserveMode),
-      draftRevision: state.draftRevision + 1,
       error: null,
     }));
   };
@@ -137,7 +137,6 @@ export const useConfigStore = create<ConfigState>((set, get) => {
     error: null,
     activeTab: 'home',
     platform: 'unknown',
-    draftRevision: 0,
 
     loadConfig: async () => {
       await executeAsync(
@@ -150,14 +149,14 @@ export const useConfigStore = create<ConfigState>((set, get) => {
     },
 
     updateDraft: (updater: (draft: AppConfig) => AppConfig) => {
-      const { draft, draftRevision } = get();
+      const { draft } = get();
       if (!draft) return;
 
       const newDraft = updater(draft);
-      const newRevision = draftRevision + 1;
-      set({ draft: newDraft, draftRevision: newRevision });
+      draftRevision += 1;
+      set({ draft: newDraft });
 
-      debouncedSave(newDraft, newRevision);
+      debouncedSave(newDraft, draftRevision);
     },
 
     saveAuthConfig: async ({ anonymous, username, password }) => {

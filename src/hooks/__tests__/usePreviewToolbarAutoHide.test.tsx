@@ -5,9 +5,9 @@
  */
 
 import { act } from 'react';
-import { createRoot, type Root } from 'react-dom/client';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 import { usePreviewToolbarAutoHide } from '../usePreviewToolbarAutoHide';
+import { setupReactRoot } from '../../test-utils/react-root';
 
 function Harness() {
   const toolbar = usePreviewToolbarAutoHide();
@@ -22,65 +22,57 @@ function Harness() {
   );
 }
 
+const TOOLBAR_HIDE_DELAY_MS = 3000;
+
 describe('usePreviewToolbarAutoHide', () => {
-  let container: HTMLDivElement;
-  let root: Root;
+  const { getContainer, getRoot } = setupReactRoot();
 
   beforeEach(() => {
     vi.useFakeTimers();
-    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
-    container = document.createElement('div');
-    document.body.appendChild(container);
-    root = createRoot(container);
   });
 
   afterEach(() => {
-    act(() => {
-      root.unmount();
-    });
-    container.remove();
-    vi.unstubAllGlobals();
     vi.useRealTimers();
   });
 
   it('hides toolbar after idle timeout and keeps visible while hovered', async () => {
     await act(async () => {
-      root.render(<Harness />);
+      getRoot().render(<Harness />);
     });
 
-    expect(container.querySelector('[data-testid="visible"]')?.textContent).toBe('yes');
+    expect(getContainer().querySelector('[data-testid="visible"]')?.textContent).toBe('yes');
 
     await act(async () => {
-      vi.advanceTimersByTime(3000);
+      vi.advanceTimersByTime(TOOLBAR_HIDE_DELAY_MS);
     });
-    expect(container.querySelector('[data-testid="visible"]')?.textContent).toBe('no');
+    expect(getContainer().querySelector('[data-testid="visible"]')?.textContent).toBe('no');
 
     await act(async () => {
-      container.querySelector('[data-testid="move"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-      container.querySelector('[data-testid="enter"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-      vi.advanceTimersByTime(3000);
+      getContainer().querySelector('[data-testid="move"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      getContainer().querySelector('[data-testid="enter"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      vi.advanceTimersByTime(TOOLBAR_HIDE_DELAY_MS);
     });
 
-    expect(container.querySelector('[data-testid="visible"]')?.textContent).toBe('yes');
+    expect(getContainer().querySelector('[data-testid="visible"]')?.textContent).toBe('yes');
   });
 
   it('restarts idle timer on repeated pointer movement while visible', async () => {
     await act(async () => {
-      root.render(<Harness />);
+      getRoot().render(<Harness />);
     });
 
     await act(async () => {
       vi.advanceTimersByTime(2500);
-      container.querySelector('[data-testid="move"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      getContainer().querySelector('[data-testid="move"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
       vi.advanceTimersByTime(700);
     });
 
-    expect(container.querySelector('[data-testid="visible"]')?.textContent).toBe('yes');
+    expect(getContainer().querySelector('[data-testid="visible"]')?.textContent).toBe('yes');
 
     await act(async () => {
       vi.advanceTimersByTime(2300);
     });
 
-    expect(container.querySelector('[data-testid="visible"]')?.textContent).toBe('no');
+    expect(getContainer().querySelector('[data-testid="visible"]')?.textContent).toBe('no');
   });
 });

@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 
 export function usePreviewZoomPan(imagePath: string | null) {
@@ -16,7 +16,7 @@ export function usePreviewZoomPan(imagePath: string | null) {
   const containerRef = useRef<HTMLDivElement>(null);
   const isDraggingRef = useRef(false);
   const scaleRef = useRef(1);
-  const appWindow = getCurrentWindow();
+  const appWindow = useMemo(() => getCurrentWindow(), []);
 
   // Keep refs in sync with state for stable callbacks
   isDraggingRef.current = isDragging;

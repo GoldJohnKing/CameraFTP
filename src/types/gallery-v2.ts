@@ -47,7 +47,7 @@ export interface MediaPageResponse {
 type ThumbSizeBucket = 's' | 'm';
 
 /** Priority level for thumbnail request scheduling */
-type ThumbPriority = 'visible' | 'nearby' | 'prefetch';
+type ThumbPriority = 'visible' | 'nearby';
 
 /** Request to enqueue a single thumbnail for generation */
 export interface ThumbRequest {

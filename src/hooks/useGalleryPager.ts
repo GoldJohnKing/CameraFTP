@@ -11,7 +11,6 @@ import { listMediaPage, GALLERY_PAGE_SIZE } from '../services/gallery-media-v2';
 interface UseGalleryPagerResult {
   items: MediaItemDto[];
   cursor: MediaCursor;
-  revisionToken: string;
   totalCount: number;
   isLoading: boolean;
   error: string | null;
@@ -28,7 +27,6 @@ function isStaleCursorError(err: unknown): boolean {
 export function useGalleryPager(): UseGalleryPagerResult {
   const [items, setItems] = useState<MediaItemDto[]>([]);
   const [cursor, setCursor] = useState<MediaCursor>(null);
-  const [revisionToken, setRevisionToken] = useState<string>('');
   const [totalCount, setTotalCount] = useState<number>(0);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -44,7 +42,6 @@ export function useGalleryPager(): UseGalleryPagerResult {
     });
 
     setCursor(response.nextCursor);
-    setRevisionToken(response.revisionToken);
     setTotalCount(response.totalCount);
 
     const seen = seenMediaIdsRef.current;
@@ -99,7 +96,6 @@ export function useGalleryPager(): UseGalleryPagerResult {
     setError(null);
     setItems([]);
     setCursor(null);
-    setRevisionToken('');
     setTotalCount(0);
     seenMediaIdsRef.current = new Set();
 
@@ -154,7 +150,6 @@ export function useGalleryPager(): UseGalleryPagerResult {
   return {
     items,
     cursor,
-    revisionToken,
     totalCount,
     isLoading,
     error,

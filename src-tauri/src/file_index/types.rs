@@ -24,25 +24,25 @@ use std::sync::Arc;
 
 #[derive(Debug, Clone)]
 pub struct FileIndex {
-    /// IMPORTANT: After any mutation, call `refresh_arc()` to keep `files_arc` in sync.
-    pub files: Vec<FileInfo>,
-    pub files_arc: Arc<Vec<FileInfo>>,
+    files: Arc<Vec<FileInfo>>,
     pub current_index: Option<usize>,
 }
 
 impl FileIndex {
     pub fn new() -> Self {
         Self {
-            files: Vec::new(),
-            files_arc: Arc::new(Vec::new()),
+            files: Arc::new(Vec::new()),
             current_index: None,
         }
     }
 
-    /// Refresh `files_arc` to match the current `files` vector.
-    /// Call this after any mutation to `files`.
-    pub fn refresh_arc(&mut self) {
-        self.files_arc = Arc::new(self.files.clone());
+    pub fn files(&self) -> &Arc<Vec<FileInfo>> {
+        &self.files
+    }
+
+    /// Update files. Callers provide the new complete vector.
+    pub fn set_files(&mut self, new_files: Vec<FileInfo>) {
+        self.files = Arc::new(new_files);
     }
 }
 

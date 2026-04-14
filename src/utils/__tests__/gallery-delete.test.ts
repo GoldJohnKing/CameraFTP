@@ -38,7 +38,7 @@ describe('gallery-delete', () => {
       notFound: [],
       failed: ['content://media/1', 'content://media/2'],
     });
-    expect(message).toContain('2');
+    expect(message).toContain('2 张图片未能删除');
     expect(message).toContain('删除失败');
   });
 

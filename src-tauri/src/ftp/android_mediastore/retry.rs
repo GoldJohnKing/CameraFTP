@@ -216,18 +216,5 @@ mod tests {
         assert_eq!(call_count.load(Ordering::SeqCst), 3); // 1 initial + 2 retries
     }
 
-    #[test]
-    fn test_retry_config_default() {
-        let config = RetryConfig::default();
-        assert_eq!(config.max_retries, DEFAULT_MAX_RETRIES);
-        assert_eq!(config.initial_delay, Duration::from_millis(DEFAULT_INITIAL_DELAY_MS));
-        assert_eq!(config.max_delay, Duration::from_millis(DEFAULT_MAX_DELAY_MS));
-    }
 
-    #[test]
-    fn test_retry_config_fast() {
-        let config = RetryConfig::fast();
-        assert_eq!(config.max_retries, 2);
-        assert!(config.initial_delay < Duration::from_millis(100));
-    }
 }

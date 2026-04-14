@@ -14,6 +14,8 @@ use crate::ftp::types::{
     format_ipv4_socket_addr, normalize_ipv4_host, FtpAuthConfig, ServerConfig, ServerInfo,
     ServerRuntimeState, ServerStatus,
 };
+#[cfg(test)]
+use crate::ftp::types::ServerStateSnapshot;
 use crate::ftp::FtpStorageBackend;
 use dashmap::DashSet;
 use libunftp::options::Shutdown;
@@ -670,6 +672,10 @@ pub fn create_ftp_server(app_handle: Option<AppHandle>) -> (
 mod tests {
     use super::*;
 
+    fn test_stats(active: u64, uploads: u64, bytes: u64, last_file: Option<&str>) -> crate::ftp::types::ServerStats {
+        crate::ftp::types::test_utils::test_stats(active, uploads, bytes, last_file)
+    }
+
     #[test]
     fn advertised_server_addr_prefers_usable_ip_over_unspecified_bind_address() {
         let bind_addr: SocketAddr = ([0, 0, 0, 0], 2121).into();
@@ -699,16 +705,13 @@ mod tests {
 
     #[test]
     fn build_server_snapshot_keeps_stopped_state_even_with_nonzero_stats() {
-        let stats = crate::ftp::types::ServerStats {
-            active_connections: 9,
-            total_uploads: 4,
-            total_bytes_received: 1024,
-            last_uploaded_file: Some("late.jpg".to_string()),
-        };
+        // stopped server should zero runtime fields but preserve historical counters
+        let stats = test_stats(9, 4, 1024, Some("late.jpg"));
 
         let snapshot = build_server_snapshot(ServerStatus::Stopped, &stats, 0);
 
         assert!(!snapshot.is_running);
+        // connected_clients comes from the explicit parameter, not stats.active_connections
         assert_eq!(snapshot.connected_clients, 0);
         assert_eq!(snapshot.files_received, 4);
         assert_eq!(snapshot.bytes_received, 1024);

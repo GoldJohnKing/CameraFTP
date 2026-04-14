@@ -5,10 +5,10 @@
  */
 
 import { act } from 'react';
-import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useGallerySelection } from '../useGallerySelection';
 import { flush } from '../../test-utils/flush';
+import { setupReactRoot } from '../../test-utils/react-root';
 
 const { toastErrorMock } = vi.hoisted(() => ({
   toastErrorMock: vi.fn(),
@@ -92,17 +92,11 @@ function GallerySelectionHarness({
 }
 
 describe('useGallerySelection', () => {
-  let container: HTMLDivElement;
-  let root: Root;
+  const { getContainer, getRoot } = setupReactRoot();
 
   beforeEach(() => {
-    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
     vi.useFakeTimers();
     toastErrorMock.mockReset();
-
-    container = document.createElement('div');
-    document.body.appendChild(container);
-    root = createRoot(container);
 
     window.GalleryAndroid = {
       deleteImages: vi.fn().mockResolvedValue(JSON.stringify({ deleted: [], notFound: [], failed: [] })),
@@ -113,31 +107,26 @@ describe('useGallerySelection', () => {
   });
 
   afterEach(() => {
-    act(() => {
-      root.unmount();
-    });
-    container.remove();
     vi.clearAllTimers();
     vi.useRealTimers();
-    vi.unstubAllGlobals();
   });
 
   it('enters selection mode on long press and exits on android back press callback', async () => {
     await act(async () => {
-      root.render(<GallerySelectionHarness />);
+      getRoot().render(<GallerySelectionHarness />);
       await flush();
     });
 
     await act(async () => {
-      container.querySelector('[data-testid="start-selection"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      getContainer().querySelector('[data-testid="start-selection"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
       vi.advanceTimersByTime(400);
       await flush();
     });
 
-    expect(container.querySelector('[data-testid="selected-count"]')?.textContent).toBe('1');
+    expect(getContainer().querySelector('[data-testid="selected-count"]')?.textContent).toBe('1');
 
-    expect(container.querySelector('[data-testid="selection-mode"]')?.textContent).toBe('yes');
-    expect(container.querySelector('[data-testid="selected-count"]')?.textContent).toBe('1');
+    expect(getContainer().querySelector('[data-testid="selection-mode"]')?.textContent).toBe('yes');
+    expect(getContainer().querySelector('[data-testid="selected-count"]')?.textContent).toBe('1');
     expect(window.GalleryAndroid?.registerBackPressCallback).toHaveBeenCalled();
 
     await act(async () => {
@@ -145,41 +134,41 @@ describe('useGallerySelection', () => {
       await flush();
     });
 
-    expect(container.querySelector('[data-testid="selection-mode"]')?.textContent).toBe('no');
-    expect(container.querySelector('[data-testid="selected-count"]')?.textContent).toBe('0');
+    expect(getContainer().querySelector('[data-testid="selection-mode"]')?.textContent).toBe('no');
+    expect(getContainer().querySelector('[data-testid="selected-count"]')?.textContent).toBe('0');
     expect(window.GalleryAndroid?.unregisterBackPressCallback).toHaveBeenCalled();
   });
 
   it('does not enter selection mode for multi-touch long press', async () => {
     await act(async () => {
-      root.render(<GallerySelectionHarness touchCount={2} />);
+      getRoot().render(<GallerySelectionHarness touchCount={2} />);
       await flush();
     });
 
     await act(async () => {
-      container.querySelector('[data-testid="start-selection"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      getContainer().querySelector('[data-testid="start-selection"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
       vi.advanceTimersByTime(400);
       await flush();
     });
 
-    expect(container.querySelector('[data-testid="selection-mode"]')?.textContent).toBe('no');
-    expect(container.querySelector('[data-testid="selected-count"]')?.textContent).toBe('0');
+    expect(getContainer().querySelector('[data-testid="selection-mode"]')?.textContent).toBe('no');
+    expect(getContainer().querySelector('[data-testid="selected-count"]')?.textContent).toBe('0');
   });
 
   it('does not enter selection mode when touch starts while scrolling', async () => {
     await act(async () => {
-      root.render(<GallerySelectionHarness isScrollingOnStart />);
+      getRoot().render(<GallerySelectionHarness isScrollingOnStart />);
       await flush();
     });
 
     await act(async () => {
-      container.querySelector('[data-testid="start-selection"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      getContainer().querySelector('[data-testid="start-selection"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
       vi.advanceTimersByTime(400);
       await flush();
     });
 
-    expect(container.querySelector('[data-testid="selection-mode"]')?.textContent).toBe('no');
-    expect(container.querySelector('[data-testid="selected-count"]')?.textContent).toBe('0');
+    expect(getContainer().querySelector('[data-testid="selection-mode"]')?.textContent).toBe('no');
+    expect(getContainer().querySelector('[data-testid="selected-count"]')?.textContent).toBe('0');
   });
 
   it('deletes immediately and keeps remaining failed selection after partial delete', async () => {
@@ -193,25 +182,25 @@ describe('useGallerySelection', () => {
     );
 
     await act(async () => {
-      root.render(<GallerySelectionHarness onDeleteApplied={onDeleteApplied} />);
+      getRoot().render(<GallerySelectionHarness onDeleteApplied={onDeleteApplied} />);
       await flush();
     });
 
     await act(async () => {
-      container.querySelector('[data-testid="start-selection"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      getContainer().querySelector('[data-testid="start-selection"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
       vi.advanceTimersByTime(400);
       await flush();
     });
 
     await act(async () => {
-      container.querySelector('[data-testid="select-toggle-2"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      getContainer().querySelector('[data-testid="select-toggle-2"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
       await flush();
     });
 
-    expect(container.querySelector('[data-testid="selected-count"]')?.textContent).toBe('2');
+    expect(getContainer().querySelector('[data-testid="selected-count"]')?.textContent).toBe('2');
 
     await act(async () => {
-      container.querySelector('[data-testid="delete"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      getContainer().querySelector('[data-testid="delete"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
       await flush();
     });
 
@@ -225,121 +214,121 @@ describe('useGallerySelection', () => {
     );
     expect((window.GalleryAndroid as Record<string, unknown> | undefined)?.removeThumbnails).toBeUndefined();
     expect(onDeleteApplied).toHaveBeenCalledTimes(1);
-    expect(container.querySelector('[data-testid="selection-mode"]')?.textContent).toBe('yes');
-    expect(container.querySelector('[data-testid="selected-count"]')?.textContent).toBe('1');
+    expect(getContainer().querySelector('[data-testid="selection-mode"]')?.textContent).toBe('yes');
+    expect(getContainer().querySelector('[data-testid="selected-count"]')?.textContent).toBe('1');
     expect(toastErrorMock).toHaveBeenCalledWith('部分删除失败：1 张图片未删除。');
   });
 
   it('closes menu on outside click and after share', async () => {
     await act(async () => {
-      root.render(<GallerySelectionHarness />);
+      getRoot().render(<GallerySelectionHarness />);
       await flush();
     });
 
     await act(async () => {
-      container.querySelector('[data-testid="start-selection"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      getContainer().querySelector('[data-testid="start-selection"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
       vi.advanceTimersByTime(400);
-      container.querySelector('[data-testid="toggle-menu"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      getContainer().querySelector('[data-testid="toggle-menu"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
       await flush();
     });
 
-    expect(container.querySelector('[data-testid="show-menu"]')?.textContent).toBe('yes');
+    expect(getContainer().querySelector('[data-testid="show-menu"]')?.textContent).toBe('yes');
 
     await act(async () => {
       document.body.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
       await flush();
     });
 
-    expect(container.querySelector('[data-testid="show-menu"]')?.textContent).toBe('no');
+    expect(getContainer().querySelector('[data-testid="show-menu"]')?.textContent).toBe('no');
 
     await act(async () => {
-      container.querySelector('[data-testid="toggle-menu"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-      container.querySelector('[data-testid="share"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      getContainer().querySelector('[data-testid="toggle-menu"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      getContainer().querySelector('[data-testid="share"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
       await flush();
     });
 
     expect(window.GalleryAndroid?.shareImages).toHaveBeenCalled();
-    expect(container.querySelector('[data-testid="show-menu"]')?.textContent).toBe('no');
+    expect(getContainer().querySelector('[data-testid="show-menu"]')?.textContent).toBe('no');
   });
 
   it('resets menu state when canceling selection', async () => {
     await act(async () => {
-      root.render(<GallerySelectionHarness />);
+      getRoot().render(<GallerySelectionHarness />);
       await flush();
     });
 
     await act(async () => {
-      container.querySelector('[data-testid="start-selection"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      getContainer().querySelector('[data-testid="start-selection"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
       vi.advanceTimersByTime(400);
       await flush();
     });
 
     await act(async () => {
-      container.querySelector('[data-testid="toggle-menu"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      getContainer().querySelector('[data-testid="toggle-menu"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
       await flush();
     });
 
     await act(async () => {
-      container.querySelector('[data-testid="cancel-selection"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      getContainer().querySelector('[data-testid="cancel-selection"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
       await flush();
     });
 
-    expect(container.querySelector('[data-testid="selection-mode"]')?.textContent).toBe('no');
-    expect(container.querySelector('[data-testid="selected-count"]')?.textContent).toBe('0');
-    expect(container.querySelector('[data-testid="show-menu"]')?.textContent).toBe('no');
+    expect(getContainer().querySelector('[data-testid="selection-mode"]')?.textContent).toBe('no');
+    expect(getContainer().querySelector('[data-testid="selected-count"]')?.textContent).toBe('0');
+    expect(getContainer().querySelector('[data-testid="show-menu"]')?.textContent).toBe('no');
   });
 
   it('clears transient selection ui state when last selected item is toggled off', async () => {
     await act(async () => {
-      root.render(<GallerySelectionHarness />);
+      getRoot().render(<GallerySelectionHarness />);
       await flush();
     });
 
     await act(async () => {
-      container.querySelector('[data-testid="start-selection"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      getContainer().querySelector('[data-testid="start-selection"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
       vi.advanceTimersByTime(400);
       await flush();
     });
 
     await act(async () => {
-      container.querySelector('[data-testid="toggle-menu"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      getContainer().querySelector('[data-testid="toggle-menu"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
       await flush();
     });
 
-    expect(container.querySelector('[data-testid="show-menu"]')?.textContent).toBe('yes');
+    expect(getContainer().querySelector('[data-testid="show-menu"]')?.textContent).toBe('yes');
 
     await act(async () => {
-      container.querySelector('[data-testid="select-toggle"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      getContainer().querySelector('[data-testid="select-toggle"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
       await flush();
     });
 
-    expect(container.querySelector('[data-testid="selection-mode"]')?.textContent).toBe('no');
-    expect(container.querySelector('[data-testid="selected-count"]')?.textContent).toBe('0');
-    expect(container.querySelector('[data-testid="show-menu"]')?.textContent).toBe('no');
-    expect(container.querySelector('[data-testid="deleting-count"]')?.textContent).toBe('0');
+    expect(getContainer().querySelector('[data-testid="selection-mode"]')?.textContent).toBe('no');
+    expect(getContainer().querySelector('[data-testid="selected-count"]')?.textContent).toBe('0');
+    expect(getContainer().querySelector('[data-testid="show-menu"]')?.textContent).toBe('no');
+    expect(getContainer().querySelector('[data-testid="deleting-count"]')?.textContent).toBe('0');
   });
 
   it('closes menu and calls delete bridge immediately when delete is tapped', async () => {
     await act(async () => {
-      root.render(<GallerySelectionHarness />);
+      getRoot().render(<GallerySelectionHarness />);
       await flush();
     });
 
     await act(async () => {
-      container.querySelector('[data-testid="start-selection"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      getContainer().querySelector('[data-testid="start-selection"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
       vi.advanceTimersByTime(400);
-      container.querySelector('[data-testid="toggle-menu"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      getContainer().querySelector('[data-testid="toggle-menu"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
       await flush();
     });
 
-    expect(container.querySelector('[data-testid="show-menu"]')?.textContent).toBe('yes');
+    expect(getContainer().querySelector('[data-testid="show-menu"]')?.textContent).toBe('yes');
 
     await act(async () => {
-      container.querySelector('[data-testid="delete"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      getContainer().querySelector('[data-testid="delete"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
       await flush();
     });
 
     expect(window.GalleryAndroid?.deleteImages).toHaveBeenCalledTimes(1);
-    expect(container.querySelector('[data-testid="show-menu"]')?.textContent).toBe('no');
+    expect(getContainer().querySelector('[data-testid="show-menu"]')?.textContent).toBe('no');
   });
 });

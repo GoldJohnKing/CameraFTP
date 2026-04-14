@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
 
-import { useEffect, useState, useCallback, memo } from 'react';
+import { useEffect, useState, useCallback, useMemo, memo } from 'react';
 import { convertFileSrc, invoke } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { useConfigStore } from '../stores/configStore';
@@ -14,23 +14,13 @@ import { usePreviewNavigation } from '../hooks/usePreviewNavigation';
 import { usePreviewExif } from '../hooks/usePreviewExif';
 import { usePreviewZoomPan } from '../hooks/usePreviewZoomPan';
 import { usePreviewToolbarAutoHide } from '../hooks/usePreviewToolbarAutoHide';
-import { usePreviewConfigListener } from '../hooks/usePreviewConfigListener';
 
 export function PreviewWindow() {
   const state = usePreviewWindowLifecycle();
 
-  // 实际预览窗口内容组件
-  if (!state.isOpen) {
-    return (
-      <div className="w-full h-full flex items-center justify-center bg-black">
-        <p className="text-gray-400">等待图片...</p>
-      </div>
-    );
-  }
-
   return (
     <PreviewWindowContent
-      imagePath={state.currentImage}
+      imagePath={state.isOpen ? state.currentImage : null}
       autoBringToFront={state.autoBringToFront}
     />
   );
@@ -45,8 +35,9 @@ const PreviewWindowContent = memo(function PreviewWindowContent({
   autoBringToFront: boolean;
 }) {
   const updatePreviewConfig = useConfigStore(state => state.updatePreviewConfig);
+  const storeAutoBringToFront = useConfigStore(state => state.config?.previewConfig?.autoBringToFront);
+  const effectiveAutoBringToFront = storeAutoBringToFront ?? autoBringToFront;
   const [imageError, setImageError] = useState(false);
-  const [localAutoBringToFront, setLocalAutoBringToFront] = useState(autoBringToFront);
   const [isFullscreen, setIsFullscreen] = useState(false);
 
   const exifInfo = usePreviewExif(imagePath);
@@ -68,7 +59,7 @@ const PreviewWindowContent = memo(function PreviewWindowContent({
     handleMouseMove,
     stopDragging,
   } = usePreviewZoomPan(imagePath);
-  const appWindow = getCurrentWindow();
+  const appWindow = useMemo(() => getCurrentWindow(), []);
 
   const {
     currentIndex,
@@ -87,14 +78,6 @@ const PreviewWindowContent = memo(function PreviewWindowContent({
     },
     onNavigationSettled: () => {}, // Required by usePreviewNavigation; no-op for this component
   });
-
-  usePreviewConfigListener(
-    useCallback((config) => setLocalAutoBringToFront(config.autoBringToFront), []),
-  );
-
-  useEffect(() => {
-    setLocalAutoBringToFront(autoBringToFront);
-  }, [autoBringToFront]);
 
   // 重置图片错误状态和缩放
   useEffect(() => {
@@ -134,11 +117,6 @@ const PreviewWindowContent = memo(function PreviewWindowContent({
     showToolbarOnPointerMove();
     handleMouseMove(e);
   }, [showToolbarOnPointerMove, handleMouseMove]);
-
-  // 处理双击重置
-  const handleDoubleClick = useCallback(() => {
-    resetZoom();
-  }, [resetZoom]);
 
   // 全局键盘和鼠标释放监听
   useEffect(() => {
@@ -186,13 +164,9 @@ const PreviewWindowContent = memo(function PreviewWindowContent({
 
   const handleToggleAutoFront = async () => {
     try {
-      const newValue = !localAutoBringToFront;
-      const savedConfig = await updatePreviewConfig({ autoBringToFront: newValue });
-      if (savedConfig) {
-        setLocalAutoBringToFront(savedConfig.autoBringToFront);
-      }
+      await updatePreviewConfig({ autoBringToFront: !effectiveAutoBringToFront });
     } catch {
-      // Silently ignore - config change is not critical
+      // Silently ignore
     }
   };
 
@@ -207,7 +181,7 @@ const PreviewWindowContent = memo(function PreviewWindowContent({
   // 使用 convertFileSrc 将文件路径转换为可用的 URL
   const imageSrc = convertFileSrc(imagePath);
 
-  const fileName = imagePath ? imagePath.split(/[/\\]/).pop() || '' : '';
+  const fileName = imagePath.split(/[/\\]/).pop() || '';
 
   return (
     <div
@@ -223,7 +197,7 @@ const PreviewWindowContent = memo(function PreviewWindowContent({
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMoveWithToolbar}
         onMouseUp={stopDragging}
-        onDoubleClick={handleDoubleClick}
+        onDoubleClick={resetZoom}
       >
         {imageError ? (
           <div className="text-gray-400 text-center">
@@ -410,15 +384,15 @@ const PreviewWindowContent = memo(function PreviewWindowContent({
           <button
             onClick={handleToggleAutoFront}
             aria-label="接收到新图片时自动前台显示"
-            aria-pressed={localAutoBringToFront}
+            aria-pressed={effectiveAutoBringToFront}
             className={`
               p-2 rounded-lg transition-colors
-              ${localAutoBringToFront
+              ${effectiveAutoBringToFront
                 ? 'text-blue-300 bg-blue-500/20 hover:bg-blue-500/30'
                 : 'text-gray-300 hover:text-white hover:bg-white/10'
               }
             `}
-            title={localAutoBringToFront ? '接收到新图片时自动前台显示 (已开启)' : '接收到新图片时自动前台显示 (已关闭)'}
+            title={effectiveAutoBringToFront ? '接收到新图片时自动前台显示 (已开启)' : '接收到新图片时自动前台显示 (已关闭)'}
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
               <path strokeLinecap="round" strokeLinejoin="round" d="M12 20V10M12 10l-5 5M12 10l5 5" />

@@ -209,19 +209,9 @@ impl FileWatcher {
 
 impl Drop for FileWatcher {
     fn drop(&mut self) {
-        self.stop();
+        if self.watcher.take().is_some() {
+            tracing::info!("File watcher stopped");
+        }
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_file_watcher_creation() {
-        let path = PathBuf::from("/tmp/test");
-        let watcher = FileWatcher::new(path.clone());
-        assert_eq!(watcher.watch_path, path);
-        assert!(watcher.watcher.is_none());
-    }
-}

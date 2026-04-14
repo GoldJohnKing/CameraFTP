@@ -148,8 +148,10 @@ mod tests {
         assert_eq!(service.get().expect("failed to get config").port, 5050);
     }
 
-    #[test]
-    fn mutate_and_persist_updates_memory_and_disk_atomically() {
+    fn assert_mutate_and_persist_roundtrip(
+        mutate: impl FnOnce(&mut AppConfig),
+        verify: impl Fn(&AppConfig),
+    ) {
         let temp_dir = tempdir().expect("failed to create temp dir");
         let config_path = temp_dir.path().join("config.json");
 
@@ -157,26 +159,32 @@ mod tests {
         service.load().expect("failed to load config");
 
         service
-            .mutate_and_persist(|config| {
-                config.port = 7070;
-            })
+            .mutate_and_persist(mutate)
             .expect("failed to mutate and persist config");
 
-        assert_eq!(service.get().expect("failed to get config").port, 7070);
+        // Verify in-memory state
+        verify(&service.get().expect("failed to get config"));
 
+        // Verify persisted state survives reload
         let reloaded_service = ConfigService::new_with_path(config_path);
         let reloaded = reloaded_service.load().expect("failed to reload config");
-        assert_eq!(reloaded.port, 7070);
+        verify(&reloaded);
+    }
+
+    #[test]
+    fn mutate_and_persist_updates_memory_and_disk_atomically() {
+        assert_mutate_and_persist_roundtrip(
+            |config| {
+                config.port = 7070;
+            },
+            |config| {
+                assert_eq!(config.port, 7070);
+            },
+        );
     }
 
     #[test]
     fn mutate_and_persist_keeps_save_path_in_memory_and_on_disk_consistent() {
-        let temp_dir = tempdir().expect("failed to create temp dir");
-        let config_path = temp_dir.path().join("config.json");
-
-        let service = ConfigService::new_with_path(config_path.clone());
-        service.load().expect("failed to load config");
-
         let expected_save_path = {
             #[cfg(target_os = "android")]
             {
@@ -189,20 +197,14 @@ mod tests {
             }
         };
 
-        service
-            .mutate_and_persist(|config| {
+        assert_mutate_and_persist_roundtrip(
+            |config| {
                 config.save_path = PathBuf::from("/tmp/custom-cameraftp");
-            })
-            .expect("failed to mutate and persist config");
-
-        assert_eq!(
-            service.get().expect("failed to get config").save_path,
-            expected_save_path
+            },
+            move |config| {
+                assert_eq!(config.save_path, expected_save_path);
+            },
         );
-
-        let reloaded_service = ConfigService::new_with_path(config_path);
-        let reloaded = reloaded_service.load().expect("failed to reload config");
-        assert_eq!(reloaded.save_path, expected_save_path);
     }
 
     #[test]

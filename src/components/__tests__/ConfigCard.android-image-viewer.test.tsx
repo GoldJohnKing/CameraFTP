@@ -5,11 +5,11 @@
  */
 
 import { act } from 'react';
-import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ConfigCard } from '../ConfigCard';
 import type { AppConfig } from '../../types';
 import { useConfigStore } from '../../stores/configStore';
+import { setupReactRoot } from '../../test-utils/react-root';
 
 const { invokeMock } = vi.hoisted(() => ({
   invokeMock: vi.fn(),
@@ -45,19 +45,17 @@ vi.mock('../AboutCard', () => ({ AboutCard: () => <div>AboutCard</div> }));
 import { flush } from '../../test-utils/flush';
 
 describe('ConfigCard Android image viewer settings', () => {
-  let container: HTMLDivElement;
-  let root: Root;
+  const { getContainer, getRoot } = setupReactRoot();
 
   const renderCard = async () => {
     await act(async () => {
-      root.render(<ConfigCard />);
+      getRoot().render(<ConfigCard />);
       await flush();
     });
   };
 
   beforeEach(() => {
     vi.useFakeTimers();
-    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
     invokeMock.mockReset();
     invokeMock.mockResolvedValue(false);
 
@@ -88,20 +86,12 @@ describe('ConfigCard Android image viewer settings', () => {
       error: null,
       platform: 'android',
       activeTab: 'config',
-      draftRevision: 0,
     }));
-
-    container = document.createElement('div');
-    document.body.appendChild(container);
-    root = createRoot(container);
   });
 
   afterEach(() => {
     act(() => {
       vi.runOnlyPendingTimers();
-    });
-    act(() => {
-      root.unmount();
     });
     useConfigStore.setState((state) => ({
       ...state,
@@ -109,21 +99,18 @@ describe('ConfigCard Android image viewer settings', () => {
       draft: null,
       error: null,
       isLoading: false,
-      draftRevision: 0,
     }));
-    container.remove();
-    vi.unstubAllGlobals();
     vi.useRealTimers();
   });
 
   it('shows auto-open toggle in built-in mode and hides it after switching to external app mode', async () => {
     await renderCard();
 
-    expect(container.textContent).toContain('使用外部应用打开图片');
-    expect(container.textContent).toContain('自动预览');
-    expect(container.textContent).toContain('收到新图片后自动显示预览');
+    expect(getContainer().textContent).toContain('使用外部应用打开图片');
+    expect(getContainer().textContent).toContain('自动预览');
+    expect(getContainer().textContent).toContain('收到新图片后自动显示预览');
 
-    const externalViewerToggle = container.querySelector(
+    const externalViewerToggle = getContainer().querySelector(
       'button[aria-label="使用外部应用打开图片"]',
     ) as HTMLButtonElement | null;
     expect(externalViewerToggle).toBeTruthy();
@@ -134,7 +121,7 @@ describe('ConfigCard Android image viewer settings', () => {
     });
 
     expect(useConfigStore.getState().draft?.androidImageViewer?.openMethod).toBe('external-app');
-    expect(container.textContent).not.toContain('自动预览');
-    expect(container.textContent).not.toContain('收到新图片后自动显示预览');
+    expect(getContainer().textContent).not.toContain('自动预览');
+    expect(getContainer().textContent).not.toContain('收到新图片后自动显示预览');
   });
 });

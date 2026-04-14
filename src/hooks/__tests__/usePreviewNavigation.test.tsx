@@ -5,10 +5,10 @@
  */
 
 import { act } from 'react';
-import { createRoot, type Root } from 'react-dom/client';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { usePreviewNavigation } from '../usePreviewNavigation';
 import { flush } from '../../test-utils/flush';
+import { setupReactRoot } from '../../test-utils/react-root';
 
 const { invokeMock, listenMock } = vi.hoisted(() => ({
   invokeMock: vi.fn(),
@@ -43,15 +43,9 @@ function Harness() {
 }
 
 describe('usePreviewNavigation', () => {
-  let container: HTMLDivElement;
-  let root: Root;
+  const { getContainer, getRoot } = setupReactRoot();
 
   beforeEach(() => {
-    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
-    container = document.createElement('div');
-    document.body.appendChild(container);
-    root = createRoot(container);
-
     fileIndexChangedHandler = undefined;
     invokeMock.mockReset();
     listenMock.mockReset();
@@ -84,30 +78,22 @@ describe('usePreviewNavigation', () => {
     });
   });
 
-  afterEach(() => {
-    act(() => {
-      root.unmount();
-    });
-    container.remove();
-    vi.unstubAllGlobals();
-  });
-
   it('loads initial file info and clamps index on file-index-changed', async () => {
     await act(async () => {
-      root.render(<Harness />);
+      getRoot().render(<Harness />);
       await flush();
     });
 
-    expect(container.querySelector('[data-testid="total"]')?.textContent).toBe('3');
-    expect(container.querySelector('[data-testid="index"]')?.textContent).toBe('2');
+    expect(getContainer().querySelector('[data-testid="total"]')?.textContent).toBe('3');
+    expect(getContainer().querySelector('[data-testid="index"]')?.textContent).toBe('2');
 
     await act(async () => {
       fileIndexChangedHandler?.({ payload: { count: 1, latestFilename: null } });
       await flush();
     });
 
-    expect(container.querySelector('[data-testid="total"]')?.textContent).toBe('1');
-    expect(container.querySelector('[data-testid="index"]')?.textContent).toBe('0');
+    expect(getContainer().querySelector('[data-testid="total"]')?.textContent).toBe('1');
+    expect(getContainer().querySelector('[data-testid="index"]')?.textContent).toBe('0');
   });
 
   it('navigates to oldest file', async () => {
@@ -125,12 +111,12 @@ describe('usePreviewNavigation', () => {
     }
 
     await act(async () => {
-      root.render(<NavigateHarness />);
+      getRoot().render(<NavigateHarness />);
       await flush();
     });
 
     await act(async () => {
-      container.querySelector('[data-testid="oldest"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      getContainer().querySelector('[data-testid="oldest"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
       await flush();
     });
 
