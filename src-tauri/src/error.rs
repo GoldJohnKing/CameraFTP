@@ -35,6 +35,9 @@ pub enum AppError {
     #[error("存储权限错误: {0}")]
     StoragePermissionError(String),
 
+    #[error("AI修图错误: {0}")]
+    AiEditError(String),
+
     #[error("其他错误: {0}")]
     Other(String),
 }
@@ -52,6 +55,7 @@ impl AppError {
             Self::NetworkError(_) => "NETWORK_ERROR",
             Self::PermissionError(_) => "PERMISSION_ERROR",
             Self::StoragePermissionError(_) => "STORAGE_PERMISSION_ERROR",
+            Self::AiEditError(_) => "AI_EDIT_ERROR",
             Self::Other(_) => "OTHER_ERROR",
         }
     }
@@ -70,6 +74,7 @@ impl AppError {
             Self::NetworkError(msg) => format!("网络错误: {}", msg),
             Self::PermissionError(msg) => format!("权限错误: {}，请检查文件或目录权限", msg),
             Self::StoragePermissionError(msg) => format!("存储权限错误: {}", msg),
+            Self::AiEditError(msg) => format!("AI修图错误: {}", msg),
             Self::Other(msg) => msg.clone(),
         }
     }
