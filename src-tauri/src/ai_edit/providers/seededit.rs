@@ -76,8 +76,9 @@ impl AiEditProvider for SeedEditProvider {
         if !response.status().is_success() {
             let status = response.status();
             let body = response.text().await.unwrap_or_default();
+            let body_preview = &body[..body.len().min(200)];
             return Err(AppError::AiEditError(format!(
-                "API returned {}: {}", status, body
+                "API returned {}: {}", status, body_preview
             )));
         }
 
