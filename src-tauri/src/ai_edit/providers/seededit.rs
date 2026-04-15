@@ -9,7 +9,7 @@ use super::AiEditProvider;
 use super::super::config::SeedEditConfig;
 
 const BASE_URL: &str = "https://ark.cn-beijing.volces.com/api/v3";
-const MODEL: &str = "doubao-seededit-3-0-i2i";
+const MODEL: &str = "doubao-seedream-4-0-250828";
 
 pub struct SeedEditProvider {
     client: reqwest::Client,
@@ -42,6 +42,7 @@ struct SeedEditRequest {
     image: String,
     size: &'static str,
     response_format: &'static str,
+    watermark: bool,
 }
 
 #[derive(Deserialize)]
@@ -73,8 +74,9 @@ impl AiEditProvider for SeedEditProvider {
             model: MODEL,
             prompt: prompt.to_string(),
             image: format!("data:{};base64,{}", mime_type, image_base64),
-            size: "adaptive",
+            size: "4K",
             response_format: "url",
+            watermark: false,
         };
 
         let response = self.client
@@ -145,8 +147,9 @@ mod tests {
             model: MODEL,
             prompt: "enhance photo quality".to_string(),
             image: "data:image/jpeg;base64,dGVzdA==".to_string(),
-            size: "adaptive",
+            size: "4K",
             response_format: "url",
+            watermark: false,
         };
 
         let json = serde_json::to_string(&request).unwrap();
@@ -155,13 +158,13 @@ mod tests {
         assert_eq!(parsed["model"], MODEL);
         assert_eq!(parsed["prompt"], "enhance photo quality");
         assert_eq!(parsed["image"], "data:image/jpeg;base64,dGVzdA==");
-        assert_eq!(parsed["size"], "adaptive");
+        assert_eq!(parsed["size"], "4K");
         assert_eq!(parsed["response_format"], "url");
     }
 
     #[test]
     fn request_includes_correct_model() {
-        assert_eq!(MODEL, "doubao-seededit-3-0-i2i");
+        assert_eq!(MODEL, "doubao-seedream-4-0-250828");
     }
 
     #[test]
@@ -270,8 +273,9 @@ mod tests {
             model: MODEL,
             prompt: "test".to_string(),
             image: "data:image/png;base64,AA==".to_string(),
-            size: "adaptive",
+            size: "4K",
             response_format: "url",
+            watermark: false,
         };
 
         let json = serde_json::to_string(&request).unwrap();

@@ -156,6 +156,17 @@ The project is licensed under AGPL-3.0. Use the appropriate comment syntax for e
 4. Call it from the frontend: `window.BridgeName?.methodName()`
 5. Verify: `./build.sh android`
 
+### Add JNI Bridge (Android — Rust calls Kotlin via JNI)
+
+Classes referenced from Rust by string class name (e.g. `JniClass::call_static_method("com.gjk...Bridge", ...)`) are invisible to R8/ProGuard because there is no Java-side reference. **They will be stripped in release builds**, causing `ClassNotFoundException` at runtime.
+
+**Always add a `-keep` rule in `src-tauri/gen/android/app/proguard-rules.pro`:**
+
+```proguard
+-keep class com.gjk.cameraftpcompanion.bridges.YourBridge { *; }
+-keep class com.gjk.cameraftpcompanion.bridges.YourBridge$Companion { *; }
+```
+
 ### Update Version Number
 
 When updating the application version, **ALL THREE** of the following files must be updated:
