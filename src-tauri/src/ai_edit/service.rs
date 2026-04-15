@@ -5,9 +5,10 @@
 use chrono::Utc;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU32, Ordering};
 use tokio::io::AsyncWriteExt;
 use tokio::sync::{mpsc, oneshot};
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Emitter, Manager};
 use tracing::{info, warn, debug};
 
 use crate::config_service::ConfigService;
@@ -33,6 +34,7 @@ struct AiEditTask {
 pub struct AiEditService {
     manual_sender: mpsc::Sender<AiEditTask>,
     auto_sender: mpsc::Sender<AiEditTask>,
+    queue_depth: Arc<AtomicU32>,
 }
 
 impl AiEditService {
@@ -40,31 +42,36 @@ impl AiEditService {
         let (manual_sender, manual_receiver) = mpsc::channel::<AiEditTask>(MANUAL_QUEUE_CAPACITY);
         let (auto_sender, auto_receiver) = mpsc::channel::<AiEditTask>(AUTO_QUEUE_CAPACITY);
         let config_service_clone = config_service.clone();
+        let queue_depth = Arc::new(AtomicU32::new(0));
+        let queue_depth_clone = queue_depth.clone();
 
         tauri::async_runtime::spawn(async move {
-            worker_loop(manual_receiver, auto_receiver, app_handle, config_service_clone).await;
+            worker_loop(manual_receiver, auto_receiver, app_handle, config_service_clone, queue_depth_clone).await;
         });
 
-        Self { manual_sender, auto_sender }
+        Self { manual_sender, auto_sender, queue_depth }
     }
 
     /// Auto-trigger: non-blocking enqueue.
     pub async fn on_file_uploaded(&self, file_path: PathBuf) {
+        self.queue_depth.fetch_add(1, Ordering::Relaxed);
         if let Err(e) = self.auto_sender.try_send(AiEditTask {
             file_path,
             is_auto_trigger: true,
             override_prompt: None,
             result_tx: None,
         }) {
+            self.queue_depth.fetch_sub(1, Ordering::Relaxed);
             warn!("AI edit queue full, dropping task: {}", e);
         }
     }
 
     /// Manual trigger: enqueue and wait for result.
     pub async fn edit_single(&self, file_path: PathBuf, override_prompt: Option<String>) -> Result<PathBuf, AppError> {
+        self.queue_depth.fetch_add(1, Ordering::Relaxed);
         let (tx, rx) = oneshot::channel();
 
-        self.manual_sender
+        if self.manual_sender
             .send(AiEditTask {
                 file_path,
                 is_auto_trigger: false,
@@ -72,10 +79,36 @@ impl AiEditService {
                 result_tx: Some(tx),
             })
             .await
-            .map_err(|_| AppError::AiEditError("AI edit service shut down".to_string()))?;
+            .is_err()
+        {
+            self.queue_depth.fetch_sub(1, Ordering::Relaxed);
+            return Err(AppError::AiEditError("AI edit service shut down".to_string()));
+        }
 
         rx.await
             .map_err(|_| AppError::AiEditError("AI edit worker dropped the task".to_string()))?
+    }
+
+    /// Manual batch enqueue (non-blocking, no result callback).
+    pub async fn enqueue_manual(&self, file_path: PathBuf, override_prompt: Option<String>) -> Result<(), AppError> {
+        self.queue_depth.fetch_add(1, Ordering::Relaxed);
+        if let Err(e) = self.manual_sender
+            .send(AiEditTask {
+                file_path,
+                is_auto_trigger: false,
+                override_prompt,
+                result_tx: None,
+            })
+            .await
+        {
+            self.queue_depth.fetch_sub(1, Ordering::Relaxed);
+            return Err(AppError::AiEditError(format!("AI edit service shut down: {}", e)));
+        }
+        Ok(())
+    }
+
+    pub fn queue_len(&self) -> u32 {
+        self.queue_depth.load(Ordering::Relaxed)
     }
 }
 
@@ -84,8 +117,27 @@ async fn worker_loop(
     mut auto_rx: mpsc::Receiver<AiEditTask>,
     app_handle: AppHandle,
     config_service: Arc<ConfigService>,
+    queue_depth: Arc<AtomicU32>,
 ) {
     info!("AI edit worker started");
+
+    struct WorkerState {
+        completed_count: u32,
+        failed_count: u32,
+        failed_files: Vec<String>,
+    }
+
+    impl WorkerState {
+        fn processed_count(&self) -> u32 {
+            self.completed_count + self.failed_count
+        }
+    }
+
+    let mut state = WorkerState {
+        completed_count: 0,
+        failed_count: 0,
+        failed_files: Vec::new(),
+    };
 
     let mut cached_provider: Option<Box<dyn providers::AiEditProvider>> = None;
     let mut cached_api_key: Option<String> = None;
@@ -120,7 +172,26 @@ async fn worker_loop(
             }
         };
 
+        // Calculate progress metrics
+        let current = state.processed_count() + 1;
+        let remaining = queue_depth.load(Ordering::Relaxed);
+        let total = current + remaining;
+        let file_name = task.file_path.file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("unknown")
+            .to_string();
+
+        let _ = app_handle.emit("ai-edit-progress", &super::progress::AiEditProgressEvent::Progress {
+            current,
+            total,
+            file_name: file_name.clone(),
+            failed_count: state.failed_count,
+        });
+
         let result = process_task(&task, &config_service, &mut cached_provider, &mut cached_api_key).await;
+
+        // Decrement queue depth after processing
+        queue_depth.fetch_sub(1, Ordering::Relaxed);
 
         match result {
             Ok(ref output_path) => {
@@ -131,6 +202,16 @@ async fn worker_loop(
                         debug!(path = %output_path.display(), error = %e, "Failed to index AI-edited file");
                     }
                 }
+
+                state.completed_count += 1;
+
+                let remaining = queue_depth.load(Ordering::Relaxed);
+                let _ = app_handle.emit("ai-edit-progress", &super::progress::AiEditProgressEvent::Completed {
+                    current: state.processed_count(),
+                    total: state.processed_count() + remaining,
+                    file_name: file_name.clone(),
+                    failed_count: state.failed_count,
+                });
             }
             Err(ref e) => {
                 if task.result_tx.is_some() {
@@ -138,12 +219,32 @@ async fn worker_loop(
                 } else {
                     debug!(input = %task.file_path.display(), error = %e, "Auto AI edit failed");
                 }
+
+                state.failed_count += 1;
+                state.failed_files.push(file_name.clone());
+
+                let remaining = queue_depth.load(Ordering::Relaxed);
+                let _ = app_handle.emit("ai-edit-progress", &super::progress::AiEditProgressEvent::Failed {
+                    current: state.processed_count(),
+                    total: state.processed_count() + remaining,
+                    file_name: file_name.clone(),
+                    error: e.to_string(),
+                    failed_count: state.failed_count,
+                });
             }
         }
 
         if let Some(tx) = task.result_tx {
             let _ = tx.send(result);
         }
+    }
+
+    if state.processed_count() > 0 {
+        let _ = app_handle.emit("ai-edit-progress", &super::progress::AiEditProgressEvent::Done {
+            total: state.processed_count(),
+            failed_count: state.failed_count,
+            failed_files: state.failed_files,
+        });
     }
 
     info!("AI edit worker stopped");
