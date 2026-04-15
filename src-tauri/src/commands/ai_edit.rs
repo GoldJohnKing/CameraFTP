@@ -17,3 +17,15 @@ pub async fn trigger_ai_edit(
     let output_path = ai_edit.edit_single(PathBuf::from(&file_path), prompt).await?;
     Ok(output_path.to_string_lossy().to_string())
 }
+
+#[command]
+pub async fn enqueue_ai_edit(
+    ai_edit: State<'_, AiEditService>,
+    file_paths: Vec<String>,
+    prompt: Option<String>,
+) -> Result<(), AppError> {
+    for path in &file_paths {
+        ai_edit.enqueue_manual(PathBuf::from(path), prompt.clone()).await?;
+    }
+    Ok(())
+}

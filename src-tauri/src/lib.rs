@@ -53,6 +53,7 @@ use commands::{
     start_server,
     stop_server,
     trigger_ai_edit,
+    enqueue_ai_edit,
     update_preview_config,
     FtpServerState,
 };
@@ -221,6 +222,7 @@ pub fn run() {
 
             // AI 修图
             trigger_ai_edit,
+            enqueue_ai_edit,
         ])
         .run(tauri::generate_context!())
         .unwrap_or_else(|e| {
