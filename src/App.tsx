@@ -6,7 +6,6 @@
 
 import { useEffect } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { invoke } from '@tauri-apps/api/core';
 import { Camera, X } from 'lucide-react';
 import { ServerCard } from './components/ServerCard';
 import { StatsCard } from './components/StatsCard';
@@ -14,14 +13,15 @@ import { InfoCard } from './components/InfoCard';
 import { LatestPhotoCard } from './components/LatestPhotoCard';
 import { ConfigCard } from './components/ConfigCard';
 import { GalleryCard } from './components/GalleryCard';
+import { AiEditProgressBar } from './components/AiEditProgressBar';
 import { BottomNav } from './components/BottomNav';
 import { PermissionDialog } from './components/PermissionDialog';
 import { PreviewWindow } from './components/PreviewWindow';
 import { useAppBootstrap } from './bootstrap/useAppBootstrap';
 import { useQuitFlow } from './hooks/useQuitFlow';
+import { useAiEditProgressListener, enqueueAiEdit } from './hooks/useAiEditProgress';
 import { useServerStore } from './stores/serverStore';
 import { useConfigStore } from './stores/configStore';
-import { formatError } from './utils/error';
 
 function App() {
   const { showPermissionDialog, closePermissionDialog, continueAfterPermissionsGranted } = useServerStore();
@@ -31,6 +31,7 @@ function App() {
   const { showQuitDialog, closeQuitDialog, handleQuitConfirm } = useQuitFlow({ enabled: !isPreviewWindow });
 
   useAppBootstrap({ isMainWindow: !isPreviewWindow });
+  useAiEditProgressListener();
 
   // Register JS functions for native Android ImageViewerActivity prompt dialog integration
   useEffect(() => {
@@ -49,12 +50,7 @@ function App() {
         }));
       }
 
-      try {
-        await invoke('trigger_ai_edit', { filePath, prompt: prompt || null });
-        window.ImageViewerAndroid?.onAiEditComplete?.(true, null);
-      } catch (e) {
-        window.ImageViewerAndroid?.onAiEditComplete?.(false, formatError(e));
-      }
+      await enqueueAiEdit([filePath], prompt, shouldSave);
     };
 
     return () => {
@@ -145,6 +141,7 @@ function App() {
           <div className={activeTab === 'gallery' ? 'fixed inset-0 bg-gray-50 z-0' : 'hidden'}>
             <div className="h-full max-w-md mx-auto">
               <GalleryCard />
+              <AiEditProgressBar position="fixed" />
             </div>
           </div>
 

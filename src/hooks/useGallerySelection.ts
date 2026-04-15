@@ -5,10 +5,10 @@
  */
 
 import { useCallback, useEffect, useRef, useState, type RefObject } from 'react';
-import { invoke } from '@tauri-apps/api/core';
 import { toast } from 'sonner';
 import { buildDeleteFailureMessage } from '../utils/gallery-delete';
 import { useConfigStore } from '../stores/configStore';
+import { enqueueAiEdit } from './useAiEditProgress';
 import type { DeleteImagesResult } from '../types';
 
 const LONG_PRESS_DURATION = 400; // Android ViewConfiguration.DEFAULT_LONG_PRESS_TIMEOUT
@@ -35,7 +35,7 @@ type UseGallerySelectionResult = {
   handleDelete: () => Promise<void>;
   handleShare: () => Promise<void>;
   handleAiEdit: () => void;
-  handleAiEditPromptConfirm: (prompt: string, shouldSave: boolean) => void;
+  handleAiEditPromptConfirm: (prompt: string, shouldSave: boolean) => Promise<void>;
   handleCancelAiEditPrompt: () => void;
   handleCancelSelection: () => void;
   toggleMenu: () => void;
@@ -242,7 +242,7 @@ export function useGallerySelection({ activeTab, onDeleteApplied, getUriForId }:
     setShowAiEditPrompt(true);
   }, [selectedIds]);
 
-  const handleAiEditPromptConfirm = useCallback((prompt: string, shouldSave: boolean) => {
+  const handleAiEditPromptConfirm = useCallback(async (prompt: string, shouldSave: boolean) => {
     setShowAiEditPrompt(false);
 
     if (shouldSave) {
@@ -266,11 +266,7 @@ export function useGallerySelection({ activeTab, onDeleteApplied, getUriForId }:
     const filePaths = uris
       .map((uri) => window.ImageViewerAndroid?.resolveFilePath?.(uri) ?? uri);
 
-    toast.success(`已加入修图队列 (${filePaths.length}张)`);
-
-    for (const filePath of filePaths) {
-      void invoke('trigger_ai_edit', { filePath, prompt: prompt || null });
-    }
+    await enqueueAiEdit(filePaths, prompt, shouldSave);
   }, [selectedIds, getUriForId]);
 
   const handleCancelAiEditPrompt = useCallback(() => {
