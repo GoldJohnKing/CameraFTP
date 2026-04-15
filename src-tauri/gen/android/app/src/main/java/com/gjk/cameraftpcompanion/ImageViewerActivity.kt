@@ -24,6 +24,7 @@ import android.webkit.WebView
 import android.widget.FrameLayout
 import android.widget.ImageButton
 import android.widget.LinearLayout
+import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.IntentSenderRequest
@@ -128,6 +129,9 @@ class ImageViewerActivity : AppCompatActivity() {
     private lateinit var btnAiEdit: ImageButton
     private lateinit var btnRotate: ImageButton
     private lateinit var btnDelete: ImageButton
+    private lateinit var aiEditProgressContainer: LinearLayout
+    private lateinit var aiEditProgressBar: ProgressBar
+    private lateinit var aiEditProgressText: TextView
     private var uris: MutableList<String> = mutableListOf()
     private var currentIndex: Int = 0
     private var isLandscape = false
@@ -176,6 +180,10 @@ class ImageViewerActivity : AppCompatActivity() {
         btnAiEdit = findViewById(R.id.btn_ai_edit)
         btnRotate = findViewById(R.id.btn_rotate)
         btnDelete = findViewById(R.id.btn_delete)
+
+        aiEditProgressContainer = findViewById(R.id.ai_edit_progress_container)
+        aiEditProgressBar = findViewById(R.id.ai_edit_progress_bar)
+        aiEditProgressText = findViewById(R.id.ai_edit_progress_text)
 
         btnAiEdit.visibility = if (aiEditEnabled) View.VISIBLE else View.GONE
 
@@ -404,13 +412,13 @@ class ImageViewerActivity : AppCompatActivity() {
         val filePath = resolveUriToFilePath(uriString)
 
         if (filePath == null) {
-            Toast.makeText(this, "无法获取文件路径", Toast.LENGTH_SHORT).show()
+            Log.w(TAG, "Cannot resolve file path for URI: $uriString")
             return
         }
 
         val mainActivity = MainActivity.instance
         if (mainActivity == null) {
-            Toast.makeText(this, "修图失败：应用未就绪", Toast.LENGTH_SHORT).show()
+            Log.w(TAG, "MainActivity not available for AI edit")
             return
         }
 
@@ -592,7 +600,6 @@ class ImageViewerActivity : AppCompatActivity() {
 
     private fun dispatchAiEdit(filePath: String, prompt: String, shouldSave: Boolean, mainActivity: MainActivity) {
         isAiEditing = true
-        Toast.makeText(this, "正在修图…", Toast.LENGTH_SHORT).show()
 
         val escapedPath = filePath.replace("\\", "\\\\").replace("'", "\\'")
         val escapedPrompt = prompt.replace("\\", "\\\\").replace("'", "\\'")
@@ -612,7 +619,7 @@ class ImageViewerActivity : AppCompatActivity() {
             mainActivity.getWebView()?.evaluateJavascript(js) { result ->
                 if (result?.trim()?.removeSurrounding("\"") == "no_handler") {
                     runOnUiThread {
-                        Toast.makeText(this@ImageViewerActivity, "修图失败：前端未就绪", Toast.LENGTH_SHORT).show()
+                        Log.w(TAG, "AI edit failed: frontend handler not available")
                         isAiEditing = false
                     }
                 }
@@ -648,8 +655,29 @@ class ImageViewerActivity : AppCompatActivity() {
         runOnUiThread {
             isAiEditing = false
             if (isFinishing || isDestroyed) return@runOnUiThread
-            val text = if (success) "修图完成" else (message ?: "修图失败")
-            Toast.makeText(this, text, Toast.LENGTH_SHORT).show()
+            if (success) {
+                aiEditProgressContainer.visibility = View.GONE
+            } else {
+                aiEditProgressText.text = message ?: "修图失败"
+                aiEditProgressContainer.postDelayed({
+                    aiEditProgressContainer.visibility = View.GONE
+                }, 3000)
+            }
+        }
+    }
+
+    fun updateAiEditProgress(current: Int, total: Int, failedCount: Int) {
+        runOnUiThread {
+            if (isFinishing || isDestroyed) return@runOnUiThread
+            aiEditProgressContainer.visibility = View.VISIBLE
+            val percent = if (total > 0) (current * 100) / total else 0
+            aiEditProgressBar.progress = percent
+            val text = if (failedCount > 0) {
+                "第${current}张/共${total}张 (失败${failedCount}张)"
+            } else {
+                "第${current}张/共${total}张"
+            }
+            aiEditProgressText.text = text
         }
     }
 
@@ -825,6 +853,10 @@ class ImageViewerActivity : AppCompatActivity() {
         btnAiEdit = findViewById(R.id.btn_ai_edit)
         btnRotate = findViewById(R.id.btn_rotate)
         btnDelete = findViewById(R.id.btn_delete)
+
+        aiEditProgressContainer = findViewById(R.id.ai_edit_progress_container)
+        aiEditProgressBar = findViewById(R.id.ai_edit_progress_bar)
+        aiEditProgressText = findViewById(R.id.ai_edit_progress_text)
 
         btnAiEdit.visibility = wasAiEditVisible
         if (wasAiEditing) {
