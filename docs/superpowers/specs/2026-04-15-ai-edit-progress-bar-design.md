@@ -28,29 +28,49 @@
 ```rust
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export)]
-#[serde(rename_all = "camelCase")]
+#[serde(tag = "type", rename_all = "camelCase")]
 pub enum AiEditProgressEvent {
-    /// 队列状态快照（前端首次连接或状态变化时推送）
     Progress {
-        current: u32,       // 当前正在处理第几张（1-based）
-        total: u32,         // 队列中总任务数
-        file_name: String,  // 当前处理的文件名
+        current: u32,
+        total: u32,
+        #[serde(rename = "fileName")]
+        #[ts(rename = "fileName")]
+        file_name: String,
+        #[serde(rename = "failedCount")]
+        #[ts(rename = "failedCount")]
+        failed_count: u32,
     },
-    /// 单个任务完成
     Completed {
         current: u32,
         total: u32,
+        #[serde(rename = "fileName")]
+        #[ts(rename = "fileName")]
         file_name: String,
+        #[serde(rename = "failedCount")]
+        #[ts(rename = "failedCount")]
+        failed_count: u32,
     },
-    /// 单个任务失败
+    /// Single task failure — queue continues
     Failed {
         current: u32,
         total: u32,
+        #[serde(rename = "fileName")]
+        #[ts(rename = "fileName")]
         file_name: String,
         error: String,
+        #[serde(rename = "failedCount")]
+        #[ts(rename = "failedCount")]
+        failed_count: u32,
     },
-    /// 整个队列处理完毕
-    Done,
+    Done {
+        total: u32,
+        #[serde(rename = "failedCount")]
+        #[ts(rename = "failedCount")]
+        failed_count: u32,
+        #[serde(rename = "failedFiles")]
+        #[ts(rename = "failedFiles")]
+        failed_files: Vec<String>,
+    },
 }
 ```
 
@@ -116,7 +136,7 @@ pub async fn enqueue_ai_edit(
 }
 ```
 
-后端 `AiEditService` 新增 `enqueue_manual` 方法（复用现有 `edit_single` 的逻辑但支持批量入队）。
+后端 `AiEditService` 新增 `enqueue_manual` 方法（复用现有 `edit_single` 的逻辑但支持批量入队，失败不终止）。
 
 **前端**：
 - `handleAiEditPromptConfirm` 调用 `invoke('enqueue_ai_edit', { filePaths, prompt })`
@@ -131,13 +151,14 @@ pub async fn enqueue_ai_edit(
 3. worker_loop 取到新任务时 emit `Progress` 更新 total
 4. 进度条自动刷新显示新的 "第X张/共N张"
 
-### 失败终止行为
+### 失败处理行为
 
-- 后端默认：单个任务失败不影响后续任务继续执行（auto 任务已经是这个行为）
-- **前端参数**：`enqueue_ai_edit` 新增 `abort_on_error: bool` 参数
-  - `true`（手动批量修图）：失败后清空 manual channel 中的剩余任务
-  - `false`（自动修图）：继续处理
-- 失败时 emit `Failed` 事件 + 如果 `abort_on_error` 则 emit `Done`（带 abort 标志）
+- **所有任务（手动和自动）失败都不终止队列**，继续处理下一张
+- 后端在 `Done` 事件中携带 `failed_count` 和 `failed_files` 汇总信息
+- 前端收到 `Failed` 事件时累加 `failedCount`，进度文字变为 "第3张/共5张 (失败1张)"
+- 队列全部完成后（`Done`）：
+  - `failed_count === 0` → 进度条正常消失
+  - `failed_count > 0` → 进度条变为红色，显示失败摘要（如 "修图完成，2张失败"），用户点击关闭后消失
 
 ## 统一进度条组件
 
@@ -147,9 +168,20 @@ pub async fn enqueue_ai_edit(
 
 **视觉设计：**
 ```
+处理中：                                       
 ┌─────────────────────────────────────────┐
 │ ████████████░░░░░░░░  第2张/共5张    ✕  │
 └─────────────────────────────────────────┘
+
+处理中（有失败）：                                    
+┌──────────────────────────────────────────────┐
+│ ████████████░░░░░░░░  第3张/共5张 (失败1张) ✕│
+└──────────────────────────────────────────────┘
+
+队列完成（有失败）：                                    
+┌──────────────────────────────────────────────┐
+│ 修图完成，2张失败                          ✕  │  ← 红色背景
+└──────────────────────────────────────────────┘
 ```
 
 - 半透明暗色背景（`bg-black/70 backdrop-blur-sm`），圆角 `rounded-xl`
@@ -189,11 +221,13 @@ Android Native 进度条通过 JS bridge 与 WebView 同步：
 ```typescript
 interface AiEditProgress {
   isEditing: boolean;
-  current: number;      // 当前第几张（1-based）
-  total: number;        // 总张数
+  isDone: boolean;       // 队列是否全部完成（含失败）
+  current: number;       // 当前第几张（1-based）
+  total: number;         // 总张数
   currentFileName: string;
-  lastError: string | null;
-  isManual: boolean;    // 是否为手动触发的修图（决定是否显示取消按钮）
+  failedCount: number;   // 累计失败张数
+  failedFiles: string[]; // 失败文件名列表（队列完成后填充）
+  isManual: boolean;     // 是否为手动触发的修图（决定是否显示取消按钮）
 }
 ```
 
@@ -214,21 +248,23 @@ function cancelAiEdit(): Promise<void>;
 1. 组件 mount 时 `listen('ai-edit-progress', handler)` 注册监听
 2. 收到 `Progress` → `isEditing = true`，更新 `current`, `total`, `currentFileName`
 3. 收到 `Completed` → 更新计数（下一张开始时会有新的 `Progress` 事件）
-4. 收到 `Failed` → `lastError` 设置错误信息
-5. 收到 `Done` → `isEditing = false`
-6. `enqueueAiEdit` → `invoke('enqueue_ai_edit', { filePaths, prompt, abortOnError: true })`
+4. 收到 `Failed` → 累加 `failedCount`，进度文字变为 "第X张/共N张 (失败M张)"
+5. 收到 `Done` → `isEditing = false`, `isDone = true`，填充 `failedFiles`
+   - `failedCount === 0` → 进度条自动 fadeout
+   - `failedCount > 0` → 进度条变红，显示 "修图完成，M张失败"，等待用户关闭
+6. `enqueueAiEdit` → `invoke('enqueue_ai_edit', { filePaths, prompt })`
 7. `cancelAiEdit` → `invoke('cancel_ai_edit')`
 
 ### Android JS Bridge 回调
 
 Native ImageViewerActivity 触发修图时：
 1. 调用 `window.__tauriTriggerAiEditWithPrompt(filePath, prompt, shouldSave)`
-2. 前端调用 `invoke('enqueue_ai_edit', { filePaths: [filePath], prompt, abortOnError: true })`
+2. 前端调用 `invoke('enqueue_ai_edit', { filePaths: [filePath], prompt })`
 3. 后端事件驱动进度更新
-4. 前端 hook 收到 `Done`/`Failed` 时，调用 `window.ImageViewerAndroid?.onAiEditComplete(success, message)`
+4. 前端 hook 收到 `Done` 时，调用 `window.ImageViewerAndroid?.onAiEditComplete(failedCount === 0, summaryMessage)`
 
 进度同步到 Native 层：
-- 每次 `Progress` 事件时调用 `window.ImageViewerAndroid?.updateAiEditProgress?.(current, total)`
+- 每次 `Progress` 事件时调用 `window.ImageViewerAndroid?.updateAiEditProgress?.(current, total, failedCount)`
 
 ## 文件改动清单
 
@@ -265,11 +301,10 @@ Native ImageViewerActivity 触发修图时：
 
 ## 错误处理
 
-- 单张失败 → 进度条变为红色（`bg-red-500`），显示错误信息
-- 手动修图失败 → 终止队列，显示错误 + 关闭按钮
-- 自动修图失败 → 继续下一张，进度条保持显示
-- 关闭按钮 → 隐藏错误提示（不取消正在进行的修图）
-- 取消操作（✕） → 调用 `cancel_ai_edit`，清空队列
+- 单张失败（手动或自动）→ **不终止队列**，继续下一张，进度文字追加 "(失败N张)"
+- 队列全部完成且无失败 → 进度条自动 fadeout
+- 队列全部完成且有失败 → 进度条变红（`bg-red-500/80`），显示 "修图完成，N张失败"，用户点击关闭后消失
+- 取消操作（✕） → 调用 `cancel_ai_edit`，清空队列，进度条消失
 
 ## 动画
 
