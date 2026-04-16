@@ -689,6 +689,48 @@ class ImageViewerActivity : AppCompatActivity() {
         }
     }
 
+    private fun syncAiEditProgressFromWebView() {
+        val mainActivity = MainActivity.instance ?: return
+        mainActivity.runOnUiThread {
+            mainActivity.getWebView()?.evaluateJavascript(
+                "(function(){try{return JSON.stringify(window.__tauriGetAiEditProgress?.()??null)}catch(e){return 'null'}})();"
+            ) { result ->
+                if (result == null || result == "null" || result.trim().removeSurrounding("\"") == "null") return@evaluateJavascript
+                try {
+                    val json = result.trim().removeSurrounding("\"")
+                    val obj = org.json.JSONObject(json)
+                    val isEditing = obj.optBoolean("isEditing", false)
+                    val isDone = obj.optBoolean("isDone", false)
+                    if (isEditing) {
+                        val current = obj.optInt("current", 0)
+                        val total = obj.optInt("total", 0)
+                        val failedCount = obj.optInt("failedCount", 0)
+                        runOnUiThread {
+                            if (!isFinishing && !isDestroyed) {
+                                isAiEditing = true
+                                updateAiEditProgress(current, total, failedCount)
+                            }
+                        }
+                    } else if (isDone) {
+                        val failedCount = obj.optInt("failedCount", 0)
+                        runOnUiThread {
+                            if (!isFinishing && !isDestroyed) {
+                                isAiEditing = false
+                                if (failedCount > 0) {
+                                    onAiEditComplete(false, "修图完成，${failedCount}张失败")
+                                } else {
+                                    aiEditProgressContainer.visibility = View.GONE
+                                }
+                            }
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.d(TAG, "Failed to parse AI edit progress state", e)
+                }
+            }
+        }
+    }
+
     private fun deleteCurrentImage() {
         if (uris.isEmpty() || currentIndex < 0 || currentIndex >= uris.size) return
 
@@ -886,6 +928,7 @@ class ImageViewerActivity : AppCompatActivity() {
         super.onResume()
         instance = this
         isViewerVisible = true
+        syncAiEditProgressFromWebView()
     }
 
     override fun onPause() {

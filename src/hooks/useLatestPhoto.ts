@@ -6,12 +6,10 @@
 
 import { useSyncExternalStore } from 'react';
 import { listen } from '@tauri-apps/api/event';
-import { LATEST_PHOTO_REFRESH_REQUESTED_EVENT } from '../utils/gallery-refresh';
 import {
   fetchLatestPhotoFile,
   type LatestPhotoFile,
 } from '../services/latest-photo';
-import { isGalleryV2Available } from '../services/gallery-media-v2';
 
 interface FileIndexChangedEvent {
   count: number;
@@ -105,19 +103,6 @@ function initializeStore(): void {
 
   isInitialized = true;
 
-  const handleRefreshRequest = () => {
-    void refreshLatestPhoto();
-  };
-  const handleGalleryItemsAdded = () => {
-    void refreshLatestPhoto();
-  };
-  const galleryV2Available = isGalleryV2Available();
-
-  window.addEventListener(LATEST_PHOTO_REFRESH_REQUESTED_EVENT, handleRefreshRequest);
-  if (galleryV2Available) {
-    window.addEventListener('gallery-items-added', handleGalleryItemsAdded);
-  }
-
   const unlistenPromise = listen<FileIndexChangedEvent>('file-index-changed', (event) => {
     if (event.payload.count === 0) {
       setLatestPhoto(null);
@@ -128,10 +113,6 @@ function initializeStore(): void {
   });
 
   teardownFn = () => {
-    window.removeEventListener(LATEST_PHOTO_REFRESH_REQUESTED_EVENT, handleRefreshRequest);
-    if (galleryV2Available) {
-      window.removeEventListener('gallery-items-added', handleGalleryItemsAdded);
-    }
     void unlistenPromise.then((unlisten) => unlisten()).catch(() => {});
   };
 

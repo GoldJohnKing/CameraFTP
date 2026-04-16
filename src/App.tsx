@@ -19,7 +19,7 @@ import { PermissionDialog } from './components/PermissionDialog';
 import { PreviewWindow } from './components/PreviewWindow';
 import { useAppBootstrap } from './bootstrap/useAppBootstrap';
 import { useQuitFlow } from './hooks/useQuitFlow';
-import { useAiEditProgressListener, enqueueAiEdit } from './hooks/useAiEditProgress';
+import { useAiEditProgressListener, enqueueAiEdit, getCurrentAiEditProgress } from './hooks/useAiEditProgress';
 import { useServerStore } from './stores/serverStore';
 import { useConfigStore } from './stores/configStore';
 
@@ -53,9 +53,14 @@ function App() {
       await enqueueAiEdit([filePath], prompt, shouldSave);
     };
 
+    w.__tauriGetAiEditProgress = () => {
+      return getCurrentAiEditProgress();
+    };
+
     return () => {
       delete w.__tauriGetAiEditPrompt;
       delete w.__tauriTriggerAiEditWithPrompt;
+      delete w.__tauriGetAiEditProgress;
     };
   }, [updateDraft]);
 

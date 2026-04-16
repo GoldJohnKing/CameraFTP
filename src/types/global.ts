@@ -270,6 +270,20 @@ declare global {
      * Called by native ImageViewerActivity after user confirms the prompt dialog.
      */
     __tauriTriggerAiEditWithPrompt?: (filePath: string, prompt: string, shouldSave: boolean) => Promise<void>;
+
+    /**
+     * Returns the current AI edit progress state.
+     * Called by native ImageViewerActivity to sync progress when opening mid-edit.
+     */
+    __tauriGetAiEditProgress?: () => {
+      isEditing: boolean;
+      isDone: boolean;
+      current: number;
+      total: number;
+      currentFileName: string;
+      failedCount: number;
+      failedFiles: string[];
+    };
   }
 }
 

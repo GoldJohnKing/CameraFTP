@@ -179,6 +179,10 @@ export function dismissDone() {
   useAiEditProgressStore.setState({ ...initialState });
 }
 
+export function getCurrentAiEditProgress(): AiEditProgressState {
+  return useAiEditProgressStore.getState();
+}
+
 export function useAiEditProgressListener() {
   // Fallback: ensure listener is registered even if module-load registration failed.
   useEffect(() => {

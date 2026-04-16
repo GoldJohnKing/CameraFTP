@@ -10,10 +10,9 @@ import { LATEST_PHOTO_REFRESH_REQUESTED_EVENT } from '../../utils/gallery-refres
 import { flush } from '../../test-utils/flush';
 import { setupReactRoot } from '../../test-utils/react-root';
 
-const { listenMock, fetchLatestPhotoFileMock, isGalleryV2AvailableMock } = vi.hoisted(() => ({
+const { listenMock, fetchLatestPhotoFileMock } = vi.hoisted(() => ({
   listenMock: vi.fn(),
   fetchLatestPhotoFileMock: vi.fn(),
-  isGalleryV2AvailableMock: vi.fn(),
 }));
 
 vi.mock('@tauri-apps/api/event', () => ({
@@ -25,7 +24,7 @@ vi.mock('../../services/latest-photo', () => ({
 }));
 
 vi.mock('../../services/gallery-media-v2', () => ({
-  isGalleryV2Available: isGalleryV2AvailableMock,
+  isGalleryV2Available: vi.fn().mockReturnValue(false),
 }));
 
 interface FileIndexChangedEvent {
@@ -65,8 +64,6 @@ describe('useLatestPhoto', () => {
     fileIndexChangedHandler = null;
     listenMock.mockReset();
     fetchLatestPhotoFileMock.mockReset();
-    isGalleryV2AvailableMock.mockReset();
-    isGalleryV2AvailableMock.mockReturnValue(false);
     fetchLatestPhotoFileMock.mockResolvedValue({
       filename: 'latest.jpg',
       path: 'content://latest',
@@ -79,21 +76,61 @@ describe('useLatestPhoto', () => {
     });
   });
 
-  it('loads latest photo on mount and on refresh request events', async () => {
+  it('loads latest photo on mount', async () => {
     await act(async () => {
       getRoot().render(<LatestPhotoHarness />);
       await flush();
     });
 
     expect(fetchLatestPhotoFileMock).toHaveBeenCalledTimes(1);
-    expect(      getContainer().querySelector('[data-testid="filename"]')?.textContent).toBe('latest.jpg');
+    expect(
+      getContainer().querySelector('[data-testid="filename"]')?.textContent,
+    ).toBe('latest.jpg');
+  });
 
+  it('does NOT refresh on LATEST_PHOTO_REFRESH_REQUESTED_EVENT (only on click)', async () => {
+    await act(async () => {
+      getRoot().render(<LatestPhotoHarness />);
+      await flush();
+    });
+
+    expect(fetchLatestPhotoFileMock).toHaveBeenCalledTimes(1);
+
+    // Dispatching the refresh event should NOT trigger a fetch
     await act(async () => {
       window.dispatchEvent(new CustomEvent(LATEST_PHOTO_REFRESH_REQUESTED_EVENT));
       await flush();
     });
 
+    // Still only 1 call — event does not trigger refresh
+    expect(fetchLatestPhotoFileMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('refreshes on manual click via refreshLatestPhoto', async () => {
+    await act(async () => {
+      getRoot().render(<LatestPhotoHarness />);
+      await flush();
+    });
+
+    expect(fetchLatestPhotoFileMock).toHaveBeenCalledTimes(1);
+
+    fetchLatestPhotoFileMock.mockResolvedValueOnce({
+      filename: 'clicked-latest.jpg',
+      path: 'content://clicked-latest',
+    });
+
+    // Click the refresh button
+    await act(async () => {
+      getContainer().querySelector('[data-testid="refresh"]')?.dispatchEvent(
+        new MouseEvent('click', { bubbles: true }),
+      );
+      await flush();
+    });
+
     expect(fetchLatestPhotoFileMock).toHaveBeenCalledTimes(2);
+    expect(
+      getContainer().querySelector('[data-testid="filename"]')?.textContent,
+    ).toBe('clicked-latest.jpg');
   });
 
   it('clears state when file index count becomes zero', async () => {
@@ -111,7 +148,9 @@ describe('useLatestPhoto', () => {
       await flush();
     });
 
-    expect(      getContainer().querySelector('[data-testid="filename"]')?.textContent).toBe('none');
+    expect(
+      getContainer().querySelector('[data-testid="filename"]')?.textContent,
+    ).toBe('none');
   });
 
   it('refreshes latest photo when file index count is non-zero', async () => {
@@ -133,39 +172,12 @@ describe('useLatestPhoto', () => {
     });
 
     expect(fetchLatestPhotoFileMock).toHaveBeenCalledTimes(2);
-    expect(      getContainer().querySelector('[data-testid="filename"]')?.textContent).toBe('new-latest.jpg');
+    expect(
+      getContainer().querySelector('[data-testid="filename"]')?.textContent,
+    ).toBe('new-latest.jpg');
   });
 
-  it('refreshes latest photo on gallery-items-added when Gallery V2 is available', async () => {
-    isGalleryV2AvailableMock.mockReturnValue(true);
-
-    await act(async () => {
-      getRoot().render(<LatestPhotoHarness />);
-      await flush();
-    });
-
-    fetchLatestPhotoFileMock.mockResolvedValueOnce({
-      filename: 'android-latest.jpg',
-      path: 'content://android-latest',
-    });
-
-    await act(async () => {
-      window.dispatchEvent(
-        new CustomEvent('gallery-items-added', {
-          detail: {
-            items: [{ uri: 'content://android-latest' }],
-            timestamp: Date.now(),
-          },
-        }),
-      );
-      await flush();
-    });
-
-    expect(fetchLatestPhotoFileMock).toHaveBeenCalledTimes(2);
-    expect(      getContainer().querySelector('[data-testid="filename"]')?.textContent).toBe('android-latest.jpg');
-  });
-
-  it('ignores gallery-items-added when Gallery V2 is unavailable', async () => {
+  it('does NOT listen for gallery-items-added events', async () => {
     const addEventListenerSpy = vi.spyOn(window, 'addEventListener');
 
     await act(async () => {
@@ -173,57 +185,20 @@ describe('useLatestPhoto', () => {
       await flush();
     });
 
-    await act(async () => {
-      window.dispatchEvent(
-        new CustomEvent('gallery-items-added', {
-          detail: {
-            items: [{ uri: 'content://ignored' }],
-            timestamp: Date.now(),
-          },
-        }),
-      );
-      await flush();
-    });
-
-    expect(fetchLatestPhotoFileMock).toHaveBeenCalledTimes(1);
+    // gallery-items-added should NOT be registered
     expect(
       addEventListenerSpy.mock.calls.filter((call) => call[0] === 'gallery-items-added'),
     ).toHaveLength(0);
+
+    // LATEST_PHOTO_REFRESH_REQUESTED_EVENT should NOT be registered
+    expect(
+      addEventListenerSpy.mock.calls.filter((call) => call[0] === LATEST_PHOTO_REFRESH_REQUESTED_EVENT),
+    ).toHaveLength(0);
+
+    addEventListenerSpy.mockRestore();
   });
 
-  it('cleans up gallery-items-added listener on unmount when Gallery V2 is available', async () => {
-    isGalleryV2AvailableMock.mockReturnValue(true);
-
-    await act(async () => {
-      getRoot().render(<LatestPhotoHarness />);
-      await flush();
-    });
-
-    expect(fetchLatestPhotoFileMock).toHaveBeenCalledTimes(1);
-
-    await act(async () => {
-      getRoot().unmount();
-      await flush();
-    });
-
-    await act(async () => {
-      window.dispatchEvent(
-        new CustomEvent('gallery-items-added', {
-          detail: {
-            items: [{ uri: 'content://after-unmount' }],
-            timestamp: Date.now(),
-          },
-        }),
-      );
-      await flush();
-    });
-
-    expect(fetchLatestPhotoFileMock).toHaveBeenCalledTimes(1);
-  });
-
-  it('uses singleton listeners and refresh for multiple consumers', async () => {
-    const addEventListenerSpy = vi.spyOn(window, 'addEventListener');
-
+  it('uses singleton listeners for multiple consumers', async () => {
     await act(async () => {
       getRoot().render(<MultiConsumerHarness />);
       await flush();
@@ -232,24 +207,6 @@ describe('useLatestPhoto', () => {
     expect(listenMock).toHaveBeenCalledTimes(1);
     expect(listenMock).toHaveBeenCalledWith('file-index-changed', expect.any(Function));
     expect(fetchLatestPhotoFileMock).toHaveBeenCalledTimes(1);
-    expect(addEventListenerSpy).toHaveBeenCalledWith(
-      LATEST_PHOTO_REFRESH_REQUESTED_EVENT,
-      expect.any(Function),
-    );
-    expect(
-      addEventListenerSpy.mock.calls.filter((call) => call[0] === LATEST_PHOTO_REFRESH_REQUESTED_EVENT),
-    ).toHaveLength(1);
-
-    await act(async () => {
-      window.dispatchEvent(new CustomEvent(LATEST_PHOTO_REFRESH_REQUESTED_EVENT));
-      await flush();
-    });
-
-    expect(fetchLatestPhotoFileMock).toHaveBeenCalledTimes(2);
-    const filenames = Array.from(      getContainer().querySelectorAll('[data-testid="filename"]')).map(
-      (node) => node.textContent,
-    );
-    expect(filenames).toEqual(['latest.jpg', 'latest.jpg']);
   });
 
   it('deduplicates in-flight refreshes and triggers follow-up when events arrive during fetch', async () => {
@@ -269,10 +226,9 @@ describe('useLatestPhoto', () => {
     expect(fetchLatestPhotoFileMock).toHaveBeenCalledTimes(1);
 
     await act(async () => {
-      const refreshButtons =       getContainer().querySelectorAll('[data-testid="refresh"]');
+      const refreshButtons = getContainer().querySelectorAll('[data-testid="refresh"]');
       (refreshButtons[0] as HTMLButtonElement).click();
       (refreshButtons[1] as HTMLButtonElement).click();
-      window.dispatchEvent(new CustomEvent(LATEST_PHOTO_REFRESH_REQUESTED_EVENT));
       fileIndexChangedHandler?.({
         payload: { count: 2, latestFilename: 'from-event.jpg' },
       });
@@ -297,9 +253,9 @@ describe('useLatestPhoto', () => {
 
     // Follow-up refresh triggered because events arrived during in-flight fetch
     expect(fetchLatestPhotoFileMock).toHaveBeenCalledTimes(2);
-    const filenames = Array.from(      getContainer().querySelectorAll('[data-testid="filename"]')).map(
-      (node) => node.textContent,
-    );
+    const filenames = Array.from(
+      getContainer().querySelectorAll('[data-testid="filename"]'),
+    ).map((node) => node.textContent);
     expect(filenames).toEqual(['follow-up.jpg', 'follow-up.jpg']);
   });
 });
