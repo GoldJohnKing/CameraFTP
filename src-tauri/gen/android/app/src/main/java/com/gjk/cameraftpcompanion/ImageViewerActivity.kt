@@ -710,28 +710,14 @@ class ImageViewerActivity : AppCompatActivity() {
 
             val containerWidth = aiEditProgressContainer.width
             if (containerWidth > 0) {
-                val fillWidth = (containerWidth * percent) / 100
-
-                // Fill stays in place, clip width via LayoutParams
-                aiEditProgressFill.layoutParams = FrameLayout.LayoutParams(
-                    fillWidth.coerceAtLeast(8),
-                    FrameLayout.LayoutParams.MATCH_PARENT
-                )
-
-                // Highlight sweeps across the fill area
-                aiEditProgressHighlight.layoutParams = FrameLayout.LayoutParams(
-                    (fillWidth * 0.4).toInt().coerceIn(20, containerWidth / 2),
-                    FrameLayout.LayoutParams.MATCH_PARENT
-                )
-                aiEditProgressHighlight.visibility = View.VISIBLE
-
-                aiEditProgressEdge.layoutParams = FrameLayout.LayoutParams(
-                    fillWidth.coerceAtLeast(8),
-                    2,
-                    Gravity.BOTTOM
-                )
-
-                startHighlightSweepAnimation(fillWidth)
+                applyProgressLayout(containerWidth, percent)
+            } else {
+                // Container not laid out yet — post to run after the next layout pass
+                aiEditProgressContainer.post {
+                    if (isFinishing || isDestroyed) return@post
+                    val w = aiEditProgressContainer.width
+                    if (w > 0) applyProgressLayout(w, percent)
+                }
             }
 
             aiEditProgressText.text = "第${current}张/共${total}张"
@@ -745,16 +731,57 @@ class ImageViewerActivity : AppCompatActivity() {
         }
     }
 
+    private fun applyProgressLayout(containerWidth: Int, percent: Int) {
+        val fillWidth = (containerWidth * percent) / 100
+
+        aiEditProgressFill.layoutParams = FrameLayout.LayoutParams(
+            fillWidth.coerceAtLeast(8),
+            FrameLayout.LayoutParams.MATCH_PARENT
+        )
+
+        val highlightWidth = (fillWidth * 0.4).toInt().coerceIn(20, containerWidth / 2)
+        aiEditProgressHighlight.layoutParams = FrameLayout.LayoutParams(
+            highlightWidth,
+            FrameLayout.LayoutParams.MATCH_PARENT
+        )
+        aiEditProgressHighlight.visibility = View.VISIBLE
+
+        aiEditProgressEdge.layoutParams = FrameLayout.LayoutParams(
+            fillWidth.coerceAtLeast(8),
+            2,
+            Gravity.BOTTOM
+        )
+
+        startHighlightSweepAnimation(fillWidth)
+    }
+
     private fun startHighlightSweepAnimation(fillWidth: Int) {
-        if (aiEditHighlightAnimation != null) return
+        // Cancel previous animation if any (e.g. progress updated)
+        aiEditHighlightAnimation?.let {
+            aiEditProgressHighlight.clearAnimation()
+        }
+        aiEditHighlightAnimation = null
 
         val highlightWidth = aiEditProgressHighlight.width
-        val sweepFrom = -highlightWidth
-        val sweepTo = fillWidth
+        if (highlightWidth <= 0) {
+            // Highlight not laid out yet — post after layout
+            aiEditProgressHighlight.post {
+                if (isFinishing || isDestroyed) return@post
+                val hw = aiEditProgressHighlight.width
+                if (hw > 0) {
+                    startHighlightSweepAnimationWithDimensions(hw, fillWidth)
+                }
+            }
+            return
+        }
 
+        startHighlightSweepAnimationWithDimensions(highlightWidth, fillWidth)
+    }
+
+    private fun startHighlightSweepAnimationWithDimensions(highlightWidth: Int, fillWidth: Int) {
         val anim = TranslateAnimation(
-            Animation.ABSOLUTE, sweepFrom.toFloat(),
-            Animation.ABSOLUTE, sweepTo.toFloat(),
+            Animation.ABSOLUTE, (-highlightWidth).toFloat(),
+            Animation.ABSOLUTE, fillWidth.toFloat(),
             Animation.ABSOLUTE, 0f,
             Animation.ABSOLUTE, 0f
         ).apply {
