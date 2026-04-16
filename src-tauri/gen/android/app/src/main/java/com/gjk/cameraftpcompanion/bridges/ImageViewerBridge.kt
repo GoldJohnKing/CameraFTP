@@ -17,6 +17,25 @@ class ImageViewerBridge(activity: android.app.Activity) : BaseJsBridge(activity)
 
     companion object {
         private const val TAG = "ImageViewerBridge"
+
+        data class AiEditProgressState(
+            val current: Int,
+            val total: Int,
+            val failedCount: Int,
+        )
+
+        @Volatile
+        var lastProgress: AiEditProgressState? = null
+            private set
+
+        @Volatile
+        var isAiEditing: Boolean = false
+            private set
+
+        fun clearProgress() {
+            lastProgress = null
+            isAiEditing = false
+        }
     }
 
     @android.webkit.JavascriptInterface
@@ -83,15 +102,15 @@ class ImageViewerBridge(activity: android.app.Activity) : BaseJsBridge(activity)
      */
     @android.webkit.JavascriptInterface
     fun onAiEditComplete(success: Boolean, message: String?) {
+        if (success) clearProgress()
         val viewer = ImageViewerActivity.instance ?: return
         viewer.onAiEditComplete(success, message)
     }
 
-    /**
-     * Called from JS to update AI edit progress in the native viewer.
-     */
     @android.webkit.JavascriptInterface
     fun updateAiEditProgress(current: Int, total: Int, failedCount: Int) {
+        isAiEditing = true
+        lastProgress = AiEditProgressState(current, total, failedCount)
         val viewer = ImageViewerActivity.instance ?: return
         viewer.updateAiEditProgress(current, total, failedCount)
     }
