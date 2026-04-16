@@ -17,7 +17,7 @@
         android:layout_gravity="bottom"
         android:layout_marginStart="16dp"
         android:layout_marginEnd="16dp"
-        android:layout_marginBottom="80dp"
+        android:layout_marginBottom="92dp"
         android:background="@drawable/progress_bar_bg"
         android:clipToOutline="true"
         android:visibility="gone">

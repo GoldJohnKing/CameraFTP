@@ -57,10 +57,16 @@ function App() {
       return getCurrentAiEditProgress();
     };
 
+    w.__tauriCancelAiEdit = async () => {
+      const { cancelAiEdit } = await import('./hooks/useAiEditProgress');
+      await cancelAiEdit();
+    };
+
     return () => {
       delete w.__tauriGetAiEditPrompt;
       delete w.__tauriTriggerAiEditWithPrompt;
       delete w.__tauriGetAiEditProgress;
+      delete w.__tauriCancelAiEdit;
     };
   }, [updateDraft]);
 

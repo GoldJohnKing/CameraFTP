@@ -705,6 +705,14 @@ class ImageViewerActivity : AppCompatActivity() {
             aiEditStatusText.text = "AI修图中..."
             aiEditCancelBtn.visibility = View.VISIBLE
             aiEditCancelBtn.text = "取消"
+            aiEditCancelBtn.setOnClickListener {
+                val mainActivity = MainActivity.instance
+                mainActivity?.runOnUiThread {
+                    mainActivity.getWebView()?.evaluateJavascript(
+                        "(function(){try{window.__tauriCancelAiEdit?.()}catch(e){}})();", null
+                    )
+                }
+            }
 
             val percent = if (total > 0) (current * 100) / total else 0
 
@@ -1001,6 +1009,7 @@ class ImageViewerActivity : AppCompatActivity() {
         setupViewPager()
         setupButtons()
         updateUI()
+        syncAiEditProgressFromWebView()
     }
 
     @Deprecated("Deprecated in Java")

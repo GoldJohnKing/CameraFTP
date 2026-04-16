@@ -272,6 +272,12 @@ declare global {
     __tauriTriggerAiEditWithPrompt?: (filePath: string, prompt: string, shouldSave: boolean) => Promise<void>;
 
     /**
+     * Cancels the in-progress AI edit batch.
+     * Called by native ImageViewerActivity when the user taps the cancel button on the progress bar.
+     */
+    __tauriCancelAiEdit?: () => Promise<void>;
+
+    /**
      * Returns the current AI edit progress state.
      * Called by native ImageViewerActivity to sync progress when opening mid-edit.
      */

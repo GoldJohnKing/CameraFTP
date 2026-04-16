@@ -4,7 +4,7 @@
 
 use chrono::Utc;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicU32, Ordering};
 use tokio::io::AsyncWriteExt;
 use tokio::sync::{mpsc, oneshot};
@@ -37,7 +37,7 @@ pub struct AiEditService {
     manual_sender: mpsc::Sender<AiEditTask>,
     auto_sender: mpsc::Sender<AiEditTask>,
     queue_depth: Arc<AtomicU32>,
-    cancel_token: CancellationToken,
+    cancel_token: Arc<Mutex<CancellationToken>>,
 }
 
 impl AiEditService {
@@ -47,7 +47,7 @@ impl AiEditService {
         let config_service_clone = config_service.clone();
         let queue_depth = Arc::new(AtomicU32::new(0));
         let queue_depth_clone = queue_depth.clone();
-        let cancel_token = CancellationToken::new();
+        let cancel_token = Arc::new(Mutex::new(CancellationToken::new()));
         let cancel_token_clone = cancel_token.clone();
         let app_handle_clone = app_handle.clone();
 
@@ -137,7 +137,9 @@ impl AiEditService {
     }
 
     pub fn cancel(&self) {
-        self.cancel_token.cancel();
+        let mut guard = self.cancel_token.lock().unwrap();
+        guard.cancel();
+        *guard = CancellationToken::new();
     }
 
     fn emit_queued(&self) {
@@ -156,7 +158,7 @@ async fn worker_loop(
     app_handle: AppHandle,
     config_service: Arc<ConfigService>,
     queue_depth: Arc<AtomicU32>,
-    cancel_token: CancellationToken,
+    cancel_token_arc: Arc<Mutex<CancellationToken>>,
 ) {
     info!("AI edit worker started");
 
@@ -193,15 +195,10 @@ async fn worker_loop(
     let mut cached_provider: Option<Box<dyn providers::AiEditProvider>> = None;
     let mut cached_api_key: Option<String> = None;
 
-    /// Emits a Done event for the current batch and resets the state.
     fn emit_batch_done(
         state: &mut WorkerState,
         app_handle: &AppHandle,
     ) {
-        if state.processed_count() == 0 {
-            return;
-        }
-
         if let Err(e) = app_handle.emit("ai-edit-progress", &super::progress::AiEditProgressEvent::Done {
             total: state.processed_count(),
             failed_count: state.failed_count,
@@ -214,11 +211,33 @@ async fn worker_loop(
         state.reset();
     }
 
+    fn drain_pending_tasks(
+        manual_rx: &mut mpsc::Receiver<AiEditTask>,
+        auto_rx: &mut mpsc::Receiver<AiEditTask>,
+        queue_depth: &AtomicU32,
+    ) {
+        while let Ok(task) = manual_rx.try_recv() {
+            queue_depth.fetch_sub(1, Ordering::Relaxed);
+            if let Some(tx) = task.result_tx {
+                let _ = tx.send(Err(AppError::AiEditError("AI edit cancelled".to_string())));
+            }
+        }
+        while let Ok(task) = auto_rx.try_recv() {
+            queue_depth.fetch_sub(1, Ordering::Relaxed);
+            if let Some(tx) = task.result_tx {
+                let _ = tx.send(Err(AppError::AiEditError("AI edit cancelled".to_string())));
+            }
+        }
+    }
+
     loop {
+        let cancel_token = cancel_token_arc.lock().unwrap().clone();
+
         if cancel_token.is_cancelled() {
             info!("AI edit worker cancelled");
+            drain_pending_tasks(&mut manual_rx, &mut auto_rx, &queue_depth);
             emit_batch_done(&mut state, &app_handle);
-            break;
+            continue;
         }
 
         // Fast path: drain pending manual tasks first (high priority)
@@ -231,15 +250,17 @@ async fn worker_loop(
 
                 _ = cancel_token.cancelled() => {
                     info!("AI edit worker cancelled while waiting");
+                    drain_pending_tasks(&mut manual_rx, &mut auto_rx, &queue_depth);
                     emit_batch_done(&mut state, &app_handle);
-                    break;
+                    continue;
                 }
 
                 task = manual_rx.recv() => {
                     match task {
                         Some(t) => t,
                         None => {
-                            // Manual channel closed; drain auto then finish
+                            // Manual channel closed; drain pending then finish
+                            drain_pending_tasks(&mut manual_rx, &mut auto_rx, &queue_depth);
                             emit_batch_done(&mut state, &app_handle);
                             break;
                         },
@@ -250,14 +271,14 @@ async fn worker_loop(
                         Some(t) => t,
                         None => {
                             // Auto channel closed; wait for manual tasks or shutdown
-                            // If there are pending results, emit Done before blocking
                             if queue_depth.load(Ordering::Relaxed) == 0 && state.processed_count() > 0 {
                                 emit_batch_done(&mut state, &app_handle);
                             }
                             tokio::select! {
                                 _ = cancel_token.cancelled() => {
+                                    drain_pending_tasks(&mut manual_rx, &mut auto_rx, &queue_depth);
                                     emit_batch_done(&mut state, &app_handle);
-                                    break;
+                                    continue;
                                 }
                                 task = manual_rx.recv() => {
                                     match task {
@@ -296,10 +317,17 @@ async fn worker_loop(
             warn!(error = %e, "Failed to emit ai-edit-progress Progress event");
         }
 
-        let result = process_task(&task, &config_service, &mut cached_provider, &mut cached_api_key).await;
+        // Process task with cancel awareness: abort current task on cancel
+        let result = tokio::select! {
+            r = process_task(&task, &config_service, &mut cached_provider, &mut cached_api_key) => Some(r),
+            _ = cancel_token.cancelled() => {
+                info!("AI edit cancelled during task processing");
+                None
+            }
+        };
 
         match result {
-            Ok(ref output_path) => {
+            Some(Ok(ref output_path)) => {
                 info!(input = %task.file_path.display(), output = %output_path.display(), "AI edit completed");
 
                 if let Some(file_index) = app_handle.try_state::<Arc<FileIndexService>>() {
@@ -322,8 +350,12 @@ async fn worker_loop(
                 }) {
                     warn!(error = %e, "Failed to emit ai-edit-progress Completed event");
                 }
+
+                if let Some(tx) = task.result_tx {
+                    let _ = tx.send(Ok(output_path.clone()));
+                }
             }
-            Err(ref e) => {
+            Some(Err(ref e)) => {
                 if task.result_tx.is_some() {
                     warn!(input = %task.file_path.display(), error = %e, "AI edit failed");
                 } else {
@@ -343,11 +375,20 @@ async fn worker_loop(
                 }) {
                     warn!(error = %e, "Failed to emit ai-edit-progress Failed event");
                 }
-            }
-        }
 
-        if let Some(tx) = task.result_tx {
-            let _ = tx.send(result);
+                if let Some(tx) = task.result_tx {
+                    let _ = tx.send(Err(e.clone()));
+                }
+            }
+            None => {
+                // Task was cancelled during processing
+                if let Some(tx) = task.result_tx {
+                    let _ = tx.send(Err(AppError::AiEditError("AI edit cancelled".to_string())));
+                }
+                drain_pending_tasks(&mut manual_rx, &mut auto_rx, &queue_depth);
+                emit_batch_done(&mut state, &app_handle);
+                continue;
+            }
         }
 
         // Emit Done when queue is empty and batch is complete
