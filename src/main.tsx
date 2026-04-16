@@ -11,8 +11,18 @@ import App from "./App";
 import { ErrorBoundary } from "./components/ui";
 import "./index.css";
 
-// Disable right-click context menu
-document.addEventListener('contextmenu', (e) => e.preventDefault());
+// Disable right-click context menu except on editable inputs (allow copy/paste)
+document.addEventListener('contextmenu', (e) => {
+  const target = e.target as HTMLElement;
+  const tagName = target.tagName;
+  const isEditable = target.isContentEditable
+    || tagName === 'INPUT'
+    || tagName === 'TEXTAREA'
+    || tagName === 'SELECT';
+  if (!isEditable) {
+    e.preventDefault();
+  }
+});
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <StrictMode>

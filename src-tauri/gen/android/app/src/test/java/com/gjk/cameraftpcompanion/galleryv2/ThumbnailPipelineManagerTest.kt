@@ -52,6 +52,7 @@ class ThumbnailPipelineManagerTest {
         assertTrue(pipeline.enqueue(prefetch))
         assertTrue(pipeline.enqueue(visible))
         assertEquals(2, pipeline.pendingCount())
+    }
 
     // ── Test 2: prefetch io_transient has no retry ──────────────────────
 

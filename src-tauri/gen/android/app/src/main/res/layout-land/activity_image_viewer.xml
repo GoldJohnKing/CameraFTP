@@ -9,6 +9,98 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
 
+    <!-- AI Edit progress bar — compact single-line with highlight sweep -->
+    <FrameLayout
+        android:id="@+id/ai_edit_progress_container"
+        android:layout_width="match_parent"
+        android:layout_height="32dp"
+        android:layout_gravity="bottom"
+        android:layout_marginStart="16dp"
+        android:layout_marginEnd="16dp"
+        android:layout_marginBottom="80dp"
+        android:background="@drawable/progress_bar_bg"
+        android:clipToOutline="true"
+        android:visibility="gone">
+
+        <!-- Progress fill base color -->
+        <View
+            android:id="@+id/ai_edit_progress_fill"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_gravity="start"
+            android:background="@drawable/progress_bar_fill" />
+
+        <!-- Highlight sweep overlay on fill -->
+        <View
+            android:id="@+id/ai_edit_progress_highlight"
+            android:layout_width="40dp"
+            android:layout_height="match_parent"
+            android:layout_gravity="start"
+            android:background="@drawable/progress_bar_highlight"
+            android:visibility="gone" />
+
+        <!-- Bottom edge line track -->
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="2dp"
+            android:layout_gravity="bottom"
+            android:background="#0DFFFFFF" />
+
+        <!-- Bottom edge line progress -->
+        <View
+            android:id="@+id/ai_edit_progress_edge"
+            android:layout_width="0dp"
+            android:layout_height="2dp"
+            android:layout_gravity="bottom|start"
+            android:background="@drawable/progress_bar_edge" />
+
+        <!-- Content row -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingHorizontal="12dp"
+            android:paddingVertical="6dp">
+
+            <TextView
+                android:id="@+id/ai_edit_status_text"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textColor="#60A5FA"
+                android:textSize="12sp"
+                android:text="AI修图中..."
+                android:visibility="gone" />
+
+            <TextView
+                android:id="@+id/ai_edit_progress_text"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:textColor="#B3FFFFFF"
+                android:textSize="12sp"
+                android:layout_marginStart="6dp" />
+
+            <TextView
+                android:id="@+id/ai_edit_failure_text"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textColor="#F87171"
+                android:textSize="12sp"
+                android:visibility="gone" />
+
+            <TextView
+                android:id="@+id/ai_edit_cancel_btn"
+                android:layout_width="44dp"
+                android:layout_height="32dp"
+                android:gravity="center"
+                android:textColor="#80FFFFFF"
+                android:textSize="11sp"
+                android:text="取消"
+                android:layout_marginStart="4dp" />
+        </LinearLayout>
+    </FrameLayout>
+
     <!-- Bottom floating bar - landscape: horizontal layout matching Windows style -->
     <LinearLayout
         android:id="@+id/bottom_bar"
@@ -80,6 +172,19 @@
             android:gravity="center_vertical">
 
             <ImageButton
+                android:id="@+id/btn_ai_edit"
+                android:layout_width="44dp"
+                android:layout_height="44dp"
+                android:src="@drawable/ic_ai_edit"
+                android:background="@drawable/btn_circle_bg"
+                android:contentDescription="AI修图"
+                android:padding="10dp"
+                android:scaleType="fitCenter"
+                android:layout_marginStart="4dp"
+                android:layout_marginEnd="4dp"
+                android:visibility="gone" />
+
+            <ImageButton
                 android:id="@+id/btn_rotate"
                 android:layout_width="44dp"
                 android:layout_height="44dp"
@@ -88,7 +193,8 @@
                 android:contentDescription="切换横竖屏"
                 android:padding="10dp"
                 android:scaleType="fitCenter"
-                android:layout_marginHorizontal="8dp" />
+                android:layout_marginStart="4dp"
+                android:layout_marginEnd="4dp" />
 
             <ImageButton
                 android:id="@+id/btn_delete"
@@ -99,7 +205,8 @@
                 android:contentDescription="删除图片"
                 android:padding="10dp"
                 android:scaleType="fitCenter"
-                android:layout_marginHorizontal="8dp" />
+                android:layout_marginStart="4dp"
+                android:layout_marginEnd="0dp" />
 
         </LinearLayout>
 

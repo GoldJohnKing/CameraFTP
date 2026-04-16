@@ -12,7 +12,8 @@ type MediaLibraryRefreshReason =
   | 'upload'
   | 'delete'
   | 'permission-granted'
-  | 'activity-resume';
+  | 'activity-resume'
+  | 'ai-edit';
 
 interface MediaLibraryRefreshDetail {
   reason: MediaLibraryRefreshReason;

@@ -14,6 +14,9 @@ import { usePreviewNavigation } from '../hooks/usePreviewNavigation';
 import { usePreviewExif } from '../hooks/usePreviewExif';
 import { usePreviewZoomPan } from '../hooks/usePreviewZoomPan';
 import { usePreviewToolbarAutoHide } from '../hooks/usePreviewToolbarAutoHide';
+import { PromptDialog } from './PromptDialog';
+import { AiEditProgressBar } from './AiEditProgressBar';
+import { useAiEditProgressListener, enqueueAiEdit } from '../hooks/useAiEditProgress';
 
 export function PreviewWindow() {
   const state = usePreviewWindowLifecycle();
@@ -39,6 +42,13 @@ const PreviewWindowContent = memo(function PreviewWindowContent({
   const effectiveAutoBringToFront = storeAutoBringToFront ?? autoBringToFront;
   const [imageError, setImageError] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  useAiEditProgressListener();
+  const [showPromptDialog, setShowPromptDialog] = useState(false);
+
+  const draft = useConfigStore(state => state.draft);
+  const updateDraft = useConfigStore(state => state.updateDraft);
+  const aiEditEnabled = draft?.aiEdit?.enabled ?? false;
+  const defaultPrompt = draft?.aiEdit?.prompt ?? '';
 
   const exifInfo = usePreviewExif(imagePath);
   const {
@@ -170,6 +180,25 @@ const PreviewWindowContent = memo(function PreviewWindowContent({
     }
   };
 
+  const handleAiEdit = useCallback(() => {
+    if (!imagePath) return;
+    setShowPromptDialog(true);
+  }, [imagePath]);
+
+  const handlePromptConfirm = useCallback(async (prompt: string, shouldSave: boolean) => {
+    if (!imagePath) return;
+    setShowPromptDialog(false);
+
+    if (shouldSave && prompt !== defaultPrompt) {
+      updateDraft(d => ({
+        ...d,
+        aiEdit: { ...d.aiEdit, prompt },
+      }));
+    }
+
+    await enqueueAiEdit([imagePath], prompt, shouldSave);
+  }, [imagePath, defaultPrompt, updateDraft]);
+
   if (!imagePath) {
     return (
       <div className="w-full h-full flex items-center justify-center bg-black">
@@ -224,6 +253,9 @@ const PreviewWindowContent = memo(function PreviewWindowContent({
           />
         )}
       </div>
+
+      {/* AI修图进度条 */}
+      <AiEditProgressBar position="absolute" />
 
       {/* 底部工具栏 - 浮动覆盖在图片上，半透明磨砂效果 */}
       <div
@@ -400,6 +432,20 @@ const PreviewWindowContent = memo(function PreviewWindowContent({
             </svg>
           </button>
 
+          {/* AI修图按钮 - 仅在启用时显示 */}
+          {aiEditEnabled && (
+            <button
+              onClick={handleAiEdit}
+              className="p-2 rounded-lg transition-colors text-gray-300 hover:text-white hover:bg-white/10"
+              title="AI修图"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                  d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+              </svg>
+            </button>
+          )}
+
           {/* 打开文件夹 */}
           <button
             onClick={handleOpenFolder}
@@ -412,6 +458,14 @@ const PreviewWindowContent = memo(function PreviewWindowContent({
           </button>
         </div>
       </div>
+
+      {/* AI修图提示词对话框 */}
+      <PromptDialog
+        isOpen={showPromptDialog}
+        defaultPrompt={defaultPrompt}
+        onConfirm={handlePromptConfirm}
+        onCancel={() => setShowPromptDialog(false)}
+      />
     </div>
   );
 });

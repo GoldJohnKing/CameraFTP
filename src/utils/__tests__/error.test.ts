@@ -28,6 +28,16 @@ describe('formatError', () => {
     expect(formatError({ code: 42, detail: 'bad' })).toBe('{"code":42,"detail":"bad"}');
   });
 
+  it('extracts userMessage from Tauri-style error objects', () => {
+    expect(formatError({ code: 'AI_EDIT_ERROR', message: 'raw', userMessage: '用户友好的错误信息', isCritical: false }))
+      .toBe('用户友好的错误信息');
+  });
+
+  it('extracts message from objects without userMessage', () => {
+    expect(formatError({ code: 'ERR', message: 'something failed' }))
+      .toBe('something failed');
+  });
+
   it('falls back to String() for non-serializable objects', () => {
     const circular: Record<string, unknown> = {};
     circular.self = circular;

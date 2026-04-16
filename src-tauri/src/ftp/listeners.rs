@@ -78,19 +78,23 @@ impl DataListener for FtpDataListener {
                         }
                     }
 
-                    // 添加到文件索引（所有平台）
+                    // 文件索引 + AI修图（所有平台）
                     if is_image {
                         if let Some(handle) = app_handle.as_ref() {
                             let full_path = save_path.join(&path);
                             let handle_clone = handle.clone();
                             tokio::spawn(async move {
-                                // 等待文件就绪（而非固定延迟）
                                 if wait_for_file_ready(&full_path, Duration::from_secs(FILE_READY_TIMEOUT_SECS)).await {
+                                    // 文件索引
                                     if let Some(file_index) = handle_clone.try_state::<Arc<FileIndexService>>() {
-                                        if let Err(e) = file_index.add_file(full_path).await {
+                                        if let Err(e) = file_index.add_file(full_path.clone()).await {
                                             tracing::warn!("Failed to add file to index: {}", e);
                                         }
                                     }
+
+                                    // AI修图
+                                    let ai_edit: tauri::State<'_, crate::ai_edit::AiEditService> = handle_clone.state();
+                                    ai_edit.on_file_uploaded(full_path).await;
                                 } else {
                                     tracing::warn!("File not ready for indexing after timeout: {:?}", full_path);
                                 }

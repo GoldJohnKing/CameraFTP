@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
 
+import { useEffect } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { Camera, X } from 'lucide-react';
 import { ServerCard } from './components/ServerCard';
@@ -12,21 +13,62 @@ import { InfoCard } from './components/InfoCard';
 import { LatestPhotoCard } from './components/LatestPhotoCard';
 import { ConfigCard } from './components/ConfigCard';
 import { GalleryCard } from './components/GalleryCard';
+import { AiEditProgressBar } from './components/AiEditProgressBar';
 import { BottomNav } from './components/BottomNav';
 import { PermissionDialog } from './components/PermissionDialog';
 import { PreviewWindow } from './components/PreviewWindow';
 import { useAppBootstrap } from './bootstrap/useAppBootstrap';
 import { useQuitFlow } from './hooks/useQuitFlow';
+import { useAiEditProgressListener, enqueueAiEdit, getCurrentAiEditProgress } from './hooks/useAiEditProgress';
 import { useServerStore } from './stores/serverStore';
 import { useConfigStore } from './stores/configStore';
 
 function App() {
   const { showPermissionDialog, closePermissionDialog, continueAfterPermissionsGranted } = useServerStore();
   const { activeTab } = useConfigStore();
+  const updateDraft = useConfigStore(state => state.updateDraft);
   const isPreviewWindow = getCurrentWindow().label === 'preview';
   const { showQuitDialog, closeQuitDialog, handleQuitConfirm } = useQuitFlow({ enabled: !isPreviewWindow });
 
   useAppBootstrap({ isMainWindow: !isPreviewWindow });
+  useAiEditProgressListener();
+
+  // Register JS functions for native Android ImageViewerActivity prompt dialog integration
+  useEffect(() => {
+    const w = window as unknown as Record<string, unknown>;
+
+    w.__tauriGetAiEditPrompt = () => {
+      return useConfigStore.getState().draft?.aiEdit?.prompt ?? '';
+    };
+
+    w.__tauriTriggerAiEditWithPrompt = async (filePath: string, prompt: string, shouldSave: boolean) => {
+      const draft = useConfigStore.getState().draft;
+      if (shouldSave && draft && prompt !== draft.aiEdit.prompt) {
+        updateDraft(d => ({
+          ...d,
+          aiEdit: { ...d.aiEdit, prompt },
+        }));
+      }
+
+      await enqueueAiEdit([filePath], prompt, shouldSave);
+    };
+
+    w.__tauriGetAiEditProgress = () => {
+      return getCurrentAiEditProgress();
+    };
+
+    w.__tauriCancelAiEdit = async () => {
+      const { cancelAiEdit } = await import('./hooks/useAiEditProgress');
+      await cancelAiEdit();
+    };
+
+    return () => {
+      delete w.__tauriGetAiEditPrompt;
+      delete w.__tauriTriggerAiEditWithPrompt;
+      delete w.__tauriGetAiEditProgress;
+      delete w.__tauriCancelAiEdit;
+    };
+  }, [updateDraft]);
 
   // 如果是预览窗口，直接渲染预览组件
   if (isPreviewWindow) {
@@ -126,6 +168,9 @@ function App() {
           </footer>
         )}
       </div>
+
+      {/* AI Edit Progress - always visible overlay */}
+      <AiEditProgressBar position="fixed" />
 
       {/* Bottom Navigation */}
       <BottomNav />

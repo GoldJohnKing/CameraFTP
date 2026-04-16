@@ -62,25 +62,8 @@ pub enum MediaFileClass {
     NonMedia,
 }
 
-/// Queries the Android system MimeTypeMap for the given file extension.
-/// Returns `None` if the extension is not recognized.
-///
-/// On Android, this calls `MimeTypeMap.getMimeTypeFromExtension()` via JNI.
-/// On non-Android, returns `None` (tests use the fallback mapping instead).
-pub fn system_mime_from_extension(extension: &str) -> Option<String> {
-    #[cfg(target_os = "android")]
-    {
-        super::bridge::JniMediaStoreBridge::query_system_mime_type(extension)
-    }
-    #[cfg(not(target_os = "android"))]
-    {
-        let _ = extension;
-        None
-    }
-}
-
 /// Classifies a MIME type string into a media file class.
-fn classify_from_system_mime(mime: &str) -> MediaFileClass {
+fn classify_from_mime(mime: &str) -> MediaFileClass {
     let lower = mime.to_lowercase();
     if lower.starts_with("image/") {
         MediaFileClass::Image
@@ -91,30 +74,14 @@ fn classify_from_system_mime(mime: &str) -> MediaFileClass {
     }
 }
 
-/// Classifies a file by querying the Android system MimeTypeMap.
+/// Classifies a file using the static MIME mapping in [`mime_type_from_filename`].
 ///
-/// Returns a `(mime_type, class)` tuple. On Android, queries the system's
-/// `MimeTypeMap` via JNI for accurate MIME detection. On non-Android (tests,
-/// Windows build), `system_mime_from_extension` returns `None` and everything
-/// is classified as `(application/octet-stream, NonMedia)`.
-///
-/// This is only meaningful on Android because `AndroidMediaStoreBackend::put()`
-/// is the sole consumer. Windows uses a different storage backend entirely.
-///
-/// Replaces the old hardcoded extension-list approach for Android uploads.
+/// Returns a `(mime_type, class)` tuple. Uses the same extension→MIME mapping as
+/// Kotlin's `determineMime`, avoiding a cross-layer JNI call for what is a static lookup.
 pub fn classify_file(filename: &str) -> (String, MediaFileClass) {
-    let extension = filename.rsplit('.').next().unwrap_or("");
-    if extension.is_empty() {
-        return (MIME_TYPE_DEFAULT.to_string(), MediaFileClass::NonMedia);
-    }
-
-    match system_mime_from_extension(extension) {
-        Some(mime) => {
-            let class = classify_from_system_mime(&mime);
-            (mime, class)
-        }
-        None => (MIME_TYPE_DEFAULT.to_string(), MediaFileClass::NonMedia),
-    }
+    let mime = mime_type_from_filename(filename);
+    let class = classify_from_mime(mime);
+    (mime.to_string(), class)
 }
 
 /// Determines the MediaStore collection from a MediaFileClass.

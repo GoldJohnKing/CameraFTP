@@ -17,6 +17,25 @@ class ImageViewerBridge(activity: android.app.Activity) : BaseJsBridge(activity)
 
     companion object {
         private const val TAG = "ImageViewerBridge"
+
+        data class AiEditProgressState(
+            val current: Int,
+            val total: Int,
+            val failedCount: Int,
+        )
+
+        @Volatile
+        var lastProgress: AiEditProgressState? = null
+            private set
+
+        @Volatile
+        var isAiEditing: Boolean = false
+            private set
+
+        fun clearProgress() {
+            lastProgress = null
+            isAiEditing = false
+        }
     }
 
     @android.webkit.JavascriptInterface
@@ -25,8 +44,8 @@ class ImageViewerBridge(activity: android.app.Activity) : BaseJsBridge(activity)
     }
 
     @android.webkit.JavascriptInterface
-    fun openOrNavigateTo(uri: String, allUrisJson: String): Boolean {
-        Log.d(TAG, "openOrNavigateTo: uri=$uri")
+    fun openOrNavigateTo(uri: String, allUrisJson: String, aiEditEnabled: Boolean = false): Boolean {
+        Log.d(TAG, "openOrNavigateTo: uri=$uri, aiEditEnabled=$aiEditEnabled")
         return try {
             val allUris = JSONArray(allUrisJson).let { json ->
                 (0 until json.length()).map { json.getString(it) }
@@ -40,6 +59,7 @@ class ImageViewerBridge(activity: android.app.Activity) : BaseJsBridge(activity)
                 activity,
                 navigationTarget.uris,
                 navigationTarget.targetIndex,
+                aiEditEnabled,
             )
             true
         } catch (e: Exception) {
@@ -65,8 +85,7 @@ class ImageViewerBridge(activity: android.app.Activity) : BaseJsBridge(activity)
         return try {
             val contentUri = Uri.parse(uri)
             if (contentUri.scheme != "content") return uri
-            val projection = arrayOf(MediaStore.Images.Media.DATA)
-            activity.contentResolver.query(contentUri, projection, null, null, null)?.use { cursor ->
+            activity.contentResolver.query(contentUri, arrayOf(MediaStore.Images.Media.DATA), null, null, null)?.use { cursor ->
                 if (cursor.moveToFirst()) {
                     val idx = cursor.getColumnIndex(MediaStore.Images.Media.DATA)
                     if (idx >= 0) cursor.getString(idx) else null
@@ -76,5 +95,44 @@ class ImageViewerBridge(activity: android.app.Activity) : BaseJsBridge(activity)
             Log.e(TAG, "resolveFilePath failed for $uri", e)
             null
         }
+    }
+
+    /**
+     * Called from JS when an AI edit triggered from native completes.
+     */
+    @android.webkit.JavascriptInterface
+    fun onAiEditComplete(success: Boolean, message: String?) {
+        if (success) clearProgress()
+        val viewer = ImageViewerActivity.instance ?: return
+        viewer.onAiEditComplete(success, message)
+    }
+
+    @android.webkit.JavascriptInterface
+    fun updateAiEditProgress(current: Int, total: Int, failedCount: Int) {
+        isAiEditing = true
+        lastProgress = AiEditProgressState(current, total, failedCount)
+        val viewer = ImageViewerActivity.instance ?: return
+        viewer.updateAiEditProgress(current, total, failedCount)
+    }
+
+    /**
+     * Triggers a MediaStore scan for a newly created file so it appears in the system gallery.
+     */
+    @android.webkit.JavascriptInterface
+    fun scanNewFile(filePath: String?) {
+        if (filePath == null) return
+        val viewer = ImageViewerActivity.instance
+        val context = (viewer ?: activity) as? android.content.Context ?: return
+        android.media.MediaScannerConnection.scanFile(context, arrayOf(filePath), null, null)
+    }
+
+    /**
+     * Emits a gallery-items-added window event for the given URI, refreshing the in-app gallery.
+     */
+    @android.webkit.JavascriptInterface
+    fun emitGalleryItemsAddedForUri(uri: String?) {
+        if (uri == null) return
+        val mainActivity = MainActivity.instance ?: return
+        com.gjk.cameraftpcompanion.bridges.MediaStoreBridge.emitGalleryItemsAdded(mainActivity, uri)
     }
 }

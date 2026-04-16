@@ -32,42 +32,6 @@ class MediaStoreBridge(activity: MainActivity) : BaseJsBridge(activity) {
         private const val COLLECTION_DOWNLOADS = "downloads"
 
         /**
-         * Determine MIME type from FTP type hint or file extension
-         */
-        @JvmStatic
-        fun determineMime(filename: String, ftpType: String?): String {
-            // FTP type takes precedence
-            if (!ftpType.isNullOrBlank()) {
-                return ftpType
-            }
-
-            // Fall back to extension-based detection
-            return when (filename.substringAfterLast('.', "").lowercase()) {
-                "jpg", "jpeg" -> "image/jpeg"
-                "png" -> "image/png"
-                "gif" -> "image/gif"
-                "bmp" -> "image/bmp"
-                "webp" -> "image/webp"
-                "dng" -> "image/x-adobe-dng"
-                "nef" -> "image/x-nikon-nef"
-                "nrw" -> "image/x-nikon-nrw"
-                "cr2" -> "image/x-canon-cr2"
-                "cr3" -> "image/x-canon-cr3"
-                "arw" -> "image/x-sony-arw"
-                "sr2" -> "image/x-sony-sr2"
-                "raf" -> "image/x-fuji-raf"
-                "orf" -> "image/x-olympus-orf"
-                "rw2" -> "image/x-panasonic-rw2"
-                "pef" -> "image/x-pentax-pef"
-                "x3f" -> "image/x-sigma-x3f"
-                "mp4" -> "video/mp4"
-                "mov" -> "video/quicktime"
-                "avi" -> "video/x-msvideo"
-                else -> DEFAULT_MIME_TYPE
-            }
-        }
-
-        /**
          * Retry with exponential backoff
          */
         @JvmStatic
@@ -422,7 +386,8 @@ class MediaStoreBridge(activity: MainActivity) : BaseJsBridge(activity) {
             }
         }
 
-        private fun emitGalleryItemsAdded(context: Context, uri: String) {
+        @JvmStatic
+        internal fun emitGalleryItemsAdded(context: Context, uri: String) {
             try {
                 val cursor = context.contentResolver.query(
                     Uri.parse(uri),

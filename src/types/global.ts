@@ -170,9 +170,10 @@ interface ImageViewerAndroid {
    * Reuse existing viewer if visible, otherwise open viewer
    * @param uri Content URI of the target image
    * @param allUrisJson JSON array of all image URIs for navigation
+   * @param aiEditEnabled Whether AI edit is enabled (shows the button in native viewer)
    * @returns true if navigation/open action succeeded
    */
-  openOrNavigateTo(uri: string, allUrisJson: string): boolean;
+  openOrNavigateTo(uri: string, allUrisJson: string, aiEditEnabled?: boolean): boolean;
 
   /**
    * Check whether image viewer app/activity is currently visible
@@ -192,6 +193,33 @@ interface ImageViewerAndroid {
    * @returns real file path, or null if resolution fails
    */
   resolveFilePath(uri: string): string | null;
+
+  /**
+   * Callback from JS when an AI edit triggered from native viewer completes
+   * @param success Whether the edit succeeded
+   * @param message Error message if failed, null if succeeded
+   */
+  onAiEditComplete?(success: boolean, message: string | null): void;
+
+  /**
+   * Update AI edit progress in native UI
+   * @param current Current file index being processed
+   * @param total Total number of files to process
+   * @param failedCount Number of files that failed so far
+   */
+  updateAiEditProgress?(current: number, total: number, failedCount: number): void;
+
+  /**
+   * Triggers a MediaStore scan for a newly created file so it appears in the system gallery.
+   * @param filePath Absolute file path to scan
+   */
+  scanNewFile?(filePath: string): void;
+
+  /**
+   * Emits a gallery-items-added window event for the given URI, refreshing the in-app gallery.
+   * @param uri Content URI or file path of the new item
+   */
+  emitGalleryItemsAddedForUri?(uri: string): void;
 }
 
 // ===== 全局窗口扩展 =====
@@ -230,6 +258,38 @@ declare global {
      * Set by JS and invoked by Android (not exposed as a bridge instance method).
      */
     __galleryOnBackPressed?: () => void;
+
+    /**
+     * Returns the current AI edit prompt from config store.
+     * Called by native ImageViewerActivity to pre-fill the prompt dialog.
+     */
+    __tauriGetAiEditPrompt?: () => string;
+
+    /**
+     * Triggers AI edit with a specific prompt, optionally saving it to config.
+     * Called by native ImageViewerActivity after user confirms the prompt dialog.
+     */
+    __tauriTriggerAiEditWithPrompt?: (filePath: string, prompt: string, shouldSave: boolean) => Promise<void>;
+
+    /**
+     * Cancels the in-progress AI edit batch.
+     * Called by native ImageViewerActivity when the user taps the cancel button on the progress bar.
+     */
+    __tauriCancelAiEdit?: () => Promise<void>;
+
+    /**
+     * Returns the current AI edit progress state.
+     * Called by native ImageViewerActivity to sync progress when opening mid-edit.
+     */
+    __tauriGetAiEditProgress?: () => {
+      isEditing: boolean;
+      isDone: boolean;
+      current: number;
+      total: number;
+      currentFileName: string;
+      failedCount: number;
+      failedFiles: string[];
+    };
   }
 }
 

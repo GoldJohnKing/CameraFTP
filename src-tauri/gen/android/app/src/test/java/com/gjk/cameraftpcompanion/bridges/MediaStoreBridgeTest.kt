@@ -37,48 +37,6 @@ class MediaStoreBridgeTest {
     }
 
     @Test
-    fun mime_detection_ftp_type_takes_precedence() {
-        val mime = MediaStoreBridge.determineMime("IMG_1.JPG", "image/png")
-        assertEquals("image/png", mime)
-    }
-
-    @Test
-    fun mime_detection_falls_back_to_extension() {
-        val mime = MediaStoreBridge.determineMime("IMG_1.JPG", null)
-        assertEquals("image/jpeg", mime)
-    }
-
-    @Test
-    fun mime_detection_defaults_to_octet_stream() {
-        val mime = MediaStoreBridge.determineMime("FILE", null)
-        assertEquals("application/octet-stream", mime)
-    }
-
-    @Test
-    fun mime_detection_maps_raw_extensions() {
-        assertEquals("image/x-adobe-dng", MediaStoreBridge.determineMime("IMG_1.DNG", null))
-        assertEquals("image/x-nikon-nef", MediaStoreBridge.determineMime("IMG_1.NEF", null))
-        assertEquals("image/x-nikon-nrw", MediaStoreBridge.determineMime("IMG_1.NRW", null))
-        assertEquals("image/x-canon-cr2", MediaStoreBridge.determineMime("IMG_1.CR2", null))
-        assertEquals("image/x-canon-cr3", MediaStoreBridge.determineMime("IMG_1.CR3", null))
-        assertEquals("image/x-sony-arw", MediaStoreBridge.determineMime("IMG_1.ARW", null))
-        assertEquals("image/x-sony-sr2", MediaStoreBridge.determineMime("IMG_1.SR2", null))
-        assertEquals("image/x-fuji-raf", MediaStoreBridge.determineMime("IMG_1.RAF", null))
-        assertEquals("image/x-olympus-orf", MediaStoreBridge.determineMime("IMG_1.ORF", null))
-        assertEquals("image/x-panasonic-rw2", MediaStoreBridge.determineMime("IMG_1.RW2", null))
-        assertEquals("image/x-pentax-pef", MediaStoreBridge.determineMime("IMG_1.PEF", null))
-        assertEquals("image/x-sigma-x3f", MediaStoreBridge.determineMime("IMG_1.X3F", null))
-    }
-
-    @Test
-    fun mime_detection_keeps_ftp_type_precedence_for_raw() {
-        assertEquals(
-            "application/custom-raw",
-            MediaStoreBridge.determineMime("IMG_1.DNG", "application/custom-raw")
-        )
-    }
-
-    @Test
     fun pending_values_preserves_display_name() {
         val values = MediaStoreBridge.buildPendingValues("IMG_1.JPG", null)
         assertEquals("IMG_1.JPG", values.getAsString(MediaStore.MediaColumns.DISPLAY_NAME))

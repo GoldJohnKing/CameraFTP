@@ -47,6 +47,12 @@ const baseConfig: AppConfig = {
     autoBringToFront: false,
   },
   androidImageViewer: null,
+  aiEdit: {
+    enabled: false,
+    autoEdit: true,
+    prompt: '',
+    provider: { type: 'seed-edit', apiKey: '' },
+  },
 };
 
 describe('configStore coordination', () => {

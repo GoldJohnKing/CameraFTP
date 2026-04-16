@@ -23,6 +23,9 @@
 # Keep Android bridge classes that are referenced from Rust JNI by class name.
 -keep class com.gjk.cameraftpcompanion.bridges.MediaStoreBridge { *; }
 -keep class com.gjk.cameraftpcompanion.bridges.MediaStoreBridge$Companion { *; }
+-keep class com.gjk.cameraftpcompanion.bridges.ImageProcessorBridge { *; }
+-keep class com.gjk.cameraftpcompanion.bridges.ImageProcessorBridge$Companion { *; }
+-keep class com.gjk.cameraftpcompanion.bridges.ImageViewerBridge { *; }
 
 # Keep Android service coordinator JNI entrypoints referenced only from Rust native code.
 -keep class com.gjk.cameraftpcompanion.AndroidServiceStateCoordinator { *; }

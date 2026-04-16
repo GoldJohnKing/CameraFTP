@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 use camera_ftp_companion_lib::{
+    ai_edit::progress::AiEditProgressEvent,
     commands::ExifInfo,
     config::{
         AdvancedConnectionConfig, AndroidImageOpenMethod, AndroidImageViewerConfig, AppConfig,
@@ -34,6 +35,7 @@ fn main() -> Result<(), ExportError> {
     export_type::<ServerStateSnapshot>()?;
     export_type::<ServerInfo>()?;
     export_type::<camera_ftp_companion_lib::ftp::types::ServerRuntimeView>()?;
+    export_type::<AiEditProgressEvent>()?;
 
     #[cfg(target_os = "windows")]
     export_type::<camera_ftp_companion_lib::auto_open::ConfigChangedEvent>()?;

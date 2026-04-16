@@ -22,6 +22,16 @@ export function formatError(err: unknown): string {
     if (err == null) {
         return 'Unknown error';
     }
+    // Tauri IPC errors are serialized as { code, message, userMessage, isCritical }
+    if (typeof err === 'object') {
+        const obj = err as Record<string, unknown>;
+        if (typeof obj.userMessage === 'string') {
+            return obj.userMessage;
+        }
+        if (typeof obj.message === 'string') {
+            return obj.message;
+        }
+    }
     try {
         return JSON.stringify(err);
     } catch {

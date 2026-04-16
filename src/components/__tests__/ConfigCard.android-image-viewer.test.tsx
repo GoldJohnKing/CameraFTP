@@ -76,6 +76,12 @@ describe('ConfigCard Android image viewer settings', () => {
         openMethod: 'built-in-viewer',
         autoOpenLatestWhenVisible: true,
       },
+      aiEdit: {
+        enabled: false,
+        autoEdit: true,
+        prompt: '',
+        provider: { type: 'seed-edit', apiKey: '' },
+      },
     };
 
     useConfigStore.setState((state) => ({

@@ -290,7 +290,13 @@ impl FileIndexService {
 
         let file_info = self.get_file_info(&path, &metadata).await?;
 
+        // Atomic check-and-insert under write lock to prevent TOCTOU race
         let mut index = self.index.write().await;
+
+        if index.files().iter().any(|f| f.path == path) {
+            trace!("File already indexed, skipping: {:?}", path);
+            return Ok(());
+        }
 
         // 插入到正确位置（保持排序：新→旧）
         let mut files = index.files().as_ref().clone();

@@ -6,6 +6,7 @@
 
 import { invoke } from '@tauri-apps/api/core';
 import type { AndroidImageOpenMethod, ExifInfo } from '../types';
+import { useConfigStore } from '../stores/configStore';
 
 interface OpenImagePreviewParams {
   filePath: string;
@@ -70,10 +71,11 @@ export async function openImagePreview({
   if (openMethod === 'built-in-viewer' && imageViewerAndroid) {
     const viewerUris = await resolveViewerUris({ filePath, allUris, getAllUris });
     const viewerUrisJson = JSON.stringify(viewerUris);
+    const aiEditEnabled = useConfigStore.getState().draft?.aiEdit?.enabled ?? false;
 
     if (imageViewerAndroid.openOrNavigateTo) {
       try {
-        if (imageViewerAndroid.openOrNavigateTo(filePath, viewerUrisJson)) {
+        if (imageViewerAndroid.openOrNavigateTo(filePath, viewerUrisJson, aiEditEnabled)) {
           void sendExifToViewer(filePath);
           return;
         }

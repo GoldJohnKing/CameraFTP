@@ -2,6 +2,7 @@
 // Copyright (C) 2026 GoldJohnKing <GoldJohnKing@Live.cn>
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+pub mod ai_edit;
 pub mod auto_open;
 pub mod commands;
 pub mod config;
@@ -48,10 +49,13 @@ use commands::{
     select_executable_file,
     select_save_directory,
     set_autostart_command,
-    update_preview_config,
     show_main_window,
     start_server,
     stop_server,
+    trigger_ai_edit,
+    enqueue_ai_edit,
+    cancel_ai_edit,
+    update_preview_config,
     FtpServerState,
 };
 
@@ -142,7 +146,8 @@ pub fn run() {
             app.manage(Arc::new(FileIndexService::new(Arc::clone(&config_service))));
 
             // 在 setup 中管理 AutoOpenService
-            app.manage(AutoOpenService::new(app.handle().clone(), config_service));
+            app.manage(AutoOpenService::new(app.handle().clone(), Arc::clone(&config_service)));
+            app.manage(ai_edit::AiEditService::new(app.handle().clone(), config_service));
 
             // 开机自启模式：隐藏窗口
             if is_autostart {
@@ -215,6 +220,11 @@ pub fn run() {
 
             // EXIF 信息
             get_image_exif,
+
+            // AI 修图
+            trigger_ai_edit,
+            enqueue_ai_edit,
+            cancel_ai_edit,
         ])
         .run(tauri::generate_context!())
         .unwrap_or_else(|e| {

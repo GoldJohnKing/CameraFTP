@@ -7,6 +7,8 @@
 import { useCallback, useEffect, useRef, useState, type RefObject } from 'react';
 import { toast } from 'sonner';
 import { buildDeleteFailureMessage } from '../utils/gallery-delete';
+import { useConfigStore } from '../stores/configStore';
+import { enqueueAiEdit } from './useAiEditProgress';
 import type { DeleteImagesResult } from '../types';
 
 const LONG_PRESS_DURATION = 400; // Android ViewConfiguration.DEFAULT_LONG_PRESS_TIMEOUT
@@ -23,6 +25,7 @@ type UseGallerySelectionResult = {
   selectedIds: Set<string>;
   showMenu: boolean;
   deletingIds: Set<string>;
+  showAiEditPrompt: boolean;
   menuRef: RefObject<HTMLDivElement>;
   handleTouchStart: (imagePath: string, event: React.TouchEvent, isScrolling: boolean) => void;
   handleTouchMove: (event: React.TouchEvent) => void;
@@ -31,6 +34,9 @@ type UseGallerySelectionResult = {
   handleRefreshStart: () => void;
   handleDelete: () => Promise<void>;
   handleShare: () => Promise<void>;
+  handleAiEdit: () => void;
+  handleAiEditPromptConfirm: (prompt: string, shouldSave: boolean) => Promise<void>;
+  handleCancelAiEditPrompt: () => void;
   handleCancelSelection: () => void;
   toggleMenu: () => void;
 };
@@ -40,6 +46,7 @@ export function useGallerySelection({ activeTab, onDeleteApplied, getUriForId }:
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [showMenu, setShowMenu] = useState(false);
   const [deletingIds, setDeletingIds] = useState<Set<string>>(new Set());
+  const [showAiEditPrompt, setShowAiEditPrompt] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isSelectionModeRef = useRef(false);
@@ -227,6 +234,45 @@ export function useGallerySelection({ activeTab, onDeleteApplied, getUriForId }:
     }
   }, [selectedIds, getUriForId]);
 
+  const handleAiEdit = useCallback(() => {
+    if (selectedIds.size === 0) {
+      return;
+    }
+    setShowMenu(false);
+    setShowAiEditPrompt(true);
+  }, [selectedIds]);
+
+  const handleAiEditPromptConfirm = useCallback(async (prompt: string, shouldSave: boolean) => {
+    setShowAiEditPrompt(false);
+
+    if (shouldSave) {
+      const draft = useConfigStore.getState().draft;
+      if (draft && prompt !== draft.aiEdit.prompt) {
+        useConfigStore.getState().updateDraft(d => ({
+          ...d,
+          aiEdit: { ...d.aiEdit, prompt },
+        }));
+      }
+    }
+
+    const uris = [...selectedIds]
+      .map((mediaId) => getUriForId(mediaId))
+      .filter((uri): uri is string => uri !== undefined);
+
+    if (uris.length === 0) {
+      return;
+    }
+
+    const filePaths = uris
+      .map((uri) => window.ImageViewerAndroid?.resolveFilePath?.(uri) ?? uri);
+
+    await enqueueAiEdit(filePaths, prompt, shouldSave);
+  }, [selectedIds, getUriForId]);
+
+  const handleCancelAiEditPrompt = useCallback(() => {
+    setShowAiEditPrompt(false);
+  }, []);
+
   const toggleMenu = useCallback(() => {
     setShowMenu((prev) => !prev);
   }, []);
@@ -292,6 +338,7 @@ export function useGallerySelection({ activeTab, onDeleteApplied, getUriForId }:
     selectedIds,
     showMenu,
     deletingIds,
+    showAiEditPrompt,
     menuRef,
     handleTouchStart,
     handleTouchMove,
@@ -300,6 +347,9 @@ export function useGallerySelection({ activeTab, onDeleteApplied, getUriForId }:
     handleRefreshStart,
     handleDelete,
     handleShare,
+    handleAiEdit,
+    handleAiEditPromptConfirm,
+    handleCancelAiEditPrompt,
     handleCancelSelection,
     toggleMenu,
   };

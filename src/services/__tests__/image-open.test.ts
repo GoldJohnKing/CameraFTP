@@ -39,7 +39,7 @@ describe('image-open service', () => {
       allUris: ['content://media/1', 'content://media/2'],
     });
 
-    expect(openOrNavigateTo).toHaveBeenCalledWith('content://media/1', JSON.stringify(['content://media/1', 'content://media/2']));
+    expect(openOrNavigateTo).toHaveBeenCalledWith('content://media/1', JSON.stringify(['content://media/1', 'content://media/2']), false);
     await Promise.resolve();
     expect(invoke).toHaveBeenCalledWith('get_image_exif', { filePath: '/real/path.jpg' });
     expect(onExifResult).toHaveBeenCalledWith(JSON.stringify({ iso: 100 }));
@@ -61,7 +61,7 @@ describe('image-open service', () => {
       openMethod: 'built-in-viewer',
     });
 
-    expect(openOrNavigateTo).toHaveBeenCalledWith('content://media/3', JSON.stringify(['content://media/3']));
+    expect(openOrNavigateTo).toHaveBeenCalledWith('content://media/3', JSON.stringify(['content://media/3']), false);
   });
 
   it('uses getAllUris provider to construct URI list', async () => {
@@ -82,6 +82,7 @@ describe('image-open service', () => {
     expect(openOrNavigateTo).toHaveBeenCalledWith(
       'content://media/5',
       JSON.stringify(['content://media/5', 'content://media/4']),
+      false,
     );
   });
 

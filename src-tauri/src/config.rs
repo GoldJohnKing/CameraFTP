@@ -182,6 +182,9 @@ pub struct AppConfig {
         default = "default_android_image_viewer"
     )]
     pub android_image_viewer: Option<AndroidImageViewerConfig>,
+    /// AI修图配置
+    #[serde(default)]
+    pub ai_edit: crate::ai_edit::config::AiEditConfig,
 }
 
 #[cfg(target_os = "android")]
@@ -224,6 +227,7 @@ impl Default for AppConfig {
             advanced_connection: AdvancedConnectionConfig::default(),
             preview_config,
             android_image_viewer,
+            ai_edit: crate::ai_edit::config::AiEditConfig::default(),
         }
     }
 }

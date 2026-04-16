@@ -79,6 +79,7 @@ export const useConfigStore = create<ConfigState>((set, get) => {
       },
       previewConfig: nextConfig.previewConfig,
       androidImageViewer: preserveIfDirty(nextConfig, currentConfig, currentDraft, 'androidImageViewer'),
+      aiEdit: preserveIfDirty(nextConfig, currentConfig, currentDraft, 'aiEdit'),
     };
   };
 
