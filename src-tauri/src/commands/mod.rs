@@ -52,7 +52,7 @@ pub use server::{
     get_server_runtime_state,
 };
 
-pub use ai_edit::{enqueue_ai_edit, trigger_ai_edit};
+pub use ai_edit::{cancel_ai_edit, enqueue_ai_edit, trigger_ai_edit};
 
 pub use storage::{
     check_permission_status,

@@ -15,6 +15,7 @@ describe('gallery-refresh', () => {
   it.each([
     { name: 'manual refresh', options: { reason: 'manual' as const }, expected: { reason: 'manual' as const } },
     { name: 'delete refresh', options: { reason: 'delete' as const, timestamp: 123 }, expected: { reason: 'delete' as const, timestamp: 123 } },
+    { name: 'ai-edit refresh', options: { reason: 'ai-edit' as const }, expected: { reason: 'ai-edit' as const } },
   ])('dispatches events for $name', ({ options, expected }) => {
     const galleryHandler = vi.fn();
     const latestHandler = vi.fn();

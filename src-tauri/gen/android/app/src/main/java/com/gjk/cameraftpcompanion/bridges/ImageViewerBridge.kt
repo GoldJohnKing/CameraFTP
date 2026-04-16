@@ -86,4 +86,34 @@ class ImageViewerBridge(activity: android.app.Activity) : BaseJsBridge(activity)
         val viewer = ImageViewerActivity.instance ?: return
         viewer.onAiEditComplete(success, message)
     }
+
+    /**
+     * Called from JS to update AI edit progress in the native viewer.
+     */
+    @android.webkit.JavascriptInterface
+    fun updateAiEditProgress(current: Int, total: Int, failedCount: Int) {
+        val viewer = ImageViewerActivity.instance ?: return
+        viewer.updateAiEditProgress(current, total, failedCount)
+    }
+
+    /**
+     * Triggers a MediaStore scan for a newly created file so it appears in the system gallery.
+     */
+    @android.webkit.JavascriptInterface
+    fun scanNewFile(filePath: String?) {
+        if (filePath == null) return
+        val viewer = ImageViewerActivity.instance
+        val context = (viewer ?: activity) as? android.content.Context ?: return
+        android.media.MediaScannerConnection.scanFile(context, arrayOf(filePath), null, null)
+    }
+
+    /**
+     * Emits a gallery-items-added window event for the given URI, refreshing the in-app gallery.
+     */
+    @android.webkit.JavascriptInterface
+    fun emitGalleryItemsAddedForUri(uri: String?) {
+        if (uri == null) return
+        val mainActivity = MainActivity.instance ?: return
+        com.gjk.cameraftpcompanion.bridges.MediaStoreBridge.emitGalleryItemsAdded(mainActivity, uri)
+    }
 }

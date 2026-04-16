@@ -29,3 +29,9 @@ pub async fn enqueue_ai_edit(
     }
     Ok(())
 }
+
+#[command]
+pub async fn cancel_ai_edit(ai_edit: State<'_, AiEditService>) -> Result<(), AppError> {
+    ai_edit.cancel();
+    Ok(())
+}

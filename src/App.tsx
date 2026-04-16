@@ -141,7 +141,6 @@ function App() {
           <div className={activeTab === 'gallery' ? 'fixed inset-0 bg-gray-50 z-0' : 'hidden'}>
             <div className="h-full max-w-md mx-auto">
               <GalleryCard />
-              <AiEditProgressBar position="fixed" />
             </div>
           </div>
 
@@ -158,6 +157,9 @@ function App() {
           </footer>
         )}
       </div>
+
+      {/* AI Edit Progress - always visible overlay */}
+      <AiEditProgressBar position="fixed" />
 
       {/* Bottom Navigation */}
       <BottomNav />

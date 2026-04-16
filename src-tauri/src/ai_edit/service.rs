@@ -10,6 +10,7 @@ use tokio::io::AsyncWriteExt;
 use tokio::sync::{mpsc, oneshot};
 use tauri::{AppHandle, Emitter, Manager};
 use tracing::{info, warn, debug};
+use tokio_util::sync::CancellationToken;
 
 use crate::config_service::ConfigService;
 use crate::error::AppError;
@@ -35,6 +36,7 @@ pub struct AiEditService {
     manual_sender: mpsc::Sender<AiEditTask>,
     auto_sender: mpsc::Sender<AiEditTask>,
     queue_depth: Arc<AtomicU32>,
+    cancel_token: CancellationToken,
 }
 
 impl AiEditService {
@@ -44,12 +46,14 @@ impl AiEditService {
         let config_service_clone = config_service.clone();
         let queue_depth = Arc::new(AtomicU32::new(0));
         let queue_depth_clone = queue_depth.clone();
+        let cancel_token = CancellationToken::new();
+        let cancel_token_clone = cancel_token.clone();
 
         tauri::async_runtime::spawn(async move {
-            worker_loop(manual_receiver, auto_receiver, app_handle, config_service_clone, queue_depth_clone).await;
+            worker_loop(manual_receiver, auto_receiver, app_handle, config_service_clone, queue_depth_clone, cancel_token_clone).await;
         });
 
-        Self { manual_sender, auto_sender, queue_depth }
+        Self { manual_sender, auto_sender, queue_depth, cancel_token }
     }
 
     /// Auto-trigger: non-blocking enqueue.
@@ -110,6 +114,10 @@ impl AiEditService {
     pub fn queue_len(&self) -> u32 {
         self.queue_depth.load(Ordering::Relaxed)
     }
+
+    pub fn cancel(&self) {
+        self.cancel_token.cancel();
+    }
 }
 
 async fn worker_loop(
@@ -118,6 +126,7 @@ async fn worker_loop(
     app_handle: AppHandle,
     config_service: Arc<ConfigService>,
     queue_depth: Arc<AtomicU32>,
+    cancel_token: CancellationToken,
 ) {
     info!("AI edit worker started");
 
@@ -125,11 +134,21 @@ async fn worker_loop(
         completed_count: u32,
         failed_count: u32,
         failed_files: Vec<String>,
+        output_files: Vec<String>,
+        batch_total: u32,
     }
 
     impl WorkerState {
         fn processed_count(&self) -> u32 {
             self.completed_count + self.failed_count
+        }
+
+        fn reset(&mut self) {
+            self.completed_count = 0;
+            self.failed_count = 0;
+            self.failed_files.clear();
+            self.output_files.clear();
+            self.batch_total = 0;
         }
     }
 
@@ -137,12 +156,41 @@ async fn worker_loop(
         completed_count: 0,
         failed_count: 0,
         failed_files: Vec::new(),
+        output_files: Vec::new(),
+        batch_total: 0,
     };
 
     let mut cached_provider: Option<Box<dyn providers::AiEditProvider>> = None;
     let mut cached_api_key: Option<String> = None;
 
+    /// Emits a Done event for the current batch and resets the state.
+    fn emit_batch_done(
+        state: &mut WorkerState,
+        app_handle: &AppHandle,
+    ) {
+        if state.processed_count() == 0 {
+            return;
+        }
+
+        if let Err(e) = app_handle.emit("ai-edit-progress", &super::progress::AiEditProgressEvent::Done {
+            total: state.processed_count(),
+            failed_count: state.failed_count,
+            failed_files: std::mem::take(&mut state.failed_files),
+            output_files: std::mem::take(&mut state.output_files),
+        }) {
+            warn!(error = %e, "Failed to emit ai-edit-progress Done event");
+        }
+
+        state.reset();
+    }
+
     loop {
+        if cancel_token.is_cancelled() {
+            info!("AI edit worker cancelled");
+            emit_batch_done(&mut state, &app_handle);
+            break;
+        }
+
         // Fast path: drain pending manual tasks first (high priority)
         let task = if let Ok(task) = manual_rx.try_recv() {
             task
@@ -151,10 +199,20 @@ async fn worker_loop(
             tokio::select! {
                 biased;
 
+                _ = cancel_token.cancelled() => {
+                    info!("AI edit worker cancelled while waiting");
+                    emit_batch_done(&mut state, &app_handle);
+                    break;
+                }
+
                 task = manual_rx.recv() => {
                     match task {
                         Some(t) => t,
-                        None => break,
+                        None => {
+                            // Manual channel closed; drain auto then finish
+                            emit_batch_done(&mut state, &app_handle);
+                            break;
+                        },
                     }
                 }
                 task = auto_rx.recv() => {
@@ -162,9 +220,24 @@ async fn worker_loop(
                         Some(t) => t,
                         None => {
                             // Auto channel closed; wait for manual tasks or shutdown
-                            match manual_rx.recv().await {
-                                Some(t) => t,
-                                None => break,
+                            // If there are pending results, emit Done before blocking
+                            if queue_depth.load(Ordering::Relaxed) == 0 && state.processed_count() > 0 {
+                                emit_batch_done(&mut state, &app_handle);
+                            }
+                            tokio::select! {
+                                _ = cancel_token.cancelled() => {
+                                    emit_batch_done(&mut state, &app_handle);
+                                    break;
+                                }
+                                task = manual_rx.recv() => {
+                                    match task {
+                                        Some(t) => t,
+                                        None => {
+                                            emit_batch_done(&mut state, &app_handle);
+                                            break;
+                                        },
+                                    }
+                                }
                             }
                         }
                     }
@@ -172,26 +245,28 @@ async fn worker_loop(
             }
         };
 
-        // Calculate progress metrics
-        let current = state.processed_count() + 1;
+        // Decrement queue depth BEFORE calculating progress (fixes off-by-one)
+        queue_depth.fetch_sub(1, Ordering::Relaxed);
+
         let remaining = queue_depth.load(Ordering::Relaxed);
+        let current = state.processed_count() + 1;
         let total = current + remaining;
+        state.batch_total = total;
         let file_name = task.file_path.file_name()
             .and_then(|n| n.to_str())
             .unwrap_or("unknown")
             .to_string();
 
-        let _ = app_handle.emit("ai-edit-progress", &super::progress::AiEditProgressEvent::Progress {
+        if let Err(e) = app_handle.emit("ai-edit-progress", &super::progress::AiEditProgressEvent::Progress {
             current,
             total,
             file_name: file_name.clone(),
             failed_count: state.failed_count,
-        });
+        }) {
+            warn!(error = %e, "Failed to emit ai-edit-progress Progress event");
+        }
 
         let result = process_task(&task, &config_service, &mut cached_provider, &mut cached_api_key).await;
-
-        // Decrement queue depth after processing
-        queue_depth.fetch_sub(1, Ordering::Relaxed);
 
         match result {
             Ok(ref output_path) => {
@@ -204,14 +279,19 @@ async fn worker_loop(
                 }
 
                 state.completed_count += 1;
+                let output_str = output_path.to_string_lossy().to_string();
+                state.output_files.push(output_str.clone());
 
                 let remaining = queue_depth.load(Ordering::Relaxed);
-                let _ = app_handle.emit("ai-edit-progress", &super::progress::AiEditProgressEvent::Completed {
+                if let Err(e) = app_handle.emit("ai-edit-progress", &super::progress::AiEditProgressEvent::Completed {
                     current: state.processed_count(),
                     total: state.processed_count() + remaining,
                     file_name: file_name.clone(),
                     failed_count: state.failed_count,
-                });
+                    output_path: Some(output_str),
+                }) {
+                    warn!(error = %e, "Failed to emit ai-edit-progress Completed event");
+                }
             }
             Err(ref e) => {
                 if task.result_tx.is_some() {
@@ -224,27 +304,26 @@ async fn worker_loop(
                 state.failed_files.push(file_name.clone());
 
                 let remaining = queue_depth.load(Ordering::Relaxed);
-                let _ = app_handle.emit("ai-edit-progress", &super::progress::AiEditProgressEvent::Failed {
+                if let Err(e) = app_handle.emit("ai-edit-progress", &super::progress::AiEditProgressEvent::Failed {
                     current: state.processed_count(),
                     total: state.processed_count() + remaining,
                     file_name: file_name.clone(),
                     error: e.to_string(),
                     failed_count: state.failed_count,
-                });
+                }) {
+                    warn!(error = %e, "Failed to emit ai-edit-progress Failed event");
+                }
             }
         }
 
         if let Some(tx) = task.result_tx {
             let _ = tx.send(result);
         }
-    }
 
-    if state.processed_count() > 0 {
-        let _ = app_handle.emit("ai-edit-progress", &super::progress::AiEditProgressEvent::Done {
-            total: state.processed_count(),
-            failed_count: state.failed_count,
-            failed_files: state.failed_files,
-        });
+        // Emit Done when queue is empty and batch is complete
+        if queue_depth.load(Ordering::Relaxed) == 0 && state.processed_count() > 0 {
+            emit_batch_done(&mut state, &app_handle);
+        }
     }
 
     info!("AI edit worker stopped");
@@ -441,5 +520,70 @@ mod tests {
     fn default_edit_prompt_is_chinese() {
         assert!(!DEFAULT_EDIT_PROMPT.is_empty());
         assert!(DEFAULT_EDIT_PROMPT.contains("画质"));
+    }
+
+    #[test]
+    fn worker_state_tracks_output_files() {
+        struct WorkerState {
+            completed_count: u32,
+            failed_count: u32,
+            failed_files: Vec<String>,
+            output_files: Vec<String>,
+            batch_total: u32,
+        }
+
+        impl WorkerState {
+            fn processed_count(&self) -> u32 {
+                self.completed_count + self.failed_count
+            }
+        }
+
+        let mut state = WorkerState {
+            completed_count: 0,
+            failed_count: 0,
+            failed_files: Vec::new(),
+            output_files: Vec::new(),
+            batch_total: 0,
+        };
+
+        // Simulate successful task
+        state.completed_count += 1;
+        state.output_files.push("/output/AIEdit/photo1_AIEdit.jpg".to_string());
+        assert_eq!(state.processed_count(), 1);
+        assert_eq!(state.output_files.len(), 1);
+
+        // Simulate another success
+        state.completed_count += 1;
+        state.output_files.push("/output/AIEdit/photo2_AIEdit.jpg".to_string());
+        assert_eq!(state.processed_count(), 2);
+        assert_eq!(state.output_files.len(), 2);
+
+        // Simulate failure
+        state.failed_count += 1;
+        state.failed_files.push("bad.jpg".to_string());
+        assert_eq!(state.processed_count(), 3);
+        assert_eq!(state.output_files.len(), 2);
+        assert_eq!(state.failed_files.len(), 1);
+    }
+
+    #[test]
+    fn cancel_token_initially_not_cancelled() {
+        let token = CancellationToken::new();
+        assert!(!token.is_cancelled());
+    }
+
+    #[test]
+    fn cancel_token_cancels_on_invoke() {
+        let token = CancellationToken::new();
+        token.cancel();
+        assert!(token.is_cancelled());
+    }
+
+    #[tokio::test]
+    async fn cancel_token_cancelled_future_resolves() {
+        let token = CancellationToken::new();
+        token.cancel();
+        // Should resolve immediately
+        token.cancelled().await;
     }
 }

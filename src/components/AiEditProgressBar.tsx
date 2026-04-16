@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
 
-import { useAiEditProgress, dismissDone } from '../hooks/useAiEditProgress';
+import { useAiEditProgress, dismissDone, cancelAiEdit } from '../hooks/useAiEditProgress';
 import { X } from 'lucide-react';
 
 interface AiEditProgressBarProps {
@@ -20,9 +20,17 @@ export function AiEditProgressBar({ position }: AiEditProgressBarProps) {
   const progressPercent = total > 0 ? (current / total) * 100 : 0;
 
   const containerClass = position === 'fixed'
-    ? 'fixed bottom-4 left-4 right-4 z-50'
+    ? 'fixed bottom-20 left-4 right-4 z-50'
     : 'absolute left-4 right-4 z-10';
   const bottomStyle = position === 'absolute' ? { bottom: '76px' } : undefined;
+
+  const handleButtonClick = () => {
+    if (isDone) {
+      dismissDone();
+    } else if (isEditing) {
+      void cancelAiEdit();
+    }
+  };
 
   return (
     <div
@@ -52,19 +60,18 @@ export function AiEditProgressBar({ position }: AiEditProgressBarProps) {
             ? `修图完成，${failedCount}张失败`
             : hasFailures
               ? `第${current}张/共${total}张 (失败${failedCount}张)`
-              : `第${current}张/共${total}张`
-          }
+              : `第${current}张/共${total}张`}
         </span>
 
         <button
-          onClick={() => {
-            if (isDone) {
-              dismissDone();
-            }
-          }}
+          onClick={handleButtonClick}
           className="p-1 text-white/60 hover:text-white transition-colors rounded-full hover:bg-white/10"
         >
-          <X className="w-4 h-4" />
+          {isDone ? (
+            <X className="w-4 h-4" />
+          ) : (
+            <span className="text-xs font-medium px-1">取消</span>
+          )}
         </button>
       </div>
 

@@ -422,7 +422,8 @@ class MediaStoreBridge(activity: MainActivity) : BaseJsBridge(activity) {
             }
         }
 
-        private fun emitGalleryItemsAdded(context: Context, uri: String) {
+        @JvmStatic
+        internal fun emitGalleryItemsAdded(context: Context, uri: String) {
             try {
                 val cursor = context.contentResolver.query(
                     Uri.parse(uri),
