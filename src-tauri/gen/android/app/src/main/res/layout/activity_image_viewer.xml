@@ -9,40 +9,96 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
 
-    <!-- AI Edit progress bar -->
-    <LinearLayout
+    <!-- AI Edit progress bar — compact single-line with highlight sweep -->
+    <FrameLayout
         android:id="@+id/ai_edit_progress_container"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
+        android:layout_height="30dp"
         android:layout_gravity="bottom"
         android:layout_marginStart="16dp"
         android:layout_marginEnd="16dp"
         android:layout_marginBottom="76dp"
-        android:background="#B3000000"
-        android:orientation="horizontal"
-        android:gravity="center_vertical"
-        android:paddingHorizontal="16dp"
-        android:paddingVertical="12dp"
+        android:background="@drawable/progress_bar_bg"
         android:visibility="gone">
 
-        <ProgressBar
-            android:id="@+id/ai_edit_progress_bar"
-            style="@android:style/Widget.ProgressBar.Horizontal"
+        <!-- Progress fill base color -->
+        <View
+            android:id="@+id/ai_edit_progress_fill"
             android:layout_width="0dp"
-            android:layout_height="6dp"
-            android:layout_weight="1"
-            android:max="100"
-            android:progress="0"
-            android:progressDrawable="@drawable/progress_bar_fill" />
+            android:layout_height="match_parent"
+            android:layout_gravity="start"
+            android:background="@drawable/progress_bar_fill" />
 
-        <TextView
-            android:id="@+id/ai_edit_progress_text"
-            android:layout_width="wrap_content"
+        <!-- Highlight sweep overlay on fill -->
+        <View
+            android:id="@+id/ai_edit_progress_highlight"
+            android:layout_width="40dp"
+            android:layout_height="match_parent"
+            android:layout_gravity="start"
+            android:background="@drawable/progress_bar_highlight"
+            android:visibility="gone" />
+
+        <!-- Bottom edge line track -->
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="2dp"
+            android:layout_gravity="bottom"
+            android:background="#0DFFFFFF" />
+
+        <!-- Bottom edge line progress -->
+        <View
+            android:id="@+id/ai_edit_progress_edge"
+            android:layout_width="0dp"
+            android:layout_height="2dp"
+            android:layout_gravity="bottom|start"
+            android:background="@drawable/progress_bar_edge" />
+
+        <!-- Content row -->
+        <LinearLayout
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:textColor="#E5E7EB"
-            android:textSize="13sp"
-            android:layout_marginStart="12dp" />
-    </LinearLayout>
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingHorizontal="12dp"
+            android:paddingVertical="6dp">
+
+            <TextView
+                android:id="@+id/ai_edit_status_text"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textColor="#60A5FA"
+                android:textSize="12sp"
+                android:text="AI修图中..."
+                android:visibility="gone" />
+
+            <TextView
+                android:id="@+id/ai_edit_progress_text"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:textColor="#B3FFFFFF"
+                android:textSize="12sp"
+                android:layout_marginStart="6dp" />
+
+            <TextView
+                android:id="@+id/ai_edit_failure_text"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textColor="#F87171"
+                android:textSize="12sp"
+                android:visibility="gone" />
+
+            <TextView
+                android:id="@+id/ai_edit_cancel_btn"
+                android:layout_width="44dp"
+                android:layout_height="32dp"
+                android:gravity="center"
+                android:textColor="#80FFFFFF"
+                android:textSize="11sp"
+                android:text="取消"
+                android:layout_marginStart="4dp" />
+        </LinearLayout>
+    </FrameLayout>
 
     <!-- Bottom floating bar -->
     <LinearLayout

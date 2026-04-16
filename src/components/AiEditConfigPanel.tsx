@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { Eye, EyeOff } from 'lucide-react';
 import { ToggleSwitch } from './ui';
 import type { AppConfig } from '../types';
@@ -23,6 +23,13 @@ export function AiEditConfigPanel({
   onUpdate,
 }: AiEditConfigPanelProps) {
   const [showApiKey, setShowApiKey] = useState(false);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const autoResize = useCallback((el: HTMLTextAreaElement | null) => {
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${el.scrollHeight}px`;
+  }, []);
   const [apiKeyInput, setApiKeyInput] = useState(
     () => {
       if (config.aiEdit.provider.type !== 'seed-edit') return '';
@@ -92,16 +99,23 @@ export function AiEditConfigPanel({
       {/* 提示词 */}
       <div className="space-y-2">
         <label className="block text-sm font-medium text-gray-700">
-          修图提示词
+          提示词
         </label>
         <textarea
+          ref={(el) => {
+            (textareaRef as React.MutableRefObject<HTMLTextAreaElement | null>).current = el;
+            autoResize(el);
+          }}
           value={promptInput}
-          onChange={(e) => setPromptInput(e.target.value)}
+          onChange={(e) => {
+            setPromptInput(e.target.value);
+            autoResize(e.target);
+          }}
           onBlur={handlePromptBlur}
           placeholder="例如：提升画质，使照片更清晰"
-          rows={2}
+          rows={1}
           disabled={isLoading || disabled}
-          className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white text-gray-700 resize-none disabled:opacity-50 disabled:cursor-not-allowed"
+          className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white text-gray-700 resize-none overflow-hidden disabled:opacity-50 disabled:cursor-not-allowed"
         />
         <p className="text-xs text-gray-500">留空使用默认提示词</p>
       </div>

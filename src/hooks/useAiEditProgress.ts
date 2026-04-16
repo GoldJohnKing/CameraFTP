@@ -71,11 +71,13 @@ function handleEvent(event: AiEditProgressEvent) {
       break;
     case 'completed':
       useAiEditProgressStore.setState({
+        total: event.total,
         failedCount: event.failedCount,
       });
       break;
     case 'failed':
       useAiEditProgressStore.setState({
+        total: event.total,
         failedCount: event.failedCount,
       });
       break;

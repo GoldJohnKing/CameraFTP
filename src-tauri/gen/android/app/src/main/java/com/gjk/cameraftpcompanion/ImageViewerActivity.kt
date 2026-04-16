@@ -18,13 +18,16 @@ import android.net.Uri
 import android.os.Bundle
 import android.provider.MediaStore
 import android.util.Log
+import android.view.Gravity
 import android.view.View
+import android.view.animation.Animation
+import android.view.animation.LinearInterpolator
+import android.view.animation.TranslateAnimation
 import android.webkit.JavascriptInterface
 import android.webkit.WebView
 import android.widget.FrameLayout
 import android.widget.ImageButton
 import android.widget.LinearLayout
-import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.IntentSenderRequest
@@ -137,9 +140,15 @@ class ImageViewerActivity : AppCompatActivity() {
     private lateinit var btnAiEdit: ImageButton
     private lateinit var btnRotate: ImageButton
     private lateinit var btnDelete: ImageButton
-    private lateinit var aiEditProgressContainer: LinearLayout
-    private lateinit var aiEditProgressBar: ProgressBar
+    private lateinit var aiEditProgressContainer: FrameLayout
+    private lateinit var aiEditProgressFill: View
+    private lateinit var aiEditProgressHighlight: View
+    private lateinit var aiEditProgressEdge: View
+    private lateinit var aiEditStatusText: TextView
     private lateinit var aiEditProgressText: TextView
+    private lateinit var aiEditFailureText: TextView
+    private lateinit var aiEditCancelBtn: TextView
+    private var aiEditHighlightAnimation: TranslateAnimation? = null
     private var uris: MutableList<String> = mutableListOf()
     private var currentIndex: Int = 0
     private var isLandscape = false
@@ -190,8 +199,13 @@ class ImageViewerActivity : AppCompatActivity() {
         btnDelete = findViewById(R.id.btn_delete)
 
         aiEditProgressContainer = findViewById(R.id.ai_edit_progress_container)
-        aiEditProgressBar = findViewById(R.id.ai_edit_progress_bar)
+        aiEditProgressFill = findViewById(R.id.ai_edit_progress_fill)
+        aiEditProgressHighlight = findViewById(R.id.ai_edit_progress_highlight)
+        aiEditProgressEdge = findViewById(R.id.ai_edit_progress_edge)
+        aiEditStatusText = findViewById(R.id.ai_edit_status_text)
         aiEditProgressText = findViewById(R.id.ai_edit_progress_text)
+        aiEditFailureText = findViewById(R.id.ai_edit_failure_text)
+        aiEditCancelBtn = findViewById(R.id.ai_edit_cancel_btn)
 
         btnAiEdit.visibility = if (aiEditEnabled) View.VISIBLE else View.GONE
 
@@ -662,11 +676,19 @@ class ImageViewerActivity : AppCompatActivity() {
     fun onAiEditComplete(success: Boolean, message: String?) {
         runOnUiThread {
             isAiEditing = false
+            stopHighlightSweepAnimation()
             if (isFinishing || isDestroyed) return@runOnUiThread
             if (success) {
                 aiEditProgressContainer.visibility = View.GONE
             } else {
+                aiEditStatusText.text = "修图完成"
+                aiEditStatusText.setTextColor(0xFFFFFFFF.toInt())
                 aiEditProgressText.text = message ?: "修图失败"
+                aiEditFailureText.visibility = View.GONE
+                aiEditCancelBtn.text = "✕"
+                aiEditCancelBtn.setOnClickListener {
+                    aiEditProgressContainer.visibility = View.GONE
+                }
                 aiEditProgressContainer.postDelayed({
                     aiEditProgressContainer.visibility = View.GONE
                 }, 3000)
@@ -677,16 +699,79 @@ class ImageViewerActivity : AppCompatActivity() {
     fun updateAiEditProgress(current: Int, total: Int, failedCount: Int) {
         runOnUiThread {
             if (isFinishing || isDestroyed) return@runOnUiThread
+
             aiEditProgressContainer.visibility = View.VISIBLE
+            aiEditStatusText.visibility = View.VISIBLE
+            aiEditStatusText.text = "AI修图中..."
+            aiEditCancelBtn.visibility = View.VISIBLE
+            aiEditCancelBtn.text = "取消"
+
             val percent = if (total > 0) (current * 100) / total else 0
-            aiEditProgressBar.progress = percent
-            val text = if (failedCount > 0) {
-                "第${current}张/共${total}张 (失败${failedCount}张)"
-            } else {
-                "第${current}张/共${total}张"
+
+            val containerWidth = aiEditProgressContainer.width
+            if (containerWidth > 0) {
+                val fillWidth = (containerWidth * percent) / 100
+
+                // Fill stays in place, clip width via LayoutParams
+                aiEditProgressFill.layoutParams = FrameLayout.LayoutParams(
+                    fillWidth.coerceAtLeast(8),
+                    FrameLayout.LayoutParams.MATCH_PARENT
+                )
+
+                // Highlight sweeps across the fill area
+                aiEditProgressHighlight.layoutParams = FrameLayout.LayoutParams(
+                    (fillWidth * 0.4).toInt().coerceIn(20, containerWidth / 2),
+                    FrameLayout.LayoutParams.MATCH_PARENT
+                )
+                aiEditProgressHighlight.visibility = View.VISIBLE
+
+                aiEditProgressEdge.layoutParams = FrameLayout.LayoutParams(
+                    fillWidth.coerceAtLeast(8),
+                    2,
+                    Gravity.BOTTOM
+                )
+
+                startHighlightSweepAnimation(fillWidth)
             }
-            aiEditProgressText.text = text
+
+            aiEditProgressText.text = "第${current}张/共${total}张"
+
+            if (failedCount > 0) {
+                aiEditFailureText.visibility = View.VISIBLE
+                aiEditFailureText.text = "失败${failedCount}张"
+            } else {
+                aiEditFailureText.visibility = View.GONE
+            }
         }
+    }
+
+    private fun startHighlightSweepAnimation(fillWidth: Int) {
+        if (aiEditHighlightAnimation != null) return
+
+        val highlightWidth = aiEditProgressHighlight.width
+        val sweepFrom = -highlightWidth
+        val sweepTo = fillWidth
+
+        val anim = TranslateAnimation(
+            Animation.ABSOLUTE, sweepFrom.toFloat(),
+            Animation.ABSOLUTE, sweepTo.toFloat(),
+            Animation.ABSOLUTE, 0f,
+            Animation.ABSOLUTE, 0f
+        ).apply {
+            duration = 2000
+            interpolator = LinearInterpolator()
+            repeatCount = Animation.INFINITE
+        }
+        aiEditProgressHighlight.startAnimation(anim)
+        aiEditHighlightAnimation = anim
+    }
+
+    private fun stopHighlightSweepAnimation() {
+        aiEditHighlightAnimation?.let {
+            aiEditProgressHighlight.clearAnimation()
+            aiEditProgressHighlight.visibility = View.GONE
+        }
+        aiEditHighlightAnimation = null
     }
 
     private fun syncAiEditProgressFromWebView() {
@@ -872,8 +957,13 @@ class ImageViewerActivity : AppCompatActivity() {
         btnDelete = findViewById(R.id.btn_delete)
 
         aiEditProgressContainer = findViewById(R.id.ai_edit_progress_container)
-        aiEditProgressBar = findViewById(R.id.ai_edit_progress_bar)
+        aiEditProgressFill = findViewById(R.id.ai_edit_progress_fill)
+        aiEditProgressHighlight = findViewById(R.id.ai_edit_progress_highlight)
+        aiEditProgressEdge = findViewById(R.id.ai_edit_progress_edge)
+        aiEditStatusText = findViewById(R.id.ai_edit_status_text)
         aiEditProgressText = findViewById(R.id.ai_edit_progress_text)
+        aiEditFailureText = findViewById(R.id.ai_edit_failure_text)
+        aiEditCancelBtn = findViewById(R.id.ai_edit_cancel_btn)
 
         btnAiEdit.visibility = wasAiEditVisible
         if (wasAiEditing) {
