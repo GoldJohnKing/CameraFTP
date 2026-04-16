@@ -27,12 +27,12 @@ const DEFAULT_EDIT_PROMPT: &str = "提升画质，使照片更清晰";
 
 struct AiEditTask {
     file_path: PathBuf,
-    is_auto_trigger: bool,
     override_prompt: Option<String>,
     result_tx: Option<oneshot::Sender<Result<PathBuf, AppError>>>,
 }
 
 pub struct AiEditService {
+    config_service: Arc<ConfigService>,
     manual_sender: mpsc::Sender<AiEditTask>,
     auto_sender: mpsc::Sender<AiEditTask>,
     queue_depth: Arc<AtomicU32>,
@@ -53,15 +53,29 @@ impl AiEditService {
             worker_loop(manual_receiver, auto_receiver, app_handle, config_service_clone, queue_depth_clone, cancel_token_clone).await;
         });
 
-        Self { manual_sender, auto_sender, queue_depth, cancel_token }
+        Self {
+            config_service,
+            manual_sender,
+            auto_sender,
+            queue_depth,
+            cancel_token,
+        }
     }
 
     /// Auto-trigger: non-blocking enqueue.
+    /// Checks `enabled` and `auto_edit` before enqueueing — already-queued tasks always run to completion.
     pub async fn on_file_uploaded(&self, file_path: PathBuf) {
+        let should_enqueue = self.config_service.get()
+            .map(|c| c.ai_edit.enabled && c.ai_edit.auto_edit)
+            .unwrap_or(false);
+
+        if !should_enqueue {
+            return;
+        }
+
         self.queue_depth.fetch_add(1, Ordering::Relaxed);
         if let Err(e) = self.auto_sender.try_send(AiEditTask {
             file_path,
-            is_auto_trigger: true,
             override_prompt: None,
             result_tx: None,
         }) {
@@ -78,7 +92,6 @@ impl AiEditService {
         if self.manual_sender
             .send(AiEditTask {
                 file_path,
-                is_auto_trigger: false,
                 override_prompt,
                 result_tx: Some(tx),
             })
@@ -99,7 +112,6 @@ impl AiEditService {
         if let Err(e) = self.manual_sender
             .send(AiEditTask {
                 file_path,
-                is_auto_trigger: false,
                 override_prompt,
                 result_tx: None,
             })
@@ -340,16 +352,6 @@ async fn process_task(
 
     let ai_config = &config.ai_edit;
 
-    if !ai_config.enabled {
-        return Err(AppError::AiEditError("AI edit is disabled".to_string()));
-    }
-
-    // Auto-triggered tasks require auto_edit to be enabled
-    if task.is_auto_trigger && !ai_config.auto_edit {
-        debug!(file = %task.file_path.display(), "Auto-edit disabled, skipping");
-        return Err(AppError::AiEditError("Auto-edit is disabled".to_string()));
-    }
-
     let super::config::ProviderConfig::SeedEdit(ref seed_config) = ai_config.provider;
     if seed_config.api_key.is_empty() {
         return Err(AppError::AiEditError("API Key is not configured".to_string()));
@@ -448,14 +450,12 @@ mod tests {
         let task_path = PathBuf::from("/photos/test.jpg");
         auto_sender.try_send(AiEditTask {
             file_path: task_path.clone(),
-            is_auto_trigger: true,
             override_prompt: None,
             result_tx: None,
         }).unwrap();
 
         let task = auto_rx.try_recv().expect("task should be in auto channel");
         assert_eq!(task.file_path, task_path);
-        assert!(task.is_auto_trigger);
         assert!(task.result_tx.is_none());
     }
 
@@ -467,13 +467,11 @@ mod tests {
         let (tx, _rx) = oneshot::channel();
         manual_sender.try_send(AiEditTask {
             file_path: PathBuf::from("/photos/test.jpg"),
-            is_auto_trigger: false,
             override_prompt: None,
             result_tx: Some(tx),
         }).unwrap();
 
         let task = manual_rx.try_recv().expect("task should be in manual channel");
-        assert!(!task.is_auto_trigger);
         assert!(task.result_tx.is_some());
     }
 
@@ -485,7 +483,6 @@ mod tests {
         for i in 0..AUTO_QUEUE_CAPACITY {
             auto_sender.try_send(AiEditTask {
                 file_path: PathBuf::from(format!("/photos/img_{i}.jpg")),
-                is_auto_trigger: true,
                 override_prompt: None,
                 result_tx: None,
             }).unwrap();
@@ -493,7 +490,6 @@ mod tests {
 
         let result = auto_sender.try_send(AiEditTask {
             file_path: PathBuf::from("/photos/overflow.jpg"),
-            is_auto_trigger: true,
             override_prompt: None,
             result_tx: None,
         });
