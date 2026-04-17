@@ -6,7 +6,7 @@
 
 ## 概述
 
-在 Android 平台上，将 FTP 接收到的 RAW 图片自动转换为 Ultra HDR 图片。利用 RAW 文件内嵌的全尺寸 JPEG 预览作为 SDR 基底（免重新编码），结合 RAW 解码获得的 HDR 线性数据计算增益图(Gain Map)，在 Kotlin 侧组装为 Ultra HDR JPEG 文件。
+在 Android 平台上，将 FTP 接收到的 RAW 图片自动转换为 Ultra HDR 图片。利用 RAW 文件内嵌的全尺寸 JPEG 预览作为 SDR 基底（免重新编码），结合 RAW 解码获得的 HDR 线性数据直接计算增益图(Gain Map)，在 Kotlin 侧组装为 Ultra HDR JPEG 文件。
 
 ### 目标平台
 
@@ -20,58 +20,46 @@
 
 ---
 
-## 色调曲线推导与增益图计算原理
+## 增益图计算原理
 
-### 问题：直接比较线性 RAW 与相机 JPEG 导致画面变暗
+### 方案：直接比较 + GainMapMin=0
 
-内嵌 JPEG（SDR 基底）经过相机完整 ISP 管线，包含色调曲线(S-curve)的中间调提亮和高光压缩。RAW 解码输出为线性传感器数据，无线性曲线。如果直接计算增益图：
-
-```
-gain = log2(Y_hdr_linear / Y_sdr_tonecurved)
-```
-
-实测数据（Nikon NEF，24MP）：
-
-| 指标 | 值 |
-|------|-----|
-| 负增益像素占比 | **96.6%**（SDR 比 HDR 亮） |
-| 正增益像素占比 | 3.4%（仅高光区域） |
-| 增益图中值 | **-0.77** |
-| 满HDR（weight=1.0）时亮度 | **仅为 SDR 的 47%** |
-
-原因：相机色调曲线将中间调提亮约 2.12 倍，导致 `Y_sdr >> Y_hdr_linear`。增益图编码了色调曲线的逆函数，而非动态范围比。
-
-### 解决方案：从内嵌 JPEG 反推色调曲线
-
-通过对比同一像素位置的线性 RAW 值与 JPEG 值，拟合出相机的色调曲线。然后将同一曲线应用于线性数据，分别生成裁剪的 SDR 和不裁剪的 HDR：
+SDR 基底（内嵌 JPEG）经过相机完整 ISP 管线，包含色调曲线的中间调提亮和高光压缩。RAW 解码输出为线性传感器数据。直接比较两者：
 
 ```
-线性 RAW (Y_hdr_linear)
-    │
-    ├── 相机色调曲线（推导）──→ SDR = clamp(curve(Y), 0, 1)
-    │                              ↑ 裁剪到 [0,1]，近似内嵌 JPEG
-    │
-    └── 相机色调曲线（推导）──→ HDR = curve(Y), 不裁剪
-                                   ↑ 保留 >1.0 的高光值
-
-gain = log2(HDR / SDR)
-    中间调：curve(Y) 在 [0,1] 内 → HDR ≈ SDR → gain ≈ 0
-    高光：  curve(Y) > 1.0 → HDR > 1.0, SDR = 1.0 → gain > 0
-    暗部：  curve(Y) 在 [0,1] 内 → HDR ≈ SDR → gain ≈ 0
+gain = log2(Y_hdr_linear / Y_sdr_linear)
 ```
 
-### 色调曲线推导方法
+会产生三种情况：
 
-1. 收集同一像素位置的 (Y_hdr_linear, Y_sdr_linear) 亮度对
-2. 将 Y_hdr_linear 量化为 N 个 bin（默认 1024）
-3. 对每个 bin 取 Y_sdr_linear 的中位数
-4. 输出 LUT：`tone_curve[Y_hdr] → Y_sdr`
-5. 对 Y_hdr > 1.0 的区域，基于尾部趋势线性外推
+| 区域 | Y_hdr vs Y_sdr | gain | GainMapMin=0 处理后 |
+|------|---------------|------|---------------------|
+| 中间调（相机提亮） | Y_hdr < Y_sdr | 负 | 截断为 0 → HDR = SDR（不变） |
+| 高光（相机压缩） | Y_hdr > Y_sdr | **正** | **保留 → HDR 更亮** ✅ |
+| 暗部 | 两者接近 | ≈0 | 不变 |
+
+### 为什么不使用色调曲线推导
+
+色调曲线推导方法（从 HDR/SDR 亮度对拟合相机色调曲线，再应用曲线做同域比较）存在根本性问题：
+
+```
+色调曲线方法：gain = curve(Y_hdr) / clamp(curve(Y_hdr), 0, 1)
+
+由于曲线从同一数据推导，对所有观测范围内的 Y_hdr：
+  curve(Y_hdr) ∈ [0, 1]
+  → clamp 无效 → gain = 1.0 → 增益图全零
+
+高光恢复信号被曲线"吸收"了，因为曲线忠实建模了
+相机从 Y_hdr 到 Y_sdr 的映射关系。
+```
+
+直接比较不做建模，保留了两个独立来源之间的自然差异（传感器线性响应 vs 相机艺术渲染），这正是 HDR 增益图需要编码的内容。
 
 ### 设计约束
 
-- **GainMapMin 必须为 0.0**：即使经过色调曲线对齐，仍可能有残余负增益。强制为 0 确保增益图只添加亮度、不减少亮度。
+- **GainMapMin 必须为 0.0**：截断所有负增益（中间调），确保增益图只添加亮度、不减少亮度。
 - 增益图仅计算亮度通道（luminance-only），不修改颜色通道比例，保留相机艺术渲染。
+- **单帧 RAW 的 HDR 效果有限**：仅高光区域（Y_hdr > Y_sdr 的像素）获得 HDR 增强。暗部恢复需多帧合并（超出本方案范围）。
 
 ---
 
@@ -106,21 +94,13 @@ gain = log2(HDR / SDR)
                   │                                     │
                   └──────────────┬──────────────────────┘
                                  │
-                      ┌──────────▼──────────────┐
-                      │  色调曲线推导             │
-                      │  从 (Y_hdr, Y_sdr) 亮度对 │
-                      │  拟合 tone_curve LUT      │
-                      │  → 1024-bin 查找表       │
-                      └──────────┬──────────────┘
-                                 │
-                      ┌──────────▼──────────────┐
-                      │  增益图计算（同域比较）    │
-                      │  HDR = curve(Y_hdr),不裁剪│
-                      │  SDR = clamp(curve(Y_hdr))│
-                      │  gain = log2(HDR / SDR)  │
-                      │  GainMapMin = 0.0 强制   │
-                      │  1/4 分辨率               │
-                      └──────────┬──────────────┘
+                      ┌──────────▼──────────┐
+                      │   增益图计算          │
+                      │   直接比较（同分辨率） │
+                      │   gain = Y_hdr/Y_sdr  │
+                      │   GainMapMin = 0.0    │
+                      │   降采样至 1/4 分辨率  │
+                      └──────────┬──────────┘
                                  │
                       ┌──────────▼──────────┐
                       │   增益图 JPEG 编码    │
@@ -154,10 +134,9 @@ gain = log2(HDR / SDR)
 |------|--------|------|--------|---------|
 | RAW 解码器 | **rsraw** (LibRaw Rust wrapper) | 0.1.1 | MIT | 封装 LibRaw C++ 引擎，提供 Rust FFI 接口 |
 | ↳ 底层引擎 | **LibRaw** | 0.22+ | LGPL-2.1 / CDDL | ① `unpack_thumb()` — 提取内嵌 JPEG 预览（~0.5s）<br>② `unpack()` — 解包 RAW 传感器数据<br>③ `dcraw_process()` — 反马赛克 + 白平衡 + 色彩校正，输出线性 sRGB |
-| JPEG 编解码 | **image** crate | 0.25 | MIT | ① 将内嵌 JPEG 解码为像素值，转 srgb_to_linear 用于色调曲线推导<br>② 将增益图编码为 JPEG |
+| JPEG 编解码 | **image** crate | 0.25 | MIT | ① 将内嵌 JPEG 解码为像素值用于增益图计算<br>② 将增益图编码为 JPEG |
 | sRGB 转线性 | 自实现 (Rust) | — | AGPL-3.0 | 分段 sRGB gamma 逆函数，用于将 JPEG 8-bit 像素转为线性值 |
-| 色调曲线推导 | 自实现 (Rust) | — | AGPL-3.0 | ① 收集 (Y_hdr_linear, Y_sdr_linear) 亮度对<br>② 分 bin 统计中位数，构建 1024-bin LUT<br>③ 尾部线性外推 + 平滑处理 |
-| 增益图计算 | 自实现 (Rust) | — | AGPL-3.0 | ① 将 HDR 线性数据降采样至 1/4 分辨率<br>② 应用推导的色调曲线，分裁剪(SDR)/不裁剪(HDR)两路<br>③ 逐像素计算 log2(HDR/SDR)，GainMapMin 强制为 0<br>④ 输出 8-bit 灰度增益图 + 元数据 |
+| 增益图计算 | 自实现 (Rust) | — | AGPL-3.0 | ① 将 HDR 和 SDR 降采样至增益图分辨率（块平均）<br>② 逐像素计算 log2(Y_hdr/Y_sdr)<br>③ GainMapMin 强制为 0（截断负增益）<br>④ 输出 8-bit 灰度增益图 + 元数据 |
 | EXIF 解析 | **nom-exif** | 2.7 | MIT | 从 RAW 文件中提取 EXIF 元数据（ISO、光圈、快门等），用于 Gallery 展示 |
 
 ### Kotlin 侧（Android Bridge）
@@ -197,8 +176,7 @@ gain = log2(HDR / SDR)
 参数: gamma=(1,1), no_auto_bright=True, use_camera_wb=True, output_color=sRGB
 输出: hdr_data: 16-bit 线性 sRGB 数组（gamma=1，无线性曲线，sRGB 色彩空间基色）
 耗时: ~1.5-3.0s
-说明: 输出为线性 gamma 但 sRGB 基色空间，与内嵌 JPEG 的色彩空间一致，
-      确保色调曲线推导时两者处于同一色彩基色下。
+说明: 输出为线性 gamma 但 sRGB 基色空间，确保与内嵌 JPEG 色彩基色一致。
 ```
 
 ### 步骤 4：解码内嵌 JPEG 为线性像素
@@ -209,66 +187,35 @@ gain = log2(HDR / SDR)
 耗时: ~0.2-0.5s
 ```
 
-### 步骤 5：色调曲线推导
+### 步骤 5：增益图计算（直接比较 + GainMapMin=0）
 
 ```
 输入:
-  hdr_data: 16-bit 线性 sRGB（来自步骤 3，gamma=1,1, output_color=sRGB）
-  sdr_linear: f32 线性 sRGB（来自步骤 4，经 srgb_to_linear 去除 gamma）
+  hdr_data: 16-bit 线性 sRGB（来自步骤 3）
+  sdr_linear: f32 线性 sRGB（来自步骤 4）
 
-对齐:
-  若 HDR 尺寸略大于 SDR → 中心裁剪 HDR 以匹配 SDR
+1. 对齐：若 HDR 尺寸略大于 SDR → 中心裁剪 HDR 以匹配 SDR
 
-推导过程:
-  1. 计算两者亮度（BT.709 权重）：
-     Y_hdr = 0.2126*R + 0.7152*G + 0.0722*B  (线性)
-     Y_sdr = 0.2126*R + 0.7152*G + 0.0722*B  (线性，已去 gamma)
+2. 计算两者亮度（BT.709 权重）：
+   Y_hdr = 0.2126*R + 0.7152*G + 0.0722*B  (线性，归一化到 [0, 1])
+   Y_sdr = 0.2126*R + 0.7152*G + 0.0722*B  (线性，已去 gamma)
 
-  2. 构建色调曲线 LUT（1024 bins）：
-     for bin_idx in 0..1024:
-       bin_center = bin_idx / 1024.0
-       收集所有 |Y_hdr - bin_center| < 0.5/1024 的像素对应的 Y_sdr
-       tone_curve[bin_idx] = median(这些 Y_sdr 值)
+3. 降采样至增益图分辨率（1/4，块平均）：
+   Y_hdr_down = block_average(Y_hdr, H/4, W/4)
+   Y_sdr_down = block_average(Y_sdr, H/4, W/4)
 
-  3. 尾部外推（Y_hdr > 1.0 区域）：
-     取最后 50 个有效 bin 的线性回归斜率
-     tone_curve[i] = tone_curve[1023] + slope * (i - 1023) / 1024
+4. 逐像素计算增益（直接比较）：
+   gain = (Y_hdr_down + ε_hdr) / (Y_sdr_down + ε_sdr)
+   log_g = log2(max(gain, 1e-10))
 
-  4. 平滑处理：5-bin 移动平均
+   增益特性：
+     中间调（相机提亮）：Y_hdr < Y_sdr → gain < 1 → log_g < 0 → 截断为 0
+     高光（相机压缩）：  Y_hdr > Y_sdr → gain > 1 → log_g > 0 → 保留 ✅
+     暗部：              两者接近       → gain ≈ 1 → log_g ≈ 0
 
-输出:
-  tone_curve_lut: [f32; 1024+]   // Y_hdr → Y_sdr 映射
-耗时: ~0.1-0.2s
-```
-
-### 步骤 6：增益图计算（同域比较）
-
-```
-输入:
-  hdr_data: 16-bit 线性 sRGB
-  tone_curve_lut: 步骤 5 推导的色调曲线
-
-1. 降采样 HDR 线性数据至 1/4 分辨率（块平均）
-
-2. 逐像素计算（在 1/4 分辨率下）：
-   Y_hdr = 亮度(hdr_pixel) / 65535.0   // 归一化到 [0, 1+]
-   hdr_tonemapped = tone_curve_lut.lookup(Y_hdr)  // 应用推导的色调曲线
-   sdr_clamped = clamp(hdr_tonemapped, 0.0, 1.0)  // SDR 版本（裁剪）
-   hdr_unclamped = hdr_tonemapped                   // HDR 版本（不裁剪）
-
-   gain = (hdr_unclamped + ε_hdr) / (sdr_clamped + ε_sdr)
-   log_g = log2(gain)
-
-3. 增益图特性：
-   中间调：curve(Y) 在 [0,1] 内 → hdr_unclamped ≈ sdr_clamped → log_g ≈ 0
-   高光（camera 裁剪处）：hdr_unclamped > 1.0, sdr_clamped = 1.0 → log_g > 0
-   暗部：两者相近 → log_g ≈ 0
-
-4. 统计：
-   max_log = max(max(所有 log_g), 0.001)  // 仅保留正值范围
-
-5. 编码（GainMapMin 强制为 0，禁止编码变暗指令）：
-   recovery = clamp(log_g / max_log, 0.0, 1.0)
+5. 统计与编码（GainMapMin 强制为 0）：
+   max_log = max(percentile(log_g, 99), 0.01)  // 鲁棒最大值
+   recovery = clamp(log_g / max_log, 0.0, 1.0)  // 负值截断为 0
    gainmap[y][x] = round(recovery * 255)
 
 输出:
@@ -282,10 +229,10 @@ gain = log2(HDR / SDR)
     capacity_min: 0.0,         // hdrgm:HDRCapacityMin
     capacity_max: max_log,     // hdrgm:HDRCapacityMax
   }
-耗时: ~0.2-0.5s
+耗时: ~0.3-0.8s
 ```
 
-### 步骤 7：增益图 JPEG 编码
+### 步骤 6：增益图 JPEG 编码
 
 ```
 调用: image::codecs::jpeg::JpegEncoder::encode(gray_image, quality=75)
@@ -293,7 +240,7 @@ gain = log2(HDR / SDR)
 耗时: ~0.1-0.3s
 ```
 
-### 步骤 8：JNI 桥接
+### 步骤 7：JNI 桥接
 
 ```
 Rust 侧:
@@ -310,7 +257,7 @@ Kotlin 侧:
   5. 返回结果给 Rust
 ```
 
-### 步骤 9：Kotlin 容器组装
+### 步骤 8：Kotlin 容器组装
 
 ```
 输出字节流结构:
@@ -333,7 +280,7 @@ Kotlin 侧:
 耗时: <50ms
 ```
 
-### 步骤 10：MediaStore 写入
+### 步骤 9：MediaStore 写入
 
 ```
 调用: MediaStoreBridge.createEntryNative(...)
@@ -342,7 +289,7 @@ MIME: image/jpeg
 耗时: ~0.2-0.5s
 ```
 
-### 步骤 11：可选删除原 RAW
+### 步骤 10：可选删除原 RAW
 
 ```
 条件: config.ultraHdr.autoDeleteRaw == true 且转换成功
@@ -360,26 +307,24 @@ MIME: image/jpeg
 | 内嵌 JPEG 提取 | 0.3–0.5s | LibRaw `unpack_thumb()` |
 | RAW 解码+反马赛克 | 1.5–3.0s | LibRaw AHD，NEON 优化，输出线性 sRGB |
 | 内嵌 JPEG 解码+sRGB→线性 | 0.2–0.5s | image crate + 分段 gamma 逆函数 |
-| 色调曲线推导 | 0.1–0.2s | 亮度对收集 + 1024-bin 中位数统计 |
-| 增益图计算 | 0.2–0.5s | 1/4 分辨率，色调曲线 LUT 查表 + log2 |
+| 增益图计算 | 0.3–0.8s | 1/4 分辨率降采样 + 逐像素 log2 |
 | 增益图 JPEG 编码 | 0.1–0.3s | ~1.5MP 灰度 |
 | 临时文件写入 | 0.2–0.3s | 主图 + 增益图 |
 | Kotlin 容器组装 | <0.05s | 纯字节操作 |
 | MediaStore 写入 | 0.2–0.5s | |
-| **总计** | **2.8–6.3s** | **典型 3–5s** |
+| **总计** | **2.8–6.4s** | **典型 3–5s** |
 
 ### 内存峰值分析
 
 | 缓冲区 | 大小 | 存活时段 |
 |--------|------|----------|
-| 内嵌 JPEG 字节 | ~15–25MB | 步骤 2–8 |
-| RAW 16-bit RGB | ~48MB | 步骤 3–6 |
-| SDR 线性 f32 | ~96MB | 步骤 4–5（推导曲线后可释放） |
-| 色调曲线 LUT | ~4KB | 步骤 5–6 |
-| 增益图 8-bit 灰度 | ~1.5MB | 步骤 6–7 |
-| **峰值 RSS** | **~190MB** | 步骤 3–4 期间 |
+| 内嵌 JPEG 字节 | ~15–25MB | 步骤 2–7 |
+| RAW 16-bit RGB | ~48MB | 步骤 3–5 |
+| SDR 线性 f32 | ~96MB | 步骤 4–5 |
+| 增益图 8-bit 灰度 | ~1.5MB | 步骤 5–6 |
+| **峰值 RSS** | **~190MB** | 步骤 4–5 期间 |
 
-优化：色调曲线推导完成后（步骤 5）可立即释放 SDR f32 缓冲区，步骤 6 完成后释放 RAW 16-bit 缓冲区，峰值降至 ~70MB。
+优化：步骤 5 完成后可立即释放 SDR f32 和 RAW 16-bit 缓冲区，峰值降至 ~25MB。
 
 ---
 
@@ -396,19 +341,19 @@ MIME: image/jpeg
 
 ### 完整管线降级（无内嵌预览时）
 
-当内嵌预览不可用时，回退到完整开发管线（无法推导相机色调曲线，使用通用色调映射）：
+当内嵌预览不可用时，回退到完整开发管线：
 
 ```
 RAW 解码 → 线性 sRGB
-  → 通用色调映射（Reinhard 或 Hable 曲线）→ SDR 8-bit
+  → 通用色调映射（Reinhard 曲线）→ SDR 8-bit
   → SDR JPEG 编码（image crate）← 额外耗时 2-4s
-  → 增益图计算：gain = log2(linear / tonemapped)
-     中间调/暗部因色调映射 boost 导致负增益
-     → GainMapMin=0 截断，仅保留高光 HDR 增强
+  → 增益图计算：gain = log2(Y_hdr_linear / Y_sdr_tonemapped)
+     → Reinhard 曲线会压缩高光，高光区域 gain > 0
+     → 中间调因 boost 导致负增益，GainMapMin=0 截断
   → 容器组装
 ```
 
-预估额外耗时 2–4s，总计 5–8s。HDR 效果弱于有内嵌预览的路径（无法推导相机特定色调曲线）。
+预估额外耗时 2–4s，总计 5–8s。
 
 ---
 
@@ -468,11 +413,10 @@ src-tauri/src/ultra_hdr/
 ├── mod.rs                  # 公共导出
 ├── config.rs               # UltraHdrConfig 结构体
 ├── service.rs              # 转换服务（双通道队列）
-├── processor.rs            # RAW 解码 + 色调曲线推导 + 增益图计算管线
-├── tone_curve.rs           # 色调曲线推导：亮度对收集 → LUT 拟合 → 外推
-├── gainmap.rs              # 增益图计算：同域比较 + GainMapMin=0 强制
+├── processor.rs            # RAW 解码 + 增益图计算管线
+├── gainmap.rs              # 增益图计算：直接比较 + GainMapMin=0
 ├── srgb.rs                 # sRGB gamma 分段逆函数
-├── types.rs                # GainMapMetadata, ToneCurveLut 等数据类型
+├── types.rs                # GainMapMetadata 等数据类型
 └── android_bridge.rs       # JNI 调用 Kotlin 容器组装
 
 src-tauri/gen/android/.../bridges/
@@ -530,6 +474,7 @@ UltraHdrProgressEvent:
 | Android `YuvImage.compressToJpegR()` | 需要原始 YUV 像素数据输入，不接受已编码 JPEG，无法用于后组装 |
 | Vulkan Compute GPU 加速 | 后台任务场景下，2000+ 行 SPIR-V 的工程复杂度不值得 3–5s 的加速收益 |
 | rawler 替代 LibRaw | 不支持内嵌预览提取（`unpack_thumb()`），且反马赛克算法优化程度低于 LibRaw |
-| 直接比较线性 RAW 与 JPEG 计算增益图 | 相机色调曲线将中间调提亮约 2 倍，导致 96.6% 像素增益为负，HDR 输出亮度仅为 SDR 的 47% |
+| 色调曲线推导后同域比较 | 从同一 RAW 数据推导色调曲线再应用回同一数据，曲线完美拟合残差为零，增益图全零，高光恢复信号被曲线吸收 |
+| 自生成 SDR 基底 | 需重新实现相机 ISP（色调曲线、色彩科学、降噪锐化），且自生成 SDR 与线性 HDR 同源，增益图同样全零；不如直接使用相机已渲染好的内嵌 JPEG |
 | 提取相机 EXIF 中的色调曲线数据 | 各厂商色调曲线数据均不完整存储在 RAW 文件中（仅存风格名称/ID），无法完整重建 |
 | RGB 三通道增益图 | 与 SDR 基底的色调曲线失配会导致跨通道色调偏移，亮度-only 增益图更安全 |

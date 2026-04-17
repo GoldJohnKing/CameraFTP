@@ -58,7 +58,7 @@ def decode_raw_linear(raw_path: str, half_size: bool = False) -> np.ndarray:
         )
 
 
-# ── Step 3: Tone curve derivation & Gain map computation ────────────────────────
+# ── Step 3: Gain map computation (direct comparison + GainMapMin=0) ────────────
 
 
 def srgb_to_linear(x: np.ndarray) -> np.ndarray:
@@ -67,19 +67,17 @@ def srgb_to_linear(x: np.ndarray) -> np.ndarray:
 
 
 def _downsample_avg(arr: np.ndarray, target_h: int, target_w: int) -> np.ndarray:
-    """Downsample 2D array by block-averaging (anti-alias, no aliasing).
+    """Downsample 2D array by block-averaging (anti-alias).
 
     Center-crops when dimensions don't divide evenly, so edge content
     is preserved symmetrically rather than trimmed from bottom-right.
     """
     h, w = arr.shape[:2]
-    # Trim to exact multiples of target, center-cropping the excess
     trim_h = (h // target_h) * target_h
     trim_w = (w // target_w) * target_w
     top = (h - trim_h) // 2
     left = (w - trim_w) // 2
     trimmed = arr[top : top + trim_h, left : left + trim_w]
-    # Reshape into blocks and average
     if arr.ndim == 3:
         return trimmed.reshape(
             target_h, trim_h // target_h, target_w, trim_w // target_w, arr.shape[2]
@@ -97,93 +95,16 @@ def _center_crop(arr: np.ndarray, target_h: int, target_w: int) -> np.ndarray:
     return arr[top : top + target_h, left : left + target_w]
 
 
-def derive_tone_curve(
-    Y_hdr: np.ndarray,
-    Y_sdr: np.ndarray,
-    num_bins: int = 1024,
-    extrapolate_bins: int = 256,
-    smooth_radius: int = 5,
-) -> np.ndarray:
-    """Derive camera tone curve from aligned HDR-linear / SDR-linear luminance pairs.
-
-    Builds a LUT mapping Y_hdr → Y_sdr. The camera's ISP applies a tone curve
-    (and other processing) that makes SDR brighter than HDR for most pixels.
-    This LUT captures that mapping.
-
-    Returns a LUT of length (num_bins + extrapolate_bins) that maps
-    index / num_bins → Y_sdr value. Values beyond the observed HDR range
-    are linearly extrapolated.
-    """
-    total_bins = num_bins + extrapolate_bins
-    lut = np.zeros(total_bins, dtype=np.float64)
-
-    hdr_max = float(np.percentile(Y_hdr, 99.5))
-    bin_width = hdr_max / num_bins
-
-    # Vectorized bin assignment: O(N) instead of O(N × num_bins)
-    bin_edges = np.linspace(0, hdr_max, num_bins + 1)
-    bin_indices = np.clip(np.searchsorted(bin_edges, Y_hdr, side="right") - 1, 0, num_bins - 1)
-
-    # Sort by bin for fast grouped median
-    order = np.argsort(bin_indices, kind="mergesort")
-    sorted_bins = bin_indices[order]
-    sorted_sdr = Y_sdr[order]
-
-    # Find group boundaries
-    group_starts = np.searchsorted(sorted_bins, np.arange(num_bins), side="left")
-    group_ends = np.searchsorted(sorted_bins, np.arange(num_bins), side="right")
-
-    for i in range(num_bins):
-        s, e = group_starts[i], group_ends[i]
-        if e > s:
-            lut[i] = float(np.median(sorted_sdr[s:e]))
-        elif i > 0:
-            lut[i] = lut[i - 1]
-
-    # Fill leading zeros with first valid value
-    first_valid = 0
-    for i in range(num_bins):
-        if lut[i] > 0:
-            first_valid = i
-            break
-    for i in range(first_valid):
-        lut[i] = lut[first_valid] * (i + 1) / (first_valid + 1)
-
-    # Linear extrapolation beyond observed range
-    tail_start = max(0, num_bins - 50)
-    tail_valid = lut[tail_start:num_bins]
-    tail_indices = np.arange(tail_start, num_bins, dtype=np.float64)
-    if len(tail_valid) > 1 and tail_indices[-1] > tail_indices[0]:
-        coeffs = np.polyfit(tail_indices, tail_valid, 1)
-        for i in range(num_bins, total_bins):
-            lut[i] = max(coeffs[0] * i + coeffs[1], lut[num_bins - 1])
-
-    # Smooth (skip during extrapolation region)
-    if smooth_radius > 0:
-        kernel_size = 2 * smooth_radius + 1
-        padded = np.pad(lut[:num_bins], smooth_radius, mode="edge")
-        smoothed = np.convolve(padded, np.ones(kernel_size) / kernel_size, mode="same")
-        lut[:num_bins] = smoothed[smooth_radius : smooth_radius + num_bins]
-
-    return lut
-
-
 def compute_gainmap(
     hdr: np.ndarray,
     sdr: np.ndarray,
     scale: int = 4,
 ) -> tuple[np.ndarray, dict]:
-    """Compute gain map using tone-curve-derived same-domain comparison.
+    """Compute gain map via direct comparison with GainMapMin=0.
 
-    Pipeline:
-      1. Align HDR to SDR dimensions (center-crop).
-      2. Compute luminance for both (BT.709 weights, both in linear sRGB).
-      3. Derive camera tone curve LUT from (Y_hdr, Y_sdr) pairs at full res.
-      4. Downsample Y_hdr to gain map resolution.
-      5. Apply tone curve to downsampled Y_hdr → Y_tonemapped.
-      6. Split into SDR (clamp to [0,1]) and HDR (uncapped) renditions.
-      7. Gain = log2(Y_tonemapped_uncapped / Y_sdr_clamped).
-      8. Force GainMapMin = 0 (no darkening).
+    Directly compares linear HDR luminance with linear SDR luminance.
+    Negative gains (midtones where camera boosted) are clamped to 0.
+    Positive gains (highlights where camera compressed) are preserved.
 
     Returns (gainmap_8bit, metadata_dict).
     """
@@ -210,38 +131,17 @@ def compute_gainmap(
         LUM_R * sdr_lin[:, :, 0] + LUM_G * sdr_lin[:, :, 1] + LUM_B * sdr_lin[:, :, 2]
     )
 
-    # ── Derive tone curve (full resolution for accuracy) ───────────────────
-    tone_lut = derive_tone_curve(Y_hdr.ravel(), Y_sdr.ravel())
-
-    hdr_max_observed = float(np.percentile(Y_hdr, 99.5))
-    num_bins = len(tone_lut) - 256  # primary bins (1024)
-    bin_width = hdr_max_observed / num_bins
-
-    # ── Downsample HDR luminance to gain map resolution ────────────────────
+    # ── Downsample both to gain map resolution ─────────────────────────────
     target_gm_h = sdr_h // scale
     target_gm_w = sdr_w // scale
     Y_hdr_down = _downsample_avg(Y_hdr, target_gm_h, target_gm_w)
+    Y_sdr_down = _downsample_avg(Y_sdr, target_gm_h, target_gm_w)
 
-    # ── Apply tone curve → same-domain comparison ──────────────────────────
-    lut_indices = np.clip(Y_hdr_down / bin_width, 0, len(tone_lut) - 1.001)
-    lut_pos = lut_indices.astype(np.intp)
-    lut_frac = lut_indices - lut_pos
-    # Linear interpolation in LUT
-    Y_tonemapped = (
-        tone_lut[lut_pos] * (1.0 - lut_frac)
-        + tone_lut[np.minimum(lut_pos + 1, len(tone_lut) - 1)] * lut_frac
-    )
-
-    # SDR rendition: clamp to [0, 1] (camera output is 8-bit)
-    sdr_rendered = np.clip(Y_tonemapped, 0.0, 1.0)
-    # HDR rendition: uncapped (preserves values > 1.0 from extrapolation)
-    hdr_rendered = Y_tonemapped
-
-    # ── Compute gain (same-domain) ─────────────────────────────────────────
-    gain = (hdr_rendered + EPSILON_HDR) / (sdr_rendered + EPSILON_SDR)
+    # ── Direct comparison ──────────────────────────────────────────────────
+    gain = (Y_hdr_down + EPSILON_HDR) / (Y_sdr_down + EPSILON_SDR)
     log_gain = np.log2(np.clip(gain, 1e-10, None))
 
-    # Force GainMapMin = 0: only encode brightening, never darkening
+    # GainMapMin = 0: clamp negative gains, only encode brightening
     max_log = float(max(np.percentile(log_gain, 99), 0.01))
     recovery = np.clip(log_gain / max_log, 0.0, 1.0)
     gainmap = np.round(recovery * 255).astype(np.uint8)
