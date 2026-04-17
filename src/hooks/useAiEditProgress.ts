@@ -42,10 +42,10 @@ function syncToNativeLayer(current: number, total: number, failedCount: number) 
   window.ImageViewerAndroid?.updateAiEditProgress?.(current, total, failedCount);
 }
 
-function notifyNativeDone(success: boolean, failedCount: number, failedFiles: string[]) {
-  const message = success
-    ? null
-    : `修图完成，${failedCount}张失败：${failedFiles.join('、')}`;
+function notifyNativeDone(success: boolean, failedCount: number, total: number) {
+  const message = failedCount > 0
+    ? `修图完成，成功${total - failedCount}张，失败${failedCount}张`
+    : `修图完成，共${total}张`;
   window.ImageViewerAndroid?.onAiEditComplete?.(success, message);
 }
 
@@ -96,7 +96,7 @@ function handleEvent(event: AiEditProgressEvent) {
 
       useAiEditProgressStore.setState({
         isEditing: false,
-        isDone: hasFailures,
+        isDone: true,
         current: event.total,
         failedCount: event.failedCount,
         failedFiles: event.failedFiles,
@@ -120,9 +120,9 @@ function handleEvent(event: AiEditProgressEvent) {
       if (!hasFailures) {
         setTimeout(() => {
           useAiEditProgressStore.setState({ ...initialState });
-        }, 500);
+        }, 3000);
       }
-      notifyNativeDone(event.failedCount === 0, event.failedCount, event.failedFiles);
+      notifyNativeDone(event.failedCount === 0, event.failedCount, event.total);
       break;
     }
   }
@@ -179,10 +179,11 @@ export function useAiEditProgress(): AiEditProgressState {
   return useAiEditProgressStore();
 }
 
-export async function enqueueAiEdit(files: string[], prompt: string, _shouldSave: boolean): Promise<void> {
+export async function enqueueAiEdit(files: string[], prompt: string, model?: string): Promise<void> {
   await invoke('enqueue_ai_edit', {
     filePaths: files,
     prompt: prompt || null,
+    model: model || null,
   });
 }
 

@@ -51,7 +51,9 @@ const baseConfig: AppConfig = {
     enabled: false,
     autoEdit: true,
     prompt: '',
-    provider: { type: 'seed-edit', apiKey: '' },
+    manualPrompt: '',
+    manualModel: '',
+    provider: { type: 'seed-edit', apiKey: '', model: 'doubao-seedream-5-0-260128' },
   },
 };
 

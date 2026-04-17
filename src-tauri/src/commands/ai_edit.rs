@@ -13,8 +13,9 @@ pub async fn trigger_ai_edit(
     ai_edit: State<'_, AiEditService>,
     file_path: String,
     prompt: Option<String>,
+    model: Option<String>,
 ) -> Result<String, AppError> {
-    let output_path = ai_edit.edit_single(PathBuf::from(&file_path), prompt).await?;
+    let output_path = ai_edit.edit_single(PathBuf::from(&file_path), prompt, model).await?;
     Ok(output_path.to_string_lossy().to_string())
 }
 
@@ -23,9 +24,10 @@ pub async fn enqueue_ai_edit(
     ai_edit: State<'_, AiEditService>,
     file_paths: Vec<String>,
     prompt: Option<String>,
+    model: Option<String>,
 ) -> Result<(), AppError> {
     for path in &file_paths {
-        ai_edit.enqueue_manual(PathBuf::from(path), prompt.clone()).await?;
+        ai_edit.enqueue_manual(PathBuf::from(path), prompt.clone(), model.clone()).await?;
     }
     Ok(())
 }

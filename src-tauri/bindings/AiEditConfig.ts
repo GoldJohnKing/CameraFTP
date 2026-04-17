@@ -14,9 +14,17 @@ enabled: boolean,
  */
 autoEdit: boolean, 
 /**
- * 预设提示词
+ * 自动修图提示词
  */
 prompt: string, 
+/**
+ * 手动修图上次使用的提示词
+ */
+manualPrompt: string, 
+/**
+ * 手动修图上次使用的模型（空则使用 provider.model）
+ */
+manualModel: string, 
 /**
  * Provider 配置
  */

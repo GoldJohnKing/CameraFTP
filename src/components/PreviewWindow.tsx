@@ -5,6 +5,7 @@
  */
 
 import { useEffect, useState, useCallback, useMemo, memo } from 'react';
+import { Sparkles } from 'lucide-react';
 import { convertFileSrc, invoke } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { useConfigStore } from '../stores/configStore';
@@ -48,7 +49,6 @@ const PreviewWindowContent = memo(function PreviewWindowContent({
   const draft = useConfigStore(state => state.draft);
   const updateDraft = useConfigStore(state => state.updateDraft);
   const aiEditEnabled = draft?.aiEdit?.enabled ?? false;
-  const defaultPrompt = draft?.aiEdit?.prompt ?? '';
 
   const exifInfo = usePreviewExif(imagePath);
   const {
@@ -185,19 +185,28 @@ const PreviewWindowContent = memo(function PreviewWindowContent({
     setShowPromptDialog(true);
   }, [imagePath]);
 
-  const handlePromptConfirm = useCallback(async (prompt: string, shouldSave: boolean) => {
+  const handlePromptConfirm = useCallback(async (prompt: string, model: string, saveAsAutoEdit: boolean) => {
     if (!imagePath) return;
     setShowPromptDialog(false);
 
-    if (shouldSave && prompt !== defaultPrompt) {
-      updateDraft(d => ({
-        ...d,
-        aiEdit: { ...d.aiEdit, prompt },
-      }));
-    }
+    updateDraft(d => ({
+      ...d,
+      aiEdit: {
+        ...d.aiEdit,
+        manualPrompt: prompt,
+        manualModel: model,
+        ...(saveAsAutoEdit ? {
+          prompt,
+          provider: {
+            ...d.aiEdit.provider,
+            model,
+          },
+        } : {}),
+      },
+    }));
 
-    await enqueueAiEdit([imagePath], prompt, shouldSave);
-  }, [imagePath, defaultPrompt, updateDraft]);
+    await enqueueAiEdit([imagePath], prompt, model);
+  }, [imagePath, updateDraft]);
 
   if (!imagePath) {
     return (
@@ -439,10 +448,7 @@ const PreviewWindowContent = memo(function PreviewWindowContent({
               className="p-2 rounded-lg transition-colors text-gray-300 hover:text-white hover:bg-white/10"
               title="AI修图"
             >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                  d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
-              </svg>
+              <Sparkles className="w-5 h-5" />
             </button>
           )}
 
@@ -462,7 +468,9 @@ const PreviewWindowContent = memo(function PreviewWindowContent({
       {/* AI修图提示词对话框 */}
       <PromptDialog
         isOpen={showPromptDialog}
-        defaultPrompt={defaultPrompt}
+        defaultPrompt={draft?.aiEdit?.manualPrompt || ''}
+        defaultModel={draft?.aiEdit?.manualModel || undefined}
+        autoEditEnabled={draft?.aiEdit?.autoEdit ?? false}
         onConfirm={handlePromptConfirm}
         onCancel={() => setShowPromptDialog(false)}
       />

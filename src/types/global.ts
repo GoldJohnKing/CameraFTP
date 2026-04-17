@@ -260,7 +260,7 @@ declare global {
     __galleryOnBackPressed?: () => void;
 
     /**
-     * Returns the current AI edit prompt from config store.
+     * Returns the current AI edit prompt and model from config store as JSON.
      * Called by native ImageViewerActivity to pre-fill the prompt dialog.
      */
     __tauriGetAiEditPrompt?: () => string;
@@ -269,7 +269,7 @@ declare global {
      * Triggers AI edit with a specific prompt, optionally saving it to config.
      * Called by native ImageViewerActivity after user confirms the prompt dialog.
      */
-    __tauriTriggerAiEditWithPrompt?: (filePath: string, prompt: string, shouldSave: boolean) => Promise<void>;
+    __tauriTriggerAiEditWithPrompt?: (filePath: string, prompt: string, model?: string, saveAsAutoEdit?: boolean) => Promise<void>;
 
     /**
      * Cancels the in-progress AI edit batch.

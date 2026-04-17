@@ -9,11 +9,11 @@ use super::AiEditProvider;
 use super::super::config::SeedEditConfig;
 
 const BASE_URL: &str = "https://ark.cn-beijing.volces.com/api/v3";
-const MODEL: &str = "doubao-seedream-4-0-250828";
 
 pub struct SeedEditProvider {
     client: reqwest::Client,
     api_key: String,
+    model: String,
 }
 
 impl SeedEditProvider {
@@ -30,6 +30,7 @@ impl SeedEditProvider {
         Ok(Self {
             client,
             api_key: config.api_key.clone(),
+            model: config.model.clone(),
         })
     }
 }
@@ -37,7 +38,7 @@ impl SeedEditProvider {
 #[derive(Serialize)]
 #[serde(rename_all = "snake_case")]
 struct SeedEditRequest {
-    model: &'static str,
+    model: String,
     prompt: String,
     image: String,
     size: &'static str,
@@ -71,7 +72,7 @@ struct SeedEditErrorDetail {
 impl AiEditProvider for SeedEditProvider {
     async fn edit_image(&self, image_base64: &str, mime_type: &str, prompt: &str) -> Result<Vec<u8>, AppError> {
         let request = SeedEditRequest {
-            model: MODEL,
+            model: self.model.clone(),
             prompt: prompt.to_string(),
             image: format!("data:{};base64,{}", mime_type, image_base64),
             size: "4K",
@@ -143,8 +144,9 @@ mod tests {
 
     #[test]
     fn request_body_serialization() {
+        let test_model = "doubao-seedream-4-0-250828";
         let request = SeedEditRequest {
-            model: MODEL,
+            model: test_model.to_string(),
             prompt: "enhance photo quality".to_string(),
             image: "data:image/jpeg;base64,dGVzdA==".to_string(),
             size: "4K",
@@ -155,7 +157,7 @@ mod tests {
         let json = serde_json::to_string(&request).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
 
-        assert_eq!(parsed["model"], MODEL);
+        assert_eq!(parsed["model"], test_model);
         assert_eq!(parsed["prompt"], "enhance photo quality");
         assert_eq!(parsed["image"], "data:image/jpeg;base64,dGVzdA==");
         assert_eq!(parsed["size"], "4K");
@@ -163,8 +165,8 @@ mod tests {
     }
 
     #[test]
-    fn request_includes_correct_model() {
-        assert_eq!(MODEL, "doubao-seedream-4-0-250828");
+    fn default_model_is_5_0_lite() {
+        assert_eq!(super::super::config::DEFAULT_SEEDREAM_MODEL, "doubao-seedream-5-0-260128");
     }
 
     #[test]
@@ -251,6 +253,7 @@ mod tests {
     fn provider_new_succeeds_with_valid_api_key() {
         let config = SeedEditConfig {
             api_key: "test-api-key-123".to_string(),
+            model: "doubao-seedream-4-0-250828".to_string(),
         };
         let result = SeedEditProvider::new(&config);
 
@@ -270,7 +273,7 @@ mod tests {
     #[test]
     fn request_snake_case_serialization() {
         let request = SeedEditRequest {
-            model: MODEL,
+            model: "doubao-seedream-4-0-250828".to_string(),
             prompt: "test".to_string(),
             image: "data:image/png;base64,AA==".to_string(),
             size: "4K",

@@ -5,8 +5,10 @@
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Eye, EyeOff } from 'lucide-react';
-import { ToggleSwitch } from './ui';
+import { Eye, EyeOff, ExternalLink } from 'lucide-react';
+import { ToggleSwitch, Select } from './ui';
+import { SEEDREAM_MODELS, DEFAULT_SEEDREAM_MODEL } from '../constants/seedream-models';
+import { openExternalLink } from '../utils/external-link';
 import type { AppConfig } from '../types';
 
 interface AiEditConfigPanelProps {
@@ -49,6 +51,13 @@ export function AiEditConfigPanel({
     setPromptInput(config.aiEdit.prompt);
   }, [config.aiEdit.prompt]);
 
+  // Ensure enabled is true (migration for configs that had it disabled before the toggle was removed)
+  useEffect(() => {
+    if (!config.aiEdit.enabled) {
+      onUpdate(() => ({ aiEdit: { ...config.aiEdit, enabled: true } }));
+    }
+  }, []);
+
   const seedEditConfig = config.aiEdit.provider.type === 'seed-edit'
     ? config.aiEdit.provider : null;
 
@@ -87,39 +96,6 @@ export function AiEditConfigPanel({
 
   return (
     <div className="p-4 space-y-6">
-      {/* 自动触发开关 */}
-      <ToggleSwitch
-        enabled={config.aiEdit.autoEdit}
-        onChange={handleAutoEditToggle}
-        label="自动修图"
-        description="接收到图片后自动触发 AI 修图"
-        disabled={isLoading || disabled}
-      />
-
-      {/* 提示词 */}
-      <div className="space-y-2">
-        <label className="block text-sm font-medium text-gray-700">
-          提示词
-        </label>
-        <textarea
-          ref={(el) => {
-            (textareaRef as React.MutableRefObject<HTMLTextAreaElement | null>).current = el;
-            autoResize(el);
-          }}
-          value={promptInput}
-          onChange={(e) => {
-            setPromptInput(e.target.value);
-            autoResize(e.target);
-          }}
-          onBlur={handlePromptBlur}
-          placeholder="例如：提升画质，使照片更清晰"
-          rows={1}
-          disabled={isLoading || disabled}
-          className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white text-gray-700 resize-none overflow-hidden disabled:opacity-50 disabled:cursor-not-allowed"
-        />
-        <p className="text-xs text-gray-500">留空使用默认提示词</p>
-      </div>
-
       {/* API Key */}
       <div className="space-y-2">
         <label className="block text-sm font-medium text-gray-700">
@@ -145,7 +121,78 @@ export function AiEditConfigPanel({
             {showApiKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
           </button>
         </div>
+        <button
+          onClick={() => openExternalLink('https://www.volcengine.com/docs/82379/1399008')}
+          className="text-sm text-blue-600 hover:text-blue-700 inline-flex items-center gap-0.5 mt-1"
+          type="button"
+        >
+          开通火山引擎模型服务
+          <ExternalLink className="w-3 h-3" />
+        </button>
       </div>
+
+      {/* 自动触发开关 */}
+      <ToggleSwitch
+        enabled={config.aiEdit.autoEdit}
+        onChange={handleAutoEditToggle}
+        label="自动修图"
+        description="接收到图片后自动运行 AI 修图"
+        disabled={isLoading || disabled}
+      />
+
+      {/* 模型 + 提示词 — 仅在自动修图启用时显示 */}
+      {config.aiEdit.autoEdit && (
+        <>
+          {seedEditConfig && (
+            <div className="space-y-2">
+              <label className="block text-sm font-medium text-gray-700">
+                模型
+              </label>
+              <Select
+                value={seedEditConfig.model || DEFAULT_SEEDREAM_MODEL}
+                options={SEEDREAM_MODELS}
+                onChange={(model) => {
+                  onUpdate(() => ({
+                    aiEdit: {
+                      ...config.aiEdit,
+                      provider: {
+                        ...config.aiEdit.provider,
+                        model,
+                      },
+                    },
+                  }));
+                }}
+                disabled={isLoading || disabled}
+              />
+            </div>
+          )}
+
+          <div className="space-y-2">
+            <label className="block text-sm font-medium text-gray-700">
+              提示词
+            </label>
+            <textarea
+              ref={(el) => {
+                (textareaRef as React.MutableRefObject<HTMLTextAreaElement | null>).current = el;
+                autoResize(el);
+              }}
+              value={promptInput}
+              onChange={(e) => {
+                setPromptInput(e.target.value);
+                autoResize(e.target);
+              }}
+              onBlur={handlePromptBlur}
+              placeholder="请输入提示词"
+              rows={1}
+              disabled={isLoading || disabled}
+              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white text-gray-700 resize-none overflow-hidden disabled:opacity-50 disabled:cursor-not-allowed"
+            />
+            {!promptInput.trim() && (
+              <p className="text-xs text-red-500">自动修图需要配置提示词才能生效</p>
+            )}
+          </div>
+        </>
+      )}
     </div>
   );
 }

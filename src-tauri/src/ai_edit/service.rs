@@ -22,12 +22,13 @@ const MANUAL_QUEUE_CAPACITY: usize = 4;
 const AUTO_QUEUE_CAPACITY: usize = 32;
 const AIEDIT_SUBDIR: &str = "AIEdit";
 
-/// Default prompt when user leaves the prompt field empty
-const DEFAULT_EDIT_PROMPT: &str = "提升画质，使照片更清晰";
+/// Placeholder is no longer used — prompt must be explicitly configured
+const _DEFAULT_EDIT_PROMPT: &str = "提升画质，使照片更清晰";
 
 struct AiEditTask {
     file_path: PathBuf,
     override_prompt: Option<String>,
+    override_model: Option<String>,
     result_tx: Option<oneshot::Sender<Result<PathBuf, AppError>>>,
 }
 
@@ -66,10 +67,10 @@ impl AiEditService {
     }
 
     /// Auto-trigger: non-blocking enqueue.
-    /// Checks `enabled` and `auto_edit` before enqueueing — already-queued tasks always run to completion.
+    /// Checks `enabled`, `auto_edit`, and non-empty prompt before enqueueing.
     pub async fn on_file_uploaded(&self, file_path: PathBuf) {
         let should_enqueue = self.config_service.get()
-            .map(|c| c.ai_edit.enabled && c.ai_edit.auto_edit)
+            .map(|c| c.ai_edit.enabled && c.ai_edit.auto_edit && !c.ai_edit.prompt.trim().is_empty())
             .unwrap_or(false);
 
         if !should_enqueue {
@@ -80,6 +81,7 @@ impl AiEditService {
         if let Err(e) = self.auto_sender.try_send(AiEditTask {
             file_path,
             override_prompt: None,
+            override_model: None,
             result_tx: None,
         }) {
             self.queue_depth.fetch_sub(1, Ordering::Relaxed);
@@ -90,7 +92,7 @@ impl AiEditService {
     }
 
     /// Manual trigger: enqueue and wait for result.
-    pub async fn edit_single(&self, file_path: PathBuf, override_prompt: Option<String>) -> Result<PathBuf, AppError> {
+    pub async fn edit_single(&self, file_path: PathBuf, override_prompt: Option<String>, override_model: Option<String>) -> Result<PathBuf, AppError> {
         self.queue_depth.fetch_add(1, Ordering::Relaxed);
         let (tx, rx) = oneshot::channel();
 
@@ -98,6 +100,7 @@ impl AiEditService {
             .send(AiEditTask {
                 file_path,
                 override_prompt,
+                override_model,
                 result_tx: Some(tx),
             })
             .await
@@ -114,12 +117,13 @@ impl AiEditService {
     }
 
     /// Manual batch enqueue (non-blocking, no result callback).
-    pub async fn enqueue_manual(&self, file_path: PathBuf, override_prompt: Option<String>) -> Result<(), AppError> {
+    pub async fn enqueue_manual(&self, file_path: PathBuf, override_prompt: Option<String>, override_model: Option<String>) -> Result<(), AppError> {
         self.queue_depth.fetch_add(1, Ordering::Relaxed);
         if let Err(e) = self.manual_sender
             .send(AiEditTask {
                 file_path,
                 override_prompt,
+                override_model,
                 result_tx: None,
             })
             .await
@@ -194,6 +198,7 @@ async fn worker_loop(
 
     let mut cached_provider: Option<Box<dyn providers::AiEditProvider>> = None;
     let mut cached_api_key: Option<String> = None;
+    let mut cached_model: Option<String> = None;
 
     fn emit_batch_done(
         state: &mut WorkerState,
@@ -319,7 +324,7 @@ async fn worker_loop(
 
         // Process task with cancel awareness: abort current task on cancel
         let result = tokio::select! {
-            r = process_task(&task, &config_service, &mut cached_provider, &mut cached_api_key) => Some(r),
+            r = process_task(&task, &config_service, &mut cached_provider, &mut cached_api_key, &mut cached_model) => Some(r),
             _ = cancel_token.cancelled() => {
                 info!("AI edit cancelled during task processing");
                 None
@@ -405,6 +410,7 @@ async fn process_task(
     config_service: &ConfigService,
     cached_provider: &mut Option<Box<dyn providers::AiEditProvider>>,
     cached_api_key: &mut Option<String>,
+    cached_model: &mut Option<String>,
 ) -> Result<PathBuf, AppError> {
     let config = config_service.get()
         .map_err(|e| AppError::AiEditError(format!("Failed to read config: {}", e)))?;
@@ -427,10 +433,20 @@ async fn process_task(
     let current_api_key = match &ai_config.provider {
         super::config::ProviderConfig::SeedEdit(cfg) => cfg.api_key.clone(),
     };
+    // Use override_model for manual edits, fall back to config model for auto edits
+    let effective_model = task.override_model.as_deref()
+        .unwrap_or_else(|| match &ai_config.provider {
+            super::config::ProviderConfig::SeedEdit(cfg) => cfg.model.as_str(),
+        })
+        .to_string();
 
-    if cached_api_key.as_ref() != Some(&current_api_key) {
-        *cached_provider = Some(providers::create_provider(&ai_config.provider)?);
+    if cached_api_key.as_ref() != Some(&current_api_key) || cached_model.as_ref() != Some(&effective_model) {
+        let mut provider_config = ai_config.provider.clone();
+        let super::config::ProviderConfig::SeedEdit(ref mut cfg) = provider_config;
+        cfg.model = effective_model.clone();
+        *cached_provider = Some(providers::create_provider(&provider_config)?);
         *cached_api_key = Some(current_api_key);
+        *cached_model = Some(effective_model);
     }
 
     let provider = cached_provider.as_ref()
@@ -438,7 +454,7 @@ async fn process_task(
 
     let prompt = task.override_prompt.as_deref()
         .or_else(|| if ai_config.prompt.is_empty() { None } else { Some(&ai_config.prompt) })
-        .unwrap_or(DEFAULT_EDIT_PROMPT);
+        .ok_or_else(|| AppError::AiEditError("提示词不能为空，请先配置提示词".to_string()))?;
     let image_bytes = provider.edit_image(&prepared.base64_data, prepared.mime_type, prompt).await?;
 
     let output_dir = config.save_path.join(AIEDIT_SUBDIR);
@@ -510,6 +526,7 @@ mod tests {
         auto_sender.try_send(AiEditTask {
             file_path: task_path.clone(),
             override_prompt: None,
+            override_model: None,
             result_tx: None,
         }).unwrap();
 
@@ -527,6 +544,7 @@ mod tests {
         manual_sender.try_send(AiEditTask {
             file_path: PathBuf::from("/photos/test.jpg"),
             override_prompt: None,
+            override_model: None,
             result_tx: Some(tx),
         }).unwrap();
 
@@ -543,6 +561,7 @@ mod tests {
             auto_sender.try_send(AiEditTask {
                 file_path: PathBuf::from(format!("/photos/img_{i}.jpg")),
                 override_prompt: None,
+                override_model: None,
                 result_tx: None,
             }).unwrap();
         }
@@ -550,6 +569,7 @@ mod tests {
         let result = auto_sender.try_send(AiEditTask {
             file_path: PathBuf::from("/photos/overflow.jpg"),
             override_prompt: None,
+            override_model: None,
             result_tx: None,
         });
         assert!(result.is_err());
@@ -573,8 +593,8 @@ mod tests {
 
     #[test]
     fn default_edit_prompt_is_chinese() {
-        assert!(!DEFAULT_EDIT_PROMPT.is_empty());
-        assert!(DEFAULT_EDIT_PROMPT.contains("画质"));
+        assert!(!_DEFAULT_EDIT_PROMPT.is_empty());
+        assert!(_DEFAULT_EDIT_PROMPT.contains("画质"));
     }
 
     #[test]

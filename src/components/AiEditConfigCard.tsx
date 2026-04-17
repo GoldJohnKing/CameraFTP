@@ -7,16 +7,9 @@
 import { memo, useCallback } from 'react';
 import { Sparkles } from 'lucide-react';
 import { useConfigStore, useDraftConfig } from '../stores/configStore';
-import { Card, CardHeader, ToggleSwitch } from './ui';
+import { Card, CardHeader } from './ui';
 import { AiEditConfigPanel } from './AiEditConfigPanel';
 import type { AppConfig } from '../types';
-
-const DEFAULT_AI_EDIT_CONFIG = {
-  enabled: false,
-  autoEdit: true,
-  prompt: '',
-  provider: { type: 'seed-edit' as const, apiKey: '' },
-};
 
 export const AiEditConfigCard = memo(function AiEditConfigCard() {
   const { isLoading, updateDraft } = useConfigStore();
@@ -29,38 +22,21 @@ export const AiEditConfigCard = memo(function AiEditConfigCard() {
     });
   }, [updateDraft]);
 
+  if (!draft) return null;
+
   return (
-    <Card className="overflow-hidden">
+    <Card>
       <CardHeader
-        title="AI 修图"
-        description="使用 AI 自动优化接收到的照片"
+        title="AI 修图设置"
+        description="使用生成式 AI 调整照片"
         icon={<Sparkles className="w-5 h-5 text-amber-600" />}
-        action={
-          <ToggleSwitch
-            ariaLabel="启用AI修图"
-            enabled={draft?.aiEdit?.enabled ?? false}
-            onChange={(enabled) => {
-              const currentAiEdit = draft?.aiEdit ?? DEFAULT_AI_EDIT_CONFIG;
-              updateDraft(d => ({
-                ...d,
-                aiEdit: {
-                  ...currentAiEdit,
-                  enabled,
-                },
-              }));
-            }}
-            disabled={isLoading}
-          />
-        }
       />
 
-      {draft?.aiEdit?.enabled && (
-        <AiEditConfigPanel
-          config={draft}
-          isLoading={isLoading}
-          onUpdate={handleConfigUpdate}
-        />
-      )}
+      <AiEditConfigPanel
+        config={draft}
+        isLoading={isLoading}
+        onUpdate={handleConfigUpdate}
+      />
     </Card>
   );
 });

@@ -35,7 +35,7 @@ type UseGallerySelectionResult = {
   handleDelete: () => Promise<void>;
   handleShare: () => Promise<void>;
   handleAiEdit: () => void;
-  handleAiEditPromptConfirm: (prompt: string, shouldSave: boolean) => Promise<void>;
+  handleAiEditPromptConfirm: (prompt: string, model: string, saveAsAutoEdit: boolean) => Promise<void>;
   handleCancelAiEditPrompt: () => void;
   handleCancelSelection: () => void;
   toggleMenu: () => void;
@@ -242,17 +242,26 @@ export function useGallerySelection({ activeTab, onDeleteApplied, getUriForId }:
     setShowAiEditPrompt(true);
   }, [selectedIds]);
 
-  const handleAiEditPromptConfirm = useCallback(async (prompt: string, shouldSave: boolean) => {
+  const handleAiEditPromptConfirm = useCallback(async (prompt: string, model: string, saveAsAutoEdit: boolean) => {
     setShowAiEditPrompt(false);
 
-    if (shouldSave) {
-      const draft = useConfigStore.getState().draft;
-      if (draft && prompt !== draft.aiEdit.prompt) {
-        useConfigStore.getState().updateDraft(d => ({
-          ...d,
-          aiEdit: { ...d.aiEdit, prompt },
-        }));
-      }
+    const draft = useConfigStore.getState().draft;
+    if (draft) {
+      useConfigStore.getState().updateDraft(d => ({
+        ...d,
+        aiEdit: {
+          ...d.aiEdit,
+          manualPrompt: prompt,
+          manualModel: model,
+          ...(saveAsAutoEdit ? {
+            prompt,
+            provider: {
+              ...d.aiEdit.provider,
+              model,
+            },
+          } : {}),
+        },
+      }));
     }
 
     const uris = [...selectedIds]
@@ -266,7 +275,7 @@ export function useGallerySelection({ activeTab, onDeleteApplied, getUriForId }:
     const filePaths = uris
       .map((uri) => window.ImageViewerAndroid?.resolveFilePath?.(uri) ?? uri);
 
-    await enqueueAiEdit(filePaths, prompt, shouldSave);
+    await enqueueAiEdit(filePaths, prompt, model);
   }, [selectedIds, getUriForId]);
 
   const handleCancelAiEditPrompt = useCallback(() => {

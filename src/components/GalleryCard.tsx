@@ -5,7 +5,7 @@
  */
 
 import { memo, useCallback, useEffect, useState } from 'react';
-import { ImageOff, X, Trash2, Share2, Lightbulb, MoreVertical } from 'lucide-react';
+import { ImageOff, X, Trash2, Share2, Sparkles, MoreVertical } from 'lucide-react';
 import { useConfigStore } from '../stores/configStore';
 import { usePermissionStore } from '../stores/permissionStore';
 import type { MediaItemDto, GalleryItemsAddedEvent, GalleryItemsDeletedEvent } from '../types';
@@ -279,7 +279,7 @@ export const GalleryCard = memo(function GalleryCard() {
                   disabled={selectedIds.size === 0}
                   className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed border-t border-gray-100"
                 >
-                  <Lightbulb className="w-5 h-5 text-amber-500" />
+                  <Sparkles className="w-5 h-5 text-amber-600" />
                   <span>修图({selectedIds.size})</span>
                 </button>
               )}
@@ -313,7 +313,9 @@ export const GalleryCard = memo(function GalleryCard() {
       {/* AI修图提示词对话框 */}
       <PromptDialog
         isOpen={showAiEditPrompt}
-        defaultPrompt={draft?.aiEdit?.prompt ?? ''}
+        defaultPrompt={draft?.aiEdit?.manualPrompt || ''}
+        defaultModel={draft?.aiEdit?.manualModel || undefined}
+        autoEditEnabled={draft?.aiEdit?.autoEdit ?? false}
         onConfirm={handleAiEditPromptConfirm}
         onCancel={handleCancelAiEditPrompt}
       />

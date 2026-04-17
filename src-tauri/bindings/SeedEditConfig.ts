@@ -5,6 +5,10 @@
  */
 export type SeedEditConfig = { 
 /**
- * API Key（用户唯一需要配置的字段）
+ * API Key
  */
-apiKey: string, };
+apiKey: string, 
+/**
+ * 模型 ID
+ */
+model: string, };

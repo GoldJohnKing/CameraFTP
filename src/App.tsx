@@ -38,19 +38,33 @@ function App() {
     const w = window as unknown as Record<string, unknown>;
 
     w.__tauriGetAiEditPrompt = () => {
-      return useConfigStore.getState().draft?.aiEdit?.prompt ?? '';
+      const draft = useConfigStore.getState().draft;
+      const manualPrompt = draft?.aiEdit?.manualPrompt || '';
+      const manualModel = draft?.aiEdit?.manualModel || '';
+      const prompt = manualPrompt || draft?.aiEdit?.prompt || '';
+      const model = manualModel || (draft?.aiEdit?.provider?.type === 'seed-edit' ? draft.aiEdit.provider.model : '') || '';
+      const autoEdit = draft?.aiEdit?.autoEdit ?? false;
+      return JSON.stringify({ prompt, model, autoEdit });
     };
 
-    w.__tauriTriggerAiEditWithPrompt = async (filePath: string, prompt: string, shouldSave: boolean) => {
-      const draft = useConfigStore.getState().draft;
-      if (shouldSave && draft && prompt !== draft.aiEdit.prompt) {
-        updateDraft(d => ({
-          ...d,
-          aiEdit: { ...d.aiEdit, prompt },
-        }));
-      }
+    w.__tauriTriggerAiEditWithPrompt = async (filePath: string, prompt: string, model?: string, saveAsAutoEdit?: boolean) => {
+      updateDraft(d => ({
+        ...d,
+        aiEdit: {
+          ...d.aiEdit,
+          manualPrompt: prompt,
+          manualModel: model ?? '',
+          ...(saveAsAutoEdit ? {
+            prompt,
+            provider: {
+              ...d.aiEdit.provider,
+              model: model ?? d.aiEdit.provider.model,
+            },
+          } : {}),
+        },
+      }));
 
-      await enqueueAiEdit([filePath], prompt, shouldSave);
+      await enqueueAiEdit([filePath], prompt, model);
     };
 
     w.__tauriGetAiEditProgress = () => {

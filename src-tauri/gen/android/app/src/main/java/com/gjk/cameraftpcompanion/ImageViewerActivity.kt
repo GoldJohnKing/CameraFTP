@@ -34,6 +34,7 @@ import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -141,7 +142,7 @@ class ImageViewerActivity : AppCompatActivity() {
     private lateinit var btnRotate: ImageButton
     private lateinit var btnDelete: ImageButton
     private lateinit var aiEditProgressContainer: FrameLayout
-    private lateinit var aiEditProgressFill: View
+    private lateinit var aiEditProgressFill: FrameLayout
     private lateinit var aiEditProgressHighlight: View
     private lateinit var aiEditProgressEdge: View
     private lateinit var aiEditStatusText: TextView
@@ -155,15 +156,6 @@ class ImageViewerActivity : AppCompatActivity() {
     private var isBottomBarVisible = true
     private var pendingDeleteUri: String? = null
     private var isAiEditing = false
-        set(value) {
-            field = value
-            runOnUiThread {
-                if (!isFinishing && !isDestroyed) {
-                    btnAiEdit.isEnabled = !value
-                    btnAiEdit.alpha = if (value) 0.5f else 1f
-                }
-            }
-        }
     private var promptWebView: WebView? = null
 
     private val deleteRequestLauncher = registerForActivityResult(
@@ -270,11 +262,37 @@ class ImageViewerActivity : AppCompatActivity() {
                 .withEndAction { bottomBar.visibility = View.GONE }
                 .start()
         }
+        updateProgressBarPosition()
+    }
+
+    private fun updateProgressBarPosition() {
+        val lp = aiEditProgressContainer.layoutParams as? FrameLayout.LayoutParams ?: return
+        val screenWidth = resources.displayMetrics.widthPixels
+        lp.width = screenWidth * 2 / 3
+        lp.gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
+        lp.marginStart = 0
+        lp.marginEnd = 0
+        lp.bottomMargin = if (isBottomBarVisible && bottomBar.visibility != View.GONE) {
+            val barHeight = bottomBar.height
+            if (barHeight > 0) {
+                barHeight + (bottomBar.layoutParams as? FrameLayout.LayoutParams)?.bottomMargin?.let { if (it > 0) it else 8.dpToPx() }!! + 12.dpToPx()
+            } else {
+                // bottomBar not laid out yet, use default spacing
+                92.dpToPx()
+            }
+        } else {
+            16.dpToPx()
+        }
+        aiEditProgressContainer.layoutParams = lp
+    }
+
+    private fun Int.dpToPx(): Int {
+        return (this * resources.displayMetrics.density).toInt()
     }
 
     private fun setupButtons() {
         btnAiEdit.setOnClickListener {
-            if (!isAiEditing && uris.isNotEmpty() && currentIndex in uris.indices) {
+            if (uris.isNotEmpty() && currentIndex in uris.indices) {
                 triggerAiEditForCurrentImage()
             }
         }
@@ -444,18 +462,41 @@ class ImageViewerActivity : AppCompatActivity() {
             return
         }
 
-        // Fetch current prompt from WebView config, then show WebView overlay dialog
+        // Fetch current prompt and model from WebView config, then show WebView overlay dialog
         mainActivity.runOnUiThread {
             mainActivity.getWebView()?.evaluateJavascript(
                 "(function(){try{return window.__tauriGetAiEditPrompt?.()??''}catch(e){return ''}})();"
             ) { result ->
-                val currentPrompt = result?.trim()?.removeSurrounding("\"")?.replace("\\n", "\n") ?: ""
-                runOnUiThread { showPromptWebViewOverlay(filePath, currentPrompt, mainActivity) }
+                // evaluateJavascript JSON-encodes the JS return value.
+                // JS returns JSON.stringify({prompt, model}), so the callback
+                // gives us a double-encoded string like: "{\"prompt\":\"...\",\"model\":\"...\"}"
+                // We decode the outer JSON string literal via JSONArray, then parse the inner JSON.
+                val jsonString = try {
+                    val trimmed = result?.trim() ?: ""
+                    if (trimmed.startsWith("\"")) {
+                        org.json.JSONArray("[$trimmed]").getString(0)
+                    } else {
+                        trimmed
+                    }
+                } catch (_: Exception) {
+                    result?.trim()?.removeSurrounding("\"") ?: ""
+                }
+                val (currentPrompt, currentModel) = try {
+                    val json = org.json.JSONObject(jsonString)
+                    json.optString("prompt", "").replace("\\n", "\n") to json.optString("model", "")
+                } catch (e: Exception) {
+                    jsonString.replace("\\n", "\n") to ""
+                }
+                val autoEdit = try {
+                    val json = org.json.JSONObject(jsonString)
+                    json.optBoolean("autoEdit", false)
+                } catch (_: Exception) { false }
+                runOnUiThread { showPromptWebViewOverlay(filePath, currentPrompt, currentModel, autoEdit, mainActivity) }
             }
         }
     }
 
-    private fun showPromptWebViewOverlay(filePath: String, currentPrompt: String, mainActivity: MainActivity) {
+    private fun showPromptWebViewOverlay(filePath: String, currentPrompt: String, currentModel: String, autoEditEnabled: Boolean, mainActivity: MainActivity) {
         val rootView = findViewById<FrameLayout>(android.R.id.content)
 
         // Dismiss any existing overlay
@@ -465,6 +506,26 @@ class ImageViewerActivity : AppCompatActivity() {
             .replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
             .replace("\"", "&quot;").replace("'", "&#39;")
             .replace("\n", "&#10;")
+
+        // Determine which model option is selected
+        val modelOptions = listOf(
+            "doubao-seedream-5-0-260128" to "Doubao-Seedream-5.0-lite",
+            "doubao-seedream-4-5-251128" to "Doubao-Seedream-4.5",
+            "doubao-seedream-4-0-250828" to "Doubao-Seedream-4.0",
+        )
+        val selectedModel = currentModel.ifEmpty { modelOptions.first().first }
+        val modelOptionHtml = modelOptions.joinToString("") { (value, label) ->
+            val sel = if (value == selectedModel) " selected" else ""
+            """<div class="dropdown-opt$sel" data-value="$value">$label</div>"""
+        }
+        val selectedLabel = modelOptions.find { it.first == selectedModel }?.second ?: selectedModel
+
+        val saveToggleHtml = if (autoEditEnabled) {
+            """<div class="save-toggle" onclick="toggleSave()">
+                    <div class="toggle" id="saveToggle"></div>
+                    <span>保存为自动修图设置</span>
+                  </div>"""
+        } else ""
 
         val html = """
             <!DOCTYPE html>
@@ -500,6 +561,9 @@ class ImageViewerActivity : AppCompatActivity() {
               .close-btn:hover { color: #4b5563; background: #f3f4f6; }
               .close-btn svg { width: 20px; height: 20px; }
               .content { padding: 16px; overflow-y: auto; }
+              .field-group { margin-bottom: 12px; }
+              .field-group:last-child { margin-bottom: 0; }
+              .field-label { font-size: 12px; font-weight: 500; color: #6b7280; margin-bottom: 4px; }
               textarea {
                 width: 100%; padding: 8px 12px; border: 1px solid #e5e7eb;
                 border-radius: 8px; font-size: 14px; color: #374151;
@@ -507,27 +571,61 @@ class ImageViewerActivity : AppCompatActivity() {
                 font-family: inherit; line-height: 1.5;
               }
               textarea:focus { border-color: transparent; box-shadow: 0 0 0 2px #3b82f6; }
-              .hint { font-size: 12px; color: #9ca3af; margin-top: 8px; }
-              .footer {
+              .dropdown { position: relative; }
+              .dropdown-btn {
+                width: 100%; padding: 8px 12px; border: 1px solid #e5e7eb;
+                border-radius: 8px; font-size: 14px; color: #374151;
+                background: #fff; outline: none; cursor: pointer;
                 display: flex; align-items: center; justify-content: space-between;
-                padding: 16px; border-top: 1px solid #e5e7eb;
+                text-align: left; -webkit-user-select: none; user-select: none;
+                -webkit-tap-highlight-color: transparent;
               }
-              .save-toggle { display: flex; align-items: center; gap: 8px; cursor: pointer; }
-              .save-toggle span { font-size: 14px; color: #374151; font-weight: 500; }
-              .toggle {
-                position: relative; width: 44px; height: 24px;
-                background: #d1d5db; border-radius: 12px;
-                transition: background 0.2s; cursor: pointer; flex-shrink: 0;
+              .dropdown-btn:hover { border-color: #d1d5db; }
+              .dropdown-btn .chevron {
+                width: 16px; height: 16px; color: #9ca3af;
+                transition: transform 0.2s; flex-shrink: 0;
               }
-              .toggle.on { background: #2563eb; }
-              .toggle::after {
-                content: ''; position: absolute;
-                width: 16px; height: 16px; background: #fff;
-                border-radius: 50%; top: 4px; left: 4px;
-                transition: transform 0.2s;
+              .dropdown-btn.open .chevron { transform: rotate(180deg); }
+              .dropdown-panel {
+                position: absolute; left: 0; right: 0;
+                margin-top: 4px; background: #fff; border: 1px solid #e5e7eb;
+                border-radius: 8px; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1), 0 4px 6px -4px rgba(0,0,0,0.1);
+                padding: 4px 0; z-index: 10; max-height: 240px; overflow-y: auto;
+                opacity: 0; transform: scaleY(0.95) translateY(-4px);
+                transform-origin: top; pointer-events: none;
+                transition: opacity 0.15s ease, transform 0.15s ease;
               }
-              .toggle.on::after { transform: translateX(20px); }
-              .actions { display: flex; gap: 8px; }
+              .dropdown-panel.open {
+                opacity: 1; transform: scaleY(1) translateY(0);
+                pointer-events: auto;
+              }
+              .dropdown-opt {
+                padding: 8px 12px; font-size: 14px;
+                color: #374151; cursor: pointer;
+                -webkit-tap-highlight-color: transparent;
+              }
+              .dropdown-opt:hover { background: #f9fafb; }
+              .dropdown-opt.selected { background: #eff6ff; color: #1d4ed8; font-weight: 500; }
+          .footer {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 16px; border-top: 1px solid #e5e7eb;
+          }
+          .save-toggle { display: flex; align-items: center; gap: 8px; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+          .save-toggle span { font-size: 14px; color: #374151; font-weight: 500; }
+          .toggle {
+            position: relative; width: 44px; height: 24px;
+            background: #d1d5db; border-radius: 12px;
+            transition: background 0.2s; cursor: pointer; flex-shrink: 0;
+          }
+          .toggle.on { background: #2563eb; }
+          .toggle::after {
+            content: ''; position: absolute;
+            width: 16px; height: 16px; background: #fff;
+            border-radius: 50%; top: 4px; left: 4px;
+            transition: transform 0.2s;
+          }
+          .toggle.on::after { transform: translateX(20px); }
+          .actions { display: flex; gap: 8px; }
               .btn {
                 padding: 8px 16px; border-radius: 8px; font-size: 14px;
                 font-weight: 500; border: none; cursor: pointer;
@@ -536,46 +634,101 @@ class ImageViewerActivity : AppCompatActivity() {
               .btn-cancel:hover { background: #e5e7eb; }
               .btn-confirm { background: #2563eb; color: #fff; }
               .btn-confirm:hover { background: #1d4ed8; }
+              .btn-confirm:disabled { opacity: 0.5; cursor: not-allowed; }
+              .header-icon { color: #d97706; flex-shrink: 0; }
             </style>
             </head>
             <body>
             <div class="overlay" onclick="if(event.target===this)NativeBridge.onCancel()">
               <div class="card">
                 <div class="header">
-                  <div class="title-group">
-                    <div class="title">AI修图提示词</div>
-                    <div class="subtitle">编辑提示词后确认触发修图</div>
+                  <div style="display:flex;align-items:center;gap:12px">
+                    <div style="width:40px;height:40px;background:#f3f4f6;border-radius:8px;display:flex;align-items:center;justify-content:center"><svg class="header-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/><path d="M20 3v4"/><path d="M22 5h-4"/></svg></div>
+                    <div class="title-group">
+                      <div class="title">AI修图</div>
+                      <div class="subtitle">使用生成式 AI 调整照片</div>
+                    </div>
                   </div>
                   <button class="close-btn" onclick="NativeBridge.onCancel()">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
                   </button>
                 </div>
                 <div class="content">
-                  <textarea id="prompt" rows="4" placeholder="例如：提升画质，使照片更清晰">${escapedPrompt}</textarea>
-                  <div class="hint">留空使用默认提示词</div>
+                  <div class="field-group">
+                    <div class="field-label">模型</div>
+                    <div class="dropdown" id="modelDropdown">
+                      <button class="dropdown-btn" type="button" onclick="toggleDropdown()">
+                        <span id="modelLabel">$selectedLabel</span>
+                        <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+                      </button>
+                      <div class="dropdown-panel" id="modelPanel">$modelOptionHtml</div>
+                    </div>
+                  </div>
+                  <div class="field-group">
+                    <div class="field-label">提示词</div>
+                    <textarea id="prompt" rows="4" placeholder="请输入提示词">${escapedPrompt}</textarea>
+                  </div>
                 </div>
                 <div class="footer">
-                  <div class="save-toggle" onclick="toggleSave()">
-                    <div class="toggle on" id="saveToggle"></div>
-                    <span>保存提示词</span>
-                  </div>
-                  <div class="actions">
+                  $saveToggleHtml
+                  <div class="actions" style="margin-left:auto">
                     <button class="btn btn-cancel" onclick="NativeBridge.onCancel()">取消</button>
-                    <button class="btn btn-confirm" onclick="onConfirm()">确认修图</button>
+                    <button class="btn btn-confirm" id="confirmBtn" onclick="onConfirm()" disabled>确认</button>
                   </div>
                 </div>
               </div>
             </div>
             <script>
-              var savePrompt = true;
+              var saveAsAutoEdit = false;
+              var selectedModel = '$selectedModel';
               function toggleSave() {
-                savePrompt = !savePrompt;
-                document.getElementById('saveToggle').className = 'toggle' + (savePrompt ? ' on' : '');
+                saveAsAutoEdit = !saveAsAutoEdit;
+                document.getElementById('saveToggle').className = 'toggle' + (saveAsAutoEdit ? ' on' : '');
               }
+              function toggleDropdown() {
+                var panel = document.getElementById('modelPanel');
+                var btn = panel.previousElementSibling;
+                var isOpen = panel.classList.contains('open');
+                if (isOpen) {
+                  panel.classList.remove('open');
+                  btn.classList.remove('open');
+                } else {
+                  panel.classList.add('open');
+                  btn.classList.add('open');
+                }
+              }
+              function closeDropdown() {
+                var panel = document.getElementById('modelPanel');
+                var btn = panel.previousElementSibling;
+                panel.classList.remove('open');
+                btn.classList.remove('open');
+              }
+              document.getElementById('modelPanel').addEventListener('click', function(e) {
+                var opt = e.target.closest('.dropdown-opt');
+                if (!opt) return;
+                selectedModel = opt.getAttribute('data-value');
+                document.getElementById('modelLabel').textContent = opt.textContent;
+                var allOpts = this.querySelectorAll('.dropdown-opt');
+                for (var i = 0; i < allOpts.length; i++) allOpts[i].classList.remove('selected');
+                opt.classList.add('selected');
+                closeDropdown();
+              });
+              document.addEventListener('click', function(e) {
+                if (!document.getElementById('modelDropdown').contains(e.target)) {
+                  closeDropdown();
+                }
+              });
               function onConfirm() {
                 var prompt = document.getElementById('prompt').value.trim();
-                NativeBridge.onConfirm(prompt, savePrompt);
+                if (!prompt) return;
+                NativeBridge.onConfirm(prompt, selectedModel, saveAsAutoEdit);
               }
+              function updateConfirmBtn() {
+                var prompt = document.getElementById('prompt').value.trim();
+                document.getElementById('confirmBtn').disabled = !prompt;
+              }
+              document.getElementById('prompt').addEventListener('input', updateConfirmBtn);
+              updateConfirmBtn();
               document.getElementById('prompt').focus();
             </script>
             </body>
@@ -590,10 +743,10 @@ class ImageViewerActivity : AppCompatActivity() {
             isHorizontalScrollBarEnabled = false
             addJavascriptInterface(object {
                 @JavascriptInterface
-                fun onConfirm(prompt: String, shouldSave: Boolean) {
+                fun onConfirm(prompt: String, model: String, saveAsAutoEdit: Boolean) {
                     runOnUiThread {
                         dismissPromptWebView()
-                        dispatchAiEdit(filePath, prompt, shouldSave, mainActivity)
+                        dispatchAiEdit(filePath, prompt, model, saveAsAutoEdit, mainActivity)
                     }
                 }
                 @JavascriptInterface
@@ -620,17 +773,19 @@ class ImageViewerActivity : AppCompatActivity() {
         promptWebView = null
     }
 
-    private fun dispatchAiEdit(filePath: String, prompt: String, shouldSave: Boolean, mainActivity: MainActivity) {
+    private fun dispatchAiEdit(filePath: String, prompt: String, model: String, saveAsAutoEdit: Boolean, mainActivity: MainActivity) {
         isAiEditing = true
 
         val escapedPath = filePath.replace("\\", "\\\\").replace("'", "\\'")
         val escapedPrompt = prompt.replace("\\", "\\\\").replace("'", "\\'")
             .replace("\n", "\\n").replace("\r", "\\r")
+        val escapedModel = model.replace("\\", "\\\\").replace("'", "\\'")
+        val saveFlag = if (saveAsAutoEdit) "true" else "false"
 
         val js = """
             (function() {
                 if (window.__tauriTriggerAiEditWithPrompt) {
-                    window.__tauriTriggerAiEditWithPrompt('$escapedPath', '$escapedPrompt', $shouldSave);
+                    window.__tauriTriggerAiEditWithPrompt('$escapedPath', '$escapedPrompt', '$escapedModel', $saveFlag);
                     return 'ok';
                 }
                 return 'no_handler';
@@ -670,6 +825,15 @@ class ImageViewerActivity : AppCompatActivity() {
         }
     }
 
+    private fun resetProgressAppearance() {
+        aiEditProgressContainer.background = ContextCompat.getDrawable(this, R.drawable.progress_bar_bg)
+        aiEditProgressFill.setBackgroundColor(0)
+        aiEditProgressFill.background = ContextCompat.getDrawable(this, R.drawable.progress_bar_fill)
+        aiEditProgressEdge.setBackgroundColor(0)
+        aiEditProgressEdge.background = ContextCompat.getDrawable(this, R.drawable.progress_bar_edge)
+        aiEditStatusText.setTextColor(0xFF60A5FA.toInt())
+    }
+
     /**
      * Called from JS bridge when AI edit completes (success or failure)
      */
@@ -679,19 +843,80 @@ class ImageViewerActivity : AppCompatActivity() {
             stopHighlightSweepAnimation()
             if (isFinishing || isDestroyed) return@runOnUiThread
             if (success) {
-                aiEditProgressContainer.visibility = View.GONE
+                stopHighlightSweepAnimation()
+                // Green container background
+                aiEditProgressContainer.background = android.graphics.drawable.GradientDrawable().apply {
+                    shape = android.graphics.drawable.GradientDrawable.RECTANGLE
+                    setColor(0xBF1A3C1A.toInt())
+                    cornerRadius = 12f * resources.displayMetrics.density
+                    setStroke(1 * resources.displayMetrics.density.toInt(), 0x3322C55E.toInt())
+                }
+                // Green fill overlay — static gradient matching editing style
+                aiEditProgressFill.layoutParams = FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.MATCH_PARENT
+                )
+                aiEditProgressFill.background = android.graphics.drawable.GradientDrawable(
+                    android.graphics.drawable.GradientDrawable.Orientation.LEFT_RIGHT,
+                    intArrayOf(0x0022C55E.toInt(), 0x2622C55E.toInt(), 0x2622C55E.toInt(), 0x0022C55E.toInt())
+                )
+                aiEditProgressFill.visibility = View.VISIBLE
+                aiEditProgressHighlight.visibility = View.GONE
+                // Green full-width bottom edge — static gradient
+                aiEditProgressEdge.layoutParams = FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    2,
+                    Gravity.BOTTOM
+                )
+                aiEditProgressEdge.background = android.graphics.drawable.GradientDrawable(
+                    android.graphics.drawable.GradientDrawable.Orientation.LEFT_RIGHT,
+                    intArrayOf(0x004ADE80.toInt(), 0x994ADE80.toInt(), 0x994ADE80.toInt(), 0x004ADE80.toInt())
+                )
+                // Text
+                aiEditStatusText.text = "修图完成"
+                aiEditStatusText.setTextColor(0xFFFFFFFF.toInt())
+                aiEditProgressText.text = message ?: "修图完成"
+                aiEditFailureText.visibility = View.GONE
+                // Dismiss button
+                aiEditCancelBtn.visibility = View.VISIBLE
+                aiEditCancelBtn.text = "✕"
+                aiEditCancelBtn.setOnClickListener {
+                    resetProgressAppearance()
+                    aiEditProgressContainer.visibility = View.GONE
+                }
             } else {
+                // Red container background
+                aiEditProgressContainer.background = android.graphics.drawable.GradientDrawable().apply {
+                    shape = android.graphics.drawable.GradientDrawable.RECTANGLE
+                    setColor(0xB35C1A1A.toInt())
+                    cornerRadius = 12f * resources.displayMetrics.density
+                    setStroke(1 * resources.displayMetrics.density.toInt(), 0x33EF4444.toInt())
+                }
+                // Red fill overlay
+                aiEditProgressFill.layoutParams = FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.MATCH_PARENT
+                )
+                aiEditProgressFill.setBackgroundColor(0x33EF4444.toInt())
+                aiEditProgressFill.visibility = View.VISIBLE
+                // Red full-width bottom edge
+                aiEditProgressEdge.layoutParams = FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    2,
+                    Gravity.BOTTOM
+                )
+                aiEditProgressEdge.setBackgroundColor(0x99F87171.toInt())
+                // Text
                 aiEditStatusText.text = "修图完成"
                 aiEditStatusText.setTextColor(0xFFFFFFFF.toInt())
                 aiEditProgressText.text = message ?: "修图失败"
                 aiEditFailureText.visibility = View.GONE
+                // Dismiss button
                 aiEditCancelBtn.text = "✕"
                 aiEditCancelBtn.setOnClickListener {
+                    resetProgressAppearance()
                     aiEditProgressContainer.visibility = View.GONE
                 }
-                aiEditProgressContainer.postDelayed({
-                    aiEditProgressContainer.visibility = View.GONE
-                }, 3000)
             }
         }
     }
@@ -700,6 +925,7 @@ class ImageViewerActivity : AppCompatActivity() {
         runOnUiThread {
             if (isFinishing || isDestroyed) return@runOnUiThread
 
+            resetProgressAppearance()
             aiEditProgressContainer.visibility = View.VISIBLE
             aiEditStatusText.visibility = View.VISIBLE
             aiEditStatusText.text = "AI修图中..."
@@ -713,6 +939,9 @@ class ImageViewerActivity : AppCompatActivity() {
                     )
                 }
             }
+
+            // Position after layout so bottomBar height is available
+            aiEditProgressContainer.post { updateProgressBarPosition() }
 
             val percent = if (total > 0) (current * 100) / total else 0
 
@@ -978,7 +1207,6 @@ class ImageViewerActivity : AppCompatActivity() {
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
         val wasAiEditVisible = btnAiEdit.visibility
-        val wasAiEditing = isAiEditing
 
         setContentView(R.layout.activity_image_viewer)
 
@@ -1001,15 +1229,14 @@ class ImageViewerActivity : AppCompatActivity() {
         aiEditCancelBtn = findViewById(R.id.ai_edit_cancel_btn)
 
         btnAiEdit.visibility = wasAiEditVisible
-        if (wasAiEditing) {
-            btnAiEdit.isEnabled = false
-            btnAiEdit.alpha = 0.5f
-        }
 
         setupViewPager()
         setupButtons()
         updateUI()
         syncAiEditProgressFromWebView()
+        if (aiEditProgressContainer.visibility == View.VISIBLE) {
+            updateProgressBarPosition()
+        }
     }
 
     @Deprecated("Deprecated in Java")
