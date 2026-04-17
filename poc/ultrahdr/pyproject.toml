@@ -1,0 +1,11 @@
+[project]
+name = "ultrahdr-poc"
+version = "0.1.0"
+description = "RAW → Ultra HDR feasibility validation"
+requires-python = ">=3.10"
+dependencies = [
+    "rawpy",
+    "numpy",
+    "Pillow",
+    "scipy",
+]
