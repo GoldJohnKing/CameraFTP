@@ -563,7 +563,7 @@ class ImageViewerActivity : AppCompatActivity() {
               .content { padding: 16px; overflow-y: auto; }
               .field-group { margin-bottom: 12px; }
               .field-group:last-child { margin-bottom: 0; }
-              .field-label { font-size: 12px; font-weight: 500; color: #6b7280; margin-bottom: 4px; }
+              .field-label { font-size: 14px; font-weight: 500; color: #374151; margin-bottom: 4px; }
               textarea {
                 width: 100%; padding: 8px 12px; border: 1px solid #e5e7eb;
                 border-radius: 8px; font-size: 14px; color: #374151;

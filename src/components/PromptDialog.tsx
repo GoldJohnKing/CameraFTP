@@ -85,16 +85,16 @@ export function PromptDialog({ isOpen, defaultPrompt, defaultModel, autoEditEnab
       }
     >
       <div className="space-y-3">
-        <div className="space-y-1">
-          <label className="block text-xs font-medium text-gray-500">模型</label>
+        <div className="space-y-2">
+          <label className="block text-sm font-medium text-gray-700">模型</label>
           <Select
             value={model}
             options={SEEDREAM_MODELS}
             onChange={setModel}
           />
         </div>
-        <div className="space-y-1">
-          <label className="block text-xs font-medium text-gray-500">提示词</label>
+        <div className="space-y-2">
+          <label className="block text-sm font-medium text-gray-700">提示词</label>
           <textarea
             ref={textareaRef}
             value={prompt}
