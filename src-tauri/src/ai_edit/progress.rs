@@ -5,7 +5,7 @@
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq)]
 #[ts(export)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum AiEditProgressEvent {
@@ -121,8 +121,7 @@ mod tests {
         for event in &events {
             let json = serde_json::to_string(event).unwrap();
             let back: AiEditProgressEvent = serde_json::from_str(&json).unwrap();
-            assert_eq!(format!("{:?}", event), format!("{:?}", back),
-                "Roundtrip failed for variant: json={}", json);
+            assert_eq!(event, &back, "Roundtrip failed for variant: json={}", json);
         }
     }
 

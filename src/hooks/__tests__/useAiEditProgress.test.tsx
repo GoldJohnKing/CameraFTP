@@ -65,7 +65,7 @@ vi.mock('../../stores/configStore', () => ({
   useConfigStore: { getState: mockConfigGetState },
 }));
 
-import { useAiEditProgress, dismissDone, useAiEditProgressListener, cancelAiEdit } from '../useAiEditProgress';
+import { useAiEditProgress, dismissDone, useAiEditProgressListener, cancelAiEdit, enqueueAiEdit } from '../useAiEditProgress';
 
 function Harness() {
   const state = useAiEditProgress();
@@ -442,5 +442,14 @@ describe('useAiEditProgress', () => {
     // total should remain 0 (no editing session active)
     expect(getText('total')).toBe('0');
     expect(getText('is-editing')).toBe('no');
+  });
+
+  it('enqueueAiEdit passes multiple files to backend', async () => {
+    await enqueueAiEdit(['/tmp/a.jpg', '/tmp/b.jpg', '/tmp/c.jpg'], 'test prompt', 'test-model');
+    expect(invokeMock).toHaveBeenCalledWith('enqueue_ai_edit', {
+      filePaths: ['/tmp/a.jpg', '/tmp/b.jpg', '/tmp/c.jpg'],
+      prompt: 'test prompt',
+      model: 'test-model',
+    });
   });
 });

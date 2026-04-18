@@ -200,6 +200,7 @@ impl WorkerState {
 enum SelectOutcome {
     Task(AiEditTask),
     Cancelled,
+    AutoChannelClosed(AiEditTask),
     ShutDown,
 }
 
@@ -225,7 +226,7 @@ async fn select_next_task(
                 tokio::select! {
                     _ = cancel_token.cancelled() => SelectOutcome::Cancelled,
                     task = manual_rx.recv() => match task {
-                        Some(t) => SelectOutcome::Task(t),
+                        Some(t) => SelectOutcome::AutoChannelClosed(t),
                         None => SelectOutcome::ShutDown,
                     },
                 }
@@ -294,6 +295,13 @@ async fn worker_loop(
         } else {
             match select_next_task(&mut manual_rx, &mut auto_rx, &cancel_token).await {
                 SelectOutcome::Task(task) => task,
+                SelectOutcome::AutoChannelClosed(task) => {
+                    // Auto channel closed mid-batch — emit Done if batch has pending results
+                    if queue_depth.load(Ordering::Relaxed) == 0 && state.processed_count() > 0 {
+                        emit_batch_done(&mut state, &app_handle);
+                    }
+                    task
+                }
                 SelectOutcome::Cancelled => {
                     info!("AI edit worker cancelled while waiting");
                     drain_pending_tasks(&mut manual_rx, &mut auto_rx, &queue_depth);
@@ -545,7 +553,43 @@ mod tests {
         assert_eq!(state.failed_files.len(), 1);
     }
 
-    // Note: Cancel behavior is exercised through the tokio::select! branches
-    // in worker_loop. The redundant top-of-loop check was removed because
-    // select! already handles cancel_token.cancelled() at every await point.
+    #[tokio::test]
+    async fn write_edited_image_handles_collisions() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let data = b"test-image-bytes";
+
+        // Create a file that collides with the primary name
+        let collision_path = dir.path().join("photo_AIEdit_20260101_120000.000.jpg");
+        tokio::fs::write(&collision_path, b"existing").await.unwrap();
+
+        let result = write_edited_image(dir.path(), "photo", "20260101_120000.000", data).await;
+        assert!(result.is_ok(), "Should succeed with retry name");
+        let output = result.unwrap();
+        assert_ne!(output, collision_path, "Should use a different filename");
+        assert!(output.file_name().unwrap().to_str().unwrap().contains("_1.jpg"));
+    }
+
+    #[test]
+    fn prompt_selection_prefers_override_over_config() {
+        // override_prompt > config.prompt (if non-empty) > None
+        let override_prompt: Option<&str> = Some("override");
+        let config_prompt = "config-prompt";
+
+        let result = override_prompt
+            .or_else(|| if config_prompt.is_empty() { None } else { Some(config_prompt) });
+        assert_eq!(result, Some("override"));
+
+        // Test fallback to config prompt
+        let override_prompt: Option<&str> = None;
+        let result = override_prompt
+            .or_else(|| if config_prompt.is_empty() { None } else { Some(config_prompt) });
+        assert_eq!(result, Some("config-prompt"));
+
+        // Test error case: both empty
+        let override_prompt: Option<&str> = None;
+        let config_prompt = "";
+        let result = override_prompt
+            .or_else(|| if config_prompt.is_empty() { None } else { Some(config_prompt) });
+        assert!(result.is_none());
+    }
 }
