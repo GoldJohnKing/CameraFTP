@@ -1237,13 +1237,10 @@ class ImageViewerActivity : AppCompatActivity() {
 
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
-        val wasAiEditVisible = btnAiEdit.visibility
 
         setContentView(R.layout.activity_image_viewer)
 
         bindViews()
-
-        btnAiEdit.visibility = wasAiEditVisible
 
         setupViewPager()
         setupButtons()
