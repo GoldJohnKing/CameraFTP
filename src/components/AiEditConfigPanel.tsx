@@ -6,7 +6,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { Eye, EyeOff, ExternalLink } from 'lucide-react';
-import { ToggleSwitch, Select } from './ui';
+import { ToggleSwitch, Select, MaskedInput } from './ui';
 import { SEEDREAM_MODELS, DEFAULT_SEEDREAM_MODEL } from '../constants/seedream-models';
 import { openExternalLink } from '../utils/external-link';
 import type { AppConfig } from '../types';
@@ -98,15 +98,14 @@ export function AiEditConfigPanel({
           火山引擎 API Key
         </label>
         <div className="relative">
-          <input
-            type="text"
+          <MaskedInput
+            visible={showApiKey}
             value={apiKeyInput}
             onChange={(e) => setApiKeyInput(e.target.value)}
             onBlur={handleApiKeyBlur}
             placeholder="输入火山引擎 API Key"
             disabled={isLoading || disabled}
             className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white text-gray-700 pr-10 disabled:opacity-50 disabled:cursor-not-allowed"
-            style={!showApiKey ? { WebkitTextSecurity: 'disc' } as React.CSSProperties : undefined}
           />
           <button
             type="button"

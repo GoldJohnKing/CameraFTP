@@ -56,7 +56,8 @@
             android:name=".MainActivity"
             android:configChanges="orientation|screenSize|smallestScreenSize|density|keyboard|keyboardHidden|navigation"
             android:exported="true"
-            android:launchMode="singleTask">
+            android:launchMode="singleTask"
+            android:windowSoftInputMode="adjustNothing">
             
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -67,14 +68,16 @@
         <activity
             android:name="app.tauri.activity.TauriActivity"
             android:configChanges="orientation|screenSize|smallestScreenSize|density|keyboard|keyboardHidden|navigation"
-            android:exported="false" />
+            android:exported="false"
+            android:windowSoftInputMode="adjustNothing" />
 
         <!-- Image Viewer Activity -->
         <activity
             android:name=".ImageViewerActivity"
             android:configChanges="orientation|screenSize|smallestScreenSize|density|keyboard|keyboardHidden|navigation"
             android:exported="false"
-            android:theme="@style/Theme.MaterialComponents.DayNight.NoActionBar" />
+            android:theme="@style/Theme.MaterialComponents.DayNight.NoActionBar"
+            android:windowSoftInputMode="adjustNothing" />
 
         <!-- FTP Foreground Service -->
         <service

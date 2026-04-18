@@ -96,7 +96,7 @@ function App() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 pb-20">
+    <div className="min-h-dvh bg-gray-50 pb-20">
       {/* 退出确认对话框 */}
       {showQuitDialog && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[100]">

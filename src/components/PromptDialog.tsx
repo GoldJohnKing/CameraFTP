@@ -8,6 +8,7 @@ import { useState, useEffect, useRef } from 'react';
 import { Sparkles, Eye, EyeOff, ExternalLink } from 'lucide-react';
 import { Dialog } from './ui/Dialog';
 import { ToggleSwitch } from './ui/ToggleSwitch';
+import { MaskedInput } from './ui/MaskedInput';
 import { Select } from './ui/Select';
 import { SEEDREAM_MODELS, DEFAULT_SEEDREAM_MODEL } from '../constants/seedream-models';
 import { openExternalLink } from '../utils/external-link';
@@ -104,14 +105,13 @@ export function PromptDialog({ isOpen, defaultPrompt, defaultModel, autoEditEnab
           <div className="space-y-2">
             <label className="block text-sm font-medium text-gray-700">火山引擎 API Key</label>
             <div className="relative">
-              <input
+              <MaskedInput
                 ref={apiKeyInputRef}
-                type="text"
+                visible={showApiKey}
                 value={apiKey}
                 onChange={(e) => setApiKey(e.target.value)}
                 placeholder="输入火山引擎 API Key"
                 className="w-full px-3 py-2 pr-10 border border-gray-200 rounded-lg text-sm bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                style={!showApiKey ? { WebkitTextSecurity: 'disc' } as React.CSSProperties : undefined}
               />
               <button
                 type="button"
