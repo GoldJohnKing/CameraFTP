@@ -5,8 +5,10 @@
  */
 
 import { useState, useEffect, useRef } from 'react';
-import { Sparkles } from 'lucide-react';
-import { Dialog, ToggleSwitch, Select } from './ui';
+import { Sparkles, Eye, EyeOff } from 'lucide-react';
+import { Dialog } from './ui/Dialog';
+import { ToggleSwitch } from './ui/ToggleSwitch';
+import { Select } from './ui/Select';
 import { SEEDREAM_MODELS, DEFAULT_SEEDREAM_MODEL } from '../constants/seedream-models';
 
 interface PromptDialogProps {
@@ -14,30 +16,44 @@ interface PromptDialogProps {
   defaultPrompt: string;
   defaultModel?: string;
   autoEditEnabled?: boolean;
-  onConfirm: (prompt: string, model: string, saveAsAutoEdit: boolean) => void;
+  hasApiKey?: boolean;
+  onConfirm: (prompt: string, model: string, saveAsAutoEdit: boolean, apiKey?: string) => void;
   onCancel: () => void;
 }
 
-export function PromptDialog({ isOpen, defaultPrompt, defaultModel, autoEditEnabled, onConfirm, onCancel }: PromptDialogProps) {
+export function PromptDialog({ isOpen, defaultPrompt, defaultModel, autoEditEnabled, hasApiKey = true, onConfirm, onCancel }: PromptDialogProps) {
   const [prompt, setPrompt] = useState(defaultPrompt);
   const [model, setModel] = useState(defaultModel ?? DEFAULT_SEEDREAM_MODEL);
   const [saveAsAutoEdit, setSaveAsAutoEdit] = useState(false);
+  const [apiKey, setApiKey] = useState('');
+  const [showApiKey, setShowApiKey] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const apiKeyInputRef = useRef<HTMLInputElement>(null);
+
+  const needsApiKey = hasApiKey === false;
 
   useEffect(() => {
     if (isOpen) {
       setPrompt(defaultPrompt);
       setModel(defaultModel ?? DEFAULT_SEEDREAM_MODEL);
       setSaveAsAutoEdit(false);
-      requestAnimationFrame(() => textareaRef.current?.focus());
+      setApiKey('');
+      setShowApiKey(false);
+      requestAnimationFrame(() => {
+        if (needsApiKey) {
+          apiKeyInputRef.current?.focus();
+        } else {
+          textareaRef.current?.focus();
+        }
+      });
     }
   }, [isOpen, defaultPrompt, defaultModel]);
 
-  const canConfirm = prompt.trim().length > 0;
+  const canConfirm = prompt.trim().length > 0 && (!needsApiKey || apiKey.trim().length > 0);
 
   const handleConfirm = () => {
     if (!canConfirm) return;
-    onConfirm(prompt.trim(), model, saveAsAutoEdit);
+    onConfirm(prompt.trim(), model, saveAsAutoEdit, needsApiKey ? apiKey.trim() : undefined);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -83,6 +99,29 @@ export function PromptDialog({ isOpen, defaultPrompt, defaultModel, autoEditEnab
       }
     >
       <div className="space-y-3">
+        {needsApiKey && (
+          <div className="space-y-2">
+            <label className="block text-sm font-medium text-gray-700">火山引擎 API Key</label>
+            <div className="relative">
+              <input
+                ref={apiKeyInputRef}
+                type={showApiKey ? 'text' : 'password'}
+                value={apiKey}
+                onChange={(e) => setApiKey(e.target.value)}
+                placeholder="输入火山引擎 API Key"
+                className="w-full px-3 py-2 pr-10 border border-gray-200 rounded-lg text-sm bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              />
+              <button
+                type="button"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => setShowApiKey(!showApiKey)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+              >
+                {showApiKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              </button>
+            </div>
+          </div>
+        )}
         <div className="space-y-2">
           <label className="block text-sm font-medium text-gray-700">模型</label>
           <Select

@@ -35,7 +35,7 @@ type UseGallerySelectionResult = {
   handleDelete: () => Promise<void>;
   handleShare: () => Promise<void>;
   handleAiEdit: () => void;
-  handleAiEditPromptConfirm: (prompt: string, model: string, saveAsAutoEdit: boolean) => Promise<void>;
+  handleAiEditPromptConfirm: (prompt: string, model: string, saveAsAutoEdit: boolean, apiKey?: string) => Promise<void>;
   handleCancelAiEditPrompt: () => void;
   handleCancelSelection: () => void;
   toggleMenu: () => void;
@@ -242,7 +242,7 @@ export function useGallerySelection({ activeTab, onDeleteApplied, getUriForId }:
     setShowAiEditPrompt(true);
   }, [selectedIds]);
 
-  const handleAiEditPromptConfirm = useCallback(async (prompt: string, model: string, saveAsAutoEdit: boolean) => {
+  const handleAiEditPromptConfirm = useCallback(async (prompt: string, model: string, saveAsAutoEdit: boolean, apiKey?: string) => {
     setShowAiEditPrompt(false);
 
     const draft = useConfigStore.getState().draft;
@@ -253,11 +253,13 @@ export function useGallerySelection({ activeTab, onDeleteApplied, getUriForId }:
           ...d.aiEdit,
           manualPrompt: prompt,
           manualModel: model,
+          ...(apiKey ? { provider: { ...d.aiEdit.provider, apiKey } } : {}),
           ...(saveAsAutoEdit ? {
             prompt,
             provider: {
               ...d.aiEdit.provider,
               model,
+              ...(apiKey ? { apiKey } : {}),
             },
           } : {}),
         },

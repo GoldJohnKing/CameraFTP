@@ -184,7 +184,7 @@ const PreviewWindowContent = memo(function PreviewWindowContent({
     setShowPromptDialog(true);
   }, [imagePath]);
 
-  const handlePromptConfirm = useCallback(async (prompt: string, model: string, saveAsAutoEdit: boolean) => {
+  const handlePromptConfirm = useCallback(async (prompt: string, model: string, saveAsAutoEdit: boolean, apiKey?: string) => {
     if (!imagePath) return;
     setShowPromptDialog(false);
 
@@ -194,11 +194,13 @@ const PreviewWindowContent = memo(function PreviewWindowContent({
         ...d.aiEdit,
         manualPrompt: prompt,
         manualModel: model,
+        ...(apiKey ? { provider: { ...d.aiEdit.provider, apiKey } } : {}),
         ...(saveAsAutoEdit ? {
           prompt,
           provider: {
             ...d.aiEdit.provider,
             model,
+            ...(apiKey ? { apiKey } : {}),
           },
         } : {}),
       },
@@ -472,6 +474,7 @@ const PreviewWindowContent = memo(function PreviewWindowContent({
         defaultPrompt={draft?.aiEdit?.manualPrompt || ''}
         defaultModel={draft?.aiEdit?.manualModel || undefined}
         autoEditEnabled={draft?.aiEdit?.autoEdit ?? false}
+        hasApiKey={draft?.aiEdit?.provider?.type === 'seed-edit' ? !!draft.aiEdit.provider.apiKey : true}
         onConfirm={handlePromptConfirm}
         onCancel={() => setShowPromptDialog(false)}
       />

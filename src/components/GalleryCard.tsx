@@ -312,6 +312,7 @@ export const GalleryCard = memo(function GalleryCard() {
         defaultPrompt={draft?.aiEdit?.manualPrompt || ''}
         defaultModel={draft?.aiEdit?.manualModel || undefined}
         autoEditEnabled={draft?.aiEdit?.autoEdit ?? false}
+        hasApiKey={draft?.aiEdit?.provider?.type === 'seed-edit' ? !!draft.aiEdit.provider.apiKey : true}
         onConfirm={handleAiEditPromptConfirm}
         onCancel={handleCancelAiEditPrompt}
       />

@@ -43,21 +43,24 @@ function App() {
       const prompt = manualPrompt || draft?.aiEdit?.prompt || '';
       const model = manualModel || (draft?.aiEdit?.provider?.type === 'seed-edit' ? draft.aiEdit.provider.model : '') || '';
       const autoEdit = draft?.aiEdit?.autoEdit ?? false;
-      return JSON.stringify({ prompt, model, autoEdit });
+      const hasApiKey = draft?.aiEdit?.provider?.type === 'seed-edit' ? !!draft.aiEdit.provider.apiKey : true;
+      return JSON.stringify({ prompt, model, autoEdit, hasApiKey });
     };
 
-    w.__tauriTriggerAiEditWithPrompt = async (filePath: string, prompt: string, model?: string, saveAsAutoEdit?: boolean) => {
+    w.__tauriTriggerAiEditWithPrompt = async (filePath: string, prompt: string, model?: string, saveAsAutoEdit?: boolean, apiKey?: string) => {
       updateDraft(d => ({
         ...d,
         aiEdit: {
           ...d.aiEdit,
           manualPrompt: prompt,
           manualModel: model ?? '',
+          ...(apiKey ? { provider: { ...d.aiEdit.provider, apiKey } } : {}),
           ...(saveAsAutoEdit ? {
             prompt,
             provider: {
               ...d.aiEdit.provider,
               model: model ?? d.aiEdit.provider.model,
+              ...(apiKey ? { apiKey } : {}),
             },
           } : {}),
         },

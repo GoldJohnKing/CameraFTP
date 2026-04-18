@@ -168,7 +168,7 @@ mod tests {
 
     #[test]
     fn default_model_is_5_0_lite() {
-        assert_eq!(super::super::config::DEFAULT_SEEDREAM_MODEL, "doubao-seedream-5-0-260128");
+        assert_eq!(crate::ai_edit::config::DEFAULT_SEEDREAM_MODEL, "doubao-seedream-5-0-260128");
     }
 
     #[test]

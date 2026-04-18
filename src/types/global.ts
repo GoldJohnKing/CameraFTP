@@ -262,7 +262,7 @@ declare global {
      * Triggers AI edit with a specific prompt, optionally saving it to config.
      * Called by native ImageViewerActivity after user confirms the prompt dialog.
      */
-    __tauriTriggerAiEditWithPrompt?: (filePath: string, prompt: string, model?: string, saveAsAutoEdit?: boolean) => Promise<void>;
+    __tauriTriggerAiEditWithPrompt?: (filePath: string, prompt: string, model?: string, saveAsAutoEdit?: boolean, apiKey?: string) => Promise<void>;
 
     /**
      * Cancels the in-progress AI edit batch.

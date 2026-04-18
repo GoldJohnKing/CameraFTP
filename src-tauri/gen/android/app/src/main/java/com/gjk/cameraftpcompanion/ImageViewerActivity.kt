@@ -500,12 +500,13 @@ class ImageViewerActivity : AppCompatActivity() {
                 val currentPrompt = json?.optString("prompt", "")?.replace("\\n", "\n") ?: ""
                 val currentModel = json?.optString("model", "") ?: ""
                 val autoEdit = json?.optBoolean("autoEdit", false) ?: false
-                runOnUiThread { showPromptWebViewOverlay(filePath, currentPrompt, currentModel, autoEdit, mainActivity) }
+                val hasApiKey = json?.optBoolean("hasApiKey", true) ?: true
+                runOnUiThread { showPromptWebViewOverlay(filePath, currentPrompt, currentModel, autoEdit, hasApiKey, mainActivity) }
             }
         }
     }
 
-    private fun showPromptWebViewOverlay(filePath: String, currentPrompt: String, currentModel: String, autoEditEnabled: Boolean, mainActivity: MainActivity) {
+    private fun showPromptWebViewOverlay(filePath: String, currentPrompt: String, currentModel: String, autoEditEnabled: Boolean, hasApiKey: Boolean, mainActivity: MainActivity) {
         val rootView = findViewById<FrameLayout>(android.R.id.content)
 
         // Dismiss any existing overlay
@@ -534,6 +535,20 @@ class ImageViewerActivity : AppCompatActivity() {
                     <div class="toggle" id="saveToggle"></div>
                     <span>保存为自动修图设置</span>
                   </div>"""
+        } else ""
+
+        val apiKeyHtml = if (!hasApiKey) {
+            """
+            <div class="field-group">
+              <div class="field-label">火山引擎 API Key</div>
+              <div style="position:relative">
+                <input type="password" id="apiKey" placeholder="输入火山引擎 API Key" />
+                <button type="button" class="eye-btn" onmousedown="event.preventDefault()" onclick="toggleApiKeyVisibility()">
+                  <svg id="eyeIcon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                </button>
+              </div>
+            </div>
+            """
         } else ""
 
         val html = """
@@ -645,6 +660,17 @@ class ImageViewerActivity : AppCompatActivity() {
               .btn-confirm:hover { background: #1d4ed8; }
               .btn-confirm:disabled { opacity: 0.5; cursor: not-allowed; }
               .header-icon { color: #d97706; flex-shrink: 0; }
+              #apiKey {
+                width: 100%; padding: 8px 40px 8px 12px; border: 1px solid #e5e7eb;
+                border-radius: 8px; font-size: 14px; color: #374151;
+                background: #fff; outline: none; font-family: inherit;
+              }
+              #apiKey:focus { border-color: transparent; box-shadow: 0 0 0 2px #3b82f6; }
+              .eye-btn {
+                position: absolute; right: 8px; top: 50%; transform: translateY(-50%);
+                background: none; border: none; cursor: pointer; padding: 4px; color: #9ca3af;
+              }
+              .eye-btn:hover { color: #4b5563; }
             </style>
             </head>
             <body>
@@ -663,6 +689,7 @@ class ImageViewerActivity : AppCompatActivity() {
                   </button>
                 </div>
                 <div class="content">
+                  $apiKeyHtml
                   <div class="field-group">
                     <div class="field-label">模型</div>
                     <div class="dropdown" id="modelDropdown">
@@ -730,15 +757,33 @@ class ImageViewerActivity : AppCompatActivity() {
               function onConfirm() {
                 var prompt = document.getElementById('prompt').value.trim();
                 if (!prompt) return;
-                NativeBridge.onConfirm(prompt, selectedModel, saveAsAutoEdit);
+                var apiKeyEl = document.getElementById('apiKey');
+                var apiKey = apiKeyEl ? apiKeyEl.value.trim() : '';
+                NativeBridge.onConfirm(prompt, selectedModel, saveAsAutoEdit, apiKey);
               }
               function updateConfirmBtn() {
                 var prompt = document.getElementById('prompt').value.trim();
-                document.getElementById('confirmBtn').disabled = !prompt;
+                var apiKeyEl = document.getElementById('apiKey');
+                var apiKeyOk = !apiKeyEl || apiKeyEl.value.trim().length > 0;
+                document.getElementById('confirmBtn').disabled = !(prompt && apiKeyOk);
+              }
+              function toggleApiKeyVisibility() {
+                var el = document.getElementById('apiKey');
+                var icon = document.getElementById('eyeIcon');
+                if (!el) return;
+                if (el.type === 'password') {
+                  el.type = 'text';
+                  icon.innerHTML = '<path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/>';
+                } else {
+                  el.type = 'password';
+                  icon.innerHTML = '<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>';
+                }
               }
               document.getElementById('prompt').addEventListener('input', updateConfirmBtn);
+              var apiKeyInput = document.getElementById('apiKey');
+              if (apiKeyInput) apiKeyInput.addEventListener('input', updateConfirmBtn);
               updateConfirmBtn();
-              document.getElementById('prompt').focus();
+              (document.getElementById('apiKey') || document.getElementById('prompt')).focus();
             </script>
             </body>
             </html>
@@ -752,10 +797,10 @@ class ImageViewerActivity : AppCompatActivity() {
             isHorizontalScrollBarEnabled = false
             addJavascriptInterface(object {
                 @JavascriptInterface
-                fun onConfirm(prompt: String, model: String, saveAsAutoEdit: Boolean) {
+                fun onConfirm(prompt: String, model: String, saveAsAutoEdit: Boolean, apiKey: String) {
                     runOnUiThread {
                         dismissPromptWebView()
-                        dispatchAiEdit(filePath, prompt, model, saveAsAutoEdit, mainActivity)
+                        dispatchAiEdit(filePath, prompt, model, saveAsAutoEdit, apiKey, mainActivity)
                     }
                 }
                 @JavascriptInterface
@@ -782,16 +827,16 @@ class ImageViewerActivity : AppCompatActivity() {
         promptWebView = null
     }
 
-    private fun dispatchAiEdit(filePath: String, prompt: String, model: String, saveAsAutoEdit: Boolean, mainActivity: MainActivity) {
+    private fun dispatchAiEdit(filePath: String, prompt: String, model: String, saveAsAutoEdit: Boolean, apiKey: String, mainActivity: MainActivity) {
         isAiEditing = true
 
         // Use JSONArray for safe JSON encoding — avoids JS string injection vulnerabilities
-        val args = JSONArray().put(filePath).put(prompt).put(model).put(saveAsAutoEdit)
+        val args = JSONArray().put(filePath).put(prompt).put(model).put(saveAsAutoEdit).put(apiKey)
         val js = """
             (function() {
                 var args = $args;
                 if (window.__tauriTriggerAiEditWithPrompt) {
-                    window.__tauriTriggerAiEditWithPrompt(args[0], args[1], args[2], args[3]);
+                    window.__tauriTriggerAiEditWithPrompt(args[0], args[1], args[2], args[3], args[4]);
                     return 'ok';
                 }
                 return 'no_handler';
