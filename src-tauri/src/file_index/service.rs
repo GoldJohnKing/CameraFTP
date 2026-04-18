@@ -432,9 +432,11 @@ impl FileIndexService {
     ) {
         let Some(current) = current_index else { return };
 
-        if removed_pos < *current {
+        if new_len == 0 {
+            *current_index = None;
+        } else if removed_pos < *current {
             *current_index = Some(*current - 1);
-        } else if removed_pos == *current && *current >= new_len && new_len > 0 {
+        } else if removed_pos == *current && *current >= new_len {
             *current_index = Some(new_len - 1);
         }
     }
@@ -679,6 +681,26 @@ mod tests {
         // Add again — should be skipped as duplicate
         service.add_file(file_path.clone()).await.expect("second add");
         assert_eq!(service.get_file_count().await, 1);
+    }
+
+    #[tokio::test]
+    async fn remove_all_files_clears_current_index() {
+        let temp_dir = tempfile::tempdir().expect("failed to create temp dir");
+        let config_path = temp_dir.path().join("config.json");
+        let config_service = ConfigService::new_with_path(config_path);
+        let service = FileIndexService::new(Arc::new(config_service));
+
+        service.set_test_files(vec![
+            make_file_info("/images/a.jpg", 3000),
+        ]).await;
+
+        assert_eq!(service.get_current_index().await, Some(0));
+
+        // Remove the only file — index should become None
+        let removed = service.remove_file(Path::new("/images/a.jpg")).await;
+        assert!(removed.expect("remove should succeed"));
+        assert_eq!(service.get_file_count().await, 0);
+        assert_eq!(service.get_current_index().await, None);
     }
 
     #[tokio::test]

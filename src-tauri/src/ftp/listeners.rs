@@ -45,61 +45,47 @@ impl DataListener for FtpDataListener {
         Box::pin(async move {
             match event {
                 DataEvent::Put { path, bytes } => {
-                    // 记录上传统计
                     stats.record_upload(path.clone(), bytes).await;
-                    // 发送文件上传瞬时事件（仅影响已订阅的媒体/前端消费者）
                     event_bus.emit_file_uploaded(path.clone(), bytes);
                     info!(file = %path, size = bytes, "File uploaded");
 
-                    // 检查是否是支持的图片文件
                     let is_image = FileIndexService::is_supported_image(std::path::Path::new(&path));
 
-                    // Windows 平台自动打开图片
-                    #[cfg(target_os = "windows")]
-                    if let Some(handle) = app_handle.as_ref() {
-                        if is_image {
-                            let full_path = save_path.join(&path);
-                            let handle_clone = handle.clone();
-                            // 使用 tokio::spawn 启动异步任务，避免阻塞事件处理
-                            tokio::spawn(async move {
-                                // 等待文件就绪（而非固定延迟）
-                                if wait_for_file_ready(&full_path, Duration::from_secs(FILE_READY_TIMEOUT_SECS)).await {
-                                    // 调用 AutoOpenService 处理预览（服务内部会检查 enabled 状态）
-                                    let auto_open: tauri::State<'_, crate::auto_open::AutoOpenService> = handle_clone.state();
-                                    if let Err(e) = auto_open.on_file_uploaded(full_path.clone()).await {
-                                        tracing::error!("Failed to auto open image: {}", e);
-                                    }
-                                } else {
-                                    tracing::warn!("File not ready after timeout: {:?}", full_path);
-                                }
-                            });
-                        } else {
-                            info!(file = %path, "Non-image file uploaded, skipping auto-preview");
-                        }
-                    }
-
-                    // 文件索引 + AI修图（所有平台）
                     if is_image {
                         if let Some(handle) = app_handle.as_ref() {
                             let full_path = save_path.join(&path);
                             let handle_clone = handle.clone();
                             tokio::spawn(async move {
-                                if wait_for_file_ready(&full_path, Duration::from_secs(FILE_READY_TIMEOUT_SECS)).await {
-                                    // 文件索引
-                                    if let Some(file_index) = handle_clone.try_state::<Arc<FileIndexService>>() {
-                                        if let Err(e) = file_index.add_file(full_path.clone()).await {
-                                            tracing::warn!("Failed to add file to index: {}", e);
-                                        }
-                                    }
-
-                                    // AI修图
-                                    let ai_edit: tauri::State<'_, crate::ai_edit::AiEditService> = handle_clone.state();
-                                    ai_edit.on_file_uploaded(full_path).await;
-                                } else {
-                                    tracing::warn!("File not ready for indexing after timeout: {:?}", full_path);
+                                if !wait_for_file_ready(&full_path, Duration::from_secs(FILE_READY_TIMEOUT_SECS)).await {
+                                    tracing::warn!("File not ready after timeout: {:?}", full_path);
+                                    return;
                                 }
+
+                                // File indexing
+                                if let Some(file_index) = handle_clone.try_state::<Arc<FileIndexService>>() {
+                                    if let Err(e) = file_index.add_file(full_path.clone()).await {
+                                        tracing::warn!("Failed to add file to index: {}", e);
+                                    }
+                                }
+
+                                // AI edit (all platforms)
+                                let ai_edit: tauri::State<'_, crate::ai_edit::AiEditService> = handle_clone.state();
+                                ai_edit.on_file_uploaded(full_path.clone()).await;
+
+                                // Auto-open (Windows only)
+                                #[cfg(target_os = "windows")]
+                                {
+                                    let auto_open: tauri::State<'_, crate::auto_open::AutoOpenService> = handle_clone.state();
+                                    if let Err(e) = auto_open.on_file_uploaded(full_path).await {
+                                        tracing::error!("Failed to auto open image: {}", e);
+                                    }
+                                }
+                                #[cfg(not(target_os = "windows"))]
+                                let _ = &full_path; // suppress unused warning
                             });
                         }
+                    } else {
+                        info!(file = %path, "Non-image file uploaded, skipping auto-preview");
                     }
                 }
                 DataEvent::Got { path, bytes } => {
