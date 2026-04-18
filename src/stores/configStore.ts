@@ -143,7 +143,13 @@ export const useConfigStore = create<ConfigState>((set, get) => {
       await executeAsync(
         {
           operation: () => invoke<AppConfig>('load_config'),
-          onSuccess: (config, set) => set((state) => ({ ...state, config, draft: config })),
+          onSuccess: (config, set) => {
+            // Migration: enabled toggle was removed; force true for legacy configs
+            const draft = config.aiEdit.enabled
+              ? config
+              : { ...config, aiEdit: { ...config.aiEdit, enabled: true } };
+            set((state) => ({ ...state, config, draft }));
+          },
         },
         set,
       );

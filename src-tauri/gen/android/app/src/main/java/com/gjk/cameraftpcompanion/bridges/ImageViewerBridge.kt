@@ -6,8 +6,6 @@
 
 package com.gjk.cameraftpcompanion.bridges
 
-import android.net.Uri
-import android.provider.MediaStore
 import android.util.Log
 import com.gjk.cameraftpcompanion.ImageViewerActivity
 import com.gjk.cameraftpcompanion.MainActivity
@@ -82,19 +80,7 @@ class ImageViewerBridge(activity: android.app.Activity) : BaseJsBridge(activity)
      */
     @android.webkit.JavascriptInterface
     fun resolveFilePath(uri: String): String? {
-        return try {
-            val contentUri = Uri.parse(uri)
-            if (contentUri.scheme != "content") return uri
-            activity.contentResolver.query(contentUri, arrayOf(MediaStore.Images.Media.DATA), null, null, null)?.use { cursor ->
-                if (cursor.moveToFirst()) {
-                    val idx = cursor.getColumnIndex(MediaStore.Images.Media.DATA)
-                    if (idx >= 0) cursor.getString(idx) else null
-                } else null
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "resolveFilePath failed for $uri", e)
-            null
-        }
+        return ImageViewerActivity.resolveUriToFilePath(activity, uri)
     }
 
     /**

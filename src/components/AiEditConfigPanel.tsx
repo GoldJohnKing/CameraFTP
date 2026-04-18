@@ -15,14 +15,14 @@ interface AiEditConfigPanelProps {
   config: AppConfig;
   isLoading: boolean;
   disabled?: boolean;
-  onUpdate: (updater: (draft: AppConfig) => Partial<AppConfig>) => void;
+  updateDraft: (updater: (draft: AppConfig) => AppConfig) => void;
 }
 
 export function AiEditConfigPanel({
   config,
   isLoading,
   disabled = false,
-  onUpdate,
+  updateDraft,
 }: AiEditConfigPanelProps) {
   const [showApiKey, setShowApiKey] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -51,30 +51,25 @@ export function AiEditConfigPanel({
     setPromptInput(config.aiEdit.prompt);
   }, [config.aiEdit.prompt]);
 
-  // Ensure enabled is true (migration for configs that had it disabled before the toggle was removed)
-  useEffect(() => {
-    if (!config.aiEdit.enabled) {
-      onUpdate(() => ({ aiEdit: { ...config.aiEdit, enabled: true } }));
-    }
-  }, []);
-
   const seedEditConfig = config.aiEdit.provider.type === 'seed-edit'
     ? config.aiEdit.provider : null;
 
   const handleAutoEditToggle = () => {
-    onUpdate(() => ({
+    updateDraft(d => ({
+      ...d,
       aiEdit: {
-        ...config.aiEdit,
-        autoEdit: !config.aiEdit.autoEdit,
+        ...d.aiEdit,
+        autoEdit: !d.aiEdit.autoEdit,
       },
     }));
   };
 
   const handlePromptBlur = () => {
     if (promptInput === config.aiEdit.prompt) return;
-    onUpdate(() => ({
+    updateDraft(d => ({
+      ...d,
       aiEdit: {
-        ...config.aiEdit,
+        ...d.aiEdit,
         prompt: promptInput,
       },
     }));
@@ -83,11 +78,12 @@ export function AiEditConfigPanel({
   const handleApiKeyBlur = () => {
     if (!seedEditConfig) return;
     if (apiKeyInput === seedEditConfig.apiKey) return;
-    onUpdate(() => ({
+    updateDraft(d => ({
+      ...d,
       aiEdit: {
-        ...config.aiEdit,
+        ...d.aiEdit,
         provider: {
-          ...config.aiEdit.provider,
+          ...d.aiEdit.provider,
           apiKey: apiKeyInput,
         },
       },
@@ -152,11 +148,12 @@ export function AiEditConfigPanel({
                 value={seedEditConfig.model || DEFAULT_SEEDREAM_MODEL}
                 options={SEEDREAM_MODELS}
                 onChange={(model) => {
-                  onUpdate(() => ({
+                  updateDraft(d => ({
+                    ...d,
                     aiEdit: {
-                      ...config.aiEdit,
+                      ...d.aiEdit,
                       provider: {
-                        ...config.aiEdit.provider,
+                        ...d.aiEdit.provider,
                         model,
                       },
                     },

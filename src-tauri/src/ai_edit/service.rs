@@ -150,6 +150,37 @@ impl AiEditService {
     }
 }
 
+struct WorkerState {
+    completed_count: u32,
+    failed_count: u32,
+    failed_files: Vec<String>,
+    output_files: Vec<String>,
+}
+
+impl Default for WorkerState {
+    fn default() -> Self {
+        Self {
+            completed_count: 0,
+            failed_count: 0,
+            failed_files: Vec::new(),
+            output_files: Vec::new(),
+        }
+    }
+}
+
+impl WorkerState {
+    fn processed_count(&self) -> u32 {
+        self.completed_count + self.failed_count
+    }
+
+    fn reset(&mut self) {
+        self.completed_count = 0;
+        self.failed_count = 0;
+        self.failed_files.clear();
+        self.output_files.clear();
+    }
+}
+
 async fn worker_loop(
     mut manual_rx: mpsc::Receiver<AiEditTask>,
     mut auto_rx: mpsc::Receiver<AiEditTask>,
@@ -160,32 +191,7 @@ async fn worker_loop(
 ) {
     info!("AI edit worker started");
 
-    struct WorkerState {
-        completed_count: u32,
-        failed_count: u32,
-        failed_files: Vec<String>,
-        output_files: Vec<String>,
-    }
-
-    impl WorkerState {
-        fn processed_count(&self) -> u32 {
-            self.completed_count + self.failed_count
-        }
-
-        fn reset(&mut self) {
-            self.completed_count = 0;
-            self.failed_count = 0;
-            self.failed_files.clear();
-            self.output_files.clear();
-        }
-    }
-
-    let mut state = WorkerState {
-        completed_count: 0,
-        failed_count: 0,
-        failed_files: Vec::new(),
-        output_files: Vec::new(),
-    };
+    let mut state = WorkerState::default();
 
     let mut cached_provider: Option<Box<dyn providers::AiEditProvider>> = None;
     let mut cached_api_key: Option<String> = None;
@@ -576,25 +582,7 @@ mod tests {
 
     #[test]
     fn worker_state_tracks_output_files() {
-        struct WorkerState {
-            completed_count: u32,
-            failed_count: u32,
-            failed_files: Vec<String>,
-            output_files: Vec<String>,
-        }
-
-        impl WorkerState {
-            fn processed_count(&self) -> u32 {
-                self.completed_count + self.failed_count
-            }
-        }
-
-        let mut state = WorkerState {
-            completed_count: 0,
-            failed_count: 0,
-            failed_files: Vec::new(),
-            output_files: Vec::new(),
-        };
+        let mut state = super::WorkerState::default();
 
         state.completed_count += 1;
         state.output_files.push("/output/AIEdit/photo1_AIEdit.jpg".to_string());

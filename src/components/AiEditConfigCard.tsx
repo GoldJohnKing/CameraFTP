@@ -4,23 +4,15 @@
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
 
-import { memo, useCallback } from 'react';
+import { memo } from 'react';
 import { Sparkles } from 'lucide-react';
 import { useConfigStore, useDraftConfig } from '../stores/configStore';
 import { Card, CardHeader } from './ui';
 import { AiEditConfigPanel } from './AiEditConfigPanel';
-import type { AppConfig } from '../types';
 
 export const AiEditConfigCard = memo(function AiEditConfigCard() {
   const { isLoading, updateDraft } = useConfigStore();
   const draft = useDraftConfig();
-
-  const handleConfigUpdate = useCallback((updater: (draft: AppConfig) => Partial<AppConfig>) => {
-    updateDraft(d => {
-      const updates = updater(d);
-      return { ...d, ...updates };
-    });
-  }, [updateDraft]);
 
   if (!draft) return null;
 
@@ -35,7 +27,7 @@ export const AiEditConfigCard = memo(function AiEditConfigCard() {
       <AiEditConfigPanel
         config={draft}
         isLoading={isLoading}
-        onUpdate={handleConfigUpdate}
+        updateDraft={updateDraft}
       />
     </Card>
   );

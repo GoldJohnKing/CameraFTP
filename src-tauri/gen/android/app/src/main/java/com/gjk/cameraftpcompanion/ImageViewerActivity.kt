@@ -123,6 +123,30 @@ class ImageViewerActivity : AppCompatActivity() {
 
             start(context, plan.uris, plan.safeTargetIndex, aiEditEnabled)
         }
+
+        /**
+         * Resolve a URI string to a file system path.
+         * Handles file://, content:// (via MediaStore), and fallback.
+         */
+        @JvmStatic
+        fun resolveUriToFilePath(context: android.content.Context, uriString: String): String? {
+            return try {
+                val uri = Uri.parse(uriString)
+                when (uri.scheme) {
+                    "file" -> uri.path
+                    "content" -> context.contentResolver.query(uri, arrayOf(MediaStore.Images.Media.DATA), null, null, null)?.use { cursor ->
+                        if (cursor.moveToFirst()) {
+                            val idx = cursor.getColumnIndex(MediaStore.Images.Media.DATA)
+                            if (idx >= 0) cursor.getString(idx) else null
+                        } else null
+                    }
+                    else -> uriString
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "resolveUriToFilePath failed for $uriString", e)
+                null
+            }
+        }
     }
 
     private lateinit var viewPager: ViewPager2
@@ -795,24 +819,7 @@ class ImageViewerActivity : AppCompatActivity() {
     }
 
     private fun resolveUriToFilePath(uriString: String): String? {
-        return try {
-            val uri = Uri.parse(uriString)
-            if (uri.scheme == "file") {
-                uri.path
-            } else if (uri.scheme == "content") {
-                contentResolver.query(uri, arrayOf(MediaStore.Images.Media.DATA), null, null, null)?.use { cursor ->
-                    if (cursor.moveToFirst()) {
-                        val idx = cursor.getColumnIndex(MediaStore.Images.Media.DATA)
-                        if (idx >= 0) cursor.getString(idx) else null
-                    } else null
-                }
-            } else {
-                uriString
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "resolveUriToFilePath failed for $uriString", e)
-            null
-        }
+        return resolveUriToFilePath(this, uriString)
     }
 
     private fun resetProgressAppearance() {
