@@ -106,11 +106,12 @@ export function PromptDialog({ isOpen, defaultPrompt, defaultModel, autoEditEnab
             <div className="relative">
               <input
                 ref={apiKeyInputRef}
-                type={showApiKey ? 'text' : 'password'}
+                type="text"
                 value={apiKey}
                 onChange={(e) => setApiKey(e.target.value)}
                 placeholder="输入火山引擎 API Key"
                 className="w-full px-3 py-2 pr-10 border border-gray-200 rounded-lg text-sm bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                style={!showApiKey ? { WebkitTextSecurity: 'disc' } as React.CSSProperties : undefined}
               />
               <button
                 type="button"

@@ -99,13 +99,14 @@ export function AiEditConfigPanel({
         </label>
         <div className="relative">
           <input
-            type={showApiKey ? 'text' : 'password'}
+            type="text"
             value={apiKeyInput}
             onChange={(e) => setApiKeyInput(e.target.value)}
             onBlur={handleApiKeyBlur}
             placeholder="输入火山引擎 API Key"
             disabled={isLoading || disabled}
             className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white text-gray-700 pr-10 disabled:opacity-50 disabled:cursor-not-allowed"
+            style={!showApiKey ? { WebkitTextSecurity: 'disc' } as React.CSSProperties : undefined}
           />
           <button
             type="button"
