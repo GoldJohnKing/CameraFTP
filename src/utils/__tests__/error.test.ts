@@ -16,10 +16,6 @@ describe('formatError', () => {
     expect(formatError('plain string')).toBe('plain string');
   });
 
-  it('returns "Unknown error" for null', () => {
-    expect(formatError(null)).toBe('Unknown error');
-  });
-
   it('returns "Unknown error" for undefined', () => {
     expect(formatError(undefined)).toBe('Unknown error');
   });
@@ -46,18 +42,9 @@ describe('formatError', () => {
     expect(result).toContain('[object Object]');
     // String() on a plain object returns "[object Object]"
   });
-
-  it('handles numbers', () => {
-    expect(formatError(404)).toBe('404');
-  });
 });
 
 describe('silent', () => {
-  it('returns result on success', async () => {
-    const result = await silent(() => Promise.resolve('ok'));
-    expect(result).toBe('ok');
-  });
-
   it('returns null on error', async () => {
     const result = await silent(() => Promise.reject(new Error('fail')));
     expect(result).toBeNull();

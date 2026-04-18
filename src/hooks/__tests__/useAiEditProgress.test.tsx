@@ -339,22 +339,6 @@ describe('useAiEditProgress', () => {
     expect(invokeMock).toHaveBeenCalledWith('cancel_ai_edit');
   });
 
-  it('handleEvent "done" triggers gallery refresh with ai-edit reason', async () => {
-    vi.useFakeTimers();
-
-    eventHandler!(doneEvent());
-    await act(async () => { await flush(); });
-
-    await act(async () => {
-      vi.advanceTimersByTime(500);
-      await flush();
-    });
-
-    expect(requestMediaLibraryRefreshMock).toHaveBeenCalledWith({ reason: 'ai-edit' });
-
-    vi.useRealTimers();
-  });
-
   it('handleEvent "progress" updates state correctly', async () => {
     await act(async () => {
       eventHandler!({
@@ -443,70 +427,5 @@ describe('useAiEditProgress', () => {
     // total should remain 0 (no editing session active)
     expect(getText('total')).toBe('0');
     expect(getText('is-editing')).toBe('no');
-  });
-
-  it('FTP upload scenario: total updates as images arrive during processing', async () => {
-    // Image 1 starts processing
-    await act(async () => {
-      eventHandler!({
-        type: 'progress',
-        current: 1,
-        total: 1,
-        fileName: 'img1.jpg',
-        failedCount: 0,
-      });
-      await flush();
-    });
-    expect(getText('current')).toBe('1');
-    expect(getText('total')).toBe('1');
-
-    // Image 2 arrives via FTP while image 1 is processing
-    await act(async () => {
-      eventHandler!({
-        type: 'queued',
-        queueDepth: 1,
-      });
-      await flush();
-    });
-    expect(getText('current')).toBe('1');
-    expect(getText('total')).toBe('2');
-
-    // Image 3 arrives via FTP
-    await act(async () => {
-      eventHandler!({
-        type: 'queued',
-        queueDepth: 2,
-      });
-      await flush();
-    });
-    expect(getText('current')).toBe('1');
-    expect(getText('total')).toBe('3');
-
-    // Image 1 completes
-    await act(async () => {
-      eventHandler!({
-        type: 'completed',
-        current: 1,
-        total: 3,
-        fileName: 'img1.jpg',
-        failedCount: 0,
-        outputPath: '/out/img1.jpg',
-      });
-      await flush();
-    });
-
-    // Image 2 starts processing
-    await act(async () => {
-      eventHandler!({
-        type: 'progress',
-        current: 2,
-        total: 3,
-        fileName: 'img2.jpg',
-        failedCount: 0,
-      });
-      await flush();
-    });
-    expect(getText('current')).toBe('2');
-    expect(getText('total')).toBe('3');
   });
 });

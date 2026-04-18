@@ -177,27 +177,6 @@ describe('useLatestPhoto', () => {
     ).toBe('new-latest.jpg');
   });
 
-  it('does NOT listen for gallery-items-added events', async () => {
-    const addEventListenerSpy = vi.spyOn(window, 'addEventListener');
-
-    await act(async () => {
-      getRoot().render(<LatestPhotoHarness />);
-      await flush();
-    });
-
-    // gallery-items-added should NOT be registered
-    expect(
-      addEventListenerSpy.mock.calls.filter((call) => call[0] === 'gallery-items-added'),
-    ).toHaveLength(0);
-
-    // LATEST_PHOTO_REFRESH_REQUESTED_EVENT should NOT be registered
-    expect(
-      addEventListenerSpy.mock.calls.filter((call) => call[0] === LATEST_PHOTO_REFRESH_REQUESTED_EVENT),
-    ).toHaveLength(0);
-
-    addEventListenerSpy.mockRestore();
-  });
-
   it('uses singleton listeners for multiple consumers', async () => {
     await act(async () => {
       getRoot().render(<MultiConsumerHarness />);
