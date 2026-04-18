@@ -32,7 +32,7 @@ impl Default for AiEditConfig {
             prompt: String::new(),
             manual_prompt: String::new(),
             manual_model: String::new(),
-            provider: ProviderConfig::SeedEdit(SeedEditConfig::default()),
+            provider: ProviderConfig::default(),
         }
     }
 }

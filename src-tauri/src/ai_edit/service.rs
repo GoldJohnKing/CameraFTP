@@ -406,7 +406,6 @@ async fn process_task(
         .map_err(|e| AppError::AiEditError(format!("Failed to read config: {}", e)))?;
 
     let ai_config = &config.ai_edit;
-
     let super::config::ProviderConfig::SeedEdit(ref seed_config) = ai_config.provider;
     if seed_config.api_key.is_empty() {
         return Err(AppError::AiEditError("API Key is not configured".to_string()));
@@ -417,17 +416,11 @@ async fn process_task(
         let preprocessor = image_processor::create_preprocessor();
         preprocessor.prepare(&file_path_clone)
     }).await
-        .map_err(|e| AppError::AiEditError(format!("Preprocessing task panicked: {}", e)))?
-        .map_err(|e| AppError::AiEditError(format!("Image preprocessing failed: {}", e)))?;
+        .map_err(|e| AppError::AiEditError(format!("Preprocessing task panicked: {}", e)))??;
 
-    let current_api_key = match &ai_config.provider {
-        super::config::ProviderConfig::SeedEdit(cfg) => cfg.api_key.clone(),
-    };
-    // Use override_model for manual edits, fall back to config model for auto edits
+    let current_api_key = seed_config.api_key.clone();
     let effective_model = task.override_model.as_deref()
-        .unwrap_or_else(|| match &ai_config.provider {
-            super::config::ProviderConfig::SeedEdit(cfg) => cfg.model.as_str(),
-        })
+        .unwrap_or(&seed_config.model)
         .to_string();
 
     if cached_api_key.as_ref() != Some(&current_api_key) || cached_model.as_ref() != Some(&effective_model) {

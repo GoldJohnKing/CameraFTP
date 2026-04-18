@@ -179,10 +179,6 @@ export function AiEditProgressBar({ position }: AiEditProgressBarProps) {
           animation: highlight-sweep 2s ease-in-out infinite;
         }
 
-        @keyframes edge-highlight-sweep {
-          0% { background-position: -50% 0; }
-          100% { background-position: 200% 0; }
-        }
         .ai-edit-progress-edge {
           background:
             linear-gradient(
@@ -194,7 +190,7 @@ export function AiEditProgressBar({ position }: AiEditProgressBarProps) {
           background-color: rgba(96, 165, 250, 0.5);
           background-size: 40% 100%;
           background-repeat: no-repeat;
-          animation: edge-highlight-sweep 2s ease-in-out infinite;
+          animation: highlight-sweep 2s ease-in-out infinite;
         }
 
         @media (prefers-reduced-motion: reduce) {

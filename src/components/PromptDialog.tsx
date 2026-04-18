@@ -6,9 +6,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { Sparkles } from 'lucide-react';
-import { Dialog } from './ui/Dialog';
-import { ToggleSwitch } from './ui/ToggleSwitch';
-import { Select } from './ui/Select';
+import { Dialog, ToggleSwitch, Select } from './ui';
 import { SEEDREAM_MODELS, DEFAULT_SEEDREAM_MODEL } from '../constants/seedream-models';
 
 interface PromptDialogProps {

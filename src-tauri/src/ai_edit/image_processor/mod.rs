@@ -5,9 +5,7 @@
 use crate::error::AppError;
 use std::path::Path;
 
-#[allow(dead_code)]
 pub const MAX_LONG_SIDE: u32 = 4096;
-#[allow(dead_code)]
 pub const JPEG_QUALITY: u8 = 85;
 
 #[derive(Debug)]

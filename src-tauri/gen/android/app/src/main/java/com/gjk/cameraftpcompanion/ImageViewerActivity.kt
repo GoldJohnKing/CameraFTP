@@ -173,6 +173,16 @@ class ImageViewerActivity : AppCompatActivity() {
         currentIndex = intent.getIntExtra(EXTRA_TARGET_INDEX, 0)
         val aiEditEnabled = intent.getBooleanExtra(EXTRA_AI_EDIT_ENABLED, false)
 
+        bindViews()
+
+        btnAiEdit.visibility = if (aiEditEnabled) View.VISIBLE else View.GONE
+
+        setupViewPager()
+        setupButtons()
+        updateUI()
+    }
+
+    private fun bindViews() {
         viewPager = findViewById(R.id.view_pager)
         bottomBar = findViewById(R.id.bottom_bar)
         filenameView = findViewById(R.id.filename)
@@ -190,12 +200,6 @@ class ImageViewerActivity : AppCompatActivity() {
         aiEditProgressText = findViewById(R.id.ai_edit_progress_text)
         aiEditFailureText = findViewById(R.id.ai_edit_failure_text)
         aiEditCancelBtn = findViewById(R.id.ai_edit_cancel_btn)
-
-        btnAiEdit.visibility = if (aiEditEnabled) View.VISIBLE else View.GONE
-
-        setupViewPager()
-        setupButtons()
-        updateUI()
     }
 
     private fun setupViewPager() {
@@ -459,30 +463,13 @@ class ImageViewerActivity : AppCompatActivity() {
             mainActivity.getWebView()?.evaluateJavascript(
                 "(function(){try{return window.__tauriGetAiEditPrompt?.()??''}catch(e){return ''}})();"
             ) { result ->
-                // evaluateJavascript JSON-encodes the JS return value.
-                // JS returns JSON.stringify({prompt, model}), so the callback
-                // gives us a double-encoded string like: "{\"prompt\":\"...\",\"model\":\"...\"}"
-                // We decode the outer JSON string literal via JSONArray, then parse the inner JSON.
                 val jsonString = try {
-                    val trimmed = result?.trim() ?: ""
-                    if (trimmed.startsWith("\"")) {
-                        org.json.JSONArray("[$trimmed]").getString(0)
-                    } else {
-                        trimmed
-                    }
-                } catch (_: Exception) {
-                    result?.trim()?.removeSurrounding("\"") ?: ""
-                }
-                val (currentPrompt, currentModel) = try {
-                    val json = org.json.JSONObject(jsonString)
-                    json.optString("prompt", "").replace("\\n", "\n") to json.optString("model", "")
-                } catch (e: Exception) {
-                    jsonString.replace("\\n", "\n") to ""
-                }
-                val autoEdit = try {
-                    val json = org.json.JSONObject(jsonString)
-                    json.optBoolean("autoEdit", false)
-                } catch (_: Exception) { false }
+                    (result?.trim() ?: "").removeSurrounding("\"")
+                } catch (_: Exception) { "" }
+                val json = try { org.json.JSONObject(jsonString) } catch (_: Exception) { null }
+                val currentPrompt = json?.optString("prompt", "")?.replace("\\n", "\n") ?: ""
+                val currentModel = json?.optString("model", "") ?: ""
+                val autoEdit = json?.optBoolean("autoEdit", false) ?: false
                 runOnUiThread { showPromptWebViewOverlay(filePath, currentPrompt, currentModel, autoEdit, mainActivity) }
             }
         }
@@ -835,7 +822,6 @@ class ImageViewerActivity : AppCompatActivity() {
             stopHighlightSweepAnimation()
             if (isFinishing || isDestroyed) return@runOnUiThread
             if (success) {
-                stopHighlightSweepAnimation()
                 // Green container background
                 aiEditProgressContainer.background = android.graphics.drawable.GradientDrawable().apply {
                     shape = android.graphics.drawable.GradientDrawable.RECTANGLE
@@ -1202,23 +1188,7 @@ class ImageViewerActivity : AppCompatActivity() {
 
         setContentView(R.layout.activity_image_viewer)
 
-        viewPager = findViewById(R.id.view_pager)
-        bottomBar = findViewById(R.id.bottom_bar)
-        filenameView = findViewById(R.id.filename)
-        exifParams = findViewById(R.id.exif_params)
-        exifDatetime = findViewById(R.id.exif_datetime)
-        btnAiEdit = findViewById(R.id.btn_ai_edit)
-        btnRotate = findViewById(R.id.btn_rotate)
-        btnDelete = findViewById(R.id.btn_delete)
-
-        aiEditProgressContainer = findViewById(R.id.ai_edit_progress_container)
-        aiEditProgressFill = findViewById(R.id.ai_edit_progress_fill)
-        aiEditProgressHighlight = findViewById(R.id.ai_edit_progress_highlight)
-        aiEditProgressEdge = findViewById(R.id.ai_edit_progress_edge)
-        aiEditStatusText = findViewById(R.id.ai_edit_status_text)
-        aiEditProgressText = findViewById(R.id.ai_edit_progress_text)
-        aiEditFailureText = findViewById(R.id.ai_edit_failure_text)
-        aiEditCancelBtn = findViewById(R.id.ai_edit_cancel_btn)
+        bindViews()
 
         btnAiEdit.visibility = wasAiEditVisible
 
