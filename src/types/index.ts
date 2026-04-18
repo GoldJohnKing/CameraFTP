@@ -24,9 +24,6 @@ export type { ExifInfo } from '../../src-tauri/bindings/ExifInfo';
 export type { FileInfo } from '../../src-tauri/bindings/FileInfo';
 export type { PreviewWindowConfig } from '../../src-tauri/bindings/PreviewWindowConfig';
 export type { AndroidImageOpenMethod } from '../../src-tauri/bindings/AndroidImageOpenMethod';
-export type { AiEditConfig } from '../../src-tauri/bindings/AiEditConfig';
-export type { ProviderConfig } from '../../src-tauri/bindings/ProviderConfig';
-export type { SeedEditConfig } from '../../src-tauri/bindings/SeedEditConfig';
 export type { AiEditProgressEvent } from '../../src-tauri/bindings/AiEditProgressEvent';
 
 // ===== Re-export from global.ts =====

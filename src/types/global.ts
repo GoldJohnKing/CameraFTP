@@ -214,12 +214,6 @@ interface ImageViewerAndroid {
    * @param filePath Absolute file path to scan
    */
   scanNewFile?(filePath: string): void;
-
-  /**
-   * Emits a gallery-items-added window event for the given URI, refreshing the in-app gallery.
-   * @param uri Content URI or file path of the new item
-   */
-  emitGalleryItemsAddedForUri?(uri: string): void;
 }
 
 // ===== 全局窗口扩展 =====

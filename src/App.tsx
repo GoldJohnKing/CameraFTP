@@ -19,7 +19,7 @@ import { PermissionDialog } from './components/PermissionDialog';
 import { PreviewWindow } from './components/PreviewWindow';
 import { useAppBootstrap } from './bootstrap/useAppBootstrap';
 import { useQuitFlow } from './hooks/useQuitFlow';
-import { useAiEditProgressListener, enqueueAiEdit, getCurrentAiEditProgress } from './hooks/useAiEditProgress';
+import { enqueueAiEdit, getCurrentAiEditProgress } from './hooks/useAiEditProgress';
 import { useServerStore } from './stores/serverStore';
 import { useConfigStore } from './stores/configStore';
 
@@ -31,7 +31,6 @@ function App() {
   const { showQuitDialog, closeQuitDialog, handleQuitConfirm } = useQuitFlow({ enabled: !isPreviewWindow });
 
   useAppBootstrap({ isMainWindow: !isPreviewWindow });
-  useAiEditProgressListener();
 
   // Register JS functions for native Android ImageViewerActivity prompt dialog integration
   useEffect(() => {

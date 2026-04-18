@@ -125,14 +125,4 @@ class ImageViewerBridge(activity: android.app.Activity) : BaseJsBridge(activity)
         val context = (viewer ?: activity) as? android.content.Context ?: return
         android.media.MediaScannerConnection.scanFile(context, arrayOf(filePath), null, null)
     }
-
-    /**
-     * Emits a gallery-items-added window event for the given URI, refreshing the in-app gallery.
-     */
-    @android.webkit.JavascriptInterface
-    fun emitGalleryItemsAddedForUri(uri: String?) {
-        if (uri == null) return
-        val mainActivity = MainActivity.instance ?: return
-        com.gjk.cameraftpcompanion.bridges.MediaStoreBridge.emitGalleryItemsAdded(mainActivity, uri)
-    }
 }

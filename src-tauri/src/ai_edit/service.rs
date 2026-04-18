@@ -22,8 +22,6 @@ const MANUAL_QUEUE_CAPACITY: usize = 4;
 const AUTO_QUEUE_CAPACITY: usize = 32;
 const AIEDIT_SUBDIR: &str = "AIEdit";
 
-/// Placeholder is no longer used — prompt must be explicitly configured
-const _DEFAULT_EDIT_PROMPT: &str = "提升画质，使照片更清晰";
 
 struct AiEditTask {
     file_path: PathBuf,
@@ -136,10 +134,6 @@ impl AiEditService {
         Ok(())
     }
 
-    pub fn queue_len(&self) -> u32 {
-        self.queue_depth.load(Ordering::Relaxed)
-    }
-
     pub fn cancel(&self) {
         let mut guard = self.cancel_token.lock().unwrap();
         guard.cancel();
@@ -171,7 +165,6 @@ async fn worker_loop(
         failed_count: u32,
         failed_files: Vec<String>,
         output_files: Vec<String>,
-        batch_total: u32,
     }
 
     impl WorkerState {
@@ -184,7 +177,6 @@ async fn worker_loop(
             self.failed_count = 0;
             self.failed_files.clear();
             self.output_files.clear();
-            self.batch_total = 0;
         }
     }
 
@@ -193,7 +185,6 @@ async fn worker_loop(
         failed_count: 0,
         failed_files: Vec::new(),
         output_files: Vec::new(),
-        batch_total: 0,
     };
 
     let mut cached_provider: Option<Box<dyn providers::AiEditProvider>> = None;
@@ -307,7 +298,6 @@ async fn worker_loop(
         let remaining = queue_depth.load(Ordering::Relaxed);
         let current = state.processed_count() + 1;
         let total = current + remaining;
-        state.batch_total = total;
         let file_name = task.file_path.file_name()
             .and_then(|n| n.to_str())
             .unwrap_or("unknown")
@@ -592,19 +582,12 @@ mod tests {
     }
 
     #[test]
-    fn default_edit_prompt_is_chinese() {
-        assert!(!_DEFAULT_EDIT_PROMPT.is_empty());
-        assert!(_DEFAULT_EDIT_PROMPT.contains("画质"));
-    }
-
-    #[test]
     fn worker_state_tracks_output_files() {
         struct WorkerState {
             completed_count: u32,
             failed_count: u32,
             failed_files: Vec<String>,
             output_files: Vec<String>,
-            batch_total: u32,
         }
 
         impl WorkerState {
@@ -618,22 +601,18 @@ mod tests {
             failed_count: 0,
             failed_files: Vec::new(),
             output_files: Vec::new(),
-            batch_total: 0,
         };
 
-        // Simulate successful task
         state.completed_count += 1;
         state.output_files.push("/output/AIEdit/photo1_AIEdit.jpg".to_string());
         assert_eq!(state.processed_count(), 1);
         assert_eq!(state.output_files.len(), 1);
 
-        // Simulate another success
         state.completed_count += 1;
         state.output_files.push("/output/AIEdit/photo2_AIEdit.jpg".to_string());
         assert_eq!(state.processed_count(), 2);
         assert_eq!(state.output_files.len(), 2);
 
-        // Simulate failure
         state.failed_count += 1;
         state.failed_files.push("bad.jpg".to_string());
         assert_eq!(state.processed_count(), 3);

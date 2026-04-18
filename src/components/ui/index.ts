@@ -13,4 +13,3 @@ export { ErrorBoundary } from './ErrorBoundary';
 export { Dialog } from './Dialog';
 export { RefreshButton } from './RefreshButton';
 export { Select } from './Select';
-export type { SelectOption } from './Select';

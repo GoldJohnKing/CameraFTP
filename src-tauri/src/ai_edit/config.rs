@@ -62,13 +62,6 @@ pub struct SeedEditConfig {
     pub model: String,
 }
 
-/// Available SeedEdit model options: (display name, API model ID)
-pub const SEEDREAM_MODELS: &[(&str, &str)] = &[
-    ("Doubao-Seedream-5.0-lite", "doubao-seedream-5-0-260128"),
-    ("Doubao-Seedream-4.5", "doubao-seedream-4-5-251128"),
-    ("Doubao-Seedream-4.0", "doubao-seedream-4-0-250828"),
-];
-
 /// Default model: Doubao-Seedream-5.0-lite
 pub const DEFAULT_SEEDREAM_MODEL: &str = "doubao-seedream-5-0-260128";
 

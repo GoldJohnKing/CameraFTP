@@ -33,9 +33,6 @@ const initialState: AiEditProgressState = {
 
 const useAiEditProgressStore = create<AiEditProgressState>(() => ({ ...initialState }));
 
-// Stored for module teardown.
-let _listenerCleanup: (() => void) | null = null;
-void _listenerCleanup; // Prevent TS6133: kept for module lifecycle management.
 let _listenerRegistered = false;
 
 function syncToNativeLayer(current: number, total: number, failedCount: number) {
@@ -165,7 +162,8 @@ async function registerListener(): Promise<void> {
     const unlisten = await listen<AiEditProgressEvent>('ai-edit-progress', (e) => {
       handleEvent(e.payload);
     });
-    _listenerCleanup = unlisten;
+    // Keep the unlisten function in scope for potential future teardown
+    void unlisten;
   } catch (err) {
     _listenerRegistered = false;
     console.error('[ai-edit-progress] Listener registration failed:', err);

@@ -124,15 +124,6 @@ class ImageViewerActivity : AppCompatActivity() {
             start(context, plan.uris, plan.safeTargetIndex, aiEditEnabled)
         }
 
-        /**
-         * Triggers a MediaStore scan for a newly created file from any context.
-         */
-        @JvmStatic
-        fun scanNewFile(context: Context, filePath: String) {
-            android.media.MediaScannerConnection.scanFile(context, arrayOf(filePath), null, null)
-        }
-    }
-
     private lateinit var viewPager: ViewPager2
     private lateinit var bottomBar: LinearLayout
     private lateinit var filenameView: TextView
