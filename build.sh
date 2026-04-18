@@ -1,6 +1,6 @@
 #!/bin/bash
 # build.sh - 统一构建入口
-set -e
+set -eu
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/scripts/build-common.sh"
