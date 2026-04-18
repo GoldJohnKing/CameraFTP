@@ -20,7 +20,7 @@ use crate::ftp::FtpStorageBackend;
 use dashmap::DashSet;
 use libunftp::options::Shutdown;
 use libunftp::ServerBuilder;
-use std::net::SocketAddr;
+use std::net::{SocketAddr, TcpStream};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tauri::AppHandle;
@@ -426,7 +426,7 @@ impl FtpServerActor {
                 }
             }
 
-            if Self::is_port_listening(port).await {
+            if Self::is_port_listening(port) {
                 info!(
                     port = port,
                     elapsed_ms = start.elapsed().as_millis() as u64,
@@ -450,9 +450,9 @@ impl FtpServerActor {
     }
 
     /// 检查端口是否在监听
-    async fn is_port_listening(port: u16) -> bool {
-        let addr: SocketAddr = ([127, 0, 0, 1], port).into();
-        tokio::net::TcpStream::connect(addr).await.is_ok()
+    fn is_port_listening(port: u16) -> bool {
+        let addr = SocketAddr::from(([127, 0, 0, 1], port));
+        TcpStream::connect_timeout(&addr, Duration::from_millis(10)).is_ok()
     }
 
     /// 创建文件系统实例（路径已验证，不应失败）
