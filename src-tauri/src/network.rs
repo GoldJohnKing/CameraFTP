@@ -98,7 +98,7 @@ impl NetworkManager {
         while !current.is_null() {
             unsafe {
                 let adapter = &*current;
-                if adapter.OperStatus == IfOperStatusUp {
+                if adapter.OperStatus == IfOperStatusUp && !adapter.FriendlyName.is_null() {
                     let friendly_name = adapter.FriendlyName
                         .to_string()
                         .unwrap_or_default();
