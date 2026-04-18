@@ -75,8 +75,8 @@ class ImageViewerBridge(activity: android.app.Activity) : BaseJsBridge(activity)
     }
 
     /**
-     * Resolve a content:// URI to a real file system path.
-     * Returns null if the URI cannot be resolved.
+     * Resolve a URI to a file system path.
+     * Handles file://, content:// (via MediaStore), and fallback.
      */
     @android.webkit.JavascriptInterface
     fun resolveFilePath(uri: String): String? {
