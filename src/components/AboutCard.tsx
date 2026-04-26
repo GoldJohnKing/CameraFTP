@@ -32,7 +32,7 @@ const DEPENDENCIES: DependencyGroup[] = [
     deps: [
       {
         name: 'Tauri',
-        description: '使用 Web 前端构建桌面应用的框架',
+        description: '使用 Web 前端构建桌面/移动应用的框架',
         url: 'https://tauri.app/',
       },
       {
@@ -44,6 +44,21 @@ const DEPENDENCIES: DependencyGroup[] = [
         name: 'TailwindCSS',
         description: '实用优先的 CSS 框架',
         url: 'https://tailwindcss.com/',
+      },
+      {
+        name: 'Lucide',
+        description: '精美的开源图标库',
+        url: 'https://lucide.dev/',
+      },
+      {
+        name: 'Zustand',
+        description: '轻量级 React 状态管理库',
+        url: 'https://zustand.docs.pmnd.rs/',
+      },
+      {
+        name: 'Sonner',
+        description: '优雅的 Toast 通知组件',
+        url: 'https://sonner.emilkowal.dev/',
       },
     ],
   },
@@ -65,6 +80,11 @@ const DEPENDENCIES: DependencyGroup[] = [
         description: 'Rust 异步运行时',
         url: 'https://tokio.rs/',
       },
+      {
+        name: 'tokio-util',
+        description: 'Tokio 异步工具库',
+        url: 'https://docs.rs/tokio-util/',
+      },
     ],
   },
   {
@@ -81,9 +101,34 @@ const DEPENDENCIES: DependencyGroup[] = [
         url: 'https://docs.rs/image/',
       },
       {
+        name: 'heic',
+        description: '纯 Rust 实现的 HEIC/HEIF 图像解码器',
+        url: 'https://docs.rs/heic/',
+      },
+      {
         name: 'notify',
         description: '跨平台文件系统事件监听库',
         url: 'https://docs.rs/notify/',
+      },
+    ],
+  },
+  {
+    title: '网络与通信',
+    deps: [
+      {
+        name: 'reqwest',
+        description: 'Rust HTTP 客户端库',
+        url: 'https://docs.rs/reqwest/',
+      },
+      {
+        name: 'local-ip-address',
+        description: '获取本机 IP 地址和网络接口信息',
+        url: 'https://docs.rs/local-ip-address/',
+      },
+      {
+        name: 'rcgen',
+        description: 'Rust TLS 证书生成库',
+        url: 'https://docs.rs/rcgen/',
       },
     ],
   },
@@ -101,9 +146,49 @@ const DEPENDENCIES: DependencyGroup[] = [
         url: 'https://docs.rs/zeroize/',
       },
       {
+        name: 'base64',
+        description: 'Base64 编解码库',
+        url: 'https://docs.rs/base64/',
+      },
+      {
         name: 'chrono',
         description: '日期和时间处理库',
         url: 'https://docs.rs/chrono/',
+      },
+    ],
+  },
+  {
+    title: 'Rust 核心库',
+    deps: [
+      {
+        name: 'serde',
+        description: 'Rust 序列化/反序列化框架',
+        url: 'https://serde.rs/',
+      },
+      {
+        name: 'tracing',
+        description: '结构化日志与诊断库',
+        url: 'https://docs.rs/tracing/',
+      },
+      {
+        name: 'thiserror',
+        description: 'Rust 错误类型派生宏',
+        url: 'https://docs.rs/thiserror/',
+      },
+      {
+        name: 'dashmap',
+        description: '并发哈希表',
+        url: 'https://docs.rs/dashmap/',
+      },
+      {
+        name: 'async-trait',
+        description: '异步 trait 方法支持',
+        url: 'https://docs.rs/async-trait/',
+      },
+      {
+        name: 'futures',
+        description: 'Rust 异步工具库',
+        url: 'https://docs.rs/futures/',
       },
     ],
   },
