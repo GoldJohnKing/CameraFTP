@@ -2,9 +2,10 @@
 
 一款跨平台的相机FTP伴侣应用，让相机照片直接传输到电脑或手机。
 
-![版本](https://img.shields.io/badge/version-1.5.0-blue)
+![版本](https://img.shields.io/badge/version-1.6.1-blue)
 ![平台](https://img.shields.io/badge/platform-Windows%20%7C%20Android-brightgreen)
 ![技术栈](https://img.shields.io/badge/tech-Tauri%20v2%20%2B%20React%2018%20%2B%20Rust%202021-orange)
+[![QQ群](https://img.shields.io/badge/QQ%E7%BE%A4-936189868-12B7F5?logo=tencentqq&logoColor=white)](https://qm.qq.com/q/IUGLEM5V28)
 
 ---
 
@@ -18,6 +19,7 @@
 - 🖼️ **自动预览** - 支持接收照片后自动打开预览窗口
 - 📷 **EXIF元数据** - 预览窗口支持显示ISO/光圈/快门速度/焦距/拍摄时间
 - 🎨 **多格式支持** - 支持 JPG、HEIF、RAW 等格式
+- 🤖 **AI修图** - 支持火山引擎 Seedream 系列大模型，支持自动/手动AI修图
 
 ### 🖥️ Windows专属功能
 
@@ -137,6 +139,7 @@ AGPL-3.0-or-later © 2026 GoldJohnKing <GoldJohnKing@Live.cn>
 | **EXIF读取** | nom-exif | 2.7 |
 | **时间处理** | chrono | 0.4 |
 | **托盘图标** | image | 0.25 |
+| **HEIC支持** | heic | 0.1 |
 | **密码哈希** | argon2 | 0.5 |
 | **内存安全** | zeroize | 1.8 |
 | **TLS证书** | rcgen | 0.13 |
@@ -144,6 +147,7 @@ AGPL-3.0-or-later © 2026 GoldJohnKing <GoldJohnKing@Live.cn>
 | **错误处理** | thiserror | 2.0 |
 | **日志** | tracing | 0.1 |
 | **文件监听(Win)** | notify | 8.0 |
+| **AI修图** | Volcengine Seedream | doubao-seedream-5-0 |
 | **Android Native** | Kotlin | JVM 21 |
 | **Android API** | min 33 / target 36 | Android 13+ |
 | **JDK** | Java | 21 |
@@ -175,10 +179,14 @@ cameraftp/
 │   ├── components/               # UI组件
 │   │   ├── ui/                   # 基础UI组件
 │   │   │   ├── Card.tsx          # 卡片容器
+│   │   │   ├── Dialog.tsx        # 对话框
 │   │   │   ├── ErrorBoundary.tsx # 错误边界
 │   │   │   ├── ErrorMessage.tsx  # 错误显示
 │   │   │   ├── IconContainer.tsx # 图标容器
 │   │   │   ├── LoadingButton.tsx # 加载按钮
+│   │   │   ├── MaskedInput.tsx   # 密码输入框
+│   │   │   ├── RefreshButton.tsx # 刷新按钮
+│   │   │   ├── Select.tsx        # 下拉选择器
 │   │   │   └── ToggleSwitch.tsx  # 开关组件
 │   │   ├── ServerCard.tsx        # 服务器控制卡片
 │   │   ├── InfoCard.tsx          # 连接信息卡片
@@ -194,6 +202,10 @@ cameraftp/
 │   │   ├── BottomNav.tsx         # 底部导航栏
 │   │   ├── PermissionDialog.tsx  # 权限对话框
 │   │   ├── PermissionList.tsx    # 权限列表
+│   │   ├── AiEditConfigCard.tsx  # AI修图配置卡片
+│   │   ├── AiEditConfigPanel.tsx # AI修图配置面板
+│   │   ├── AiEditProgressBar.tsx # AI修图进度条
+│   │   ├── PromptDialog.tsx      # AI修图提示词对话框
 │   │   ├── AboutCard.tsx         # 关于信息
 │   │   └── WeChatDonateDialog.tsx # 赞赏对话框
 │   ├── hooks/                    # React Hooks
@@ -204,6 +216,7 @@ cameraftp/
 │   │   ├── useGallerySelection.ts # 图库多选
 │   │   ├── useThumbnailScheduler.ts # 缩略图调度
 │   │   ├── useImagePreviewOpener.ts # 图片预览
+│   │   ├── useAiEditProgress.ts  # AI修图进度
 │   │   ├── useAndroidAutoOpenLatestPhoto.ts # Android自动打开
 │   │   ├── usePreviewWindowLifecycle.ts # 预览窗口生命周期
 │   │   ├── usePreviewZoomPan.ts  # 预览缩放平移
@@ -226,6 +239,8 @@ cameraftp/
 │   │   ├── gallery-v2.ts         # 图库类型
 │   │   ├── events.ts             # 事件类型
 │   │   └── global.ts             # 全局类型声明
+│   ├── constants/                # 常量定义
+│   │   └── seedream-models.ts    # Seedream可用模型列表
 │   └── utils/                    # 工具函数
 │       ├── events.ts             # 事件管理器
 │       ├── format.ts             # 格式化工具
@@ -246,7 +261,8 @@ cameraftp/
 │   │   │   ├── config.rs         # 配置管理命令
 │   │   │   ├── storage.rs        # 存储/权限/自启命令
 │   │   │   ├── file_index.rs     # 文件索引命令
-│   │   │   └── exif.rs           # EXIF读取命令
+│   │   │   ├── exif.rs           # EXIF读取命令
+│   │   │   └── ai_edit.rs        # AI修图命令
 │   │   ├── ftp/                  # FTP服务器实现
 │   │   │   ├── server.rs         # FtpServerActor（生命周期管理）
 │   │   │   ├── server_factory.rs # 启动流水线
@@ -260,6 +276,18 @@ cameraftp/
 │   │   │       ├── types.rs      # 数据类型
 │   │   │       ├── retry.rs      # 重试逻辑
 │   │   │       └── limiter.rs    # 并发限制
+│   │   ├── ai_edit/              # AI修图服务
+│   │   │   ├── mod.rs            # 模块入口
+│   │   │   ├── config.rs         # AI修图配置
+│   │   │   ├── service.rs        # 双优先级队列服务
+│   │   │   ├── progress.rs       # 进度事件
+│   │   │   ├── providers/        # AI服务提供商
+│   │   │   │   ├── mod.rs        # 提供商接口
+│   │   │   │   └── seededit.rs   # 火山引擎SeedEdit
+│   │   │   └── image_processor/  # 图片预处理
+│   │   │       ├── mod.rs        # 平台分发
+│   │   │       ├── rust_processor.rs  # Windows（image+heic）
+│   │   │       └── android_processor.rs # Android（JNI）
 │   │   ├── file_index/           # 文件索引服务
 │   │   │   ├── service.rs        # 索引服务（EXIF排序）
 │   │   │   ├── types.rs          # 索引类型
@@ -296,7 +324,8 @@ cameraftp/
 │           │   ├── GalleryBridge.kt               # 原始图库Bridge
 │           │   ├── GalleryBridgeV2.kt             # 增强图库Bridge（分页+缓存）
 │           │   ├── ImageViewerBridge.kt           # 图片查看Bridge
-│           │   └── MediaStoreBridge.kt            # MediaStore集成Bridge
+│           │   ├── MediaStoreBridge.kt            # MediaStore集成Bridge
+│           │   └── ImageProcessorBridge.kt        # 图片预处理Bridge（JNI调用）
 │           └── galleryv2/                         # Gallery V2实现
 │               ├── MediaPageProvider.kt           # 分页媒体加载
 │               ├── ThumbnailCacheV2.kt            # 缩略图缓存（内存+磁盘）
@@ -324,6 +353,7 @@ Android平台使用Kotlin实现以下功能：
 | **bridges/GalleryBridgeV2.kt** | 增强图库Bridge，支持分页加载和缩略图缓存 |
 | **bridges/ImageViewerBridge.kt** | 图片查看Bridge，支持全屏查看和EXIF回调 |
 | **bridges/MediaStoreBridge.kt** | MediaStore集成Bridge，供Kotlin/Rust集成调用 |
+| **bridges/ImageProcessorBridge.kt** | 图片预处理Bridge（JNI调用），解码+降采样+Base64编码 |
 | **galleryv2/MediaPageProvider.kt** | 分页媒体加载 |
 | **galleryv2/ThumbnailCacheV2.kt** | 缩略图缓存，内存+磁盘两级 |
 | **galleryv2/ThumbnailDecoder.kt** | 缩略图解码 |
