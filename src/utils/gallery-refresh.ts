@@ -13,7 +13,8 @@ type MediaLibraryRefreshReason =
   | 'delete'
   | 'permission-granted'
   | 'activity-resume'
-  | 'ai-edit';
+  | 'ai-edit'
+  | 'lut-filter';
 
 interface MediaLibraryRefreshDetail {
   reason: MediaLibraryRefreshReason;

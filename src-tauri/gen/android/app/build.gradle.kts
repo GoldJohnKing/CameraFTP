@@ -193,7 +193,10 @@ android {
     sourceSets {
         getByName("main") {
             assets.setSrcDirs(listOf(tauriStagingAssetsDir.get().asFile))
-            jniLibs.setSrcDirs(listOf(tauriStagingJniLibsDir.get().asFile))
+            jniLibs.setSrcDirs(listOf(
+                tauriStagingJniLibsDir.get().asFile,
+                file("${project.projectDir}/extra-jniLibs")
+            ))
         }
     }
 }

@@ -347,6 +347,9 @@ generate_ts_types() {
         return 1
     fi
 
+    # tauri::generate_context!() requires frontendDist to exist at compile time
+    mkdir -p dist
+
     cd src-tauri
     $cargo_cmd run --quiet --bin export-bindings
     cd ..
@@ -361,6 +364,7 @@ clean_build_cache() {
         "src-tauri/target"
         "src-tauri/bindings"
         "dist"
+        "src-tauri/resources/lensfun_db"
         "$OUTPUT_DIR"
         # Android 构建产物包含 tauri-staging (app/build/tauri-staging)
         "src-tauri/gen/android/app/build"
@@ -371,6 +375,7 @@ clean_build_cache() {
         "src-tauri/gen/android/.kotlin"
         "src-tauri/gen/android/app/src/main/assets"
         "src-tauri/gen/android/app/src/main/jniLibs"
+        "src-tauri/gen/android/app/extra-jniLibs"
         "src-tauri/gen/android/app/src/main/java/com/gjk/cameraftpcompanion/generated"
         "src-tauri/gen/android/app/tauri.build.gradle.kts"
         "src-tauri/gen/android/app/tauri.properties"

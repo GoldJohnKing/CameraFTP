@@ -132,6 +132,36 @@ check_common_tools() {
 
 check_common_tools
 
+# Prepare LUT filter resources (LUT files + Lensfun DB)
+prepare_lut_resources() {
+    local resources_dir="src-tauri/resources"
+    mkdir -p "$resources_dir/luts" "$resources_dir/lensfun_db"
+
+    # Copy LUT files from F-Log2C_LUT/
+    local lut_source="F-Log2C_LUT"
+    if [ -d "$lut_source" ]; then
+        local lut_count=$(find "$lut_source" -name "*.cube" 2>/dev/null | wc -l)
+        if [ "$lut_count" -gt 0 ]; then
+            cp "$lut_source"/*.cube "$resources_dir/luts/"
+            info "Copied $lut_count LUT files to $resources_dir/luts/"
+        fi
+    fi
+
+    # Copy Lensfun DB from submodule
+    local lensfun_source="src-tauri/lib/rawalchemy/third_party/lensfun/data/db"
+    if [ -d "$lensfun_source" ]; then
+        local xml_count=$(find "$lensfun_source" -name "*.xml" 2>/dev/null | wc -l)
+        if [ "$xml_count" -gt 0 ]; then
+            cp "$lensfun_source"/*.xml "$resources_dir/lensfun_db/"
+            info "Copied $xml_count Lensfun DB files to $resources_dir/lensfun_db/"
+        fi
+    fi
+}
+
+if [ "$CHECK_ONLY" = false ]; then
+    prepare_lut_resources
+fi
+
 NEED_BUILD_FRONTEND=false
 if [ "$CHECK_ONLY" = false ] && [ ${#BUILD_TARGETS[@]} -gt 0 -o -n "$FRONTEND_TARGET" ]; then
     NEED_BUILD_FRONTEND=true

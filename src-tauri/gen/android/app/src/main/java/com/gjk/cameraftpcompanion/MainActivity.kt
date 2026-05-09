@@ -103,6 +103,14 @@ class MainActivity : TauriActivity() {
         instance = this
         
         Log.d(TAG, "onCreate: initializing bridges")
+
+        // Pre-load RawAlchemyCpp so Rust can dlopen it by name
+        try {
+            System.loadLibrary("raw_alchemy_core")
+            Log.d(TAG, "RawAlchemyCpp loaded successfully")
+        } catch (e: UnsatisfiedLinkError) {
+            Log.w(TAG, "RawAlchemyCpp not found, LUT filter unavailable: ${e.message}")
+        }
         permissionBridge = PermissionBridge(this)
         galleryBridge = GalleryBridge(this)
         galleryBridgeV2 = GalleryBridgeV2(this)

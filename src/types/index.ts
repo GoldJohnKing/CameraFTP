@@ -25,6 +25,8 @@ export type { FileInfo } from '../../src-tauri/bindings/FileInfo';
 export type { PreviewWindowConfig } from '../../src-tauri/bindings/PreviewWindowConfig';
 export type { AndroidImageOpenMethod } from '../../src-tauri/bindings/AndroidImageOpenMethod';
 export type { AiEditProgressEvent } from '../../src-tauri/bindings/AiEditProgressEvent';
+export type { PresetLut } from '../../src-tauri/bindings/PresetLut';
+export type { LutFilterProgressEvent } from '../../src-tauri/bindings/LutFilterProgressEvent';
 
 // ===== Re-export from global.ts =====
 export * from './global';

@@ -5,7 +5,7 @@
  */
 
 import { memo, useCallback, useEffect, useState } from 'react';
-import { ImageOff, X, Trash2, Share2, Sparkles, MoreVertical } from 'lucide-react';
+import { ImageOff, X, Trash2, Share2, Sparkles, MoreVertical, Palette } from 'lucide-react';
 import { useConfigStore } from '../stores/configStore';
 import { usePermissionStore } from '../stores/permissionStore';
 import type { MediaItemDto, GalleryItemsAddedEvent, GalleryItemsDeletedEvent } from '../types';
@@ -21,6 +21,11 @@ import { useAndroidAutoOpenLatestPhoto } from '../hooks/useAndroidAutoOpenLatest
 import { VirtualGalleryGrid } from './VirtualGalleryGrid';
 import { RefreshButton } from './ui';
 import { PromptDialog } from './PromptDialog';
+import { invoke } from '@tauri-apps/api/core';
+import { LutFilterDialog } from './LutFilterDialog';
+import { LutFilterProgressBar } from './LutFilterProgressBar';
+import { enqueueLutFilter } from '../hooks/useLutFilterProgress';
+import type { PresetLut } from '../types';
 
 export const GalleryCard = memo(function GalleryCard() {
   const { activeTab } = useConfigStore();
@@ -114,6 +119,12 @@ export const GalleryCard = memo(function GalleryCard() {
   const requestStoragePermission = usePermissionStore((state) => state.requestStoragePermission);
   const startPermissionPolling = usePermissionStore((state) => state.startPolling);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [showLutFilterDialog, setShowLutFilterDialog] = useState(false);
+  const [presetLuts, setPresetLuts] = useState<PresetLut[]>([]);
+
+  useEffect(() => {
+    invoke<PresetLut[]>('get_preset_luts').then(setPresetLuts).catch(console.error);
+  }, []);
 
   const handleRefresh = useCallback(async () => {
     // Check permissions before loading — request if not granted
@@ -138,6 +149,27 @@ export const GalleryCard = memo(function GalleryCard() {
       setIsRefreshing(false);
     }
   }, [handleRefreshStart, pager, scheduler, requestStoragePermission, startPermissionPolling]);
+
+  const handleLutFilter = useCallback(() => {
+    toggleMenu();
+    setShowLutFilterDialog(true);
+  }, [toggleMenu]);
+
+  const handleLutFilterConfirm = useCallback(async (lutId: string) => {
+    setShowLutFilterDialog(false);
+    const filePaths = Array.from(selectedIds)
+      .map(id => pager.items.find(item => item.mediaId === id))
+      .filter((item): item is NonNullable<typeof item> => item != null)
+      .map(item => window.ImageViewerAndroid?.resolveFilePath?.(item.uri) ?? item.uri);
+    if (filePaths.length > 0) {
+      await enqueueLutFilter(filePaths, lutId);
+    }
+  }, [selectedIds, pager.items]);
+
+  const hasRawSelected = Array.from(selectedIds).some(id => {
+    const item = pager.items.find(i => i.mediaId === id);
+    return item?.mimeType?.startsWith('image/x-') ?? false;
+  });
 
   // Full refresh on permission granted (necessary because gallery was empty before)
   useEffect(() => {
@@ -280,6 +312,14 @@ export const GalleryCard = memo(function GalleryCard() {
                   <span>修图({selectedIds.size})</span>
                 </button>
               <button
+                onClick={handleLutFilter}
+                disabled={selectedIds.size === 0 || !hasRawSelected}
+                className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed border-t border-gray-100"
+              >
+                <Palette className="w-5 h-5 text-violet-600" />
+                <span>LUT滤镜({selectedIds.size})</span>
+              </button>
+              <button
                 onClick={handleCancelSelection}
                 className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-gray-50 border-t border-gray-100"
               >
@@ -316,6 +356,13 @@ export const GalleryCard = memo(function GalleryCard() {
         onConfirm={handleAiEditPromptConfirm}
         onCancel={handleCancelAiEditPrompt}
       />
+      <LutFilterDialog
+        isOpen={showLutFilterDialog}
+        presetLuts={presetLuts}
+        onConfirm={handleLutFilterConfirm}
+        onCancel={() => setShowLutFilterDialog(false)}
+      />
+      <LutFilterProgressBar position="fixed" />
     </div>
   );
 });

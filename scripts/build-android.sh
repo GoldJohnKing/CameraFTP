@@ -277,6 +277,46 @@ EOF
     fi
 }
 
+# Find libomp.so from the NDK (OpenMP runtime needed by RawAlchemyCpp)
+find_ndk_libomp() {
+    local ndk_home="${1:-$NDK_HOME}"
+    if [ -z "$ndk_home" ] || [ ! -d "$ndk_home" ]; then
+        return 1
+    fi
+    # NDK path pattern: $NDK/toolchains/llvm/prebuilt/<host>/lib/clang/<ver>/lib/linux/aarch64/libomp.so
+    local omp_so
+    omp_so="$(find "$ndk_home/toolchains/llvm/prebuilt" -path "*/aarch64/libomp.so" 2>/dev/null | head -1)"
+    if [ -n "$omp_so" ] && [ -f "$omp_so" ]; then
+        echo "$omp_so"
+        return 0
+    fi
+    return 1
+}
+
+# Inject RawAlchemyCpp .so + libomp.so into Tauri's staging directory
+inject_raw_alchemy_so() {
+    local so_path="${1:-}"
+    if [ -z "$so_path" ] || [ ! -f "$so_path" ]; then
+        return 0
+    fi
+
+    local staging_dir="src-tauri/gen/android/app/build/tauri-staging/jniLibs/arm64-v8a"
+    if [ -d "$staging_dir" ]; then
+        cp "$so_path" "$staging_dir/libraw_alchemy_core.so"
+        info "Injected libraw_alchemy_core.so into tauri-staging"
+
+        # libomp.so (OpenMP runtime) is needed by libraw_alchemy_core.so
+        local omp_so
+        omp_so="$(find_ndk_libomp "$NDK_HOME")" || true
+        if [ -n "$omp_so" ]; then
+            cp "$omp_so" "$staging_dir/libomp.so"
+            info "Injected libomp.so into tauri-staging"
+        else
+            warn "libomp.so not found in NDK — OpenMP may fail at runtime"
+        fi
+    fi
+}
+
 # 构建
 build_android() {
     local BUILD_TYPE="${1:-release}"
@@ -289,6 +329,44 @@ build_android() {
     fi
     check_or_create_keystore
 
+    # Build RawAlchemyCpp .so if available
+    local rawalchemy_dir="${RAWALCHEMY_DIR:-$SCRIPT_DIR/../src-tauri/lib/rawalchemy}"
+    local rawalchemy_so=""
+    if [ -d "$rawalchemy_dir" ]; then
+        local bt_upper
+        if [ "$BUILD_TYPE" = "debug" ]; then
+            bt_upper="Debug"
+        else
+            bt_upper="Release"
+        fi
+        "$SCRIPT_DIR/build-raw-alchemy.sh" android "$bt_upper" || {
+            warn "RawAlchemyCpp Android build failed. LUT filter will be unavailable."
+        }
+
+        local abs_dir
+        abs_dir="$(cd "$rawalchemy_dir" && pwd)"
+        if [ -f "$abs_dir/build-android-arm64/libraw_alchemy.so" ]; then
+            rawalchemy_so="$abs_dir/build-android-arm64/libraw_alchemy.so"
+            # Copy to extra-jniLibs (included in APK via build.gradle.kts)
+            local jni_dir="src-tauri/gen/android/app/extra-jniLibs/arm64-v8a"
+            mkdir -p "$jni_dir"
+            cp "$rawalchemy_so" "$jni_dir/libraw_alchemy_core.so"
+            # Also copy libomp.so (OpenMP runtime required by libraw_alchemy_core.so)
+            local omp_so
+            omp_so="$(find_ndk_libomp "$NDK_HOME")" || true
+            if [ -n "$omp_so" ]; then
+                cp "$omp_so" "$jni_dir/libomp.so"
+                success "RawAlchemyCpp .so + libomp.so ready"
+            else
+                warn "libomp.so not found in NDK — OpenMP may fail at runtime"
+                success "RawAlchemyCpp .so ready (without libomp.so): $rawalchemy_so"
+            fi
+        fi
+    else
+        warn "RawAlchemyCpp not found. LUT filter feature will be unavailable."
+        warn "Set RAWALCHEMY_DIR to enable it."
+    fi
+
     local VERSION
     VERSION=$(get_version)
 
@@ -298,6 +376,7 @@ build_android() {
                 error "Android debug 构建失败"
                 exit 1
             }
+            inject_raw_alchemy_so "$rawalchemy_so"
             move_to_out \
                 "src-tauri/gen/android/app/build/outputs/apk/universal/debug/*.apk" \
                 "CameraFTP_v${VERSION}-debug.apk" \
@@ -309,6 +388,7 @@ build_android() {
                 error "Android release 构建失败"
                 exit 1
             }
+            inject_raw_alchemy_so "$rawalchemy_so"
             move_to_out \
                 "src-tauri/gen/android/app/build/outputs/apk/universal/release/*.apk" \
                 "CameraFTP_v${VERSION}.apk" \

@@ -1,0 +1,3 @@
+[submodule "src-tauri/lib/rawalchemy"]
+	path = src-tauri/lib/rawalchemy
+	url = https://github.com/GoldJohnKing/RawAlchemyCpp.git
