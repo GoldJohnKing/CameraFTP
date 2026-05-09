@@ -361,6 +361,7 @@ clean_build_cache() {
         "src-tauri/target"
         "src-tauri/bindings"
         "dist"
+        "src-tauri/resources"
         "$OUTPUT_DIR"
         # Android 构建产物包含 tauri-staging (app/build/tauri-staging)
         "src-tauri/gen/android/app/build"

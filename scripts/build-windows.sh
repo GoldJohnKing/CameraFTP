@@ -35,6 +35,15 @@ build_windows() {
 
     terminate_running_process "$OUTPUT_NAME"
 
+    # Build RawAlchemyCpp DLL if available
+    if [ -d "${RAWALCHEMY_DIR:-../RawAlchemyCpp}" ]; then
+        task "[RawAlchemyCpp] Building Windows DLL..."
+        "$SCRIPT_DIR/build-raw-alchemy.sh" windows "${BUILD_TYPE^}"
+    else
+        warn "RawAlchemyCpp not found. LUT filter feature will be unavailable."
+        warn "Set RAWALCHEMY_DIR to enable it."
+    fi
+
     local cargo_cmd
     cargo_cmd=$(get_tool_cmd "cargo")
     local target="$TARGET_WINDOWS_TRIPLE"
@@ -65,6 +74,21 @@ build_windows() {
     terminate_running_process "$DEST_NAME"
 
     move_to_out "$SRC_PATH" "$DEST_NAME" "Windows $BUILD_TYPE"
+
+    # Copy RawAlchemyCpp DLL alongside the exe
+    local rawalchemy_dir="${RAWALCHEMY_DIR:-../RawAlchemyCpp}"
+    if [ -d "$rawalchemy_dir" ]; then
+        local dll_src
+        if [ "$BUILD_TYPE" = "debug" ]; then
+            dll_src="$rawalchemy_dir/build-windows-dll/bin/Debug/raw_alchemy_core.dll"
+        else
+            dll_src="$rawalchemy_dir/build-windows-dll/bin/Release/raw_alchemy_core.dll"
+        fi
+        if [ -f "$dll_src" ]; then
+            cp "$dll_src" "$OUTPUT_DIR/raw_alchemy_core.dll"
+            info "Copied RawAlchemyCpp DLL to $OUTPUT_DIR/"
+        fi
+    fi
 }
 
 # 显示帮助信息
