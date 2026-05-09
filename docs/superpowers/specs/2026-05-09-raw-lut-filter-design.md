@@ -295,6 +295,10 @@ Worker 循环：
 
 ### 5.3 预制 LUT 注册表
 
+LUT 文件来源：项目根目录 `F-Log2C_LUT/` 文件夹，所有 LUT 均为 F-Log2C → Fujifilm 胶片模拟的 `.cube` 文件（65grid，约 7.1MB/个）。
+
+构建时将 LUT 文件从 `F-Log2C_LUT/` 复制到 `src-tauri/resources/luts/`（见第 6 节构建流程），运行时通过 `ensure_resources()` 释放到 app 数据目录。
+
 ```rust
 // lut_filter/presets.rs
 pub struct PresetLut {
@@ -305,23 +309,32 @@ pub struct PresetLut {
 }
 
 pub const PRESET_LUTS: &[PresetLut] = &[
-    PresetLut {
-        id: "classic-neg",
-        display_name: "Classic Neg",
-        log_space: "F-Log2C",
-        cube_filename: "classic-neg.cube",
-    },
-    // 更多预制 LUT 按需添加
+    PresetLut { id: "acros",           display_name: "ACROS",           log_space: "F-Log2C", cube_filename: "FLog2C_to_ACROS_65grid_V.1.00.cube" },
+    PresetLut { id: "astia",           display_name: "Astia",           log_space: "F-Log2C", cube_filename: "FLog2C_to_ASTIA_65grid_V.1.00.cube" },
+    PresetLut { id: "classic-chrome",  display_name: "Classic Chrome",  log_space: "F-Log2C", cube_filename: "FLog2C_to_CLASSIC-CHROME_65grid_V.1.00.cube" },
+    PresetLut { id: "classic-neg",     display_name: "Classic Neg",     log_space: "F-Log2C", cube_filename: "FLog2C_to_CLASSIC-Neg._65grid_V.1.00.cube" },
+    PresetLut { id: "eterna",          display_name: "ETERNA",          log_space: "F-Log2C", cube_filename: "FLog2C_to_ETERNA_65grid_V.1.00.cube" },
+    PresetLut { id: "eterna-bb",       display_name: "ETERNA Bleach Bypass", log_space: "F-Log2C", cube_filename: "FLog2C_to_ETERNA-BB_65grid_V.1.00.cube" },
+    PresetLut { id: "pro-neg-std",     display_name: "PRO Neg. Std",    log_space: "F-Log2C", cube_filename: "FLog2C_to_PRO-Neg.Std_65grid_V.1.00.cube" },
+    PresetLut { id: "provia",          display_name: "Provia",          log_space: "F-Log2C", cube_filename: "FLog2C_to_PROVIA_65grid_V.1.00.cube" },
+    PresetLut { id: "reala-ace",       display_name: "REALA ACE",       log_space: "F-Log2C", cube_filename: "FLog2C_to_REALA-ACE_65grid_V.1.00.cube" },
+    PresetLut { id: "velvia",          display_name: "Velvia",          log_space: "F-Log2C", cube_filename: "FLog2C_to_Velvia_65grid_V.1.00.cube" },
+    PresetLut { id: "flog2c-709",      display_name: "F-Log2C → Rec.709", log_space: "F-Log2C", cube_filename: "FLog2C_to_FLog2C-709_65grid_V.1.00.cube" },
 ];
 ```
+
+> `flog2c-709` 为技术转换 LUT（F-Log2C → Rec.709），非胶片模拟，作为"中性"选项提供。
 
 TypeScript 类型通过 ts-rs 生成。
 
 ### 5.4 资源文件管理
 
+资源分为两类：
+1. **LUT 文件**（`src-tauri/resources/luts/`）：从项目根目录 `F-Log2C_LUT/` 复制而来
+2. **Lensfun 数据库**（`src-tauri/lib/lensfun/data/db/`）：通过 git submodule 引入 lensfun 官方仓库
+
 ```rust
 // lut_filter/resources.rs
-// 启动时检查并释放资源文件
 pub fn ensure_resources(app_data_dir: &Path) -> Result<ResourcePaths, AppError>;
 
 pub struct ResourcePaths {
@@ -334,6 +347,7 @@ pub struct ResourcePaths {
 - 检查 `{app_data_dir}/lensfun_db/.version` 标记文件
 - 不存在或版本不匹配时，从 bundle resources / assets 复制全部文件
 - 避免每次启动都重新释放
+- Lensfun DB 仅需复制 `data/db/*.xml` 文件（约 50+ 个 XML），无需 DTD/XSD
 
 ### 5.5 Tauri 命令
 
@@ -363,41 +377,69 @@ pub async fn is_raw_file(file_path: String) -> bool;
 
 ### 6.1 Git Submodule 引入
 
+两个 git submodule：
+
 ```bash
 # 在 camera-ftp-companion 仓库根目录执行
 git submodule add https://github.com/shenmintao/RawAlchemyCpp.git src-tauri/lib/rawalchemy
+git submodule add https://github.com/lensfun/lensfun.git src-tauri/lib/lensfun
 git submodule update --init --recursive
 ```
 
-`.gitmodules` 中将包含：
+`.gitmodules`:
 ```
 [submodule "src-tauri/lib/rawalchemy"]
     path = src-tauri/lib/rawalchemy
     url = https://github.com/shenmintao/RawAlchemyCpp.git
+[submodule "src-tauri/lib/lensfun"]
+    path = src-tauri/lib/lensfun
+    url = https://github.com/lensfun/lensfun.git
 ```
+
+> lensfun 仓库较大（含 docs/build 系统），但我们只需要 `data/db/` 目录的 XML 文件。
+> submodule 方式便于后续更新镜头数据库，无需手动维护。
 
 ### 6.2 目录结构
 
 ```
 camera-ftp-companion/
+├── F-Log2C_LUT/                      # LUT 源文件（已存在于仓库根目录）
+│   ├── FLog2C_to_ACROS_65grid_V.1.00.cube
+│   ├── FLog2C_to_ASTIA_65grid_V.1.00.cube
+│   ├── FLog2C_to_CLASSIC-CHROME_65grid_V.1.00.cube
+│   ├── FLog2C_to_CLASSIC-Neg._65grid_V.1.00.cube
+│   ├── FLog2C_to_ETERNA_65grid_V.1.00.cube
+│   ├── FLog2C_to_ETERNA-BB_65grid_V.1.00.cube
+│   ├── FLog2C_to_FLog2C-709_65grid_V.1.00.cube
+│   ├── FLog2C_to_PRO-Neg.Std_65grid_V.1.00.cube
+│   ├── FLog2C_to_PROVIA_65grid_V.1.00.cube
+│   ├── FLog2C_to_REALA-ACE_65grid_V.1.00.cube
+│   └── FLog2C_to_Velvia_65grid_V.1.00.cube
 ├── src-tauri/
 │   ├── lib/
-│   │   └── rawalchemy/         # Git submodule → RawAlchemyCpp
-│   │       ├── CMakeLists.txt
-│   │       ├── include/
-│   │       │   ├── raw_alchemy_capi.h
-│   │       │   └── raw_alchemy_export.h
-│   │       ├── src/
-│   │       ├── third_party/    # RawAlchemyCpp 自身的 submodules (LibRaw 等)
-│   │       ├── toolchains/     # Android NDK 交叉编译预设
-│   │       └── scripts/        # 构建脚本
-│   ├── resources/
-│   │   ├── luts/               # 预制 LUT .cube 文件（提交到 camera-ftp-companion 仓库）
-│   │   │   ├── classic-neg.cube
+│   │   ├── rawalchemy/               # Git submodule → RawAlchemyCpp
+│   │   │   ├── CMakeLists.txt
+│   │   │   ├── include/
+│   │   │   │   ├── raw_alchemy_capi.h
+│   │   │   │   └── raw_alchemy_export.h
+│   │   │   ├── src/
+│   │   │   ├── third_party/
+│   │   │   ├── toolchains/
+│   │   │   └── scripts/
+│   │   └── lensfun/                  # Git submodule → lensfun/lensfun
+│   │       └── data/
+│   │           └── db/               # 镜头校正数据库 XML 文件
+│   │               ├── mil-fujifilm.xml
+│   │               ├── slr-nikon.xml
+│   │               ├── ... (50+ XML files)
+│   │               └── timestamp.txt
+│   ├── resources/                    # 构建时生成（不提交到仓库）
+│   │   ├── luts/                     # 从 F-Log2C_LUT/ 复制
+│   │   │   ├── FLog2C_to_ACROS_65grid_V.1.00.cube
 │   │   │   └── ...
-│   │   └── lensfun_db/         # Lensfun 数据库（提交到 camera-ftp-companion 仓库）
-│   │       ├── slr-xml/
-│   │       └── compact-xml/
+│   │   └── lensfun_db/              # 从 lib/lensfun/data/db/ 复制
+│   │       ├── mil-fujifilm.xml
+│   │       └── ...
 │   ├── build.rs
 │   └── ...
 ├── .gitmodules
@@ -425,10 +467,11 @@ ANDROID_NDK=$NDK_HOME ./scripts/build_android.sh arm64
 #   build-android-arm64/libraw_alchemy.so
 ```
 
-### 6.4 动态库打包
+### 6.4 动态库与资源打包
 
 **Windows**:
 - `raw_alchemy_core.dll` 通过 Tauri bundle resources 打包到 exe 旁
+- LUT 文件和 Lensfun DB 通过 Tauri bundle resources 打包
 - Rust 通过运行时 `libloading::Library::new("raw_alchemy_core.dll")` 加载
 
 ```json
@@ -437,7 +480,8 @@ ANDROID_NDK=$NDK_HOME ./scripts/build_android.sh arm64
   "bundle": {
     "resources": [
       "resources/luts/*.cube",
-      "resources/lensfun_db/**/*",
+      "resources/lensfun_db/*.xml",
+      "resources/lensfun_db/timestamp.txt",
       "lib/rawalchemy/build-windows-dll/bin/Release/raw_alchemy_core.dll"
     ]
   }
@@ -447,30 +491,47 @@ ANDROID_NDK=$NDK_HOME ./scripts/build_android.sh arm64
 **Android**:
 - `libraw_alchemy.so` 放入 `src-tauri/gen/android/app/src/main/jniLibs/arm64-v8a/`
 - APK 安装后 Android 自动部署 .so，Rust 通过 `libloading::Library::new("libraw_alchemy.so")` 加载
-- 资源文件（LUT + Lensfun DB）放入 `assets/` 目录
+- 资源文件（LUT .cube + Lensfun DB .xml）放入 `src-tauri/gen/android/app/src/main/assets/` 目录
+- Android 端通过 Tauri 的 asset 管理或 `context.getAssets()` 访问
+
+**资源文件构建时复制**：
+```
+build.sh 步骤（资源准备）:
+  cp F-Log2C_LUT/*.cube → src-tauri/resources/luts/
+  cp src-tauri/lib/lensfun/data/db/*.xml → src-tauri/resources/lensfun_db/
+  cp src-tauri/lib/lensfun/data/db/timestamp.txt → src-tauri/resources/lensfun_db/
+```
 
 ### 6.5 构建流程
 
-构建脚本（`build.sh`）需要新增一步：在 Rust 编译前编译 RawAlchemyCpp 动态库并复制产出物。
+构建脚本（`build.sh`）需要新增步骤：资源准备 + 动态库编译 + 复制产出物，在 Rust 编译前完成。
 
 ```
 ./build.sh windows android
     │
-    ├── 1. 编译 RawAlchemyCpp 动态库 (新增步骤)
+    ├── 1. 准备资源文件 (新增步骤)
+    │   ├── mkdir -p src-tauri/resources/luts/
+    │   ├── cp F-Log2C_LUT/*.cube → src-tauri/resources/luts/
+    │   ├── mkdir -p src-tauri/resources/lensfun_db/
+    │   └── cp src-tauri/lib/lensfun/data/db/*.xml → src-tauri/resources/lensfun_db/
+    │       (同时复制 timestamp.txt)
+    │
+    ├── 2. 编译 RawAlchemyCpp 动态库 (新增步骤)
     │   ├── Windows: cmd.exe /C scripts\build_windows.bat
     │   └── Android: ANDROID_NDK=... ./scripts/build_android.sh arm64
     │
-    ├── 2. 复制动态库产出物到构建目录 (新增步骤)
-    │   ├── Windows: .dll → Tauri resources
+    ├── 3. 复制动态库产出物到构建目录 (新增步骤)
+    │   ├── Windows: .dll → Tauri bundle resources 路径
     │   └── Android: .so → jniLibs/arm64-v8a/
+    │       (资源文件同步到 assets/ 目录)
     │
-    ├── 3. build-frontend.sh (不变)
+    ├── 4. build-frontend.sh (不变)
     │
-    ├── 4. build-windows.sh (不变)
+    ├── 5. build-windows.sh (不变)
     │   └── cargo.exe build --release
     │       └── build.rs 无需修改（运行时加载）
     │
-    └── 5. build-android.sh (不变)
+    └── 6. build-android.sh (不变)
         └── bun run tauri android build --target aarch64
             └── .so 已在 jniLibs/ 中，APK 自动打包
 ```
@@ -558,11 +619,13 @@ src/
 
 ## 9. 待办事项
 
-- [ ] 确定预制 LUT 列表及对应的 Log 空间映射
+- [x] 确定预制 LUT 列表及对应的 Log 空间映射 → 全部为 F-Log2C，11 个胶片模拟 + 1 个技术转换 LUT
+- [x] 确定镜头校正数据库来源 → lensfun 官方仓库 git submodule
 - [ ] 验证 Android 上 LibRaw 对文件系统路径的访问权限
 - [ ] 验证 Lensfun 数据库在 Android 上的路径解析（通过 `customLensfunDb` 参数）
 - [ ] 验证 `libloading` 在 Android Tauri 应用中加载 `libraw_alchemy.so` 的路径
 - [ ] 实现构建脚本中 RawAlchemyCpp 动态库的预编译和复制步骤
+- [ ] 确定是否需要精简 Lensfun DB（仅保留常用品牌如 Fujifilm/Nikon/Canon/Sony 的 XML）
 
 ---
 
@@ -574,4 +637,6 @@ src/
 | `libloading` 在 Android 上加载 .so 路径不确定 | Android 自动部署 jniLibs/ 中的 .so，通过库名加载即可；需实测验证 |
 | Lensfun 数据库路径解析在 Android 上异常 | RawAlchemyCpp 的 `customLensfunDb` 参数支持自定义路径，从 app 私有目录传入 |
 | 动态库体积过大影响 APK 大小 | LibRaw + Lensfun + libjpeg-turbo 全部静态链接进 .so，预估增量 5-10MB |
+| LUT 文件体积较大（11 个 × 7.1MB ≈ 78MB） | 构建时可按需筛选；运行时释放到 app 数据目录后可被系统清理 |
+| lensfun submodule 仓库较大（含完整构建系统） | 仅使用 `data/db/` 目录的 XML 文件；可考虑 sparse-checkout 或构建时脚本提取 |
 | RawAlchemyCpp submodule 子依赖初始化不完整 | `build.sh` 中确保 `git submodule update --init --recursive` |
