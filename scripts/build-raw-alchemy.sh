@@ -79,7 +79,7 @@ build_raw_alchemy_android() {
         -DBUILD_CAPI=ON \
         -DBUILD_CLI=OFF \
         -DENABLE_LENS_CORRECTION=ON \
-        -DWITH_SIMD=OFF
+
     cmake --build "build-android-arm64" -j"$(nproc 2>/dev/null || echo 4)"
     cd - > /dev/null
 
