@@ -65,57 +65,67 @@ use commands::{
 };
 
 fn setup_logging() {
-    use std::fs;
-    use std::path::PathBuf;
-    use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
+    use tracing_subscriber::EnvFilter;
 
-    // 获取日志目录 - Android 使用外部存储以便用户可以访问
-    #[cfg(target_os = "android")]
-    let log_dir = PathBuf::from(platform::android::DEFAULT_STORAGE_PATH).join("logs");
+    // Debug: log to file (creates logs directory)
+    #[cfg(debug_assertions)]
+    {
+        use std::fs;
+        use std::path::PathBuf;
+        use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
-    #[cfg(target_os = "windows")]
-    let log_dir = dirs::data_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join("cameraftp/logs");
+        #[cfg(target_os = "android")]
+        let log_dir = PathBuf::from(platform::android::DEFAULT_STORAGE_PATH).join("logs");
 
-    let log_file = log_dir.join("app.log");
-    let log_file_for_writer = log_file.clone();
+        #[cfg(target_os = "windows")]
+        let log_dir = dirs::data_dir()
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join("cameraftp/logs");
 
-    // 尝试创建日志目录
-    if let Err(e) = fs::create_dir_all(&log_dir) {
-        eprintln!("Failed to create log directory {:?}: {}", log_dir, e);
+        let log_file = log_dir.join("app.log");
+        let log_file_for_writer = log_file.clone();
+
+        if let Err(e) = fs::create_dir_all(&log_dir) {
+            eprintln!("Failed to create log directory {:?}: {}", log_dir, e);
+        }
+
+        let file_appender = tracing_subscriber::fmt::layer()
+            .with_writer(move || {
+                match std::fs::OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(&log_file_for_writer)
+                {
+                    Ok(file) => Box::new(file) as Box<dyn std::io::Write + Send + Sync>,
+                    Err(_) => Box::new(std::io::stderr()) as Box<dyn std::io::Write + Send + Sync>,
+                }
+            })
+            .with_ansi(false)
+            .with_thread_ids(true)
+            .with_thread_names(true)
+            .with_target(true);
+
+        let env_filter = EnvFilter::new("debug");
+
+        tracing_subscriber::registry()
+            .with(env_filter)
+            .with(file_appender)
+            .init();
+
+        tracing::info!(log_file = ?log_file, "Logging initialized");
     }
 
-    // 创建文件追加器
-    let file_appender = tracing_subscriber::fmt::layer()
-        .with_writer(move || {
-            match std::fs::OpenOptions::new()
-                .create(true)
-                .append(true)
-                .open(&log_file_for_writer)
-            {
-                Ok(file) => Box::new(file) as Box<dyn std::io::Write + Send + Sync>,
-                Err(_) => Box::new(std::io::stderr()) as Box<dyn std::io::Write + Send + Sync>,
-            }
-        })
-        .with_ansi(false)
-        .with_thread_ids(true)
-        .with_thread_names(true)
-        .with_target(true);
-
-    // 根据模式配置日志级别
-    #[cfg(debug_assertions)]
-    let env_filter = EnvFilter::new("debug");
+    // Release: stderr only, no log files
     #[cfg(not(debug_assertions))]
-    let env_filter = EnvFilter::new("info");
-
-    // 初始化订阅器
-    tracing_subscriber::registry()
-        .with(env_filter)
-        .with(file_appender)
-        .init();
-
-    tracing::info!(log_file = ?log_file, "Logging initialized");
+    {
+        tracing_subscriber::fmt()
+            .with_env_filter(EnvFilter::new("info"))
+            .with_ansi(false)
+            .with_thread_ids(true)
+            .with_thread_names(true)
+            .with_target(true)
+            .init();
+    }
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
