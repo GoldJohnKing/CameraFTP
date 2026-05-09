@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 pub mod ffi;
+pub mod lensfun_db;
 pub mod lut_data;
 pub mod presets;
 pub mod progress;

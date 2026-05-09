@@ -2,12 +2,15 @@
 // Copyright (C) 2026 GoldJohnKing <GoldJohnKing@Live.cn>
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+//! LUT filter resource management.
+//!
+//! Delegates Lensfun DB extraction to the `lensfun_db` module which embeds
+//! XML files at compile time and extracts them at runtime.
+
 use std::path::PathBuf;
 use std::sync::OnceLock;
 
 use crate::error::AppError;
-
-const RESOURCE_VERSION: &str = "2";
 
 pub struct ResourcePaths {
     pub lensfun_db_dir: PathBuf,
@@ -22,23 +25,17 @@ pub fn ensure_resources(
         return Ok(());
     }
 
-    let lensfun_dir = app_data_dir.join("lensfun_db");
-    let version_file = app_data_dir.join(".lut_filter_resources_version");
+    // Extract embedded Lensfun DB to {app_data_dir}/lensfun_db/
+    super::lensfun_db::ensure_db(app_data_dir)?;
 
-    let needs_extraction = !version_file.exists()
-        || std::fs::read_to_string(&version_file).unwrap_or_default() != RESOURCE_VERSION;
+    // Retrieve the extraction directory (set by ensure_db)
+    let db = super::lensfun_db::get_db()?;
 
-    if needs_extraction {
-        extract_lensfun_db(app_data_dir, &lensfun_dir)?;
-        std::fs::write(&version_file, RESOURCE_VERSION).map_err(|e| {
-            AppError::LutFilterError(format!("Failed to write version marker: {}", e))
-        })?;
-    }
-
-    tracing::info!("LUT filter resources ready: lensfun={:?}", lensfun_dir);
     let _ = GLOBAL_RESOURCES.set(ResourcePaths {
-        lensfun_db_dir: lensfun_dir,
+        lensfun_db_dir: db.db_dir.clone(),
     });
+
+    tracing::info!("LUT filter resources ready: lensfun={:?}", db.db_dir);
     Ok(())
 }
 
@@ -48,91 +45,4 @@ pub fn get_resources() -> Result<&'static ResourcePaths, AppError> {
             "Resources not initialized. Call ensure_resources() first.".into(),
         )
     })
-}
-
-fn extract_lensfun_db(
-    app_data_dir: &std::path::Path,
-    lensfun_dir: &std::path::Path,
-) -> Result<(), AppError> {
-    std::fs::create_dir_all(app_data_dir).map_err(|e| {
-        AppError::LutFilterError(format!("Failed to create app data dir: {}", e))
-    })?;
-    std::fs::create_dir_all(lensfun_dir).map_err(|e| {
-        AppError::LutFilterError(format!("Failed to create lensfun dir: {}", e))
-    })?;
-
-    #[cfg(target_os = "android")]
-    let resource_base = app_data_dir.join("resources");
-
-    #[cfg(not(target_os = "android"))]
-    let resource_base = {
-        let exe_dir = std::env::current_exe()
-            .map_err(|e| AppError::LutFilterError(format!("Failed to get exe path: {}", e)))?
-            .parent()
-            .map(|p| p.to_path_buf())
-            .unwrap_or_default();
-        exe_dir.join("resources")
-    };
-
-    let lensfun_sources = [
-        resource_base.join("lensfun_db"),
-        #[cfg(not(target_os = "android"))]
-        PathBuf::from("../lib/lensfun/data/db"),
-    ];
-
-    copy_files(&lensfun_sources, lensfun_dir, "*.xml")?;
-
-    Ok(())
-}
-
-fn copy_files(
-    source_dirs: &[PathBuf],
-    target_dir: &std::path::Path,
-    pattern: &str,
-) -> Result<usize, AppError> {
-    let ext_match = if pattern.starts_with("*.") {
-        &pattern[2..]
-    } else {
-        pattern
-    };
-
-    for source_dir in source_dirs {
-        if !source_dir.exists() {
-            continue;
-        }
-        let mut count = 0usize;
-        let entries = std::fs::read_dir(source_dir).map_err(|e| {
-            AppError::LutFilterError(format!("Failed to read {:?}: {}", source_dir, e))
-        })?;
-
-        for entry in entries {
-            let entry =
-                entry.map_err(|e| AppError::LutFilterError(format!("Dir entry error: {}", e)))?;
-            let path = entry.path();
-            if let Some(ext) = path.extension() {
-                if ext == ext_match {
-                    let file_name = path.file_name().unwrap_or_default();
-                    let dest = target_dir.join(file_name);
-                    std::fs::copy(&path, &dest).map_err(|e| {
-                        AppError::LutFilterError(format!("Failed to copy {:?}: {}", path, e))
-                    })?;
-                    count += 1;
-                }
-            }
-        }
-        if count > 0 {
-            tracing::info!(
-                "Copied {} files from {:?} to {:?}",
-                count,
-                source_dir,
-                target_dir
-            );
-            return Ok(count);
-        }
-    }
-    tracing::warn!(
-        "No files matching '{}' found in any source directory",
-        pattern
-    );
-    Ok(0)
 }
