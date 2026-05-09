@@ -12,6 +12,7 @@ pub mod crypto;
 pub mod error;
 pub mod file_index;
 pub mod ftp;
+pub mod lut_filter;
 pub mod network;
 pub mod platform;
 pub mod utils;

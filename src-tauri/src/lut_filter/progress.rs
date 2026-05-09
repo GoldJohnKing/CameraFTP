@@ -1,0 +1,91 @@
+// CameraFTP - A Cross-platform FTP companion for camera photo transfer
+// Copyright (C) 2026 GoldJohnKing <GoldJohnKing@Live.cn>
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+use serde::{Deserialize, Serialize};
+use ts_rs::TS;
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq)]
+#[ts(export)]
+#[serde(tag = "type", rename_all = "camelCase")]
+pub enum LutFilterProgressEvent {
+    Progress {
+        current: u32,
+        total: u32,
+        #[serde(rename = "fileName")]
+        #[ts(rename = "fileName")]
+        file_name: String,
+        #[serde(rename = "failedCount")]
+        #[ts(rename = "failedCount")]
+        failed_count: u32,
+    },
+    Completed {
+        current: u32,
+        total: u32,
+        #[serde(rename = "fileName")]
+        #[ts(rename = "fileName")]
+        file_name: String,
+        #[serde(rename = "failedCount")]
+        #[ts(rename = "failedCount")]
+        failed_count: u32,
+        #[serde(rename = "outputPath")]
+        #[ts(rename = "outputPath")]
+        output_path: String,
+    },
+    Failed {
+        current: u32,
+        total: u32,
+        #[serde(rename = "fileName")]
+        #[ts(rename = "fileName")]
+        file_name: String,
+        error: String,
+        #[serde(rename = "failedCount")]
+        #[ts(rename = "failedCount")]
+        failed_count: u32,
+    },
+    Done {
+        total: u32,
+        #[serde(rename = "failedCount")]
+        #[ts(rename = "failedCount")]
+        failed_count: u32,
+        #[serde(rename = "failedFiles")]
+        #[ts(rename = "failedFiles")]
+        failed_files: Vec<String>,
+        #[serde(rename = "outputFiles")]
+        #[ts(rename = "outputFiles")]
+        output_files: Vec<String>,
+        #[serde(default)]
+        cancelled: bool,
+    },
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn all_variants_roundtrip_through_json() {
+        let events: Vec<LutFilterProgressEvent> = vec![
+            LutFilterProgressEvent::Progress {
+                current: 1, total: 2, file_name: "a.nef".into(), failed_count: 0,
+            },
+            LutFilterProgressEvent::Completed {
+                current: 1, total: 2, file_name: "a.nef".into(), failed_count: 0,
+                output_path: "/out/a_lut.jpg".into(),
+            },
+            LutFilterProgressEvent::Failed {
+                current: 2, total: 2, file_name: "b.nef".into(), error: "decode failed".into(),
+                failed_count: 1,
+            },
+            LutFilterProgressEvent::Done {
+                total: 2, failed_count: 1, failed_files: vec!["b.nef".into()],
+                output_files: vec!["/out/a_lut.jpg".into()], cancelled: false,
+            },
+        ];
+        for event in &events {
+            let json = serde_json::to_string(event).unwrap();
+            let back: LutFilterProgressEvent = serde_json::from_str(&json).unwrap();
+            assert_eq!(event, &back, "Roundtrip failed for: {}", json);
+        }
+    }
+}
