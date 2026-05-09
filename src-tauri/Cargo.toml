@@ -46,6 +46,8 @@ reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-feature
 base64 = "0.22"
 # Date/time formatting for AI edit output filenames
 chrono = "0.4"
+# Dynamic library loading for RawAlchemyCpp LUT filter
+libloading = "0.8"
 # EXIF 元数据读取 - 使用 nom-exif 支持全格式 (JPG/RAW/CR3/NEF等)
 nom-exif = "2.7"
 futures = "0.3"

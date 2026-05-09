@@ -56,6 +56,10 @@ use commands::{
     trigger_ai_edit,
     enqueue_ai_edit,
     cancel_ai_edit,
+    get_preset_luts,
+    enqueue_lut_filter,
+    cancel_lut_filter,
+    is_raw_file,
     update_preview_config,
     FtpServerState,
 };
@@ -149,6 +153,7 @@ pub fn run() {
             // 在 setup 中管理 AutoOpenService
             app.manage(AutoOpenService::new(app.handle().clone(), Arc::clone(&config_service)));
             app.manage(ai_edit::AiEditService::new(app.handle().clone(), config_service));
+            app.manage(lut_filter::LutFilterService::new(app.handle().clone()));
 
             // 开机自启模式：隐藏窗口
             if is_autostart {
@@ -226,6 +231,12 @@ pub fn run() {
             trigger_ai_edit,
             enqueue_ai_edit,
             cancel_ai_edit,
+
+            // LUT 滤镜
+            get_preset_luts,
+            enqueue_lut_filter,
+            cancel_lut_filter,
+            is_raw_file,
         ])
         .run(tauri::generate_context!())
         .unwrap_or_else(|e| {
