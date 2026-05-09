@@ -180,10 +180,25 @@ async fn process_single_file(task: &LutFilterTask) -> Result<String, AppError> {
     tokio::fs::create_dir_all(&output_dir).await
         .map_err(|e| AppError::LutFilterError(format!("Failed to create output dir: {}", e)))?;
     let output_name = format!("{}_{}_{}.jpg", stem, preset.id, timestamp);
-    let _output_path = output_dir.join(output_name);
+    let output_path = output_dir.join(output_name);
 
-    // TODO: Call RawAlchemyCpp dynamic library via FFI
-    Err(AppError::LutFilterError(
-        "RawAlchemyCpp dynamic library not yet linked. FFI integration pending.".into()
-    ))
+    let resources = super::resources::get_resources()?;
+    let lut_path = resources.lut_presets_dir.join(&preset.cube_filename);
+    if !lut_path.exists() {
+        return Err(AppError::LutFilterError(format!(
+            "LUT file not found: {}",
+            lut_path.display()
+        )));
+    }
+
+    let lib = super::ffi::RawAlchemyLib::get()?;
+    lib.process_file(
+        &task.input_path,
+        &output_path,
+        Some(&preset.log_space),
+        Some(lut_path.to_string_lossy().as_ref()),
+        Some(resources.lensfun_db_dir.to_string_lossy().as_ref()),
+    )?;
+
+    Ok(output_path.to_string_lossy().into_owned())
 }
