@@ -153,6 +153,35 @@ pub fn run() {
             // 在 setup 中管理 AutoOpenService
             app.manage(AutoOpenService::new(app.handle().clone(), Arc::clone(&config_service)));
             app.manage(ai_edit::AiEditService::new(app.handle().clone(), config_service));
+
+            // Initialize LUT filter: load RawAlchemyCpp DLL + extract resources
+            {
+                let app_data_dir = app.path().app_data_dir()
+                    .expect("Failed to resolve app data dir");
+                if let Err(e) = lut_filter::resources::ensure_resources(&app_data_dir) {
+                    tracing::warn!("LUT filter resource extraction failed: {}", e);
+                }
+
+                let dll_name = if cfg!(target_os = "windows") {
+                    "raw_alchemy_core.dll"
+                } else {
+                    "libraw_alchemy.so"
+                };
+                let exe_dir = std::env::current_exe()
+                    .ok()
+                    .and_then(|p| p.parent().map(|d| d.to_path_buf()));
+                if let Some(dir) = exe_dir {
+                    let dll_path = dir.join(dll_name);
+                    if dll_path.exists() {
+                        if let Err(e) = lut_filter::ffi::RawAlchemyLib::load_global(&dll_path) {
+                            tracing::error!("Failed to load RawAlchemyCpp DLL: {}", e);
+                        }
+                    } else {
+                        tracing::info!("RawAlchemyCpp DLL not found at {}, LUT filter unavailable", dll_path.display());
+                    }
+                }
+            }
+
             app.manage(lut_filter::LutFilterService::new(app.handle().clone()));
 
             // 开机自启模式：隐藏窗口

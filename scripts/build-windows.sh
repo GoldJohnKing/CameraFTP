@@ -36,9 +36,17 @@ build_windows() {
     terminate_running_process "$OUTPUT_NAME"
 
     # Build RawAlchemyCpp DLL if available
-    if [ -d "${RAWALCHEMY_DIR:-../RawAlchemyCpp}" ]; then
-        task "[RawAlchemyCpp] Building Windows DLL..."
-        "$SCRIPT_DIR/build-raw-alchemy.sh" windows "${BUILD_TYPE^}"
+    local rawalchemy_dir="${RAWALCHEMY_DIR:-$SCRIPT_DIR/../RawAlchemyCpp}"
+    if [ -d "$rawalchemy_dir" ]; then
+        local bt_upper
+        if [ "$BUILD_TYPE" = "debug" ]; then
+            bt_upper="Debug"
+        else
+            bt_upper="Release"
+        fi
+        "$SCRIPT_DIR/build-raw-alchemy.sh" windows "$bt_upper" || {
+            warn "RawAlchemyCpp build failed. LUT filter will be unavailable."
+        }
     else
         warn "RawAlchemyCpp not found. LUT filter feature will be unavailable."
         warn "Set RAWALCHEMY_DIR to enable it."

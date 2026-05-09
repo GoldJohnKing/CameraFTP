@@ -22,7 +22,12 @@ build_raw_alchemy_windows() {
     local abs_dir
     abs_dir="$(cd "$RAWALCHEMY_DIR" && pwd)"
 
-    cmd.exe /C "cd /D \"$(wslpath -w "$abs_dir")\" && scripts\\build_windows.bat $build_type"
+    local win_path
+    win_path="$(wslpath -w "$abs_dir")"
+
+    cd "$abs_dir"
+    cmd.exe /C "scripts\\build_windows.bat $build_type"
+    cd - > /dev/null
 
     local dll_path="$abs_dir/build-windows-dll/bin/$build_type/raw_alchemy_core.dll"
     if [ -f "$dll_path" ]; then
