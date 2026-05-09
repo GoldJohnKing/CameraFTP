@@ -247,7 +247,7 @@ impl RawAlchemyLib {
         let log_c = log_space
             .map(|s| std::ffi::CString::new(s).unwrap())
             .unwrap_or_else(|| std::ffi::CString::new("").unwrap());
-        let metering_c = std::ffi::CString::new("matrix").unwrap();
+        let metering_c = std::ffi::CString::new("highlight_safe").unwrap();
         let lensfun_c = lensfun_db_path.map(|s| std::ffi::CString::new(s).unwrap());
 
         let result = unsafe {
