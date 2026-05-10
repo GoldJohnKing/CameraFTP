@@ -82,11 +82,17 @@ function App() {
       await cancelAiEdit();
     };
 
+    w.__tauriTriggerColorGrading = async (filePath: string, lutId: string) => {
+      const { enqueueColorGrading } = await import('./hooks/useColorGradingProgress');
+      await enqueueColorGrading([filePath], lutId);
+    };
+
     return () => {
       delete w.__tauriGetAiEditPrompt;
       delete w.__tauriTriggerAiEditWithPrompt;
       delete w.__tauriGetAiEditProgress;
       delete w.__tauriCancelAiEdit;
+      delete w.__tauriTriggerColorGrading;
     };
   }, [updateDraft]);
 

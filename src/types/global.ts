@@ -284,6 +284,12 @@ declare global {
       failedCount: number;
       failedFiles: string[];
     };
+
+    /**
+     * Triggers color grading for a single file.
+     * Called by native ImageViewerActivity after user confirms the color grading dialog.
+     */
+    __tauriTriggerColorGrading?: (filePath: string, lutId: string) => Promise<void>;
   }
 }
 
