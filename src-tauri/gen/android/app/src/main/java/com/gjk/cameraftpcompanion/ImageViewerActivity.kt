@@ -460,7 +460,7 @@ class ImageViewerActivity : AppCompatActivity() {
               }
               .close-btn:hover { color: #4b5563; background: #f3f4f6; }
               .close-btn svg { width: 20px; height: 20px; }
-              .content { padding: 16px; overflow-y: auto; }
+              .content { padding: 16px; overflow: visible; }
               .field-group { margin-bottom: 0; }
               .field-label { font-size: 14px; font-weight: 500; color: #374151; margin-bottom: 8px; }
               .dropdown { position: relative; }
