@@ -8,32 +8,25 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 
 export function usePreviewZoomPan(imagePath: string | null) {
-  // Continuous interaction state in refs — bypasses React rendering pipeline
-  const transformRef = useRef({ scale: 1, panX: 0, panY: 0 });
-  const imgRef = useRef<HTMLImageElement>(null);
+  const [scale, setScale] = useState(1);
+  const [panX, setPanX] = useState(0);
+  const [panY, setPanY] = useState(0);
+  const [isDragging, setIsDragging] = useState(false);
+  const dragStartRef = useRef({ x: 0, y: 0 });
   const containerRef = useRef<HTMLDivElement>(null);
   const isDraggingRef = useRef(false);
-  const dragStartRef = useRef({ x: 0, y: 0 });
+  const scaleRef = useRef(1);
   const appWindow = useMemo(() => getCurrentWindow(), []);
 
-  // React state only for UI display (toolbar, cursor class)
-  const [displayScale, setDisplayScale] = useState(1);
-  const [isDragging, setIsDragging] = useState(false);
-
-  // Apply transform directly to <img> DOM element, no React re-render
-  const applyTransform = useCallback(() => {
-    const img = imgRef.current;
-    if (img) {
-      const { scale, panX, panY } = transformRef.current;
-      img.style.transform = `translate(${panX}px, ${panY}px) scale(${scale})`;
-    }
-  }, []);
+  // Keep refs in sync with state for stable callbacks
+  isDraggingRef.current = isDragging;
+  scaleRef.current = scale;
 
   const resetZoom = useCallback(() => {
-    transformRef.current = { scale: 1, panX: 0, panY: 0 };
-    applyTransform();
-    setDisplayScale(1);
-  }, [applyTransform]);
+    setScale(1);
+    setPanX(0);
+    setPanY(0);
+  }, []);
 
   useEffect(() => {
     resetZoom();
@@ -55,7 +48,7 @@ export function usePreviewZoomPan(imagePath: string | null) {
     e.preventDefault();
 
     const container = containerRef.current;
-    const img = imgRef.current;
+    const img = container?.querySelector('img');
     if (!container || !img) return;
 
     const containerRect = container.getBoundingClientRect();
@@ -64,7 +57,6 @@ export function usePreviewZoomPan(imagePath: string | null) {
     const mouseX = e.clientX - containerRect.left;
     const mouseY = e.clientY - containerRect.top;
 
-    const { scale, panX, panY } = transformRef.current;
     const zoomFactor = e.deltaY > 0 ? 0.9 : 1.1;
     const newScale = Math.max(1, Math.min(5, scale * zoomFactor));
 
@@ -85,49 +77,45 @@ export function usePreviewZoomPan(imagePath: string | null) {
     const newPanX = panX - mouseOffsetX * (scaleRatio - 1);
     const newPanY = panY - mouseOffsetY * (scaleRatio - 1);
 
-    transformRef.current = {
-      scale: newScale,
-      panX: newScale > 1 ? newPanX : 0,
-      panY: newScale > 1 ? newPanY : 0,
-    };
-
-    applyTransform();
-    setDisplayScale(newScale);
-  }, [applyTransform]);
+    setScale(newScale);
+    if (newScale > 1) {
+      setPanX(newPanX);
+      setPanY(newPanY);
+    } else {
+      setPanX(0);
+      setPanY(0);
+    }
+  }, [scale, panX, panY]);
 
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
-    if (transformRef.current.scale <= 1) {
+    if (scale <= 1) {
       return;
     }
 
-    isDraggingRef.current = true;
     setIsDragging(true);
     dragStartRef.current = {
-      x: e.clientX - transformRef.current.panX,
-      y: e.clientY - transformRef.current.panY,
+      x: e.clientX - panX,
+      y: e.clientY - panY,
     };
-  }, []);
+  }, [scale, panX, panY]);
 
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
-    if (isDraggingRef.current && transformRef.current.scale > 1) {
-      transformRef.current.panX = e.clientX - dragStartRef.current.x;
-      transformRef.current.panY = e.clientY - dragStartRef.current.y;
-      applyTransform();
+    if (isDraggingRef.current && scaleRef.current > 1) {
+      setPanX(e.clientX - dragStartRef.current.x);
+      setPanY(e.clientY - dragStartRef.current.y);
     }
-  }, [applyTransform]);
+  }, []);
 
   const stopDragging = useCallback(() => {
-    if (isDraggingRef.current) {
-      isDraggingRef.current = false;
-      setIsDragging(false);
-    }
+    setIsDragging(false);
   }, []);
 
   return {
-    scale: displayScale,
+    scale,
+    panX,
+    panY,
     isDragging,
     containerRef,
-    imgRef,
     resetZoom,
     handleWheel,
     handleMouseDown,

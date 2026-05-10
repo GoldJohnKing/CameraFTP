@@ -56,9 +56,10 @@ const PreviewWindowContent = memo(function PreviewWindowContent({
   } = usePreviewToolbarAutoHide();
   const {
     scale,
+    panX,
+    panY,
     isDragging,
     containerRef,
-    imgRef,
     resetZoom,
     handleWheel,
     handleMouseDown,
@@ -256,10 +257,13 @@ const PreviewWindowContent = memo(function PreviewWindowContent({
           </div>
         ) : (
           <img
-            ref={imgRef}
             src={imageSrc}
             alt="Preview"
             className="max-w-full max-h-full object-contain select-none"
+            style={{
+              transform: `translate(${panX}px, ${panY}px) scale(${scale})`,
+              transformOrigin: 'center center',
+            }}
             draggable={false}
             onError={() => setImageError(true)}
           />
