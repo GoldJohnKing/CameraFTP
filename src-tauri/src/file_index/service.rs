@@ -163,8 +163,11 @@ impl FileIndexService {
         let mut files = Vec::new();
         self.scan_recursive(&save_path, &mut files).await?;
         
-        // 按 sort_time 排序（新→旧，最新的排在最前面）
-        files.sort_by(|a, b| b.sort_time.cmp(&a.sort_time));
+        // 按 sort_time 降序，相同则按 modified_time 降序（新文件优先）
+        files.sort_by(|a, b| {
+            b.sort_time.cmp(&a.sort_time)
+                .then_with(|| b.modified_time.cmp(&a.modified_time))
+        });
         
         let mut index = self.index.write().await;
         index.current_index = files.first().map(|_| 0);
@@ -309,8 +312,12 @@ impl FileIndexService {
         // Insert into sorted position using copy-on-write (Arc::make_mut)
         {
             let files: &mut Vec<FileInfo> = Arc::make_mut(&mut index.files);
+            // sort_time 降序，相同则 modified_time 降序（新文件优先）
             let insert_pos = files.iter()
-                .position(|f| f.sort_time < file_info.sort_time)
+                .position(|f| {
+                    f.sort_time < file_info.sort_time ||
+                    (f.sort_time == file_info.sort_time && f.modified_time < file_info.modified_time)
+                })
                 .unwrap_or(files.len());
 
             files.insert(insert_pos, file_info);
