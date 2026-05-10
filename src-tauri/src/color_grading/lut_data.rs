@@ -72,7 +72,7 @@ pub fn get_lut_data(preset_id: &str) -> Result<&'static LutData, AppError> {
     });
 
     cache.get(preset_id).ok_or_else(|| {
-        AppError::LutFilterError(format!("LUT data not available for preset: {}", preset_id))
+        AppError::ColorGradingError(format!("LUT data not available for preset: {}", preset_id))
     })
 }
 
@@ -84,7 +84,7 @@ fn decompress_and_parse(compressed: &[u8]) -> Result<LutData, AppError> {
     let mut text = String::new();
     decoder
         .read_to_string(&mut text)
-        .map_err(|e| AppError::LutFilterError(format!("LUT decompression failed: {}", e)))?;
+        .map_err(|e| AppError::ColorGradingError(format!("LUT decompression failed: {}", e)))?;
     parse_cube_text(&text)
 }
 
@@ -104,7 +104,7 @@ fn parse_cube_text(text: &str) -> Result<LutData, AppError> {
             size = rest
                 .trim()
                 .parse::<usize>()
-                .map_err(|e| AppError::LutFilterError(format!("Invalid LUT_3D_SIZE: {}", e)))?;
+                .map_err(|e| AppError::ColorGradingError(format!("Invalid LUT_3D_SIZE: {}", e)))?;
             table.reserve(size * size * size * 3);
             continue;
         }
@@ -133,13 +133,13 @@ fn parse_cube_text(text: &str) -> Result<LutData, AppError> {
         let parts: Vec<&str> = trimmed.split_whitespace().collect();
         if parts.len() >= 3 {
             let r: f32 = parts[0].parse().map_err(|e| {
-                AppError::LutFilterError(format!("Invalid LUT value: {}", e))
+                AppError::ColorGradingError(format!("Invalid LUT value: {}", e))
             })?;
             let g: f32 = parts[1].parse().map_err(|e| {
-                AppError::LutFilterError(format!("Invalid LUT value: {}", e))
+                AppError::ColorGradingError(format!("Invalid LUT value: {}", e))
             })?;
             let b: f32 = parts[2].parse().map_err(|e| {
-                AppError::LutFilterError(format!("Invalid LUT value: {}", e))
+                AppError::ColorGradingError(format!("Invalid LUT value: {}", e))
             })?;
             table.push(r);
             table.push(g);
@@ -149,7 +149,7 @@ fn parse_cube_text(text: &str) -> Result<LutData, AppError> {
 
     let expected = size * size * size * 3;
     if table.len() != expected {
-        return Err(AppError::LutFilterError(format!(
+        return Err(AppError::ColorGradingError(format!(
             "LUT parse error: expected {} floats, got {}",
             expected,
             table.len()
@@ -167,13 +167,13 @@ fn parse_cube_text(text: &str) -> Result<LutData, AppError> {
 fn parse_three_floats(s: &str, out: &mut [f32; 3]) -> Result<(), AppError> {
     let parts: Vec<&str> = s.trim().split_whitespace().collect();
     if parts.len() < 3 {
-        return Err(AppError::LutFilterError(
+        return Err(AppError::ColorGradingError(
             "Expected 3 float values".into(),
         ));
     }
     for i in 0..3 {
         out[i] = parts[i].parse().map_err(|e| {
-            AppError::LutFilterError(format!("Invalid float: {}", e))
+            AppError::ColorGradingError(format!("Invalid float: {}", e))
         })?;
     }
     Ok(())

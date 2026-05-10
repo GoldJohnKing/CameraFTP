@@ -4,15 +4,15 @@
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
 
-import { useLutFilterProgress, dismissLutFilterDone, cancelLutFilter } from '../hooks/useLutFilterProgress';
+import { useColorGradingProgress, dismissColorGradingDone, cancelColorGrading } from '../hooks/useColorGradingProgress';
 import { X } from 'lucide-react';
 
-interface LutFilterProgressBarProps {
+interface ColorGradingProgressBarProps {
   position: 'absolute' | 'fixed';
 }
 
-export function LutFilterProgressBar({ position }: LutFilterProgressBarProps) {
-  const { isProcessing, isDone, current, total, failedCount } = useLutFilterProgress();
+export function ColorGradingProgressBar({ position }: ColorGradingProgressBarProps) {
+  const { isProcessing, isDone, current, total, failedCount } = useColorGradingProgress();
 
   if (!isProcessing && !isDone) return null;
 
@@ -27,10 +27,10 @@ export function LutFilterProgressBar({ position }: LutFilterProgressBarProps) {
     : { left: '16.67%', right: '16.67%', bottom: '76px' };
 
   const handleButtonClick = () => {
-    if (isDone) {
-      dismissLutFilterDone();
+      if (isDone) {
+      dismissColorGradingDone();
     } else if (isProcessing) {
-      void cancelLutFilter();
+      void cancelColorGrading();
     }
   };
 
@@ -50,33 +50,33 @@ export function LutFilterProgressBar({ position }: LutFilterProgressBarProps) {
       aria-valuenow={current}
       aria-valuemin={0}
       aria-valuemax={total}
-      aria-label={`LUT滤镜进度: 第${current}张/共${total}张`}
+      aria-label={`调色进度: 第${current}张/共${total}张`}
       >
         {!isDone && (
           <div
-            className="absolute inset-0 transition-all duration-700 ease-out lut-filter-progress-fill"
+            className="absolute inset-0 transition-all duration-700 ease-out color-grading-progress-fill"
             style={{ width: `${Math.max(progressPercent, 3)}%` }}
           />
         )}
         {isDone && hasFailures && <div className="absolute inset-0 bg-red-500/20" />}
-        {isDone && !hasFailures && <div className="absolute inset-0 lut-filter-progress-fill-success" />}
+        {isDone && !hasFailures && <div className="absolute inset-0 color-grading-progress-fill-success" />}
 
         <div className="absolute bottom-0 left-0 right-0 h-[2px] bg-white/5">
           {!isDone && (
             <div
-              className="h-full transition-all duration-700 ease-out lut-filter-progress-edge"
+              className="h-full transition-all duration-700 ease-out color-grading-progress-edge"
               style={{ width: `${Math.max(progressPercent, 3)}%` }}
             />
           )}
           {isDone && hasFailures && <div className="h-full w-full bg-red-400/60" />}
-          {isDone && !hasFailures && <div className="h-full w-full lut-filter-progress-edge-success" />}
+          {isDone && !hasFailures && <div className="h-full w-full color-grading-progress-edge-success" />}
         </div>
 
         <div className="relative flex items-center justify-between px-3 py-1.5">
           <div className="flex items-center gap-1.5 min-w-0">
             {!isDone && (
               <span className="text-violet-400 text-xs font-medium whitespace-nowrap">
-                LUT滤镜处理中...
+                调色处理中...
               </span>
             )}
             {isDone && !hasFailures && (
@@ -116,27 +116,27 @@ export function LutFilterProgressBar({ position }: LutFilterProgressBarProps) {
       </div>
 
       <style>{`
-        .lut-filter-progress-fill {
+        .color-grading-progress-fill {
           background:
             linear-gradient(90deg, transparent 0%, rgba(196, 181, 253, 0.3) 50%, transparent 100%);
           background-color: rgba(139, 92, 246, 0.13);
           background-size: 40% 100%;
           background-repeat: no-repeat;
-          animation: highlight-sweep-lut 2s ease-in-out infinite;
+          animation: highlight-sweep-cg 2s ease-in-out infinite;
         }
-        .lut-filter-progress-edge {
+        .color-grading-progress-edge {
           background:
             linear-gradient(90deg, transparent 0%, rgba(221, 214, 254, 0.8) 50%, transparent 100%);
           background-color: rgba(167, 139, 250, 0.5);
           background-size: 40% 100%;
           background-repeat: no-repeat;
-          animation: highlight-sweep-lut 2s ease-in-out infinite;
+          animation: highlight-sweep-cg 2s ease-in-out infinite;
         }
-        @keyframes highlight-sweep-lut {
+        @keyframes highlight-sweep-cg {
           0% { background-position: -50% 0; }
           100% { background-position: 200% 0; }
         }
-        .lut-filter-progress-fill-success {
+        .color-grading-progress-fill-success {
           background:
             linear-gradient(90deg, transparent 0%, rgba(134, 239, 172, 0.3) 50%, transparent 100%);
           background-color: rgba(34, 197, 94, 0.13);
@@ -144,7 +144,7 @@ export function LutFilterProgressBar({ position }: LutFilterProgressBarProps) {
           background-repeat: no-repeat;
           background-position: 50% 0;
         }
-        .lut-filter-progress-edge-success {
+        .color-grading-progress-edge-success {
           background:
             linear-gradient(90deg, transparent 0%, rgba(187, 247, 208, 0.8) 50%, transparent 100%);
           background-color: rgba(74, 222, 128, 0.5);

@@ -8,10 +8,10 @@ import { create } from 'zustand';
 import { useEffect } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { invoke } from '@tauri-apps/api/core';
-import type { LutFilterProgressEvent } from '../types';
+import type { ColorGradingEvent } from '../types';
 import { requestMediaLibraryRefresh } from '../utils/gallery-refresh';
 
-interface LutFilterProgressState {
+interface ColorGradingProgressState {
   isProcessing: boolean;
   isDone: boolean;
   current: number;
@@ -21,7 +21,7 @@ interface LutFilterProgressState {
   failedFiles: string[];
 }
 
-const initialState: LutFilterProgressState = {
+const initialState: ColorGradingProgressState = {
   isProcessing: false,
   isDone: false,
   current: 0,
@@ -34,7 +34,7 @@ const initialState: LutFilterProgressState = {
 const GALLERY_REFRESH_DELAY_MS = 500;
 const DONE_AUTO_RESET_DELAY_MS = 3000;
 
-const useLutFilterProgressStore = create<LutFilterProgressState>(() => ({ ...initialState }));
+const useColorGradingProgressStore = create<ColorGradingProgressState>(() => ({ ...initialState }));
 
 let _listenerRegistered = false;
 let _storedUnlisten: (() => void) | null = null;
@@ -45,11 +45,11 @@ function scanOutputFiles(outputFiles: string[]) {
   }
 }
 
-function handleEvent(event: LutFilterProgressEvent) {
-  console.debug('[lut-filter-progress] Event:', event.type, event);
+function handleEvent(event: ColorGradingEvent) {
+  console.debug('[color-grading-progress] Event:', event.type, event);
   switch (event.type) {
     case 'progress':
-      useLutFilterProgressStore.setState({
+      useColorGradingProgressStore.setState({
         isProcessing: true,
         isDone: false,
         current: event.current,
@@ -59,13 +59,13 @@ function handleEvent(event: LutFilterProgressEvent) {
       });
       break;
     case 'completed':
-      useLutFilterProgressStore.setState({
+      useColorGradingProgressStore.setState({
         total: event.total,
         failedCount: event.failedCount,
       });
       break;
     case 'failed':
-      useLutFilterProgressStore.setState({
+      useColorGradingProgressStore.setState({
         total: event.total,
         failedCount: event.failedCount,
       });
@@ -75,15 +75,15 @@ function handleEvent(event: LutFilterProgressEvent) {
       const outputFiles = event.outputFiles ?? [];
 
       if (event.cancelled) {
-        useLutFilterProgressStore.setState({ ...initialState });
+        useColorGradingProgressStore.setState({ ...initialState });
         scanOutputFiles(outputFiles);
         setTimeout(() => {
-          requestMediaLibraryRefresh({ reason: 'lut-filter' });
+          requestMediaLibraryRefresh({ reason: 'color-grading' });
         }, GALLERY_REFRESH_DELAY_MS);
         break;
       }
 
-      useLutFilterProgressStore.setState({
+      useColorGradingProgressStore.setState({
         isProcessing: false,
         isDone: true,
         current: event.total,
@@ -94,12 +94,12 @@ function handleEvent(event: LutFilterProgressEvent) {
       scanOutputFiles(outputFiles);
 
       setTimeout(() => {
-        requestMediaLibraryRefresh({ reason: 'lut-filter' });
+        requestMediaLibraryRefresh({ reason: 'color-grading' });
       }, GALLERY_REFRESH_DELAY_MS);
 
       if (!hasFailures) {
         setTimeout(() => {
-          useLutFilterProgressStore.setState({ ...initialState });
+          useColorGradingProgressStore.setState({ ...initialState });
         }, DONE_AUTO_RESET_DELAY_MS);
       }
       break;
@@ -116,36 +116,36 @@ async function registerListener(): Promise<void> {
       _storedUnlisten();
       _storedUnlisten = null;
     }
-    const unlisten = await listen<LutFilterProgressEvent>('lut-filter-progress', (e) => {
+    const unlisten = await listen<ColorGradingEvent>('color-grading-progress', (e) => {
       handleEvent(e.payload);
     });
     _storedUnlisten = unlisten;
   } catch (err) {
     _listenerRegistered = false;
-    console.error('[lut-filter-progress] Listener registration failed:', err);
+    console.error('[color-grading-progress] Listener registration failed:', err);
   }
 }
 
 // Register eagerly at module load time
 registerListener();
 
-export function useLutFilterProgress(): LutFilterProgressState {
-  return useLutFilterProgressStore();
+export function useColorGradingProgress(): ColorGradingProgressState {
+  return useColorGradingProgressStore();
 }
 
-export async function enqueueLutFilter(files: string[], lutId: string): Promise<void> {
-  await invoke('enqueue_lut_filter', { filePaths: files, lutId });
+export async function enqueueColorGrading(files: string[], lutId: string): Promise<void> {
+  await invoke('enqueue_color_grading', { filePaths: files, lutId });
 }
 
-export async function cancelLutFilter(): Promise<void> {
-  await invoke('cancel_lut_filter');
+export async function cancelColorGrading(): Promise<void> {
+  await invoke('cancel_color_grading');
 }
 
-export function dismissLutFilterDone() {
-  useLutFilterProgressStore.setState({ ...initialState });
+export function dismissColorGradingDone() {
+  useColorGradingProgressStore.setState({ ...initialState });
 }
 
-export function useLutFilterProgressListener() {
+export function useColorGradingProgressListener() {
   useEffect(() => {
     registerListener();
   }, []);

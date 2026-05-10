@@ -14,7 +14,7 @@ type MediaLibraryRefreshReason =
   | 'permission-granted'
   | 'activity-resume'
   | 'ai-edit'
-  | 'lut-filter';
+  | 'color-grading';
 
 interface MediaLibraryRefreshDetail {
   reason: MediaLibraryRefreshReason;

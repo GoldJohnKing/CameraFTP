@@ -12,7 +12,7 @@ pub mod crypto;
 pub mod error;
 pub mod file_index;
 pub mod ftp;
-pub mod lut_filter;
+pub mod color_grading;
 pub mod network;
 pub mod platform;
 pub mod utils;
@@ -62,9 +62,9 @@ use commands::{
 
 #[cfg(target_os = "android")]
 use commands::{
-    get_preset_luts,
-    enqueue_lut_filter,
-    cancel_lut_filter,
+    get_color_grading_presets,
+    enqueue_color_grading,
+    cancel_color_grading,
     is_raw_file,
 };
 
@@ -168,21 +168,21 @@ pub fn run() {
             app.manage(AutoOpenService::new(app.handle().clone(), Arc::clone(&config_service)));
             app.manage(ai_edit::AiEditService::new(app.handle().clone(), Arc::clone(&config_service)));
 
-            // Initialize LUT filter (Android only): load RawAlchemyCpp library + extract resources
+            // Initialize color grading (Android only): load RawAlchemyCpp library + extract resources
             #[cfg(target_os = "android")]
             {
                 let app_data_dir = app.path().app_data_dir()
                     .expect("Failed to resolve app data dir");
-                if let Err(e) = lut_filter::resources::ensure_resources(&app_data_dir) {
-                    tracing::warn!("LUT filter resource extraction failed: {}", e);
+                if let Err(e) = color_grading::resources::ensure_resources(&app_data_dir) {
+                    tracing::warn!("Color grading resource extraction failed: {}", e);
                 }
 
                 let lib_path = resolve_raw_alchemy_lib_path();
-                if let Err(e) = lut_filter::ffi::RawAlchemyLib::load_global(&lib_path) {
+                if let Err(e) = color_grading::ffi::RawAlchemyLib::load_global(&lib_path) {
                     tracing::error!("Failed to load RawAlchemyCpp: {}", e);
                 }
 
-                app.manage(lut_filter::LutFilterService::new(app.handle().clone(), Arc::clone(&config_service)));
+                app.manage(color_grading::ColorGradingService::new(app.handle().clone(), Arc::clone(&config_service)));
             }
 
             // 开机自启模式：隐藏窗口
@@ -262,13 +262,13 @@ pub fn run() {
             enqueue_ai_edit,
             cancel_ai_edit,
 
-            // LUT 滤镜（Android only）
+            // 调色（Android only）
             #[cfg(target_os = "android")]
-            get_preset_luts,
+            get_color_grading_presets,
             #[cfg(target_os = "android")]
-            enqueue_lut_filter,
+            enqueue_color_grading,
             #[cfg(target_os = "android")]
-            cancel_lut_filter,
+            cancel_color_grading,
             #[cfg(target_os = "android")]
             is_raw_file,
         ])

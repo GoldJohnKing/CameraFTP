@@ -11,25 +11,25 @@ use tauri::{AppHandle, Emitter};
 
 use crate::config_service::ConfigService;
 use crate::error::AppError;
-use super::progress::LutFilterProgressEvent;
+use super::progress::ColorGradingEvent;
 use super::presets::find_preset;
 
-struct LutFilterTask {
+struct ColorGradingTask {
     input_path: PathBuf,
     lut_id: String,
 }
 
-pub struct LutFilterService {
+pub struct ColorGradingService {
     config_service: Arc<ConfigService>,
     app_handle: AppHandle,
-    sender: mpsc::Sender<LutFilterTask>,
+    sender: mpsc::Sender<ColorGradingTask>,
     queue_depth: Arc<AtomicU32>,
     cancel_token: Arc<tokio::sync::Mutex<CancellationToken>>,
 }
 
-impl LutFilterService {
+impl ColorGradingService {
     pub fn new(app_handle: AppHandle, config_service: Arc<ConfigService>) -> Self {
-        let (sender, receiver) = mpsc::channel::<LutFilterTask>(16);
+        let (sender, receiver) = mpsc::channel::<ColorGradingTask>(16);
         let queue_depth = Arc::new(AtomicU32::new(0));
         let cancel_token = Arc::new(tokio::sync::Mutex::new(CancellationToken::new()));
 
@@ -46,22 +46,22 @@ impl LutFilterService {
 
     pub async fn enqueue(&self, file_paths: Vec<PathBuf>, lut_id: String) -> Result<(), AppError> {
         let preset = find_preset(&lut_id)
-            .ok_or_else(|| AppError::LutFilterError(format!("Unknown LUT preset: {}", lut_id)))?;
+            .ok_or_else(|| AppError::ColorGradingError(format!("Unknown LUT preset: {}", lut_id)))?;
 
         for path in file_paths {
             let depth = self.queue_depth.fetch_add(1, Ordering::Relaxed);
-            let _ = self.app_handle.emit("lut-filter-progress",
-                &LutFilterProgressEvent::Progress {
+            let _ = self.app_handle.emit("color-grading-progress",
+                &ColorGradingEvent::Progress {
                     current: depth + 1,
                     total: depth + 1,
                     file_name: path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default(),
                     failed_count: 0,
                 });
 
-            self.sender.send(LutFilterTask {
+            self.sender.send(ColorGradingTask {
                 input_path: path,
                 lut_id: preset.id.clone(),
-            }).await.map_err(|e| AppError::LutFilterError(format!("Queue send failed: {}", e)))?;
+            }).await.map_err(|e| AppError::ColorGradingError(format!("Queue send failed: {}", e)))?;
         }
         Ok(())
     }
@@ -81,8 +81,8 @@ impl LutFilterService {
     pub async fn on_file_uploaded(&self, file_path: PathBuf) {
         let config = self.config_service.get().ok();
         let should_enqueue = config.as_ref()
-            .and_then(|c| c.auto_lut.as_ref())
-            .map(|lut| lut.enabled && !lut.preset_lut_id.is_empty())
+            .and_then(|c| c.auto_color_grading.as_ref())
+            .map(|cg| cg.enabled && !cg.preset_id.is_empty())
             .unwrap_or(false);
 
         if !should_enqueue || !is_raw_file_path(&file_path) {
@@ -90,17 +90,17 @@ impl LutFilterService {
         }
 
         let lut_id = config
-            .and_then(|c| c.auto_lut.map(|lut| lut.preset_lut_id))
+            .and_then(|c| c.auto_color_grading.map(|cg| cg.preset_id))
             .unwrap_or_default();
 
         if let Err(e) = self.enqueue(vec![file_path.clone()], lut_id).await {
-            tracing::warn!("Auto LUT filter enqueue failed for {}: {}", file_path.display(), e);
+            tracing::warn!("Auto color grading enqueue failed for {}: {}", file_path.display(), e);
         }
     }
 }
 
 async fn worker_loop(
-    mut receiver: mpsc::Receiver<LutFilterTask>,
+    mut receiver: mpsc::Receiver<ColorGradingTask>,
     app_handle: AppHandle,
     queue_depth: Arc<AtomicU32>,
     cancel_token: Arc<tokio::sync::Mutex<CancellationToken>>,
@@ -115,7 +115,7 @@ async fn worker_loop(
         {
             let token = cancel_token.lock().await;
             if token.is_cancelled() {
-                let _ = app_handle.emit("lut-filter-progress", &LutFilterProgressEvent::Done {
+                let _ = app_handle.emit("color-grading-progress", &ColorGradingEvent::Done {
                     total: completed_count + failed_count,
                     failed_count,
                     failed_files: failed_files.clone(),
@@ -138,7 +138,7 @@ async fn worker_loop(
             .map(|n| n.to_string_lossy().to_string())
             .unwrap_or_default();
 
-        let _ = app_handle.emit("lut-filter-progress", &LutFilterProgressEvent::Progress {
+        let _ = app_handle.emit("color-grading-progress", &ColorGradingEvent::Progress {
             current,
             total,
             file_name: file_name.clone(),
@@ -148,7 +148,7 @@ async fn worker_loop(
         match process_single_file(&task).await {
             Ok(output_path) => {
                 completed_count += 1;
-                let _ = app_handle.emit("lut-filter-progress", &LutFilterProgressEvent::Completed {
+                let _ = app_handle.emit("color-grading-progress", &ColorGradingEvent::Completed {
                     current,
                     total,
                     file_name: file_name.clone(),
@@ -159,8 +159,8 @@ async fn worker_loop(
             }
             Err(e) => {
                 failed_count += 1;
-                tracing::error!("LUT filter failed for {}: {}", file_name, e);
-                let _ = app_handle.emit("lut-filter-progress", &LutFilterProgressEvent::Failed {
+                tracing::error!("Color grading failed for {}: {}", file_name, e);
+                let _ = app_handle.emit("color-grading-progress", &ColorGradingEvent::Failed {
                     current,
                     total,
                     file_name: file_name.clone(),
@@ -174,7 +174,7 @@ async fn worker_loop(
         queue_depth.fetch_sub(1, Ordering::Relaxed);
 
         if queue_depth.load(Ordering::Relaxed) == 0 {
-            let _ = app_handle.emit("lut-filter-progress", &LutFilterProgressEvent::Done {
+            let _ = app_handle.emit("color-grading-progress", &ColorGradingEvent::Done {
                 total: completed_count + failed_count,
                 failed_count,
                 failed_files: failed_files.clone(),
@@ -189,19 +189,19 @@ async fn worker_loop(
     }
 }
 
-async fn process_single_file(task: &LutFilterTask) -> Result<String, AppError> {
+async fn process_single_file(task: &ColorGradingTask) -> Result<String, AppError> {
     let preset = find_preset(&task.lut_id)
-        .ok_or_else(|| AppError::LutFilterError(format!("Unknown LUT: {}", task.lut_id)))?;
+        .ok_or_else(|| AppError::ColorGradingError(format!("Unknown LUT: {}", task.lut_id)))?;
 
     let parent = task.input_path.parent()
-        .ok_or_else(|| AppError::LutFilterError("No parent directory".into()))?;
+        .ok_or_else(|| AppError::ColorGradingError("No parent directory".into()))?;
     let stem = task.input_path.file_stem()
         .map(|s| s.to_string_lossy().to_string())
         .unwrap_or_else(|| "output".into());
     let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S");
-    let output_dir = parent.join("LutFilter");
+    let output_dir = parent.join("ColorGrading");
     tokio::fs::create_dir_all(&output_dir).await
-        .map_err(|e| AppError::LutFilterError(format!("Failed to create output dir: {}", e)))?;
+        .map_err(|e| AppError::ColorGradingError(format!("Failed to create output dir: {}", e)))?;
     let output_name = format!("{}_{}_{}.jpg", stem, preset.id, timestamp);
     let output_path = output_dir.join(output_name);
 

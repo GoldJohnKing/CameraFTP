@@ -6,29 +6,29 @@ use std::path::PathBuf;
 use tauri::{command, State};
 
 use crate::error::AppError;
-use crate::lut_filter::presets::{PresetLut, all_presets};
-use crate::lut_filter::service::LutFilterService;
+use crate::color_grading::presets::{ColorGradingPreset, all_presets};
+use crate::color_grading::service::ColorGradingService;
 
 #[command]
-pub async fn get_preset_luts() -> Vec<PresetLut> {
+pub async fn get_color_grading_presets() -> Vec<ColorGradingPreset> {
     all_presets().to_vec()
 }
 
 #[command]
-pub async fn enqueue_lut_filter(
-    lut_filter: State<'_, LutFilterService>,
+pub async fn enqueue_color_grading(
+    color_grading: State<'_, ColorGradingService>,
     file_paths: Vec<String>,
     lut_id: String,
 ) -> Result<(), AppError> {
     let paths: Vec<PathBuf> = file_paths.iter().map(PathBuf::from).collect();
-    lut_filter.enqueue(paths, lut_id).await
+    color_grading.enqueue(paths, lut_id).await
 }
 
 #[command]
-pub async fn cancel_lut_filter(
-    lut_filter: State<'_, LutFilterService>,
+pub async fn cancel_color_grading(
+    color_grading: State<'_, ColorGradingService>,
 ) -> Result<(), AppError> {
-    lut_filter.cancel();
+    color_grading.cancel();
     Ok(())
 }
 

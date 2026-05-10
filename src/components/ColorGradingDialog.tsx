@@ -9,28 +9,28 @@ import { Palette } from 'lucide-react';
 import { Dialog } from './ui/Dialog';
 import { Select } from './ui/Select';
 import type { SelectOption } from './ui/Select';
-import type { PresetLut } from '../types';
+import type { ColorGradingPreset } from '../types';
 
-interface LutFilterDialogProps {
+interface ColorGradingDialogProps {
   isOpen: boolean;
-  presetLuts: PresetLut[];
+  colorGradingPresets: ColorGradingPreset[];
   onConfirm: (lutId: string) => void;
   onCancel: () => void;
 }
 
-export function LutFilterDialog({ isOpen, presetLuts, onConfirm, onCancel }: LutFilterDialogProps) {
-  const options: SelectOption[] = presetLuts.map(p => ({
+export function ColorGradingDialog({ isOpen, colorGradingPresets, onConfirm, onCancel }: ColorGradingDialogProps) {
+  const options: SelectOption[] = colorGradingPresets.map(p => ({
     value: p.id,
     label: p.displayName,
   }));
 
-  const [selectedId, setSelectedId] = useState(presetLuts[0]?.id ?? '');
+  const [selectedId, setSelectedId] = useState(colorGradingPresets[0]?.id ?? '');
 
   useEffect(() => {
-    if (isOpen && presetLuts.length > 0) {
-      setSelectedId(presetLuts[0].id);
+    if (isOpen && colorGradingPresets.length > 0) {
+      setSelectedId(colorGradingPresets[0].id);
     }
-  }, [isOpen, presetLuts]);
+  }, [isOpen, colorGradingPresets]);
 
   const handleConfirm = () => {
     if (selectedId) {
@@ -49,8 +49,8 @@ export function LutFilterDialog({ isOpen, presetLuts, onConfirm, onCancel }: Lut
     <Dialog
       isOpen={isOpen}
       onClose={onCancel}
-      title="LUT 滤镜"
-      subtitle="使用胶片模拟滤镜处理 RAW 照片"
+      title="调色"
+      subtitle="使用胶片模拟调色处理 RAW 照片"
       icon={
         <div className="w-10 h-10 bg-gray-100 rounded-lg flex items-center justify-center">
           <Palette className="w-5 h-5 text-violet-600" />
@@ -76,7 +76,7 @@ export function LutFilterDialog({ isOpen, presetLuts, onConfirm, onCancel }: Lut
     >
       <div className="space-y-3" onKeyDown={handleKeyDown}>
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">滤镜</label>
+          <label className="block text-sm font-medium text-gray-700 mb-1">调色预设</label>
           <Select
             value={selectedId}
             options={options}

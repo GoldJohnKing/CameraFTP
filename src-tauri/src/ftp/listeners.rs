@@ -72,11 +72,11 @@ impl DataListener for FtpDataListener {
                                 let ai_edit: tauri::State<'_, crate::ai_edit::AiEditService> = handle_clone.state();
                                 ai_edit.on_file_uploaded(full_path.clone()).await;
 
-                                // Auto LUT filter (Android only)
+                                // Auto color grading (Android only)
                                 #[cfg(target_os = "android")]
                                 {
-                                    let lut_filter: tauri::State<'_, crate::lut_filter::LutFilterService> = handle_clone.state();
-                                    lut_filter.on_file_uploaded(full_path.clone()).await;
+                                    let color_grading: tauri::State<'_, crate::color_grading::ColorGradingService> = handle_clone.state();
+                                    color_grading.on_file_uploaded(full_path.clone()).await;
                                 }
 
                                 // Auto-open (Windows only)

@@ -11,22 +11,22 @@ import { useConfigStore, useDraftConfig } from '../stores/configStore';
 import { Card, CardHeader, ToggleSwitch } from './ui';
 import { Select } from './ui/Select';
 import type { SelectOption } from './ui/Select';
-import type { PresetLut } from '../types';
+import type { ColorGradingPreset } from '../types';
 
-export const AutoLutConfigCard = memo(function AutoLutConfigCard() {
+export const AutoColorGradingConfigCard = memo(function AutoColorGradingConfigCard() {
   const { isLoading, updateDraft } = useConfigStore();
   const draft = useDraftConfig();
-  const [presetLuts, setPresetLuts] = useState<PresetLut[]>([]);
+  const [colorGradingPresets, setColorGradingPresets] = useState<ColorGradingPreset[]>([]);
 
   useEffect(() => {
-    invoke<PresetLut[]>('get_preset_luts')
-      .then(setPresetLuts)
+    invoke<ColorGradingPreset[]>('get_color_grading_presets')
+      .then(setColorGradingPresets)
       .catch(() => {});
   }, []);
 
-  if (!draft?.autoLut) return null;
+  if (!draft?.autoColorGrading) return null;
 
-  const options: SelectOption[] = presetLuts.map(p => ({
+  const options: SelectOption[] = colorGradingPresets.map(p => ({
     value: p.id,
     label: p.displayName,
   }));
@@ -34,19 +34,19 @@ export const AutoLutConfigCard = memo(function AutoLutConfigCard() {
   const handleToggle = () => {
     updateDraft(d => ({
       ...d,
-      autoLut: {
-        ...d.autoLut!,
-        enabled: !d.autoLut!.enabled,
+      autoColorGrading: {
+        ...d.autoColorGrading!,
+        enabled: !d.autoColorGrading!.enabled,
       },
     }));
   };
 
-  const handlePresetChange = (presetLutId: string) => {
+  const handlePresetChange = (presetId: string) => {
     updateDraft(d => ({
       ...d,
-      autoLut: {
-        ...d.autoLut!,
-        presetLutId,
+      autoColorGrading: {
+        ...d.autoColorGrading!,
+        presetId,
       },
     }));
   };
@@ -54,33 +54,33 @@ export const AutoLutConfigCard = memo(function AutoLutConfigCard() {
   return (
     <Card>
       <CardHeader
-        title="自动 LUT 滤镜"
-        description="接收到 RAW 文件后自动应用 LUT 滤镜"
+        title="自动调色"
+        description="接收到 RAW 文件后自动应用调色"
         icon={<Palette className="w-5 h-5 text-violet-600" />}
       />
 
       <div className="p-4 space-y-6">
         <ToggleSwitch
-          enabled={draft.autoLut.enabled}
+          enabled={draft.autoColorGrading.enabled}
           onChange={handleToggle}
-          label="自动应用 LUT 滤镜"
-          description="RAW 文件上传后自动转为带胶片模拟滤镜的 JPEG"
+          label="自动调色"
+          description="RAW 文件上传后自动转为带胶片模拟调色的 JPEG"
           disabled={isLoading}
         />
 
-        {draft.autoLut.enabled && (
+        {draft.autoColorGrading.enabled && (
           <div className="space-y-2">
             <label className="block text-sm font-medium text-gray-700">
-              LUT 滤镜预设
+              调色预设
             </label>
             <Select
-              value={draft.autoLut.presetLutId}
+              value={draft.autoColorGrading.presetId}
               options={options}
               onChange={handlePresetChange}
               disabled={isLoading}
             />
-            {!draft.autoLut.presetLutId && (
-              <p className="text-xs text-red-500">请选择 LUT 预设</p>
+            {!draft.autoColorGrading.presetId && (
+              <p className="text-xs text-red-500">请选择调色预设</p>
             )}
           </div>
         )}

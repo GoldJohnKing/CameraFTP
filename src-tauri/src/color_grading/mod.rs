@@ -10,5 +10,5 @@ pub mod progress;
 pub mod resources;
 pub mod service;
 
-pub use presets::PresetLut;
-pub use service::LutFilterService;
+pub use presets::ColorGradingPreset;
+pub use service::ColorGradingService;

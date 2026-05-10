@@ -22,10 +22,10 @@ import { VirtualGalleryGrid } from './VirtualGalleryGrid';
 import { RefreshButton } from './ui';
 import { PromptDialog } from './PromptDialog';
 import { invoke } from '@tauri-apps/api/core';
-import { LutFilterDialog } from './LutFilterDialog';
-import { LutFilterProgressBar } from './LutFilterProgressBar';
-import { enqueueLutFilter } from '../hooks/useLutFilterProgress';
-import type { PresetLut } from '../types';
+import { ColorGradingDialog } from './ColorGradingDialog';
+import { ColorGradingProgressBar } from './ColorGradingProgressBar';
+import { enqueueColorGrading } from '../hooks/useColorGradingProgress';
+import type { ColorGradingPreset } from '../types';
 
 export const GalleryCard = memo(function GalleryCard() {
   const { activeTab } = useConfigStore();
@@ -119,11 +119,11 @@ export const GalleryCard = memo(function GalleryCard() {
   const requestStoragePermission = usePermissionStore((state) => state.requestStoragePermission);
   const startPermissionPolling = usePermissionStore((state) => state.startPolling);
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [showLutFilterDialog, setShowLutFilterDialog] = useState(false);
-  const [presetLuts, setPresetLuts] = useState<PresetLut[]>([]);
+  const [showColorGradingDialog, setShowColorGradingDialog] = useState(false);
+  const [colorGradingPresets, setColorGradingPresets] = useState<ColorGradingPreset[]>([]);
 
   useEffect(() => {
-    invoke<PresetLut[]>('get_preset_luts').then(setPresetLuts).catch(console.error);
+    invoke<ColorGradingPreset[]>('get_color_grading_presets').then(setColorGradingPresets).catch(console.error);
   }, []);
 
   const handleRefresh = useCallback(async () => {
@@ -150,19 +150,19 @@ export const GalleryCard = memo(function GalleryCard() {
     }
   }, [handleRefreshStart, pager, scheduler, requestStoragePermission, startPermissionPolling]);
 
-  const handleLutFilter = useCallback(() => {
+  const handleColorGrading = useCallback(() => {
     toggleMenu();
-    setShowLutFilterDialog(true);
+    setShowColorGradingDialog(true);
   }, [toggleMenu]);
 
-  const handleLutFilterConfirm = useCallback(async (lutId: string) => {
-    setShowLutFilterDialog(false);
+  const handleColorGradingConfirm = useCallback(async (lutId: string) => {
+    setShowColorGradingDialog(false);
     const filePaths = Array.from(selectedIds)
       .map(id => pager.items.find(item => item.mediaId === id))
       .filter((item): item is NonNullable<typeof item> => item != null)
       .map(item => window.ImageViewerAndroid?.resolveFilePath?.(item.uri) ?? item.uri);
     if (filePaths.length > 0) {
-      await enqueueLutFilter(filePaths, lutId);
+      await enqueueColorGrading(filePaths, lutId);
     }
   }, [selectedIds, pager.items]);
 
@@ -312,12 +312,12 @@ export const GalleryCard = memo(function GalleryCard() {
                   <span>修图({selectedIds.size})</span>
                 </button>
               <button
-                onClick={handleLutFilter}
+                onClick={handleColorGrading}
                 disabled={selectedIds.size === 0 || !hasRawSelected}
                 className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed border-t border-gray-100"
               >
                 <Palette className="w-5 h-5 text-violet-600" />
-                <span>LUT滤镜({selectedIds.size})</span>
+                <span>调色({selectedIds.size})</span>
               </button>
               <button
                 onClick={handleCancelSelection}
@@ -356,13 +356,13 @@ export const GalleryCard = memo(function GalleryCard() {
         onConfirm={handleAiEditPromptConfirm}
         onCancel={handleCancelAiEditPrompt}
       />
-      <LutFilterDialog
-        isOpen={showLutFilterDialog}
-        presetLuts={presetLuts}
-        onConfirm={handleLutFilterConfirm}
-        onCancel={() => setShowLutFilterDialog(false)}
+      <ColorGradingDialog
+        isOpen={showColorGradingDialog}
+        colorGradingPresets={colorGradingPresets}
+        onConfirm={handleColorGradingConfirm}
+        onCancel={() => setShowColorGradingDialog(false)}
       />
-      <LutFilterProgressBar position="fixed" />
+      <ColorGradingProgressBar position="fixed" />
     </div>
   );
 });

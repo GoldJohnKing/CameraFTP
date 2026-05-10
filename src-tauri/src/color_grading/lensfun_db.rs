@@ -46,7 +46,7 @@ pub fn ensure_db(app_data_dir: &Path) -> Result<(), AppError> {
     if needs_extraction {
         extract_db_files(&db_dir)?;
         std::fs::write(&hash_file, LENSFUN_DB_HASH).map_err(|e| {
-            AppError::LutFilterError(format!("Failed to write lensfun DB hash: {}", e))
+            AppError::ColorGradingError(format!("Failed to write lensfun DB hash: {}", e))
         })?;
         tracing::info!(
             "Lensfun DB extracted ({} files, hash={})",
@@ -67,7 +67,7 @@ pub fn ensure_db(app_data_dir: &Path) -> Result<(), AppError> {
 
 pub fn get_db() -> Result<&'static LensfunDbPaths, AppError> {
     GLOBAL_DB.get().ok_or_else(|| {
-        AppError::LutFilterError(
+        AppError::ColorGradingError(
             "Lensfun DB not initialized. Call ensure_db() first.".into(),
         )
     })
@@ -78,7 +78,7 @@ fn extract_db_files(db_dir: &Path) -> Result<(), AppError> {
     use std::io::Read;
 
     std::fs::create_dir_all(db_dir).map_err(|e| {
-        AppError::LutFilterError(format!("Failed to create lensfun DB dir: {}", e))
+        AppError::ColorGradingError(format!("Failed to create lensfun DB dir: {}", e))
     })?;
 
     // Clear existing files to avoid stale data from a previous version
@@ -87,7 +87,7 @@ fn extract_db_files(db_dir: &Path) -> Result<(), AppError> {
             tracing::warn!("Failed to clear old lensfun DB: {}", e);
         }
         std::fs::create_dir_all(db_dir).map_err(|e| {
-            AppError::LutFilterError(format!("Failed to recreate lensfun DB dir: {}", e))
+            AppError::ColorGradingError(format!("Failed to recreate lensfun DB dir: {}", e))
         })?;
     }
 
@@ -96,13 +96,13 @@ fn extract_db_files(db_dir: &Path) -> Result<(), AppError> {
         let mut decoder = GzDecoder::new(compressed);
         let mut xml_data = Vec::new();
         decoder.read_to_end(&mut xml_data).map_err(|e| {
-            AppError::LutFilterError(format!(
+            AppError::ColorGradingError(format!(
                 "Failed to decompress lensfun DB file '{}': {}",
                 filename, e
             ))
         })?;
         std::fs::write(&output_path, &xml_data).map_err(|e| {
-            AppError::LutFilterError(format!(
+            AppError::ColorGradingError(format!(
                 "Failed to write lensfun DB file '{}': {}",
                 filename, e
             ))

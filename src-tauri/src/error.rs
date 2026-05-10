@@ -38,8 +38,8 @@ pub enum AppError {
     #[error("AI修图错误: {0}")]
     AiEditError(String),
 
-    #[error("LUT滤镜错误: {0}")]
-    LutFilterError(String),
+    #[error("调色错误: {0}")]
+    ColorGradingError(String),
 
     #[error("其他错误: {0}")]
     Other(String),
@@ -59,7 +59,7 @@ impl AppError {
             Self::PermissionError(_) => "PERMISSION_ERROR",
             Self::StoragePermissionError(_) => "STORAGE_PERMISSION_ERROR",
             Self::AiEditError(_) => "AI_EDIT_ERROR",
-            Self::LutFilterError(_) => "LUT_FILTER_ERROR",
+            Self::ColorGradingError(_) => "COLOR_GRADING_ERROR",
             Self::Other(_) => "OTHER_ERROR",
         }
     }
@@ -79,7 +79,7 @@ impl AppError {
             Self::PermissionError(msg) => format!("权限错误: {}，请检查文件或目录权限", msg),
             Self::StoragePermissionError(msg) => format!("存储权限错误: {}", msg),
             Self::AiEditError(msg) => format!("AI修图错误: {}", msg),
-            Self::LutFilterError(msg) => format!("LUT滤镜错误: {}", msg),
+            Self::ColorGradingError(msg) => format!("调色错误: {}", msg),
             Self::Other(msg) => msg.clone(),
         }
     }
@@ -199,7 +199,7 @@ mod tests {
         assert_eq!(AppError::PermissionError("x".into()).code(), "PERMISSION_ERROR");
         assert_eq!(AppError::StoragePermissionError("x".into()).code(), "STORAGE_PERMISSION_ERROR");
         assert_eq!(AppError::AiEditError("x".into()).code(), "AI_EDIT_ERROR");
-        assert_eq!(AppError::LutFilterError("x".into()).code(), "LUT_FILTER_ERROR");
+        assert_eq!(AppError::ColorGradingError("x".into()).code(), "COLOR_GRADING_ERROR");
         assert_eq!(AppError::Serialization("x".into()).code(), "SERIALIZATION_ERROR");
         assert_eq!(AppError::Other("x".into()).code(), "OTHER_ERROR");
     }
@@ -216,7 +216,7 @@ mod tests {
         assert!(!AppError::Io("x".into()).is_critical());
         assert!(!AppError::NetworkError("x".into()).is_critical());
         assert!(!AppError::AiEditError("x".into()).is_critical());
-        assert!(!AppError::LutFilterError("x".into()).is_critical());
+        assert!(!AppError::ColorGradingError("x".into()).is_critical());
         assert!(!AppError::Other("x".into()).is_critical());
     }
 

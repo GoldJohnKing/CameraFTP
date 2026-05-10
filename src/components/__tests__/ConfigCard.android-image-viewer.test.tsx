@@ -40,7 +40,7 @@ vi.mock('../AdvancedConnectionConfig', () => ({
   AdvancedConnectionConfigPanel: () => <div>AdvancedConnectionConfigPanel</div>,
 }));
 vi.mock('../PreviewConfigCard', () => ({ PreviewConfigCard: () => <div>PreviewConfigCard</div> }));
-vi.mock('../AutoLutConfigCard', () => ({ AutoLutConfigCard: () => <div>AutoLutConfigCard</div> }));
+vi.mock('../AutoColorGradingConfigCard', () => ({ AutoColorGradingConfigCard: () => <div>AutoColorGradingConfigCard</div> }));
 vi.mock('../AboutCard', () => ({ AboutCard: () => <div>AboutCard</div> }));
 
 import { flush } from '../../test-utils/flush';
@@ -84,7 +84,7 @@ describe('ConfigCard Android image viewer settings', () => {
         manualModel: '',
         provider: { type: 'seed-edit', apiKey: '', model: 'doubao-seedream-5-0-260128' },
       },
-      autoLut: null,
+      autoColorGrading: null,
     };
 
     useConfigStore.setState((state) => ({

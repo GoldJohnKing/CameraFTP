@@ -11,7 +11,7 @@ use camera_ftp_companion_lib::{
     },
     file_index::FileInfo,
     ftp::{ServerInfo, ServerStateSnapshot},
-    lut_filter::{presets::PresetLut, progress::LutFilterProgressEvent},
+    color_grading::{presets::ColorGradingPreset, progress::ColorGradingEvent},
     platform::{PermissionStatus, ServerStartCheckResult, StorageInfo},
 };
 use ts_rs::{ExportError, TS};
@@ -37,8 +37,8 @@ fn main() -> Result<(), ExportError> {
     export_type::<ServerInfo>()?;
     export_type::<camera_ftp_companion_lib::ftp::types::ServerRuntimeView>()?;
     export_type::<AiEditProgressEvent>()?;
-    export_type::<PresetLut>()?;
-    export_type::<LutFilterProgressEvent>()?;
+    export_type::<ColorGradingPreset>()?;
+    export_type::<ColorGradingEvent>()?;
 
     #[cfg(target_os = "windows")]
     export_type::<camera_ftp_companion_lib::auto_open::ConfigChangedEvent>()?;

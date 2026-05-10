@@ -8,7 +8,7 @@ use ts_rs::TS;
 #[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq)]
 #[ts(export)]
 #[serde(tag = "type", rename_all = "camelCase")]
-pub enum LutFilterProgressEvent {
+pub enum ColorGradingEvent {
     Progress {
         current: u32,
         total: u32,
@@ -65,26 +65,26 @@ mod tests {
 
     #[test]
     fn all_variants_roundtrip_through_json() {
-        let events: Vec<LutFilterProgressEvent> = vec![
-            LutFilterProgressEvent::Progress {
+        let events: Vec<ColorGradingEvent> = vec![
+            ColorGradingEvent::Progress {
                 current: 1, total: 2, file_name: "a.nef".into(), failed_count: 0,
             },
-            LutFilterProgressEvent::Completed {
+            ColorGradingEvent::Completed {
                 current: 1, total: 2, file_name: "a.nef".into(), failed_count: 0,
                 output_path: "/out/a_lut.jpg".into(),
             },
-            LutFilterProgressEvent::Failed {
+            ColorGradingEvent::Failed {
                 current: 2, total: 2, file_name: "b.nef".into(), error: "decode failed".into(),
                 failed_count: 1,
             },
-            LutFilterProgressEvent::Done {
+            ColorGradingEvent::Done {
                 total: 2, failed_count: 1, failed_files: vec!["b.nef".into()],
                 output_files: vec!["/out/a_lut.jpg".into()], cancelled: false,
             },
         ];
         for event in &events {
             let json = serde_json::to_string(event).unwrap();
-            let back: LutFilterProgressEvent = serde_json::from_str(&json).unwrap();
+            let back: ColorGradingEvent = serde_json::from_str(&json).unwrap();
             assert_eq!(event, &back, "Roundtrip failed for: {}", json);
         }
     }

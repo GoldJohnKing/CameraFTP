@@ -2,7 +2,7 @@
 // Copyright (C) 2026 GoldJohnKing <GoldJohnKing@Live.cn>
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-//! LUT filter resource management.
+//! Color grading resource management.
 //!
 //! Delegates Lensfun DB extraction to the `lensfun_db` module which embeds
 //! XML files at compile time and extracts them at runtime.
@@ -35,13 +35,13 @@ pub fn ensure_resources(
         lensfun_db_dir: db.db_dir.clone(),
     });
 
-    tracing::info!("LUT filter resources ready: lensfun={:?}", db.db_dir);
+    tracing::info!("Color grading resources ready: lensfun={:?}", db.db_dir);
     Ok(())
 }
 
 pub fn get_resources() -> Result<&'static ResourcePaths, AppError> {
     GLOBAL_RESOURCES.get().ok_or_else(|| {
-        AppError::LutFilterError(
+        AppError::ColorGradingError(
             "Resources not initialized. Call ensure_resources() first.".into(),
         )
     })

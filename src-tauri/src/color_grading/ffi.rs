@@ -92,20 +92,20 @@ impl RawAlchemyLib {
     pub fn load(path: &Path) -> Result<Self, AppError> {
         let lib = unsafe {
             Library::new(path).map_err(|e| {
-                AppError::LutFilterError(format!("Failed to load {}: {}", path.display(), e))
+                AppError::ColorGradingError(format!("Failed to load {}: {}", path.display(), e))
             })?
         };
 
         let process_file = unsafe {
             *lib.get::<RaProcessFileFn>(b"raProcessFile\0")
                 .map_err(|e| {
-                    AppError::LutFilterError(format!("Symbol raProcessFile not found: {}", e))
+                    AppError::ColorGradingError(format!("Symbol raProcessFile not found: {}", e))
                 })?
         };
         let process_file_with_lut = unsafe {
             *lib.get::<RaProcessFileWithLUTFn>(b"raProcessFileWithLUT\0")
                 .map_err(|e| {
-                    AppError::LutFilterError(format!(
+                    AppError::ColorGradingError(format!(
                         "Symbol raProcessFileWithLUT not found: {}",
                         e
                     ))
@@ -114,13 +114,13 @@ impl RawAlchemyLib {
         let get_last_error = unsafe {
             *lib.get::<RaGetLastErrorFn>(b"raGetLastError\0")
                 .map_err(|e| {
-                    AppError::LutFilterError(format!("Symbol raGetLastError not found: {}", e))
+                    AppError::ColorGradingError(format!("Symbol raGetLastError not found: {}", e))
                 })?
         };
         let get_version = unsafe {
             *lib.get::<RaGetVersionFn>(b"raGetVersion\0")
                 .map_err(|e| {
-                    AppError::LutFilterError(format!("Symbol raGetVersion not found: {}", e))
+                    AppError::ColorGradingError(format!("Symbol raGetVersion not found: {}", e))
                 })?
         };
 
@@ -135,7 +135,7 @@ impl RawAlchemyLib {
 
     pub fn get() -> Result<&'static Arc<RawAlchemyLib>, AppError> {
         GLOBAL_LIB.get().ok_or_else(|| {
-            AppError::LutFilterError(
+            AppError::ColorGradingError(
                 "RawAlchemyCpp library not loaded. Call load_global() first.".into(),
             )
         })
@@ -171,9 +171,9 @@ impl RawAlchemyLib {
         lensfun_db_path: Option<&str>,
     ) -> Result<(), AppError> {
         let input_c = std::ffi::CString::new(input_path.to_string_lossy().into_owned())
-            .map_err(|e| AppError::LutFilterError(format!("Invalid input path: {}", e)))?;
+            .map_err(|e| AppError::ColorGradingError(format!("Invalid input path: {}", e)))?;
         let output_c = std::ffi::CString::new(output_path.to_string_lossy().into_owned())
-            .map_err(|e| AppError::LutFilterError(format!("Invalid output path: {}", e)))?;
+            .map_err(|e| AppError::ColorGradingError(format!("Invalid output path: {}", e)))?;
         let log_c = log_space
             .map(|s| std::ffi::CString::new(s).unwrap())
             .unwrap_or_else(|| std::ffi::CString::new("").unwrap());
@@ -224,7 +224,7 @@ impl RawAlchemyLib {
                         .into_owned()
                 }
             };
-            Err(AppError::LutFilterError(if last_error.is_empty() {
+            Err(AppError::ColorGradingError(if last_error.is_empty() {
                 format!("{} ({})", ra_result.description(), result)
             } else {
                 format!("{}: {}", ra_result.description(), last_error)
@@ -241,9 +241,9 @@ impl RawAlchemyLib {
         lensfun_db_path: Option<&str>,
     ) -> Result<(), AppError> {
         let input_c = std::ffi::CString::new(input_path.to_string_lossy().into_owned())
-            .map_err(|e| AppError::LutFilterError(format!("Invalid input path: {}", e)))?;
+            .map_err(|e| AppError::ColorGradingError(format!("Invalid input path: {}", e)))?;
         let output_c = std::ffi::CString::new(output_path.to_string_lossy().into_owned())
-            .map_err(|e| AppError::LutFilterError(format!("Invalid output path: {}", e)))?;
+            .map_err(|e| AppError::ColorGradingError(format!("Invalid output path: {}", e)))?;
         let log_c = log_space
             .map(|s| std::ffi::CString::new(s).unwrap())
             .unwrap_or_else(|| std::ffi::CString::new("").unwrap());
@@ -290,7 +290,7 @@ impl RawAlchemyLib {
                         .into_owned()
                 }
             };
-            Err(AppError::LutFilterError(if last_error.is_empty() {
+            Err(AppError::ColorGradingError(if last_error.is_empty() {
                 format!("{} ({})", ra_result.description(), result)
             } else {
                 format!("{}: {}", ra_result.description(), last_error)

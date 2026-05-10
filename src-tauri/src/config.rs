@@ -133,22 +133,23 @@ impl Default for AndroidImageViewerConfig {
     }
 }
 
-/// 自动应用 LUT 滤镜配置（仅 Android）
+/// 自动调色配置（仅 Android）
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export)]
 #[serde(rename_all = "camelCase", default)]
-pub struct AutoLutConfig {
-    /// 是否启用自动 LUT 滤镜
+pub struct AutoColorGradingConfig {
+    /// 是否启用自动调色
     pub enabled: bool,
-    /// 预设 LUT ID
-    pub preset_lut_id: String,
+    /// 调色预设 ID
+    #[serde(alias = "presetLutId")]
+    pub preset_id: String,
 }
 
-impl Default for AutoLutConfig {
+impl Default for AutoColorGradingConfig {
     fn default() -> Self {
         Self {
             enabled: false,
-            preset_lut_id: "provia".to_string(),
+            preset_id: "provia".to_string(),
         }
     }
 }
@@ -205,12 +206,13 @@ pub struct AppConfig {
     /// AI修图配置
     #[serde(default)]
     pub ai_edit: crate::ai_edit::config::AiEditConfig,
-    /// 自动应用 LUT 滤镜配置（仅 Android 有效，其他平台为 None）
+    /// 自动调色配置（仅 Android 有效，其他平台为 None）
     #[serde(
         skip_serializing_if = "Option::is_none",
-        default = "default_auto_lut"
+        default = "default_auto_color_grading",
+        alias = "autoLut"
     )]
-    pub auto_lut: Option<AutoLutConfig>,
+    pub auto_color_grading: Option<AutoColorGradingConfig>,
 }
 
 #[cfg(target_os = "android")]
@@ -224,12 +226,12 @@ const fn default_android_image_viewer() -> Option<AndroidImageViewerConfig> {
 }
 
 #[cfg(target_os = "android")]
-fn default_auto_lut() -> Option<AutoLutConfig> {
-    Some(AutoLutConfig::default())
+fn default_auto_color_grading() -> Option<AutoColorGradingConfig> {
+    Some(AutoColorGradingConfig::default())
 }
 
 #[cfg(not(target_os = "android"))]
-const fn default_auto_lut() -> Option<AutoLutConfig> {
+const fn default_auto_color_grading() -> Option<AutoColorGradingConfig> {
     None
 }
 
@@ -256,8 +258,8 @@ impl Default for AppConfig {
             None
         };
 
-        let auto_lut = if cfg!(target_os = "android") {
-            Some(AutoLutConfig::default())
+        let auto_color_grading = if cfg!(target_os = "android") {
+            Some(AutoColorGradingConfig::default())
         } else {
             None
         };
@@ -270,7 +272,7 @@ impl Default for AppConfig {
             preview_config,
             android_image_viewer,
             ai_edit: crate::ai_edit::config::AiEditConfig::default(),
-            auto_lut,
+            auto_color_grading,
         }
     }
 }

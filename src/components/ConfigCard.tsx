@@ -16,7 +16,7 @@ import { PathSelector } from './PathSelector';
 import { AdvancedConnectionConfigPanel } from './AdvancedConnectionConfig';
 import { PreviewConfigCard } from './PreviewConfigCard';
 import { AiEditConfigCard } from './AiEditConfigCard';
-import { AutoLutConfigCard } from './AutoLutConfigCard';
+import { AutoColorGradingConfigCard } from './AutoColorGradingConfigCard';
 import { AboutCard } from './AboutCard';
 import { usePlatform } from '../hooks/usePlatform';
 import { withMinDuration } from '../utils/format';
@@ -178,8 +178,8 @@ export const ConfigCard = memo(function ConfigCard() {
       {/* AI修图配置 */}
       <AiEditConfigCard />
 
-      {/* 自动 LUT 滤镜配置（Android 专属） */}
-      {isAndroid && <AutoLutConfigCard />}
+      {/* 自动调色配置（Android 专属） */}
+      {isAndroid && <AutoColorGradingConfigCard />}
 
       {/* 预览配置卡片（Windows 专属） */}
       <PreviewConfigCard />
