@@ -56,6 +56,11 @@ const aiEdit = createTaskProgressHook<AiEditProgressEvent>({
       );
     }
   },
+  onAfterUpdate: (mapped) => {
+    if (mapped.type === 'progress') {
+      syncToNativeLayer();
+    }
+  },
   onDone: (event) => {
     syncToNativeLayer(event);
     notifyNativeDone(event);

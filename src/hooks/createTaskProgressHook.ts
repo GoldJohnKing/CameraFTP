@@ -47,10 +47,12 @@ export interface TaskProgressHookConfig<TEvent extends { type: string }> {
   debugLabel: string;
   /** Map a domain event to a standard event. Return null to skip. */
   mapEvent: (event: TEvent) => StandardTaskEvent | null;
-  /** Handle raw events that don't map to standard ones (e.g. 'queued'). */
+  /** Handle raw events that don't map to standard ones (e.g. 'queued'). Called BEFORE store update. */
   onRawEvent?: (event: TEvent, store: StoreApi<TaskProgressState>) => void;
   /** Called after the factory processes a 'done' event. */
   onDone?: (event: DoneEvent) => void;
+  /** Called after the store is updated for a mapped event. */
+  onAfterUpdate?: (mapped: StandardTaskEvent, store: StoreApi<TaskProgressState>) => void;
 }
 
 export function createTaskProgressHook<TEvent extends { type: string }>(
@@ -102,6 +104,7 @@ export function createTaskProgressHook<TEvent extends { type: string }>(
 
         if (mapped.cancelled) {
           store.setState({ ...initialTaskProgressState });
+          config.onAfterUpdate?.(mapped, store);
           scanOutputFiles(outputFiles);
           setTimeout(() => {
             requestMediaLibraryRefresh({ reason: config.debugLabel as any });
@@ -118,6 +121,8 @@ export function createTaskProgressHook<TEvent extends { type: string }>(
           failedFiles: mapped.failedFiles,
         });
 
+        config.onAfterUpdate?.(mapped, store);
+
         scanOutputFiles(outputFiles);
 
         setTimeout(() => {
@@ -133,6 +138,10 @@ export function createTaskProgressHook<TEvent extends { type: string }>(
         }
         break;
       }
+    }
+
+    if (mapped.type !== 'done') {
+      config.onAfterUpdate?.(mapped, store);
     }
   }
 

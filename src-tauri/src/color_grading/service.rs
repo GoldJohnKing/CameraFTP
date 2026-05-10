@@ -22,7 +22,6 @@ struct ColorGradingTask {
 
 pub struct ColorGradingService {
     config_service: Arc<ConfigService>,
-    app_handle: AppHandle,
     sender: mpsc::Sender<ColorGradingTask>,
     queue_depth: Arc<AtomicU32>,
     cancel_token: Arc<std::sync::Mutex<CancellationToken>>,
@@ -42,7 +41,7 @@ impl ColorGradingService {
             worker_loop(receiver, app_handle_clone, queue_depth_clone, cancel_token_clone).await;
         });
 
-        Self { config_service, app_handle, sender, queue_depth, cancel_token }
+        Self { config_service, sender, queue_depth, cancel_token }
     }
 
     pub async fn enqueue(&self, file_paths: Vec<PathBuf>, lut_id: String) -> Result<(), AppError> {
