@@ -53,7 +53,7 @@ export function ColorGradingDialog({ isOpen, colorGradingPresets, onConfirm, onC
       subtitle="使用胶片模拟调色处理 RAW 照片"
       icon={
         <div className="w-10 h-10 bg-gray-100 rounded-lg flex items-center justify-center">
-          <Palette className="w-5 h-5 text-violet-600" />
+          <Palette className="w-5 h-5 text-amber-600" />
         </div>
       }
       footer={
@@ -67,7 +67,7 @@ export function ColorGradingDialog({ isOpen, colorGradingPresets, onConfirm, onC
           <button
             onClick={handleConfirm}
             disabled={!selectedId}
-            className="px-4 py-2 text-white bg-violet-600 rounded-lg hover:bg-violet-700 transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+            className="px-4 py-2 text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed"
           >
             应用
           </button>
