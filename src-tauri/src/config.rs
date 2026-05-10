@@ -133,6 +133,26 @@ impl Default for AndroidImageViewerConfig {
     }
 }
 
+/// 自动应用 LUT 滤镜配置（仅 Android）
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+#[serde(rename_all = "camelCase", default)]
+pub struct AutoLutConfig {
+    /// 是否启用自动 LUT 滤镜
+    pub enabled: bool,
+    /// 预设 LUT ID
+    pub preset_lut_id: String,
+}
+
+impl Default for AutoLutConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            preset_lut_id: "provia".to_string(),
+        }
+    }
+}
+
 /// Android 配置路径（在应用初始化时设置，使用 OnceLock 实现高效缓存）
 #[cfg(target_os = "android")]
 static ANDROID_CONFIG_PATH: OnceLock<PathBuf> = OnceLock::new();
@@ -185,6 +205,12 @@ pub struct AppConfig {
     /// AI修图配置
     #[serde(default)]
     pub ai_edit: crate::ai_edit::config::AiEditConfig,
+    /// 自动应用 LUT 滤镜配置（仅 Android 有效，其他平台为 None）
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        default = "default_auto_lut"
+    )]
+    pub auto_lut: Option<AutoLutConfig>,
 }
 
 #[cfg(target_os = "android")]
@@ -194,6 +220,16 @@ fn default_android_image_viewer() -> Option<AndroidImageViewerConfig> {
 
 #[cfg(not(target_os = "android"))]
 const fn default_android_image_viewer() -> Option<AndroidImageViewerConfig> {
+    None
+}
+
+#[cfg(target_os = "android")]
+fn default_auto_lut() -> Option<AutoLutConfig> {
+    Some(AutoLutConfig::default())
+}
+
+#[cfg(not(target_os = "android"))]
+const fn default_auto_lut() -> Option<AutoLutConfig> {
     None
 }
 
@@ -220,6 +256,12 @@ impl Default for AppConfig {
             None
         };
 
+        let auto_lut = if cfg!(target_os = "android") {
+            Some(AutoLutConfig::default())
+        } else {
+            None
+        };
+
         Self {
             save_path: Self::default_pictures_dir(),
             port: default_port,
@@ -228,6 +270,7 @@ impl Default for AppConfig {
             preview_config,
             android_image_viewer,
             ai_edit: crate::ai_edit::config::AiEditConfig::default(),
+            auto_lut,
         }
     }
 }

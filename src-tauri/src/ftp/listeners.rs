@@ -72,6 +72,13 @@ impl DataListener for FtpDataListener {
                                 let ai_edit: tauri::State<'_, crate::ai_edit::AiEditService> = handle_clone.state();
                                 ai_edit.on_file_uploaded(full_path.clone()).await;
 
+                                // Auto LUT filter (Android only)
+                                #[cfg(target_os = "android")]
+                                {
+                                    let lut_filter: tauri::State<'_, crate::lut_filter::LutFilterService> = handle_clone.state();
+                                    lut_filter.on_file_uploaded(full_path.clone()).await;
+                                }
+
                                 // Auto-open (Windows only)
                                 #[cfg(target_os = "windows")]
                                 {
@@ -80,7 +87,7 @@ impl DataListener for FtpDataListener {
                                         tracing::error!("Failed to auto open image: {}", e);
                                     }
                                 }
-                                #[cfg(not(target_os = "windows"))]
+                                #[cfg(not(any(target_os = "windows", target_os = "android")))]
                                 let _ = &full_path; // suppress unused warning
                             });
                         }

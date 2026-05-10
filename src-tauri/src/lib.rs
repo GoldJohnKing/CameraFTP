@@ -166,7 +166,7 @@ pub fn run() {
 
             // 在 setup 中管理 AutoOpenService
             app.manage(AutoOpenService::new(app.handle().clone(), Arc::clone(&config_service)));
-            app.manage(ai_edit::AiEditService::new(app.handle().clone(), config_service));
+            app.manage(ai_edit::AiEditService::new(app.handle().clone(), Arc::clone(&config_service)));
 
             // Initialize LUT filter (Android only): load RawAlchemyCpp library + extract resources
             #[cfg(target_os = "android")]
@@ -182,7 +182,7 @@ pub fn run() {
                     tracing::error!("Failed to load RawAlchemyCpp: {}", e);
                 }
 
-                app.manage(lut_filter::LutFilterService::new(app.handle().clone()));
+                app.manage(lut_filter::LutFilterService::new(app.handle().clone(), Arc::clone(&config_service)));
             }
 
             // 开机自启模式：隐藏窗口

@@ -9,6 +9,7 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use tauri::{AppHandle, Emitter};
 
+use crate::config_service::ConfigService;
 use crate::error::AppError;
 use super::progress::LutFilterProgressEvent;
 use super::presets::find_preset;
@@ -19,6 +20,7 @@ struct LutFilterTask {
 }
 
 pub struct LutFilterService {
+    config_service: Arc<ConfigService>,
     app_handle: AppHandle,
     sender: mpsc::Sender<LutFilterTask>,
     queue_depth: Arc<AtomicU32>,
@@ -26,7 +28,7 @@ pub struct LutFilterService {
 }
 
 impl LutFilterService {
-    pub fn new(app_handle: AppHandle) -> Self {
+    pub fn new(app_handle: AppHandle, config_service: Arc<ConfigService>) -> Self {
         let (sender, receiver) = mpsc::channel::<LutFilterTask>(16);
         let queue_depth = Arc::new(AtomicU32::new(0));
         let cancel_token = Arc::new(tokio::sync::Mutex::new(CancellationToken::new()));
@@ -39,7 +41,7 @@ impl LutFilterService {
             worker_loop(receiver, app_handle_clone, queue_depth_clone, cancel_token_clone).await;
         });
 
-        Self { app_handle, sender, queue_depth, cancel_token }
+        Self { config_service, app_handle, sender, queue_depth, cancel_token }
     }
 
     pub async fn enqueue(&self, file_paths: Vec<PathBuf>, lut_id: String) -> Result<(), AppError> {
@@ -73,6 +75,27 @@ impl LutFilterService {
             let mut guard = token.lock().await;
             *guard = CancellationToken::new();
         });
+    }
+
+    /// Auto-trigger: check config + RAW extension, then enqueue.
+    pub async fn on_file_uploaded(&self, file_path: PathBuf) {
+        let config = self.config_service.get().ok();
+        let should_enqueue = config.as_ref()
+            .and_then(|c| c.auto_lut.as_ref())
+            .map(|lut| lut.enabled && !lut.preset_lut_id.is_empty())
+            .unwrap_or(false);
+
+        if !should_enqueue || !is_raw_file_path(&file_path) {
+            return;
+        }
+
+        let lut_id = config
+            .and_then(|c| c.auto_lut.map(|lut| lut.preset_lut_id))
+            .unwrap_or_default();
+
+        if let Err(e) = self.enqueue(vec![file_path.clone()], lut_id).await {
+            tracing::warn!("Auto LUT filter enqueue failed for {}: {}", file_path.display(), e);
+        }
     }
 }
 
@@ -198,4 +221,14 @@ async fn process_single_file(task: &LutFilterTask) -> Result<String, AppError> {
     )?;
 
     Ok(output_path.to_string_lossy().into_owned())
+}
+
+fn is_raw_file_path(path: &std::path::Path) -> bool {
+    let ext = path.extension()
+        .map(|e| e.to_string_lossy().to_lowercase())
+        .unwrap_or_default();
+    matches!(ext.as_str(),
+        "nef" | "nrw" | "cr2" | "cr3" | "arw" | "sr2" | "raf" |
+        "orf" | "rw2" | "pef" | "dng" | "x3f" | "raw" | "srw"
+    )
 }

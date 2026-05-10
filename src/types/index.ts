@@ -27,6 +27,7 @@ export type { AndroidImageOpenMethod } from '../../src-tauri/bindings/AndroidIma
 export type { AiEditProgressEvent } from '../../src-tauri/bindings/AiEditProgressEvent';
 export type { PresetLut } from '../../src-tauri/bindings/PresetLut';
 export type { LutFilterProgressEvent } from '../../src-tauri/bindings/LutFilterProgressEvent';
+export type { AutoLutConfig } from '../../src-tauri/bindings/AutoLutConfig';
 
 // ===== Re-export from global.ts =====
 export * from './global';
