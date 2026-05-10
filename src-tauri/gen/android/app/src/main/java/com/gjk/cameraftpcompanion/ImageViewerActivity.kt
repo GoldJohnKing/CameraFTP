@@ -153,7 +153,7 @@ class ImageViewerActivity : AppCompatActivity() {
     private lateinit var filenameView: TextView
     private lateinit var exifParams: TextView
     private lateinit var exifDatetime: TextView
-    private lateinit var btnAiEdit: ImageButton
+    private lateinit var btnMenu: ImageButton
     private lateinit var btnRotate: ImageButton
     private lateinit var btnDelete: ImageButton
     private lateinit var aiEditProgressContainer: FrameLayout
@@ -172,6 +172,8 @@ class ImageViewerActivity : AppCompatActivity() {
     private var pendingDeleteUri: String? = null
     private var isAiEditing = false
     private var promptWebView: WebView? = null
+    private var menuPopupWindow: android.widget.PopupWindow? = null
+    private var colorGradingWebView: WebView? = null
 
     private val deleteRequestLauncher = registerForActivityResult(
         ActivityResultContracts.StartIntentSenderForResult(),
@@ -207,7 +209,7 @@ class ImageViewerActivity : AppCompatActivity() {
         filenameView = findViewById(R.id.filename)
         exifParams = findViewById(R.id.exif_params)
         exifDatetime = findViewById(R.id.exif_datetime)
-        btnAiEdit = findViewById(R.id.btn_ai_edit)
+        btnMenu = findViewById(R.id.btn_menu)
         btnRotate = findViewById(R.id.btn_rotate)
         btnDelete = findViewById(R.id.btn_delete)
 
@@ -306,10 +308,8 @@ class ImageViewerActivity : AppCompatActivity() {
     }
 
     private fun setupButtons() {
-        btnAiEdit.setOnClickListener {
-            if (uris.isNotEmpty() && currentIndex in uris.indices) {
-                triggerAiEditForCurrentImage()
-            }
+        btnMenu.setOnClickListener {
+            showImageMenu()
         }
 
         btnRotate.setOnClickListener {
@@ -324,6 +324,336 @@ class ImageViewerActivity : AppCompatActivity() {
         btnDelete.setOnClickListener {
             if (uris.isNotEmpty()) {
                 deleteCurrentImage()
+            }
+        }
+    }
+
+    private fun isRawImage(uriString: String): Boolean {
+        val uri = Uri.parse(uriString)
+        val mimeType = contentResolver.getType(uri)
+        return mimeType?.startsWith("image/x-") == true
+    }
+
+    private fun showImageMenu() {
+        menuPopupWindow?.dismiss()
+
+        val popupView = layoutInflater.inflate(R.layout.popup_image_menu, null)
+        val menuItemAiEdit = popupView.findViewById<LinearLayout>(R.id.menu_item_ai_edit)
+        val menuItemColorGrading = popupView.findViewById<LinearLayout>(R.id.menu_item_color_grading)
+        val cgIcon = popupView.findViewById<android.widget.ImageView>(R.id.menu_item_color_grading_icon)
+        val cgText = popupView.findViewById<TextView>(R.id.menu_item_color_grading_text)
+
+        val isRaw = uris.isNotEmpty() && currentIndex in uris.indices && isRawImage(uris[currentIndex])
+
+        if (!isRaw) {
+            menuItemColorGrading.isEnabled = false
+            menuItemColorGrading.isClickable = false
+            cgIcon.alpha = 0.35f
+            cgText.alpha = 0.35f
+        }
+
+        menuItemAiEdit.setOnClickListener {
+            menuPopupWindow?.dismiss()
+            if (uris.isNotEmpty() && currentIndex in uris.indices) {
+                triggerAiEditForCurrentImage()
+            }
+        }
+
+        menuItemColorGrading.setOnClickListener {
+            menuPopupWindow?.dismiss()
+            if (uris.isNotEmpty() && currentIndex in uris.indices) {
+                triggerColorGradingForCurrentImage()
+            }
+        }
+
+        val popup = android.widget.PopupWindow(
+            popupView,
+            android.view.ViewGroup.LayoutParams.WRAP_CONTENT,
+            android.view.ViewGroup.LayoutParams.WRAP_CONTENT,
+            true
+        )
+        popup.setBackgroundDrawable(null)
+        popup.isOutsideTouchable = true
+        popup.isFocusable = true
+        popup.elevation = 16f
+
+        popup.setOnDismissListener {
+            menuPopupWindow = null
+        }
+
+        menuPopupWindow = popup
+        popupView.measure(
+            android.view.View.MeasureSpec.UNSPECIFIED,
+            android.view.View.MeasureSpec.UNSPECIFIED
+        )
+        val yOffset = -(btnMenu.height + popupView.measuredHeight + 8.dpToPx())
+        popup.showAsDropDown(btnMenu, 0, yOffset)
+    }
+
+    private fun triggerColorGradingForCurrentImage() {
+        val uriString = uris.getOrNull(currentIndex) ?: return
+        val filePath = resolveUriToFilePath(uriString)
+
+        if (filePath == null) {
+            Log.w(TAG, "Cannot resolve file path for URI: $uriString")
+            return
+        }
+
+        showColorGradingOverlay(filePath)
+    }
+
+    private fun showColorGradingOverlay(filePath: String) {
+        requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LOCKED
+        val rootView = findViewById<FrameLayout>(android.R.id.content)
+
+        dismissColorGradingWebView()
+
+        val presets = listOf(
+            "acros" to "ACROS",
+            "astia" to "Astia",
+            "classic-chrome" to "Classic Chrome",
+            "classic-neg" to "Classic Neg",
+            "eterna" to "ETERNA",
+            "eterna-bb" to "ETERNA Bleach Bypass",
+            "pro-neg-std" to "PRO Neg. Std",
+            "provia" to "Provia",
+            "reala-ace" to "REALA ACE",
+            "velvia" to "Velvia",
+            "flog2c-709" to "F-Log2C \u2192 Rec.709",
+        )
+        val firstId = presets.first().first
+        val firstLabel = presets.first().second
+        val presetOptionsHtml = presets.joinToString("") { (value, label) ->
+            """<div class="dropdown-opt${if (value == firstId) " selected" else ""}" data-value="$value">$label</div>"""
+        }
+
+        val html = """
+            <!DOCTYPE html>
+            <html>
+            <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
+            <style>
+              * { margin: 0; padding: 0; box-sizing: border-box; }
+              body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+              .overlay {
+                position: fixed; inset: 0;
+                background: rgba(0,0,0,0.5);
+                display: flex; align-items: center; justify-content: center;
+                padding: 16px; z-index: 50;
+              }
+              .card {
+                background: #fff; border-radius: 12px; width: 100%; max-width: 448px;
+                box-shadow: 0 25px 50px -12px rgba(0,0,0,0.25);
+                display: flex; flex-direction: column; max-height: 90vh;
+              }
+              .header {
+                display: flex; align-items: center; justify-content: space-between;
+                padding: 16px; border-bottom: 1px solid #e5e7eb;
+              }
+              .title-group { display: flex; flex-direction: column; }
+              .title { font-size: 18px; font-weight: 600; color: #111827; }
+              .subtitle { font-size: 14px; color: #6b7280; margin-top: 2px; }
+              .close-btn {
+                padding: 8px; border: none; background: none; cursor: pointer;
+                color: #9ca3af; border-radius: 8px;
+              }
+              .close-btn:hover { color: #4b5563; background: #f3f4f6; }
+              .close-btn svg { width: 20px; height: 20px; }
+              .content { padding: 16px; overflow-y: auto; }
+              .field-group { margin-bottom: 0; }
+              .field-label { font-size: 14px; font-weight: 500; color: #374151; margin-bottom: 8px; }
+              .dropdown { position: relative; }
+              .dropdown-btn {
+                width: 100%; padding: 8px 12px; border: 1px solid #e5e7eb;
+                border-radius: 8px; font-size: 14px; color: #374151;
+                background: #fff; outline: none; cursor: pointer;
+                display: flex; align-items: center; justify-content: space-between;
+                text-align: left; -webkit-user-select: none; user-select: none;
+                -webkit-tap-highlight-color: transparent;
+              }
+              .dropdown-btn:hover { border-color: #d1d5db; }
+              .dropdown-btn .chevron {
+                width: 16px; height: 16px; color: #9ca3af;
+                transition: transform 0.2s; flex-shrink: 0;
+              }
+              .dropdown-btn.open .chevron { transform: rotate(180deg); }
+              .dropdown-panel {
+                position: absolute; left: 0; right: 0;
+                margin-top: 4px; background: #fff; border: 1px solid #e5e7eb;
+                border-radius: 8px; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1), 0 4px 6px -4px rgba(0,0,0,0.1);
+                padding: 4px 0; z-index: 10; max-height: 240px; overflow-y: auto;
+                opacity: 0; transform: scaleY(0.95) translateY(-4px);
+                transform-origin: top; pointer-events: none;
+                transition: opacity 0.15s ease, transform 0.15s ease;
+              }
+              .dropdown-panel.open {
+                opacity: 1; transform: scaleY(1) translateY(0);
+                pointer-events: auto;
+              }
+              .dropdown-opt {
+                padding: 8px 12px; font-size: 14px;
+                color: #374151; cursor: pointer;
+                -webkit-tap-highlight-color: transparent;
+              }
+              .dropdown-opt:hover { background: #f9fafb; }
+              .dropdown-opt.selected { background: #f5f3ff; color: #7c3aed; font-weight: 500; }
+              .footer {
+                display: flex; align-items: center; justify-content: flex-end;
+                padding: 16px; border-top: 1px solid #e5e7eb; gap: 8px;
+              }
+              .btn {
+                padding: 8px 16px; border-radius: 8px; font-size: 14px;
+                font-weight: 500; border: none; cursor: pointer;
+              }
+              .btn-cancel { background: #f3f4f6; color: #374151; }
+              .btn-cancel:hover { background: #e5e7eb; }
+              .btn-confirm { background: #7c3aed; color: #fff; }
+              .btn-confirm:hover { background: #6d28d9; }
+              .header-icon { color: #7c3aed; flex-shrink: 0; }
+            </style>
+            </head>
+            <body>
+            <div class="overlay" onclick="if(event.target===this)NativeBridge.onCancel()">
+              <div class="card">
+                <div class="header">
+                  <div style="display:flex;align-items:center;gap:12px">
+                    <div style="width:40px;height:40px;background:#f5f3ff;border-radius:8px;display:flex;align-items:center;justify-content:center"><svg class="header-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="13.5" cy="6.5" r="2.5"/><circle cx="17.5" cy="10.5" r="2.5"/><circle cx="8.5" cy="7.5" r="2.5"/><circle cx="6.5" cy="12.5" r="2.5"/><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.9 0 1.5-.7 1.5-1.5 0-.4-.1-.7-.4-1-.3-.3-.4-.7-.4-1.1 0-.8.7-1.5 1.5-1.5H16c3.3 0 6-2.7 6-6 0-5.5-4.5-9-10-9Z"/></svg></div>
+                    <div class="title-group">
+                      <div class="title">调色</div>
+                      <div class="subtitle">使用胶片模拟调色处理 RAW 照片</div>
+                    </div>
+                  </div>
+                  <button class="close-btn" onclick="NativeBridge.onCancel()">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                  </button>
+                </div>
+                <div class="content">
+                  <div class="field-group">
+                    <div class="field-label">调色预设</div>
+                    <div class="dropdown" id="presetDropdown">
+                      <button class="dropdown-btn" type="button" onclick="toggleDropdown()">
+                        <span id="presetLabel">$firstLabel</span>
+                        <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+                      </button>
+                      <div class="dropdown-panel" id="presetPanel">$presetOptionsHtml</div>
+                    </div>
+                  </div>
+                </div>
+                <div class="footer">
+                  <button class="btn btn-cancel" onclick="NativeBridge.onCancel()">取消</button>
+                  <button class="btn btn-confirm" onclick="onConfirm()">应用</button>
+                </div>
+              </div>
+            </div>
+            <script>
+              var selectedPreset = '$firstId';
+              function toggleDropdown() {
+                var panel = document.getElementById('presetPanel');
+                var btn = panel.previousElementSibling;
+                var isOpen = panel.classList.contains('open');
+                if (isOpen) {
+                  panel.classList.remove('open');
+                  btn.classList.remove('open');
+                } else {
+                  panel.classList.add('open');
+                  btn.classList.add('open');
+                }
+              }
+              function closeDropdown() {
+                var panel = document.getElementById('presetPanel');
+                var btn = panel.previousElementSibling;
+                panel.classList.remove('open');
+                btn.classList.remove('open');
+              }
+              document.getElementById('presetPanel').addEventListener('click', function(e) {
+                var opt = e.target.closest('.dropdown-opt');
+                if (!opt) return;
+                selectedPreset = opt.getAttribute('data-value');
+                document.getElementById('presetLabel').textContent = opt.textContent;
+                var allOpts = this.querySelectorAll('.dropdown-opt');
+                for (var i = 0; i < allOpts.length; i++) allOpts[i].classList.remove('selected');
+                opt.classList.add('selected');
+                closeDropdown();
+              });
+              document.addEventListener('click', function(e) {
+                if (!document.getElementById('presetDropdown').contains(e.target)) {
+                  closeDropdown();
+                }
+              });
+              function onConfirm() {
+                NativeBridge.onConfirm(selectedPreset);
+              }
+            </script>
+            </body>
+            </html>
+        """.trimIndent()
+
+        val webView = WebView(this).apply {
+            settings.javaScriptEnabled = true
+            settings.domStorageEnabled = false
+            setBackgroundColor(0)
+            isVerticalScrollBarEnabled = false
+            isHorizontalScrollBarEnabled = false
+            addJavascriptInterface(object {
+                @JavascriptInterface
+                fun onConfirm(lutId: String) {
+                    runOnUiThread {
+                        dismissColorGradingWebView()
+                        dispatchColorGrading(filePath, lutId)
+                    }
+                }
+                @JavascriptInterface
+                fun onCancel() {
+                    runOnUiThread { dismissColorGradingWebView() }
+                }
+            }, "NativeBridge")
+            loadDataWithBaseURL(null, html, "text/html", "UTF-8", null)
+        }
+
+        val overlayParams = FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT,
+            FrameLayout.LayoutParams.MATCH_PARENT
+        )
+        rootView.addView(webView, overlayParams)
+        colorGradingWebView = webView
+    }
+
+    private fun dismissColorGradingWebView() {
+        colorGradingWebView?.let {
+            (it.parent as? FrameLayout)?.removeView(it)
+            it.destroy()
+        }
+        colorGradingWebView = null
+        requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+    }
+
+    private fun dispatchColorGrading(filePath: String, lutId: String) {
+        val mainActivity = MainActivity.instance
+        if (mainActivity == null) {
+            Log.w(TAG, "MainActivity not available for color grading")
+            return
+        }
+
+        val escapedFilePath = filePath.replace("\\", "\\\\").replace("'", "\\'")
+        val escapedLutId = lutId.replace("\\", "\\\\").replace("'", "\\'")
+        val js = """
+            (function(){
+                if(window.__tauriTriggerColorGrading){
+                    window.__tauriTriggerColorGrading('$escapedFilePath','$escapedLutId');
+                    return 'ok';
+                }
+                return 'no_handler';
+            })();
+        """.trimIndent()
+
+        mainActivity.runOnUiThread {
+            mainActivity.getWebView()?.evaluateJavascript(js) { result ->
+                if (result?.trim()?.removeSurrounding("\"") == "no_handler") {
+                    runOnUiThread {
+                        Log.w(TAG, "Color grading failed: frontend handler not available")
+                    }
+                }
             }
         }
     }
@@ -1301,6 +1631,7 @@ class ImageViewerActivity : AppCompatActivity() {
         super.onConfigurationChanged(newConfig)
 
         dismissPromptWebView()
+        dismissColorGradingWebView()
         setContentView(R.layout.activity_image_viewer)
 
         bindViews()
@@ -1343,6 +1674,7 @@ class ImageViewerActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         dismissPromptWebView()
+        dismissColorGradingWebView()
         if (instance == this) {
             isViewerVisible = false
             instance = null
