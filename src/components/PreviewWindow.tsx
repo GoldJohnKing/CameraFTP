@@ -477,16 +477,15 @@ const PreviewWindowContent = memo(function PreviewWindowContent({
             </svg>
           </button>
 
-          {/* 调色按钮 - 仅RAW文件显示 */}
-          {isRawFile && (
-            <button
-              onClick={handleColorGrading}
-              className="p-2 rounded-lg transition-colors text-gray-300 hover:text-white hover:bg-white/10"
-              title="调色"
-            >
-              <Palette className="w-5 h-5" />
-            </button>
-          )}
+          {/* 调色按钮 - 非RAW文件禁用置灰 */}
+          <button
+            onClick={isRawFile ? handleColorGrading : undefined}
+            className={`p-2 rounded-lg transition-colors ${isRawFile ? 'text-gray-300 hover:text-white hover:bg-white/10' : 'text-gray-600 cursor-not-allowed'}`}
+            title={isRawFile ? '调色' : '调色（仅 RAW 文件）'}
+            disabled={!isRawFile}
+          >
+            <Palette className="w-5 h-5" />
+          </button>
 
           {/* 全屏按钮 */}
           <button
