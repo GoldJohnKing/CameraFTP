@@ -7,7 +7,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 
 use crate::config_service::ConfigService;
 use crate::error::AppError;
@@ -147,6 +147,13 @@ async fn worker_loop(
 
         match process_single_file(&task).await {
             Ok(output_path) => {
+                if let Some(file_index) = app_handle.try_state::<Arc<crate::file_index::FileIndexService>>() {
+                    let path = PathBuf::from(&output_path);
+                    if let Err(e) = file_index.add_file(path).await {
+                        tracing::debug!(path = %output_path, error = %e, "Failed to index color-graded file");
+                    }
+                }
+
                 completed_count += 1;
                 let _ = app_handle.emit("color-grading-progress", &ColorGradingEvent::Completed {
                     current,
