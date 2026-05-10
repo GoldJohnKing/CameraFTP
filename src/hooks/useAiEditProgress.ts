@@ -4,14 +4,12 @@
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
 
-import { create } from 'zustand';
-import { useEffect } from 'react';
-import { listen } from '@tauri-apps/api/event';
 import { invoke } from '@tauri-apps/api/core';
 import type { AiEditProgressEvent } from '../types';
-import { requestMediaLibraryRefresh } from '../utils/gallery-refresh';
+import { createTaskProgressHook } from './createTaskProgressHook';
+import type { TaskProgressState, DoneEvent } from './createTaskProgressHook';
 
-interface AiEditProgressState {
+export interface AiEditProgressState {
   isEditing: boolean;
   isDone: boolean;
   current: number;
@@ -21,148 +19,79 @@ interface AiEditProgressState {
   failedFiles: string[];
 }
 
-const initialState: AiEditProgressState = {
-  isEditing: false,
-  isDone: false,
-  current: 0,
-  total: 0,
-  currentFileName: '',
-  failedCount: 0,
-  failedFiles: [],
-};
-
-/** Delay before refreshing gallery after AI edit completes — allows MediaStore to finish indexing. */
-const GALLERY_REFRESH_DELAY_MS = 500;
-/** Auto-reset the done state after this delay when there are no failures. */
-const DONE_AUTO_RESET_DELAY_MS = 3000;
-
-const useAiEditProgressStore = create<AiEditProgressState>(() => ({ ...initialState }));
-
-let _listenerRegistered = false;
-let _storedUnlisten: (() => void) | null = null;
-
-function syncToNativeLayer(current: number, total: number, failedCount: number) {
-  window.ImageViewerAndroid?.updateAiEditProgress?.(current, total, failedCount);
+function mapToState(state: TaskProgressState): AiEditProgressState {
+  return { ...state, isEditing: state.isActive };
 }
 
-function notifyNativeDone(success: boolean, failedCount: number, total: number, cancelled: boolean) {
-  if (cancelled) {
-    window.ImageViewerAndroid?.onAiEditComplete?.(false, null, true);
-    return;
-  }
-  const message = failedCount > 0
-    ? `成功${total - failedCount}张 失败${failedCount}张`
-    : `共${total}张`;
-  window.ImageViewerAndroid?.onAiEditComplete?.(success, message, false);
-}
-
-function scanOutputFiles(outputFiles: string[]) {
-  for (const filePath of outputFiles) {
-    window.ImageViewerAndroid?.scanNewFile?.(filePath);
-  }
-}
-
-function handleEvent(event: AiEditProgressEvent) {
-  console.debug('[ai-edit-progress] Event received:', event.type, event);
-  switch (event.type) {
-    case 'progress':
-      useAiEditProgressStore.setState({
-        isEditing: true,
-        isDone: false,
-        current: event.current,
-        total: event.total,
-        currentFileName: event.fileName,
-        failedCount: event.failedCount,
-      });
-      syncToNativeLayer(event.current, event.total, event.failedCount);
-      break;
-    case 'completed':
-      useAiEditProgressStore.setState({
-        total: event.total,
-        failedCount: event.failedCount,
-      });
-      break;
-    case 'failed':
-      useAiEditProgressStore.setState({
-        total: event.total,
-        failedCount: event.failedCount,
-      });
-      break;
-    case 'queued': {
-      const { isEditing, current, failedCount } = useAiEditProgressStore.getState();
-      if (isEditing) {
-        const newTotal = current + event.queueDepth;
-        useAiEditProgressStore.setState({ total: newTotal });
-        syncToNativeLayer(current, newTotal, failedCount);
-      }
-      break;
+const aiEdit = createTaskProgressHook<AiEditProgressEvent>({
+  eventName: 'ai-edit-progress',
+  debugLabel: 'ai-edit',
+  mapEvent: (event) => {
+    switch (event.type) {
+      case 'progress':
+        return { type: 'progress', current: event.current, total: event.total, fileName: event.fileName, failedCount: event.failedCount };
+      case 'completed':
+        return { type: 'completed', total: event.total, failedCount: event.failedCount };
+      case 'failed':
+        return { type: 'failed', total: event.total, failedCount: event.failedCount };
+      case 'done':
+        return { type: 'done', total: event.total, failedCount: event.failedCount, failedFiles: event.failedFiles, outputFiles: event.outputFiles, cancelled: event.cancelled };
+      case 'queued':
+      case 'queuedDropped':
+        return null;
     }
-    case 'done': {
-      const hasFailures = event.failedCount > 0;
-      const outputFiles = event.outputFiles ?? [];
-
-      // On cancel, silently reset state without showing success/failure UI
-      if (event.cancelled) {
-        useAiEditProgressStore.setState({ ...initialState });
-        scanOutputFiles(outputFiles);
-        setTimeout(() => {
-          requestMediaLibraryRefresh({ reason: 'ai-edit' });
-        }, GALLERY_REFRESH_DELAY_MS);
-        notifyNativeDone(false, event.failedCount, event.total, true);
-        break;
+  },
+  onRawEvent: (event, store) => {
+    if (event.type === 'queued') {
+      const state = store.getState();
+      if (state.isActive) {
+        const newTotal = state.current + event.queueDepth;
+        store.setState({ total: newTotal });
+        syncToNativeLayer({ total: newTotal, failedCount: state.failedCount });
       }
-
-      useAiEditProgressStore.setState({
-        isEditing: false,
-        isDone: true,
-        current: event.total,
-        failedCount: event.failedCount,
-        failedFiles: event.failedFiles,
-      });
-
-      // Trigger Android MediaStore scan so system gallery sees the new files
-      scanOutputFiles(outputFiles);
-
-      // Delay refresh to allow MediaStore to finish indexing the scanned files.
-      // Without this delay, the reload races ahead and queries MediaStore before
-      // the file is indexed, causing the new image to appear missing or out of order.
-      setTimeout(() => {
-        requestMediaLibraryRefresh({ reason: 'ai-edit' });
-      }, GALLERY_REFRESH_DELAY_MS);
-
-      // Auto-preview the first output file when auto-open is enabled on Android
-      if (outputFiles.length > 0 && !hasFailures) {
-        void autoPreviewIfEnabled(outputFiles);
-      }
-
-      if (!hasFailures) {
-        setTimeout(() => {
-          useAiEditProgressStore.setState({ ...initialState });
-        }, DONE_AUTO_RESET_DELAY_MS);
-      }
-      notifyNativeDone(event.failedCount === 0, event.failedCount, event.total, false);
-      break;
     }
-    case 'queuedDropped': {
+    if (event.type === 'queuedDropped') {
       console.warn(
         `[ai-edit-progress] Auto-edit task dropped (queue full): ${event.fileName}`,
       );
-      break;
     }
+  },
+  onDone: (event) => {
+    syncToNativeLayer(event);
+    notifyNativeDone(event);
+    if (!event.cancelled && event.outputFiles.length > 0 && event.failedCount === 0) {
+      void autoPreviewIfEnabled(event.outputFiles);
+    }
+  },
+});
+
+function syncToNativeLayer(overrides?: { total?: number; failedCount?: number }) {
+  const state = aiEdit.getProgressState();
+  const total = overrides?.total ?? state.total;
+  const failedCount = overrides?.failedCount ?? state.failedCount;
+  window.ImageViewerAndroid?.updateAiEditProgress?.(state.current, total, failedCount);
+}
+
+function notifyNativeDone(event: DoneEvent) {
+  if (event.cancelled) {
+    window.ImageViewerAndroid?.onAiEditComplete?.(false, null, true);
+    return;
   }
+  const message = event.failedCount > 0
+    ? `成功${event.total - event.failedCount}张 失败${event.failedCount}张`
+    : `共${event.total}张`;
+  window.ImageViewerAndroid?.onAiEditComplete?.(event.failedCount === 0, message, false);
 }
 
 async function autoPreviewIfEnabled(outputFiles: string[]) {
   try {
-    // Dynamic import to avoid circular dependency: this module is imported by
-    // App.tsx which is part of the configStore dependency chain.
     const { useConfigStore: _useConfigStore } = await import('../stores/configStore');
     const autoOpen = _useConfigStore.getState().draft?.androidImageViewer?.autoOpenLatestWhenVisible ?? false;
     if (autoOpen) {
       void autoPreviewOutput(outputFiles);
     }
   } catch {
-    // Non-critical: auto-preview is a convenience feature
+    // Non-critical
   }
 }
 
@@ -183,32 +112,8 @@ async function autoPreviewOutput(outputFiles: string[]) {
   });
 }
 
-async function registerListener(): Promise<void> {
-  if (_listenerRegistered) return;
-  _listenerRegistered = true;
-
-  try {
-    // Unregister previous listener if it exists (e.g. from a failed prior attempt or HMR)
-    if (_storedUnlisten) {
-      _storedUnlisten();
-      _storedUnlisten = null;
-    }
-
-    const unlisten = await listen<AiEditProgressEvent>('ai-edit-progress', (e) => {
-      handleEvent(e.payload);
-    });
-    _storedUnlisten = unlisten;
-  } catch (err) {
-    _listenerRegistered = false;
-    console.error('[ai-edit-progress] Listener registration failed:', err);
-  }
-}
-
-// Register eagerly at module load time
-registerListener();
-
 export function useAiEditProgress(): AiEditProgressState {
-  return useAiEditProgressStore();
+  return mapToState(aiEdit.useProgress());
 }
 
 export async function enqueueAiEdit(files: string[], prompt: string, model?: string): Promise<void> {
@@ -224,16 +129,13 @@ export async function cancelAiEdit(): Promise<void> {
 }
 
 export function dismissDone() {
-  useAiEditProgressStore.setState({ ...initialState });
+  aiEdit.dismissDone();
 }
 
 export function getCurrentAiEditProgress(): AiEditProgressState {
-  return useAiEditProgressStore.getState();
+  return mapToState(aiEdit.getProgressState());
 }
 
 export function useAiEditProgressListener() {
-  // Fallback: ensure listener is registered even if module-load registration failed.
-  useEffect(() => {
-    registerListener();
-  }, []);
+  aiEdit.useProgressListener();
 }
