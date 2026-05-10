@@ -8,41 +8,28 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 
 export function usePreviewZoomPan(imagePath: string | null) {
+  // Continuous interaction state in refs — bypasses React rendering pipeline
   const transformRef = useRef({ scale: 1, panX: 0, panY: 0 });
   const imgRef = useRef<HTMLImageElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const isDraggingRef = useRef(false);
   const dragStartRef = useRef({ x: 0, y: 0 });
-  const wheelEndTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const appWindow = useMemo(() => getCurrentWindow(), []);
 
-  // React state only for toolbar display — updated when interaction settles
+  // React state only for UI display (toolbar, cursor class)
   const [displayScale, setDisplayScale] = useState(1);
   const [isDragging, setIsDragging] = useState(false);
 
+  // Apply transform directly to <img> DOM element, no React re-render
   const applyTransform = useCallback(() => {
     const img = imgRef.current;
-    const container = containerRef.current;
     if (img) {
       const { scale, panX, panY } = transformRef.current;
       img.style.transform = `translate(${panX}px, ${panY}px) scale(${scale})`;
     }
-    if (container) {
-      const { scale } = transformRef.current;
-      container.style.cursor = isDraggingRef.current
-        ? 'grabbing'
-        : scale > 1
-          ? 'grab'
-          : 'default';
-    }
-  }, []);
-
-  const syncDisplayScale = useCallback(() => {
-    setDisplayScale(transformRef.current.scale);
   }, []);
 
   const resetZoom = useCallback(() => {
-    clearTimeout(wheelEndTimerRef.current);
     transformRef.current = { scale: 1, panX: 0, panY: 0 };
     applyTransform();
     setDisplayScale(1);
@@ -63,11 +50,6 @@ export function usePreviewZoomPan(imagePath: string | null) {
       void unlisten.then(fn => fn()).catch(() => {});
     };
   }, [appWindow, resetZoom]);
-
-  // Cleanup debounce timer on unmount
-  useEffect(() => {
-    return () => clearTimeout(wheelEndTimerRef.current);
-  }, []);
 
   const handleWheel = useCallback((e: React.WheelEvent) => {
     e.preventDefault();
@@ -110,11 +92,8 @@ export function usePreviewZoomPan(imagePath: string | null) {
     };
 
     applyTransform();
-
-    // Sync to React state only after zoom settles — avoids per-frame re-renders
-    clearTimeout(wheelEndTimerRef.current);
-    wheelEndTimerRef.current = setTimeout(syncDisplayScale, 150);
-  }, [applyTransform, syncDisplayScale]);
+    setDisplayScale(newScale);
+  }, [applyTransform]);
 
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
     if (transformRef.current.scale <= 1) {
@@ -123,12 +102,11 @@ export function usePreviewZoomPan(imagePath: string | null) {
 
     isDraggingRef.current = true;
     setIsDragging(true);
-    applyTransform();
     dragStartRef.current = {
       x: e.clientX - transformRef.current.panX,
       y: e.clientY - transformRef.current.panY,
     };
-  }, [applyTransform]);
+  }, []);
 
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
     if (isDraggingRef.current && transformRef.current.scale > 1) {
@@ -142,9 +120,8 @@ export function usePreviewZoomPan(imagePath: string | null) {
     if (isDraggingRef.current) {
       isDraggingRef.current = false;
       setIsDragging(false);
-      applyTransform();
     }
-  }, [applyTransform]);
+  }, []);
 
   return {
     scale: displayScale,

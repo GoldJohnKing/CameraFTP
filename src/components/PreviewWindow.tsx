@@ -56,6 +56,7 @@ const PreviewWindowContent = memo(function PreviewWindowContent({
   } = usePreviewToolbarAutoHide();
   const {
     scale,
+    isDragging,
     containerRef,
     imgRef,
     resetZoom,
@@ -233,7 +234,9 @@ const PreviewWindowContent = memo(function PreviewWindowContent({
       {/* 图片区域 - 支持缩放和拖拽 */}
       <div 
         ref={containerRef}
-        className="absolute inset-0 flex items-center justify-center bg-black"
+        className={`absolute inset-0 flex items-center justify-center bg-black ${
+          isDragging ? 'cursor-grabbing' : scale > 1 ? 'cursor-grab' : 'cursor-default'
+        }`}
         onWheel={handleWheel}
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMoveWithToolbar}
