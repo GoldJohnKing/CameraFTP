@@ -17,6 +17,7 @@ pub struct ExifInfo {
     #[serde(rename = "focalLength")]
     pub focal_length: Option<String>,       // 24mm 格式
     pub datetime: Option<String>,           // 2024-02-27 14:30:00 格式
+    pub orientation: Option<u8>,            // EXIF Orientation (1-8)
 }
 
 /// Format shutter speed from an exposure time ratio.
@@ -109,15 +110,20 @@ pub async fn get_image_exif(file_path: String) -> Result<Option<ExifInfo>, AppEr
             ndt.format("%Y-%m-%d %H:%M:%S").to_string()
         });
 
+    // 提取 EXIF Orientation (1-8)
+    let orientation = exif.get(ExifTag::Orientation)
+        .and_then(|v| v.as_u16())
+        .map(|v| v as u8);
+
     let duration = start.elapsed();
     tracing::debug!(
-        "EXIF parsed for {} in {:?}: ISO={:?}, Aperture={:?}, Shutter={:?}, Focal={:?}, DateTime={:?}",
-        file_path, duration, iso, aperture, shutter_speed, focal_length, datetime
+        "EXIF parsed for {} in {:?}: ISO={:?}, Aperture={:?}, Shutter={:?}, Focal={:?}, DateTime={:?}, Orientation={:?}",
+        file_path, duration, iso, aperture, shutter_speed, focal_length, datetime, orientation
     );
 
     // 如果没有有效数据，返回 None
     if iso.is_none() && aperture.is_none() && shutter_speed.is_none()
-        && focal_length.is_none() && datetime.is_none() {
+        && focal_length.is_none() && datetime.is_none() && orientation.is_none() {
         return Ok(None);
     }
 
@@ -127,6 +133,7 @@ pub async fn get_image_exif(file_path: String) -> Result<Option<ExifInfo>, AppEr
         shutter_speed,
         focal_length,
         datetime,
+        orientation,
     }))
 }
 

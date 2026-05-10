@@ -294,6 +294,7 @@ const PreviewWindowContent = memo(function PreviewWindowContent({
             style={{
               transform: `translate(${panX}px, ${panY}px) scale(${scale})`,
               transformOrigin: 'center center',
+              imageOrientation: 'from-image',
             }}
             draggable={false}
             onError={() => setImageError(true)}

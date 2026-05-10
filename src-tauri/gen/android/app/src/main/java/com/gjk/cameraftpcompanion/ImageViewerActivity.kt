@@ -786,10 +786,40 @@ class ImageViewerActivity : AppCompatActivity() {
                     exifParams.text = parts.joinToString(" • ")
                     exifParams.visibility = View.VISIBLE
                 }
+
+                // Apply orientation from backend EXIF for RAW files where
+                // Android's ExifInterface cannot read the orientation tag.
+                applyOrientationFromExif(exif)
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to parse EXIF result", e)
             }
         }
+    }
+
+    /**
+     * Apply EXIF orientation to the current SubsamplingScaleImageView.
+     * This fixes RAW files (NEF, ARW, etc.) where Android's ExifInterface
+     * fails to read the orientation, causing SubsamplingScaleImageView's
+     * ORIENTATION_USE_EXIF to return no rotation.
+     */
+    private fun applyOrientationFromExif(exif: org.json.JSONObject) {
+        val orientation = exif.optInt("orientation", 0)
+        if (orientation <= 1) return // 0 = not present, 1 = normal (no rotation needed)
+
+        // Map EXIF orientation (1-8) to clockwise rotation degrees
+        val degrees = when (orientation) {
+            3 -> 180
+            6 -> 90
+            8 -> 270
+            else -> return // 2,4,5,7 involve flips — not supported by SubsamplingScaleImageView
+        }
+
+        // ViewPager2's first child is a RecyclerView; find the ViewHolder for current page
+        val rv = viewPager.getChildAt(0) as? androidx.recyclerview.widget.RecyclerView ?: return
+        val holder = rv.findViewHolderForAdapterPosition(currentIndex) as? ImageViewerAdapter.ViewHolder ?: return
+
+        Log.d(TAG, "Applying backend orientation $orientation ($degrees°) to current image")
+        holder.imageView.setOrientation(degrees)
     }
 
     private fun triggerAiEditForCurrentImage() {
