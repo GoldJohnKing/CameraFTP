@@ -7,6 +7,7 @@
 import { useEffect, useState, useCallback, useMemo, memo } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
+import { Palette } from 'lucide-react';
 import { useConfigStore } from '../stores/configStore';
 import { PREVIEW_NAVIGATE_EVENT } from '../hooks/preview-window-events';
 import { usePreviewWindowLifecycle } from '../hooks/usePreviewWindowLifecycle';
@@ -483,12 +484,7 @@ const PreviewWindowContent = memo(function PreviewWindowContent({
               className="p-2 rounded-lg transition-colors text-gray-300 hover:text-white hover:bg-white/10"
               title="调色"
             >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.9 0 1.7-.4 2.3-1l.7-.7c.4-.4.4-1 0-1.4l-.1-.1c-.3-.3-.4-.7-.2-1.1.2-.4.6-.7 1-.7H18c2.2 0 4-1.8 4-4 0-4.4-3.6-8-8-10z"/>
-                <circle cx="7.5" cy="11.5" r="1.5"/>
-                <circle cx="10.5" cy="7.5" r="1.5"/>
-                <circle cx="15" cy="8" r="1.5"/>
-              </svg>
+              <Palette className="w-5 h-5" />
             </button>
           )}
 
