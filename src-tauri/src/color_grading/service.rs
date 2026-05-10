@@ -7,10 +7,11 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Emitter};
 
 use crate::config_service::ConfigService;
 use crate::error::AppError;
+use crate::utils::batch_state::BatchState;
 use super::progress::ColorGradingEvent;
 use super::presets::find_preset;
 
@@ -24,14 +25,14 @@ pub struct ColorGradingService {
     app_handle: AppHandle,
     sender: mpsc::Sender<ColorGradingTask>,
     queue_depth: Arc<AtomicU32>,
-    cancel_token: Arc<tokio::sync::Mutex<CancellationToken>>,
+    cancel_token: Arc<std::sync::Mutex<CancellationToken>>,
 }
 
 impl ColorGradingService {
     pub fn new(app_handle: AppHandle, config_service: Arc<ConfigService>) -> Self {
         let (sender, receiver) = mpsc::channel::<ColorGradingTask>(16);
         let queue_depth = Arc::new(AtomicU32::new(0));
-        let cancel_token = Arc::new(tokio::sync::Mutex::new(CancellationToken::new()));
+        let cancel_token = Arc::new(std::sync::Mutex::new(CancellationToken::new()));
 
         let app_handle_clone = app_handle.clone();
         let queue_depth_clone = queue_depth.clone();
@@ -49,14 +50,7 @@ impl ColorGradingService {
             .ok_or_else(|| AppError::ColorGradingError(format!("Unknown LUT preset: {}", lut_id)))?;
 
         for path in file_paths {
-            let depth = self.queue_depth.fetch_add(1, Ordering::Relaxed);
-            let _ = self.app_handle.emit("color-grading-progress",
-                &ColorGradingEvent::Progress {
-                    current: depth + 1,
-                    total: depth + 1,
-                    file_name: path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default(),
-                    failed_count: 0,
-                });
+            self.queue_depth.fetch_add(1, Ordering::Relaxed);
 
             self.sender.send(ColorGradingTask {
                 input_path: path,
@@ -67,14 +61,9 @@ impl ColorGradingService {
     }
 
     pub fn cancel(&self) {
-        let token = self.cancel_token.clone();
-        tauri::async_runtime::spawn(async move {
-            let guard = token.lock().await;
-            guard.cancel();
-            drop(guard);
-            let mut guard = token.lock().await;
-            *guard = CancellationToken::new();
-        });
+        let mut guard = self.cancel_token.lock().unwrap_or_else(|e| e.into_inner());
+        guard.cancel();
+        *guard = CancellationToken::new();
     }
 
     /// Auto-trigger: check config + RAW extension, then enqueue.
@@ -103,36 +92,63 @@ async fn worker_loop(
     mut receiver: mpsc::Receiver<ColorGradingTask>,
     app_handle: AppHandle,
     queue_depth: Arc<AtomicU32>,
-    cancel_token: Arc<tokio::sync::Mutex<CancellationToken>>,
+    cancel_token_arc: Arc<std::sync::Mutex<CancellationToken>>,
 ) {
-    let mut completed_count: u32 = 0;
-    let mut failed_count: u32 = 0;
-    let mut failed_files: Vec<String> = Vec::new();
-    let mut output_files: Vec<String> = Vec::new();
+    tracing::info!("Color grading worker started");
 
-    while let Some(task) = receiver.recv().await {
-        // Check cancellation
-        {
-            let token = cancel_token.lock().await;
-            if token.is_cancelled() {
-                let _ = app_handle.emit("color-grading-progress", &ColorGradingEvent::Done {
-                    total: completed_count + failed_count,
-                    failed_count,
-                    failed_files: failed_files.clone(),
-                    output_files: output_files.clone(),
-                    cancelled: true,
-                });
-                while receiver.try_recv().is_ok() {}
-                completed_count = 0;
-                failed_count = 0;
-                failed_files.clear();
-                output_files.clear();
-                continue;
+    let mut state = BatchState::default();
+
+    fn emit_done(
+        state: &mut BatchState,
+        app_handle: &AppHandle,
+        cancelled: bool,
+    ) {
+        let _ = app_handle.emit("color-grading-progress", &ColorGradingEvent::Done {
+            total: state.processed_count(),
+            failed_count: state.failed_count,
+            failed_files: std::mem::take(&mut state.failed_files),
+            output_files: std::mem::take(&mut state.output_files),
+            cancelled,
+        });
+        state.reset();
+    }
+
+    fn drain_pending_tasks(
+        receiver: &mut mpsc::Receiver<ColorGradingTask>,
+        queue_depth: &AtomicU32,
+    ) {
+        while let Ok(_) = receiver.try_recv() {
+            queue_depth.fetch_sub(1, Ordering::Relaxed);
+        }
+    }
+
+    loop {
+        let cancel_token = cancel_token_arc.lock().unwrap_or_else(|e| e.into_inner()).clone();
+
+        if cancel_token.is_cancelled() {
+            drain_pending_tasks(&mut receiver, &queue_depth);
+            if state.processed_count() > 0 {
+                emit_done(&mut state, &app_handle, true);
             }
+            continue;
         }
 
-        let total = completed_count + failed_count + queue_depth.load(Ordering::Relaxed) as u32;
-        let current = completed_count + failed_count + 1;
+        let task = match receiver.recv().await {
+            Some(t) => t,
+            None => {
+                drain_pending_tasks(&mut receiver, &queue_depth);
+                if state.processed_count() > 0 {
+                    emit_done(&mut state, &app_handle, true);
+                }
+                break;
+            }
+        };
+
+        queue_depth.fetch_sub(1, Ordering::Relaxed);
+
+        let remaining = queue_depth.load(Ordering::Relaxed);
+        let current = state.processed_count() + 1;
+        let total = current + remaining;
         let file_name = task.input_path
             .file_name()
             .map(|n| n.to_string_lossy().to_string())
@@ -142,58 +158,59 @@ async fn worker_loop(
             current,
             total,
             file_name: file_name.clone(),
-            failed_count,
+            failed_count: state.failed_count,
         });
 
-        match process_single_file(&task).await {
-            Ok(output_path) => {
-                if let Some(file_index) = app_handle.try_state::<Arc<crate::file_index::FileIndexService>>() {
-                    let path = PathBuf::from(&output_path);
-                    if let Err(e) = file_index.add_file(path).await {
-                        tracing::debug!(path = %output_path, error = %e, "Failed to index color-graded file");
-                    }
-                }
-
-                completed_count += 1;
-                let _ = app_handle.emit("color-grading-progress", &ColorGradingEvent::Completed {
-                    current,
-                    total,
-                    file_name: file_name.clone(),
-                    failed_count,
-                    output_path: output_path.clone(),
-                });
-                output_files.push(output_path);
+        let result = tokio::select! {
+            r = process_single_file(&task) => Some(r),
+            _ = cancel_token.cancelled() => {
+                tracing::info!("Color grading cancelled during task processing");
+                None
             }
-            Err(e) => {
-                failed_count += 1;
-                tracing::error!("Color grading failed for {}: {}", file_name, e);
+        };
+
+        match result {
+            Some(Ok(output_path)) => {
+                tracing::info!(input = %task.input_path.display(), output = %output_path, "Color grading completed");
+                state.completed_count += 1;
+                state.output_files.push(output_path.clone());
+
+                let remaining = queue_depth.load(Ordering::Relaxed);
+                let _ = app_handle.emit("color-grading-progress", &ColorGradingEvent::Completed {
+                    current: state.processed_count(),
+                    total: state.processed_count() + remaining,
+                    file_name: file_name.clone(),
+                    failed_count: state.failed_count,
+                    output_path,
+                });
+            }
+            Some(Err(ref e)) => {
+                tracing::error!(input = %task.input_path.display(), error = %e, "Color grading failed");
+                state.failed_count += 1;
+                state.failed_files.push(file_name.clone());
+
+                let remaining = queue_depth.load(Ordering::Relaxed);
                 let _ = app_handle.emit("color-grading-progress", &ColorGradingEvent::Failed {
-                    current,
-                    total,
+                    current: state.processed_count(),
+                    total: state.processed_count() + remaining,
                     file_name: file_name.clone(),
                     error: e.to_string(),
-                    failed_count,
+                    failed_count: state.failed_count,
                 });
-                failed_files.push(file_name);
+            }
+            None => {
+                drain_pending_tasks(&mut receiver, &queue_depth);
+                emit_done(&mut state, &app_handle, true);
+                continue;
             }
         }
 
-        queue_depth.fetch_sub(1, Ordering::Relaxed);
-
-        if queue_depth.load(Ordering::Relaxed) == 0 {
-            let _ = app_handle.emit("color-grading-progress", &ColorGradingEvent::Done {
-                total: completed_count + failed_count,
-                failed_count,
-                failed_files: failed_files.clone(),
-                output_files: output_files.clone(),
-                cancelled: false,
-            });
-            completed_count = 0;
-            failed_count = 0;
-            failed_files.clear();
-            output_files.clear();
+        if queue_depth.load(Ordering::Relaxed) == 0 && state.processed_count() > 0 {
+            emit_done(&mut state, &app_handle, false);
         }
     }
+
+    tracing::info!("Color grading worker stopped");
 }
 
 async fn process_single_file(task: &ColorGradingTask) -> Result<String, AppError> {
