@@ -1,6 +1,7 @@
 fn main() {
     compress_lut_files();
     compress_lensfun_db();
+    compress_raw_alchemy_dll();
 
     let mut attributes = tauri_build::Attributes::new();
 
@@ -158,4 +159,79 @@ fn write_empty_manifest(out_dir: &std::path::Path) {
          pub static LENSFUN_DB_FILES: &[(&str, &[u8])] = &[];\n";
     let manifest_path = out_dir.join("lensfun_db_manifest.rs");
     std::fs::write(&manifest_path, content).expect("Failed to write empty manifest");
+}
+
+/// Gzip-compress raw_alchemy_core.dll into OUT_DIR for embedding via include_bytes!.
+/// The DLL is built by CMake before cargo builds, so it should already exist on disk.
+fn compress_raw_alchemy_dll() {
+    use flate2::write::GzEncoder;
+    use flate2::Compression;
+    use std::fs;
+    use std::io::{Read, Write};
+
+    if !is_windows_msvc_target() {
+        return;
+    }
+
+    let rawalchemy_dir = std::path::Path::new("lib/rawalchemy");
+    if !rawalchemy_dir.exists() {
+        println!("cargo:warning=RawAlchemyCpp not found, skipping DLL embedding");
+        write_empty_dll_placeholder();
+        return;
+    }
+
+    let build_type = if std::env::var("PROFILE").as_deref() == Ok("debug") {
+        "Debug"
+    } else {
+        "Release"
+    };
+
+    let dll_path = rawalchemy_dir
+        .join("build-windows-dll")
+        .join("bin")
+        .join(build_type)
+        .join("raw_alchemy_core.dll");
+
+    if !dll_path.exists() {
+        println!(
+            "cargo:warning=raw_alchemy_core.dll not found at {}, skipping DLL embedding",
+            dll_path.display()
+        );
+        write_empty_dll_placeholder();
+        return;
+    }
+
+    println!("cargo:rerun-if-changed={}", dll_path.display());
+
+    let mut input = fs::File::open(&dll_path).expect("Failed to open raw_alchemy_core.dll");
+    let mut data = Vec::new();
+    input.read_to_end(&mut data).expect("Failed to read raw_alchemy_core.dll");
+
+    let out_dir = std::path::PathBuf::from(std::env::var("OUT_DIR").expect("OUT_DIR not set"));
+    let output_path = out_dir.join("raw_alchemy_core.dll.gz");
+    let output = fs::File::create(&output_path).expect("Failed to create compressed DLL file");
+    let mut encoder = GzEncoder::new(output, Compression::best());
+    encoder.write_all(&data).expect("Failed to compress DLL");
+    encoder.finish().expect("Failed to finish DLL compression");
+
+    let compressed_size = fs::metadata(&output_path).map(|m| m.len()).unwrap_or(0);
+    println!(
+        "cargo:warning=Embedded raw_alchemy_core.dll: {} KB → {} KB (gzip)",
+        data.len() / 1024,
+        compressed_size / 1024
+    );
+}
+
+fn write_empty_dll_placeholder() {
+    let out_dir = std::path::PathBuf::from(std::env::var("OUT_DIR").expect("OUT_DIR not set"));
+    let placeholder = out_dir.join("raw_alchemy_core.dll.gz");
+    // Write a minimal gzip file (empty payload) so include_bytes! still compiles
+    use std::io::Write;
+    let mut f = std::fs::File::create(&placeholder).expect("Failed to create DLL placeholder");
+    // Minimal gzip: 10-byte header + 8-byte footer for empty content
+    let empty_gz: &[u8] = &[
+        0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03, 0x03, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00,
+    ];
+    f.write_all(empty_gz).expect("Failed to write DLL placeholder");
 }

@@ -72,10 +72,11 @@ use commands::{
 fn setup_logging() {
     use tracing_subscriber::EnvFilter;
 
-    // Debug: log to file (creates logs directory)
+    // Debug: log to file
     #[cfg(debug_assertions)]
     {
         use std::fs;
+        #[cfg(target_os = "android")]
         use std::path::PathBuf;
         use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
@@ -83,9 +84,7 @@ fn setup_logging() {
         let log_dir = PathBuf::from(platform::android::DEFAULT_STORAGE_PATH).join("logs");
 
         #[cfg(target_os = "windows")]
-        let log_dir = dirs::data_dir()
-            .unwrap_or_else(|| PathBuf::from("."))
-            .join("cameraftp/logs");
+        let log_dir = config::app_config_dir().join("logs");
 
         let log_file = log_dir.join("app.log");
         let log_file_for_writer = log_file.clone();
@@ -135,7 +134,8 @@ fn setup_logging() {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    // Initialize logging to file
+    // Release: init stderr logging immediately (no path dependency)
+    #[cfg(not(debug_assertions))]
     setup_logging();
 
     // 获取平台实例
@@ -155,11 +155,12 @@ pub fn run() {
                 eprintln!("Platform setup failed: {}", e);
             }
 
-            // 初始化 Android 路径（如果是 Android 平台）
-            #[cfg(target_os = "android")]
-            {
-                config::init_android_paths(app.handle());
-            }
+            // 初始化应用数据目录（所有平台）
+            config::init_app_paths(app.handle());
+
+            // Debug: init file logging after paths are set
+            #[cfg(debug_assertions)]
+            setup_logging();
 
             let config_service = Arc::new(ConfigService::new()?);
             app.manage(Arc::clone(&config_service));
@@ -337,12 +338,18 @@ fn resolve_raw_alchemy_lib_path() -> std::path::PathBuf {
     }
     #[cfg(target_os = "windows")]
     {
-        // DLL is placed alongside the exe by the build script.
-        let exe_dir = std::env::current_exe()
-            .ok()
-            .and_then(|p| p.parent().map(|d| d.to_path_buf()))
-            .unwrap_or_else(|| std::path::PathBuf::from("."));
-        exe_dir.join("raw_alchemy_core.dll")
+        // DLL is embedded in the exe via include_bytes! and extracted to temp at startup.
+        match color_grading::ffi::embedded_dll::extract_to_temp() {
+            Ok(path) => path,
+            Err(e) => {
+                tracing::error!("Failed to extract embedded DLL: {}. Falling back to exe dir.", e);
+                let exe_dir = std::env::current_exe()
+                    .ok()
+                    .and_then(|p| p.parent().map(|d| d.to_path_buf()))
+                    .unwrap_or_else(|| std::path::PathBuf::from("."));
+                exe_dir.join("raw_alchemy_core.dll")
+            }
+        }
     }
 }
 

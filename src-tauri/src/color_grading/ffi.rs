@@ -10,6 +10,84 @@ use libloading::Library;
 
 use crate::error::AppError;
 
+#[cfg(target_os = "windows")]
+pub mod embedded_dll {
+    use super::*;
+
+    const RAW_ALCHEMY_DLL_GZ: &[u8] =
+        include_bytes!(concat!(env!("OUT_DIR"), "/raw_alchemy_core.dll.gz"));
+
+    /// Extract the embedded gzip-compressed DLL to a temp directory.
+    /// Uses a content hash in the filename so new versions replace old ones automatically.
+    pub fn extract_to_temp() -> Result<std::path::PathBuf, AppError> {
+        use std::hash::{Hash, Hasher};
+        use std::io::Read;
+
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        RAW_ALCHEMY_DLL_GZ.hash(&mut hasher);
+        let content_hash = format!("{:016x}", hasher.finish());
+
+        let temp_dir = std::env::temp_dir().join("CameraFTP");
+        std::fs::create_dir_all(&temp_dir).map_err(|e| {
+            AppError::ColorGradingError(format!("Failed to create temp dir {}: {}", temp_dir.display(), e))
+        })?;
+
+        let dll_name = format!("raw_alchemy_core_{}.dll", content_hash);
+        let dll_path = temp_dir.join(&dll_name);
+
+        if dll_path.exists() {
+            tracing::debug!("Embedded DLL already extracted: {}", dll_path.display());
+            cleanup_old_dlls(&temp_dir, &dll_name);
+            return Ok(dll_path);
+        }
+
+        tracing::info!("Extracting embedded DLL to {}", dll_path.display());
+
+        let mut decoder = flate2::read::GzDecoder::new(RAW_ALCHEMY_DLL_GZ);
+        let mut dll_bytes = Vec::new();
+        decoder.read_to_end(&mut dll_bytes).map_err(|e| {
+            AppError::ColorGradingError(format!("Failed to decompress embedded DLL: {}", e))
+        })?;
+
+        if dll_bytes.is_empty() {
+            return Err(AppError::ColorGradingError(
+                "Embedded DLL is empty — RawAlchemyCpp was not built".into(),
+            ));
+        }
+
+        // Write atomically: write to temp file then rename
+        let tmp_path = dll_path.with_extension("tmp");
+        std::fs::write(&tmp_path, &dll_bytes).map_err(|e| {
+            AppError::ColorGradingError(format!("Failed to write DLL to {}: {}", tmp_path.display(), e))
+        })?;
+        std::fs::rename(&tmp_path, &dll_path).map_err(|e| {
+            AppError::ColorGradingError(format!("Failed to rename DLL: {}", e))
+        })?;
+
+        cleanup_old_dlls(&temp_dir, &dll_name);
+
+        Ok(dll_path)
+    }
+
+    /// Remove old versions of the extracted DLL from the temp directory.
+    fn cleanup_old_dlls(temp_dir: &Path, current_name: &str) {
+        if let Ok(entries) = std::fs::read_dir(temp_dir) {
+            for entry in entries.flatten() {
+                let name = entry.file_name();
+                let name_str = name.to_string_lossy();
+                if name_str.starts_with("raw_alchemy_core_")
+                    && name_str.ends_with(".dll")
+                    && name_str != current_name
+                {
+                    if let Err(e) = std::fs::remove_file(entry.path()) {
+                        tracing::debug!("Failed to remove old DLL {}: {}", name_str, e);
+                    }
+                }
+            }
+        }
+    }
+}
+
 #[repr(i32)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RaResult {

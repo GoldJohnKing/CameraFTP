@@ -82,21 +82,6 @@ build_windows() {
     terminate_running_process "$DEST_NAME"
 
     move_to_out "$SRC_PATH" "$DEST_NAME" "Windows $BUILD_TYPE"
-
-    # Copy RawAlchemyCpp DLL alongside the exe
-    local rawalchemy_dir="${RAWALCHEMY_DIR:-src-tauri/lib/rawalchemy}"
-    if [ -d "$rawalchemy_dir" ]; then
-        local dll_src
-        if [ "$BUILD_TYPE" = "debug" ]; then
-            dll_src="$rawalchemy_dir/build-windows-dll/bin/Debug/raw_alchemy_core.dll"
-        else
-            dll_src="$rawalchemy_dir/build-windows-dll/bin/Release/raw_alchemy_core.dll"
-        fi
-        if [ -f "$dll_src" ]; then
-            cp "$dll_src" "$OUTPUT_DIR/raw_alchemy_core.dll"
-            info "Copied RawAlchemyCpp DLL to $OUTPUT_DIR/"
-        fi
-    fi
 }
 
 # 显示帮助信息
@@ -117,8 +102,8 @@ show_help() {
     local VERSION
     VERSION=$(get_version)
     echo "输出位置:"
-    echo "  Release: out/CameraFTP_v${VERSION}.exe"
-    echo "  Debug:   out/CameraFTP_v${VERSION}-debug.exe"
+    echo "  Release: out/CameraFTP_v${VERSION}.exe (单文件，DLL 已内嵌)"
+    echo "  Debug:   out/CameraFTP_v${VERSION}-debug.exe (单文件，DLL 已内嵌)"
     echo ""
     echo "注意: 推荐使用 ./build.sh windows 进行构建，会自动生成类型绑定"
 }
