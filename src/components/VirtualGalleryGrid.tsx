@@ -199,6 +199,7 @@ export function VirtualGalleryGrid({
                     src={thumbnail}
                     alt={item.mediaId}
                     className="w-full h-full object-cover pointer-events-none"
+                    style={{ imageOrientation: 'from-image' }}
                     loading="lazy"
                     draggable={false}
                   />
