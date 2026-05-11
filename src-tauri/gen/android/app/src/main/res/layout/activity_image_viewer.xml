@@ -9,7 +9,7 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
 
-    <!-- Task progress panel — bottom-left floating -->
+    <!-- Task progress panel — bottom-left floating, shrink-to-fit like WebView version -->
     <LinearLayout
         android:id="@+id/task_progress_panel"
         android:layout_width="wrap_content"
@@ -20,13 +20,16 @@
         android:orientation="vertical"
         android:background="@drawable/task_panel_bg"
         android:visibility="gone"
-        android:minWidth="180dp">
+        android:minWidth="180dp"
+        android:showDividers="middle"
+        android:divider="@drawable/task_panel_divider">
 
         <!-- Header -->
         <TextView
             android:id="@+id/task_panel_header"
-            android:layout_width="match_parent"
+            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
+            android:layout_gravity="center_horizontal"
             android:gravity="center"
             android:paddingHorizontal="12dp"
             android:paddingVertical="4dp"
@@ -34,15 +37,10 @@
             android:textSize="11sp"
             android:text="后台任务" />
 
-        <View
-            android:layout_width="match_parent"
-            android:layout_height="0.5dp"
-            android:background="#1AFFFFFF" />
-
         <!-- AI Edit task row -->
         <LinearLayout
             android:id="@+id/task_row_ai_edit"
-            android:layout_width="match_parent"
+            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
             android:gravity="center_vertical"
@@ -89,7 +87,7 @@
         <!-- Color Grading task row -->
         <LinearLayout
             android:id="@+id/task_row_color_grading"
-            android:layout_width="match_parent"
+            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
             android:gravity="center_vertical"
@@ -133,16 +131,12 @@
                 android:layout_marginStart="8dp" />
         </LinearLayout>
 
-        <View
-            android:layout_width="match_parent"
-            android:layout_height="0.5dp"
-            android:background="#1AFFFFFF" />
-
         <!-- Footer -->
         <TextView
             android:id="@+id/task_panel_footer"
-            android:layout_width="match_parent"
+            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
+            android:layout_gravity="center_horizontal"
             android:gravity="center"
             android:paddingHorizontal="12dp"
             android:paddingVertical="4dp"
