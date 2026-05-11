@@ -9,6 +9,11 @@ use ts_rs::TS;
 #[ts(export)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum ColorGradingEvent {
+    Queued {
+        #[serde(rename = "queueDepth")]
+        #[ts(rename = "queueDepth")]
+        queue_depth: u32,
+    },
     Progress {
         current: u32,
         total: u32,
@@ -66,6 +71,7 @@ mod tests {
     #[test]
     fn all_variants_roundtrip_through_json() {
         let events: Vec<ColorGradingEvent> = vec![
+            ColorGradingEvent::Queued { queue_depth: 2 },
             ColorGradingEvent::Progress {
                 current: 1, total: 2, file_name: "a.nef".into(), failed_count: 0,
             },

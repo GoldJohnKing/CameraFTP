@@ -26,6 +26,7 @@ struct ColorGradingTask {
 
 pub struct ColorGradingService {
     config_service: Arc<ConfigService>,
+    app_handle: AppHandle,
     sender: mpsc::Sender<ColorGradingTask>,
     queue_depth: Arc<AtomicU32>,
     cancel_token: Arc<std::sync::Mutex<CancellationToken>>,
@@ -45,7 +46,7 @@ impl ColorGradingService {
             worker_loop(receiver, app_handle_clone, queue_depth_clone, cancel_token_clone).await;
         });
 
-        Self { config_service, sender, queue_depth, cancel_token }
+        Self { config_service, app_handle, sender, queue_depth, cancel_token }
     }
 
     pub async fn enqueue(&self, file_paths: Vec<PathBuf>, lut_id: String, use_auto_exposure: bool, metering_mode: String, manual_ev: f32) -> Result<(), AppError> {
@@ -63,6 +64,10 @@ impl ColorGradingService {
                 manual_ev,
             }).await.map_err(|e| AppError::ColorGradingError(format!("Queue send failed: {}", e)))?;
         }
+
+        let depth = self.queue_depth.load(Ordering::Relaxed);
+        let _ = self.app_handle.emit("color-grading-progress", &ColorGradingEvent::Queued { queue_depth: depth });
+
         Ok(())
     }
 
@@ -175,7 +180,7 @@ async fn worker_loop(
         let result = tokio::select! {
             r = process_single_file(&task) => Some(r),
             _ = cancel_token.cancelled() => {
-                tracing::info!("Color grading cancelled during task processing");
+                tracing::info!("Color grading cancelled before/during task processing");
                 None
             }
         };
@@ -239,6 +244,7 @@ async fn process_single_file(task: &ColorGradingTask) -> Result<String, AppError
         .map_err(|e| AppError::ColorGradingError(format!("Failed to create output dir: {}", e)))?;
     let output_name = format!("{}_{}_{}.jpg", stem, preset.id, timestamp);
     let output_path = output_dir.join(output_name);
+    let result_path = output_path.to_string_lossy().into_owned();
 
     let lut_data = super::lut_data::get_lut_data(&preset.id)?;
     let lib = super::ffi::RawAlchemyLib::get()?;
@@ -247,18 +253,26 @@ async fn process_single_file(task: &ColorGradingTask) -> Result<String, AppError
         .ok()
         .map(|r| r.lensfun_db_dir.to_string_lossy().into_owned());
 
-    lib.process_file_with_lut(
-        &task.input_path,
-        &output_path,
-        Some(&preset.log_space),
-        &lut_data,
-        lensfun_path.as_deref(),
-        task.use_auto_exposure,
-        &task.metering_mode,
-        task.manual_ev,
-    )?;
+    let input_path = task.input_path.clone();
+    let log_space = preset.log_space.clone();
+    let metering_mode = task.metering_mode.clone();
+    let use_auto_exposure = task.use_auto_exposure;
+    let manual_ev = task.manual_ev;
 
-    Ok(output_path.to_string_lossy().into_owned())
+    tokio::task::spawn_blocking(move || {
+        lib.process_file_with_lut(
+            &input_path,
+            &output_path,
+            Some(&log_space),
+            &lut_data,
+            lensfun_path.as_deref(),
+            use_auto_exposure,
+            &metering_mode,
+            manual_ev,
+        )
+    }).await.map_err(|e| AppError::ColorGradingError(format!("Blocking task failed: {}", e)))??;
+
+    Ok(result_path)
 }
 
 

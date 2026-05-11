@@ -36,6 +36,18 @@ const colorGrading = createTaskProgressHook<ColorGradingEvent>({
         return { type: 'failed', total: event.total, failedCount: event.failedCount };
       case 'done':
         return { type: 'done', total: event.total, failedCount: event.failedCount, failedFiles: event.failedFiles, outputFiles: event.outputFiles, cancelled: event.cancelled };
+      case 'queued':
+        return null;
+    }
+  },
+  onRawEvent: (event, store) => {
+    if (event.type === 'queued') {
+      const state = store.getState();
+      if (state.isActive) {
+        const newTotal = state.current + event.queueDepth;
+        store.setState({ total: newTotal });
+        syncToNativeLayer({ total: newTotal, failedCount: state.failedCount });
+      }
     }
   },
   onAfterUpdate: (mapped) => {
