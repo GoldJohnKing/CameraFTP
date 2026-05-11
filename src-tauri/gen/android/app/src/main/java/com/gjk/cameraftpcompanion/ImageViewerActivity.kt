@@ -52,6 +52,10 @@ class ImageViewerActivity : AppCompatActivity() {
 
     companion object {
         private const val TAG = "ImageViewerActivity"
+        private val RAW_EXTENSIONS = setOf(
+            "nef", "nrw", "cr2", "cr3", "arw", "sr2",
+            "raf", "orf", "rw2", "pef", "dng", "x3f", "raw", "srw"
+        )
         const val EXTRA_URIS = "uris"
         const val EXTRA_TARGET_INDEX = "target_index"
         /** Active instance, set by onResume/cleared by onDestroy for bridge access */
@@ -166,6 +170,7 @@ class ImageViewerActivity : AppCompatActivity() {
     private lateinit var aiEditCancelBtn: TextView
     private var aiEditHighlightAnimation: TranslateAnimation? = null
     private var uris: MutableList<String> = mutableListOf()
+    private var currentDisplayName: String? = null
     private var currentIndex: Int = 0
     private var isLandscape = false
     private var isBottomBarVisible = true
@@ -329,10 +334,9 @@ class ImageViewerActivity : AppCompatActivity() {
         }
     }
 
-    private fun isRawImage(uriString: String): Boolean {
-        val uri = Uri.parse(uriString)
-        val mimeType = contentResolver.getType(uri)
-        return mimeType?.startsWith("image/x-") == true
+    private fun isRawFileByExtension(displayName: String?): Boolean {
+        val ext = displayName?.substringAfterLast('.', "")?.lowercase() ?: return false
+        return ext in RAW_EXTENSIONS
     }
 
     private fun showImageMenu() {
@@ -344,7 +348,7 @@ class ImageViewerActivity : AppCompatActivity() {
         val cgIcon = popupView.findViewById<android.widget.ImageView>(R.id.menu_item_color_grading_icon)
         val cgText = popupView.findViewById<TextView>(R.id.menu_item_color_grading_text)
 
-        val isRaw = uris.isNotEmpty() && currentIndex in uris.indices && isRawImage(uris[currentIndex])
+        val isRaw = uris.isNotEmpty() && currentIndex in uris.indices && isRawFileByExtension(currentDisplayName)
 
         if (!isRaw) {
             menuItemColorGrading.isEnabled = false
@@ -664,6 +668,7 @@ class ImageViewerActivity : AppCompatActivity() {
     }
 
     private fun updateFilenameAndExif() {
+        currentDisplayName = null
         if (uris.isEmpty() || currentIndex < 0 || currentIndex >= uris.size) {
             filenameView.text = ""
             exifParams.visibility = View.GONE
@@ -686,6 +691,7 @@ class ImageViewerActivity : AppCompatActivity() {
             cursor?.use {
                 if (it.moveToFirst()) {
                     val displayName = it.getString(it.getColumnIndexOrThrow(MediaStore.Images.Media.DISPLAY_NAME))
+                    currentDisplayName = displayName
                     val dateTaken = it.getLong(it.getColumnIndexOrThrow(MediaStore.Images.Media.DATE_TAKEN))
 
                     // Filename
