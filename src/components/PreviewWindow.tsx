@@ -22,6 +22,7 @@ import { ColorGradingDialog } from './ColorGradingDialog';
 import { ColorGradingProgressBar } from './ColorGradingProgressBar';
 import { useColorGradingProgressListener, enqueueColorGrading } from '../hooks/useColorGradingProgress';
 import type { ColorGradingPreset } from '../types';
+import { isRawFile as isRawFileType } from '../utils/raw';
 
 export function PreviewWindow() {
   const state = usePreviewWindowLifecycle();
@@ -54,11 +55,7 @@ const PreviewWindowContent = memo(function PreviewWindowContent({
   const [colorGradingPresets, setColorGradingPresets] = useState<ColorGradingPreset[]>([]);
 
   // Detect if current file is RAW
-  const isRawFile = useMemo(() => {
-    if (!imagePath) return false;
-    const ext = imagePath.split('.').pop()?.toLowerCase() || '';
-    return ['nef', 'nrw', 'cr2', 'cr3', 'arw', 'sr2', 'raf', 'orf', 'rw2', 'pef', 'dng', 'x3f', 'raw', 'srw'].includes(ext);
-  }, [imagePath]);
+  const isRawFile = useMemo(() => imagePath ? isRawFileType(imagePath) : false, [imagePath]);
 
   const draft = useConfigStore(state => state.draft);
   const updateDraft = useConfigStore(state => state.updateDraft);

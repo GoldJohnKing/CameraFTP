@@ -26,6 +26,7 @@ import { ColorGradingDialog } from './ColorGradingDialog';
 import { ColorGradingProgressBar } from './ColorGradingProgressBar';
 import { enqueueColorGrading } from '../hooks/useColorGradingProgress';
 import type { ColorGradingPreset } from '../types';
+import { isRawFile } from '../utils/raw';
 
 export const GalleryCard = memo(function GalleryCard() {
   const { activeTab } = useConfigStore();
@@ -168,7 +169,7 @@ export const GalleryCard = memo(function GalleryCard() {
 
   const hasRawSelected = Array.from(selectedIds).some(id => {
     const item = pager.items.find(i => i.mediaId === id);
-    return item?.mimeType?.startsWith('image/x-') ?? false;
+    return item?.displayName ? isRawFile(item.displayName) : false;
   });
 
   // Full refresh on permission granted (necessary because gallery was empty before)
