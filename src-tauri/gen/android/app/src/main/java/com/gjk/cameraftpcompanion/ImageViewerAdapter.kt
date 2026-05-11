@@ -17,7 +17,8 @@ import kotlin.math.abs
 
 class ImageViewerAdapter(
     uris: List<String>,
-    private val onTap: (() -> Unit)? = null
+    private val onTap: (() -> Unit)? = null,
+    private val onExifNeeded: ((position: Int, uri: String) -> Unit)? = null,
 ) : RecyclerView.Adapter<ImageViewerAdapter.ViewHolder>() {
 
     private val uris: MutableList<String> = uris.toMutableList()
@@ -25,7 +26,26 @@ class ImageViewerAdapter(
     /** Current visible position, updated by ViewPager2 callback */
     var currentPosition: Int = 0
 
-    class ViewHolder(val imageView: SubsamplingScaleImageView) : RecyclerView.ViewHolder(imageView)
+    /**
+     * Position of the initially-opened page. This page loads immediately
+     * without waiting for orientation cache, since the TypeScript
+     * sendExifToViewer pipeline handles orientation correction asynchronously.
+     * Cleared after the first onPageSelected callback.
+     */
+    var immediateLoadPosition: Int = -1
+
+    /**
+     * Position → degrees mapping for RAW file orientation overrides.
+     * Keys are present only for RAW files where backend EXIF has been resolved.
+     * Values are 0, 90, 180, or 270 (matching SubsamplingScaleImageView constants).
+     * Set by ImageViewerActivity.
+     */
+    var orientationCache: MutableMap<Int, Int> = mutableMapOf()
+
+    class ViewHolder(val imageView: SubsamplingScaleImageView) : RecyclerView.ViewHolder(imageView) {
+        /** Track which adapter position this holder is currently bound to */
+        var bindPosition: Int = RecyclerView.NO_POSITION
+    }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
         val imageView = SubsamplingScaleImageView(parent.context).apply {
@@ -54,8 +74,36 @@ class ImageViewerAdapter(
     }
 
     override fun onBindViewHolder(holder: ViewHolder, position: Int) {
-        val uri = Uri.parse(uris[position])
-        holder.imageView.setImage(ImageSource.uri(uri))
+        holder.bindPosition = position
+        val uri = uris[position]
+
+        // Always reset orientation to prevent ViewHolder reuse pollution
+        holder.imageView.setOrientation(SubsamplingScaleImageView.ORIENTATION_USE_EXIF)
+
+        val cachedDegrees = orientationCache[position]
+
+        when {
+            // Initial page: load immediately. Orientation corrected by sendExifToViewer pipeline.
+            position == immediateLoadPosition -> {
+                holder.imageView.setImage(ImageSource.uri(Uri.parse(uri)))
+            }
+            // Cache hit: apply pre-fetched orientation, then load image.
+            // The image decodes asynchronously but orientation is already set, so
+            // the first rendered frame uses the correct rotation — zero flicker.
+            cachedDegrees != null -> {
+                if (cachedDegrees != SubsamplingScaleImageView.ORIENTATION_USE_EXIF) {
+                    holder.imageView.setOrientation(cachedDegrees)
+                }
+                holder.imageView.setImage(ImageSource.uri(Uri.parse(uri)))
+            }
+            // Cache miss: delay setImage until EXIF arrives.
+            // We can't detect RAW files from content:// URIs (no file extension),
+            // so we prefetch EXIF for ALL cache-miss positions. JPEG EXIF arrives
+            // in ~7ms (imperceptible), RAW in ~50ms (page is offscreen anyway).
+            else -> {
+                onExifNeeded?.invoke(position, uri)
+            }
+        }
     }
 
     override fun onViewRecycled(holder: ViewHolder) {

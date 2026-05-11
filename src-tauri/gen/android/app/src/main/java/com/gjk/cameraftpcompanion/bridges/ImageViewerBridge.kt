@@ -169,4 +169,32 @@ class ImageViewerBridge(activity: android.app.Activity) : BaseJsBridge(activity)
         clearColorGradingProgress()
         ImageViewerActivity.instance?.dismissAllTaskProgress()
     }
+
+    /**
+     * Request EXIF data for multiple image positions.
+     * Called from JS to prefetch EXIF for offscreen pages.
+     */
+    @android.webkit.JavascriptInterface
+    fun requestExifForPositions(requestJson: String?) {
+        if (requestJson == null) return
+        try {
+            val items = org.json.JSONArray(requestJson)
+            val jsItems = mutableListOf<String>()
+            for (i in 0 until items.length()) {
+                jsItems.add(items.getJSONObject(i).toString())
+            }
+            val viewer = ImageViewerActivity.instance ?: return
+            viewer.requestExifPrefetch(jsItems)
+        } catch (e: Exception) {
+            Log.e(TAG, "requestExifForPositions error", e)
+        }
+    }
+
+    /**
+     * Callback from JS with EXIF data for a specific adapter position.
+     */
+    @android.webkit.JavascriptInterface
+    fun onExifResultForPosition(position: Int, exifJson: String?) {
+        ImageViewerActivity.instance?.onExifResultForPosition(position, exifJson)
+    }
 }

@@ -46,6 +46,30 @@ async function sendExifToViewer(path: string): Promise<void> {
   }
 }
 
+export async function requestExifForPositions(
+  items: Array<{ position: number; uri: string }>
+): Promise<void> {
+  if (!window.ImageViewerAndroid?.onExifResultForPosition) {
+    return;
+  }
+
+  for (const { position, uri } of items) {
+    try {
+      const realPath =
+        window.ImageViewerAndroid.resolveFilePath?.(uri) ?? uri;
+      const exif = await invoke<ExifInfo | null>('get_image_exif', {
+        filePath: realPath,
+      });
+      window.ImageViewerAndroid.onExifResultForPosition(
+        position,
+        exif ? JSON.stringify(exif) : null
+      );
+    } catch {
+      window.ImageViewerAndroid.onExifResultForPosition(position, null);
+    }
+  }
+}
+
 function isChooserOpenSuccess(result: unknown): boolean {
   if (typeof result !== 'string' || result.length === 0) {
     return false;
@@ -95,4 +119,22 @@ export async function openImagePreview({
   }
 
   await invoke('open_preview_window', { filePath });
+}
+
+// Register global handler for EXIF prefetch requests from native viewer.
+// Called via evaluateJavascript from ImageViewerActivity.
+if (typeof window !== 'undefined') {
+  (window as unknown as Record<string, unknown>).__requestExifForPositions = (
+    requestJson: string
+  ) => {
+    try {
+      const items = JSON.parse(requestJson) as Array<{
+        position: number;
+        uri: string;
+      }>;
+      void requestExifForPositions(items);
+    } catch {
+      // Ignore malformed requests
+    }
+  };
 }

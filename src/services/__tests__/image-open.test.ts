@@ -28,6 +28,8 @@ describe('image-open service', () => {
       openOrNavigateTo,
       isAppVisible: vi.fn().mockReturnValue(true),
       onExifResult,
+      onExifResultForPosition: vi.fn(),
+      requestExifForPositions: vi.fn(),
       resolveFilePath: vi.fn().mockReturnValue('/real/path.jpg'),
     };
 
@@ -51,6 +53,8 @@ describe('image-open service', () => {
       openOrNavigateTo,
       isAppVisible: vi.fn().mockReturnValue(true),
       onExifResult: vi.fn(),
+      onExifResultForPosition: vi.fn(),
+      requestExifForPositions: vi.fn(),
       resolveFilePath: vi.fn().mockReturnValue('content://media/3'),
     };
 
@@ -70,6 +74,8 @@ describe('image-open service', () => {
       openOrNavigateTo,
       isAppVisible: vi.fn().mockReturnValue(true),
       onExifResult: vi.fn(),
+      onExifResultForPosition: vi.fn(),
+      requestExifForPositions: vi.fn(),
       resolveFilePath: vi.fn().mockReturnValue('/real/path.jpg'),
     };
 
@@ -93,6 +99,8 @@ describe('image-open service', () => {
           openOrNavigateTo: vi.fn().mockReturnValue(false),
           isAppVisible: vi.fn().mockReturnValue(true),
           onExifResult: vi.fn(),
+          onExifResultForPosition: vi.fn(),
+          requestExifForPositions: vi.fn(),
           resolveFilePath: vi.fn().mockReturnValue('/real/path.jpg'),
         };
       },
@@ -108,6 +116,8 @@ describe('image-open service', () => {
           }),
           isAppVisible: vi.fn().mockReturnValue(true),
           onExifResult: vi.fn(),
+          onExifResultForPosition: vi.fn(),
+          requestExifForPositions: vi.fn(),
           resolveFilePath: vi.fn().mockReturnValue('/real/path.jpg'),
         };
       },

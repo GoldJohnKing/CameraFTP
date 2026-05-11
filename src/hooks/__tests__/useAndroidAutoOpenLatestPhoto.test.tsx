@@ -55,6 +55,8 @@ describe('useAndroidAutoOpenLatestPhoto', () => {
     window.ImageViewerAndroid = {
       openOrNavigateTo: vi.fn(),
       onExifResult: vi.fn(),
+      onExifResultForPosition: vi.fn(),
+      requestExifForPositions: vi.fn(),
       resolveFilePath: vi.fn(),
       isAppVisible: vi.fn().mockReturnValue(true),
     };
@@ -99,6 +101,8 @@ describe('useAndroidAutoOpenLatestPhoto', () => {
     window.ImageViewerAndroid = {
       openOrNavigateTo: vi.fn(),
       onExifResult: vi.fn(),
+      onExifResultForPosition: vi.fn(),
+      requestExifForPositions: vi.fn(),
       resolveFilePath: vi.fn(),
       isAppVisible: vi.fn().mockReturnValue(false),
     };
@@ -128,6 +132,8 @@ describe('useAndroidAutoOpenLatestPhoto', () => {
     window.ImageViewerAndroid = {
       openOrNavigateTo: vi.fn(),
       onExifResult: vi.fn(),
+      onExifResultForPosition: vi.fn(),
+      requestExifForPositions: vi.fn(),
       resolveFilePath: vi.fn(),
       isAppVisible: vi.fn().mockReturnValue(true),
     };
@@ -157,6 +163,8 @@ describe('useAndroidAutoOpenLatestPhoto', () => {
     window.ImageViewerAndroid = {
       openOrNavigateTo: vi.fn(),
       onExifResult: vi.fn(),
+      onExifResultForPosition: vi.fn(),
+      requestExifForPositions: vi.fn(),
       resolveFilePath: vi.fn(),
       isAppVisible: vi.fn().mockReturnValue(true),
     };
@@ -190,6 +198,8 @@ describe('useAndroidAutoOpenLatestPhoto', () => {
     window.ImageViewerAndroid = {
       openOrNavigateTo: vi.fn(),
       onExifResult: vi.fn(),
+      onExifResultForPosition: vi.fn(),
+      requestExifForPositions: vi.fn(),
       resolveFilePath: vi.fn(),
       isAppVisible: vi.fn().mockReturnValue(true),
     };
@@ -256,6 +266,8 @@ describe('useAndroidAutoOpenLatestPhoto', () => {
     window.ImageViewerAndroid = {
       openOrNavigateTo: vi.fn(),
       onExifResult: vi.fn(),
+      onExifResultForPosition: vi.fn(),
+      requestExifForPositions: vi.fn(),
       resolveFilePath: vi.fn(),
       isAppVisible: vi.fn().mockReturnValue(true),
     };

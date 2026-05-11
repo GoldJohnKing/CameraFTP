@@ -194,6 +194,21 @@ interface ImageViewerAndroid {
   resolveFilePath(uri: string): string | null;
 
   /**
+   * Callback from Tauri IPC when EXIF data is fetched for a specific position
+   * @param position Adapter position of the image
+   * @param exifJson JSON string of ExifInfo, or null
+   */
+  onExifResultForPosition(position: number, exifJson: string | null): void;
+
+  /**
+   * Request batch EXIF resolution for multiple image positions.
+   * The native viewer calls this to prefetch EXIF for offscreen pages.
+   * For each item, onExifResultForPosition will be called with the result.
+   * @param requestJson JSON array of { position: number, uri: string }
+   */
+  requestExifForPositions(requestJson: string): void;
+
+  /**
    * Callback from JS when an AI edit triggered from native viewer completes
    * @param success Whether the edit succeeded
    * @param message Status message, or null if cancelled
@@ -332,6 +347,13 @@ declare global {
       failedCount: number;
       failedFiles: string[];
     };
+
+    /**
+     * Global handler for EXIF prefetch requests from native viewer.
+     * Called via evaluateJavascript from ImageViewerActivity.
+     * @param requestJson JSON array of { position: number, uri: string }
+     */
+    __requestExifForPositions?: (requestJson: string) => void;
   }
 }
 

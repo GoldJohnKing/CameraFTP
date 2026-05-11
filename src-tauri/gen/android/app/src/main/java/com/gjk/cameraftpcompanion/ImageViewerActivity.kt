@@ -37,6 +37,7 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.exifinterface.media.ExifInterface
 import androidx.viewpager2.widget.ViewPager2
+import com.davemorrissey.labs.subscaleview.ImageSource
 import com.davemorrissey.labs.subscaleview.SubsamplingScaleImageView
 import org.json.JSONArray
 import java.text.SimpleDateFormat
@@ -173,6 +174,10 @@ class ImageViewerActivity : AppCompatActivity() {
     private var currentIndex: Int = 0
     private var isLandscape = false
     private var isBottomBarVisible = true
+    /** Cache of adapter position → orientation degrees for RAW files.
+     *  Only populated for RAW files where backend EXIF has been resolved.
+     *  JPEG/HEIC files rely on ORIENTATION_USE_EXIF and are never cached here. */
+    private val orientationCache = mutableMapOf<Int, Int>()
     private var pendingDeleteUri: String? = null
     private var isAiEditing = false
     private var isColorGrading = false
@@ -231,7 +236,13 @@ class ImageViewerActivity : AppCompatActivity() {
     }
 
     private fun setupViewPager() {
-        val adapter = ImageViewerAdapter(uris) { toggleBottomBar() }
+        val adapter = ImageViewerAdapter(
+            uris,
+            onTap = { toggleBottomBar() },
+            onExifNeeded = { position, uri -> requestSingleExif(position, uri) },
+        )
+        adapter.immediateLoadPosition = currentIndex
+        adapter.orientationCache = orientationCache
         viewPager.adapter = adapter
         viewPager.setCurrentItem(currentIndex, false)
         // Prefetch 1 adjacent page on each side (2 images total: previous + next)
@@ -239,9 +250,14 @@ class ImageViewerActivity : AppCompatActivity() {
         viewPager.registerOnPageChangeCallback(object : ViewPager2.OnPageChangeCallback() {
             override fun onPageSelected(position: Int) {
                 currentIndex = position
-                // Update adapter's current position for smart recycle logic
-                (viewPager.adapter as? ImageViewerAdapter)?.currentPosition = position
+                val adapter = viewPager.adapter as? ImageViewerAdapter
+                adapter?.currentPosition = position
+                // First swipe clears the immediate-load marker
+                if (adapter?.immediateLoadPosition == position) {
+                    adapter.immediateLoadPosition = -1
+                }
                 updateUI()
+                prefetchOrientations(around = position)
             }
         })
     }
@@ -251,6 +267,9 @@ class ImageViewerActivity : AppCompatActivity() {
             if (isFinishing || isDestroyed) {
                 return@runOnUiThread
             }
+
+            // Clear orientation cache when URI list changes completely
+            orientationCache.clear()
 
             uris.clear()
             uris.addAll(newUris)
@@ -263,13 +282,18 @@ class ImageViewerActivity : AppCompatActivity() {
             val safeTargetIndex = targetIndex.coerceIn(0, uris.lastIndex)
             currentIndex = safeTargetIndex
 
-            (viewPager.adapter as? ImageViewerAdapter)?.replaceUris(uris)
-                ?: run {
-                    setupViewPager()
-                }
+            val existingAdapter = viewPager.adapter as? ImageViewerAdapter
+            if (existingAdapter != null) {
+                existingAdapter.replaceUris(uris)
+                existingAdapter.immediateLoadPosition = safeTargetIndex
+                existingAdapter.orientationCache = orientationCache
+            } else {
+                setupViewPager()
+            }
 
             viewPager.setCurrentItem(safeTargetIndex, false)
             updateUI()
+            prefetchOrientations(around = safeTargetIndex)
         }
     }
 
@@ -844,6 +868,48 @@ class ImageViewerActivity : AppCompatActivity() {
         updateFilenameAndExif()
     }
 
+    /**
+     * Prefetch EXIF orientation for pages around [around].
+     * Skips already-cached positions and the immediate-load
+     * page (which is handled by the TypeScript sendExifToViewer pipeline).
+     * Requests EXIF for ALL cache-miss positions since we can't detect
+     * RAW files from content:// URIs.
+     */
+    private fun prefetchOrientations(around: Int) {
+        val adapter = viewPager.adapter as? ImageViewerAdapter ?: return
+        val items = mutableListOf<Pair<Int, String>>()
+        for (pos in maxOf(0, around - 1)..minOf(uris.lastIndex, around + 1)) {
+            if (orientationCache.containsKey(pos)) continue
+            if (pos == adapter.immediateLoadPosition) continue
+            items.add(pos to uris[pos])
+        }
+        if (items.isEmpty()) return
+        requestExifPrefetch(items.map { """{"position":${it.first},"uri":"${it.second}"}""" })
+    }
+
+    private fun requestSingleExif(position: Int, uri: String) {
+        if (orientationCache.containsKey(position)) return
+        requestExifPrefetch(listOf("""{"position":$position,"uri":"$uri"}"""))
+    }
+
+    /**
+     * Trigger EXIF prefetch via JS bridge → TypeScript → Rust backend.
+     * Results arrive asynchronously via onExifResultForPosition.
+     */
+    internal fun requestExifPrefetch(jsonItems: List<String>) {
+        val mainActivity = MainActivity.instance ?: return
+        val webView = mainActivity.getWebView() ?: return
+        val jsonArray = "[" + jsonItems.joinToString(",") + "]"
+        val escaped = jsonArray
+            .replace("\\", "\\\\")
+            .replace("'", "\\'")
+            .replace("\n", "\\n")
+        val js = "if(window.__requestExifForPositions)window.__requestExifForPositions('$escaped')"
+        webView.post {
+            webView.evaluateJavascript(js, null)
+        }
+    }
+
     private fun updateFilenameAndExif() {
         currentDisplayName = null
         if (uris.isEmpty() || currentIndex < 0 || currentIndex >= uris.size) {
@@ -943,7 +1009,8 @@ class ImageViewerActivity : AppCompatActivity() {
     }
 
     /**
-     * Called from JS bridge when EXIF data is available (enriches existing info)
+     * Called from JS bridge when EXIF data is available (enriches existing info).
+     * This is invoked by the sendExifToViewer pipeline for the initial open.
      */
     fun onExifResult(exifJson: String?) {
         runOnUiThread {
@@ -970,6 +1037,16 @@ class ImageViewerActivity : AppCompatActivity() {
                     exifParams.text = parts.joinToString(" • ")
                     exifParams.visibility = View.VISIBLE
                 }
+
+                // Populate cache for the current page from sendExifToViewer pipeline
+                val orientation = exif.optInt("orientation", 0)
+                val degrees = when (orientation) {
+                    3 -> 180
+                    6 -> 90
+                    8 -> 270
+                    else -> SubsamplingScaleImageView.ORIENTATION_USE_EXIF
+                }
+                orientationCache[currentIndex] = degrees
 
                 // Apply orientation from backend EXIF for RAW files where
                 // Android's ExifInterface cannot read the orientation tag.
@@ -1004,6 +1081,70 @@ class ImageViewerActivity : AppCompatActivity() {
 
         Log.d(TAG, "Applying backend orientation $orientation ($degrees°) to current image")
         holder.imageView.setOrientation(degrees)
+    }
+
+    /**
+     * Called from JS bridge when EXIF data is available for a specific adapter position.
+     * Stores the resolved orientation in cache and applies it to any bound ViewHolder.
+     */
+    fun onExifResultForPosition(position: Int, exifJson: String?) {
+        runOnUiThread {
+            if (isFinishing || isDestroyed) return@runOnUiThread
+            if (position !in uris.indices) return@runOnUiThread
+
+            if (exifJson == null || exifJson == "null") {
+                orientationCache[position] = SubsamplingScaleImageView.ORIENTATION_USE_EXIF
+                loadImageIfWaiting(position)
+                return@runOnUiThread
+            }
+
+            try {
+                val exif = org.json.JSONObject(exifJson)
+
+                val orientation = exif.optInt("orientation", 0)
+                val degrees = when (orientation) {
+                    3 -> 180
+                    6 -> 90
+                    8 -> 270
+                    else -> SubsamplingScaleImageView.ORIENTATION_USE_EXIF
+                }
+                orientationCache[position] = degrees
+
+                applyOrientationToHolder(position, degrees)
+                loadImageIfWaiting(position)
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to parse EXIF for position $position", e)
+                orientationCache[position] = SubsamplingScaleImageView.ORIENTATION_USE_EXIF
+                loadImageIfWaiting(position)
+            }
+        }
+    }
+
+    /**
+     * Apply cached orientation degrees to the ViewHolder at [position].
+     */
+    private fun applyOrientationToHolder(position: Int, degrees: Int) {
+        val rv = viewPager.getChildAt(0) as? androidx.recyclerview.widget.RecyclerView ?: return
+        val holder = rv.findViewHolderForAdapterPosition(position) as? ImageViewerAdapter.ViewHolder ?: return
+        if (holder.bindPosition != position) return
+        if (degrees != SubsamplingScaleImageView.ORIENTATION_USE_EXIF) {
+            Log.d(TAG, "Applying prefetched orientation $degrees° to position $position")
+            holder.imageView.setOrientation(degrees)
+        }
+    }
+
+    /**
+     * If a ViewHolder at [position] is bound but has no image loaded yet
+     * (waiting for EXIF prefetch), load the image now.
+     * This is only called from onExifResultForPosition (prefetch pipeline),
+     * never from onExifResult (initial-open pipeline).
+     */
+    private fun loadImageIfWaiting(position: Int) {
+        val rv = viewPager.getChildAt(0) as? androidx.recyclerview.widget.RecyclerView ?: return
+        val holder = rv.findViewHolderForAdapterPosition(position) as? ImageViewerAdapter.ViewHolder ?: return
+        if (holder.bindPosition != position) return
+        val uri = uris.getOrNull(position) ?: return
+        holder.imageView.setImage(ImageSource.uri(Uri.parse(uri)))
     }
 
     private fun triggerAiEditForCurrentImage() {

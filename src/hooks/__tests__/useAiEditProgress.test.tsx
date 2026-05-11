@@ -149,6 +149,8 @@ describe('useAiEditProgress', () => {
       openOrNavigateTo: vi.fn(),
       isAppVisible: vi.fn(),
       onExifResult: vi.fn(),
+      onExifResultForPosition: vi.fn(),
+      requestExifForPositions: vi.fn(),
       resolveFilePath: vi.fn(),
       scanNewFile,
     };
@@ -166,6 +168,8 @@ describe('useAiEditProgress', () => {
       openOrNavigateTo: vi.fn(),
       isAppVisible: vi.fn(),
       onExifResult: vi.fn(),
+      onExifResultForPosition: vi.fn(),
+      requestExifForPositions: vi.fn(),
       resolveFilePath: vi.fn(),
       onAiEditComplete,
     };
@@ -181,6 +185,8 @@ describe('useAiEditProgress', () => {
       openOrNavigateTo: vi.fn(),
       isAppVisible: vi.fn(),
       onExifResult: vi.fn(),
+      onExifResultForPosition: vi.fn(),
+      requestExifForPositions: vi.fn(),
       resolveFilePath: vi.fn(),
       onAiEditComplete,
     };
@@ -259,6 +265,8 @@ describe('useAiEditProgress', () => {
       openOrNavigateTo: vi.fn(),
       isAppVisible: vi.fn(),
       onExifResult: vi.fn(),
+      onExifResultForPosition: vi.fn(),
+      requestExifForPositions: vi.fn(),
       resolveFilePath: vi.fn(),
       updateAiEditProgress,
     };
@@ -398,6 +406,8 @@ describe('useAiEditProgress', () => {
       openOrNavigateTo: vi.fn(),
       isAppVisible: vi.fn(),
       onExifResult: vi.fn(),
+      onExifResultForPosition: vi.fn(),
+      requestExifForPositions: vi.fn(),
       resolveFilePath: vi.fn(),
       updateAiEditProgress,
     };
@@ -451,6 +461,8 @@ describe('useAiEditProgress', () => {
       openOrNavigateTo: vi.fn(),
       isAppVisible: vi.fn(),
       onExifResult: vi.fn(),
+      onExifResultForPosition: vi.fn(),
+      requestExifForPositions: vi.fn(),
       resolveFilePath: vi.fn(),
       onAiEditComplete,
       scanNewFile,
