@@ -50,6 +50,15 @@ pub fn find_preset(id: &str) -> Option<&'static ColorGradingPreset> {
     all_presets().iter().find(|p| p.id == id)
 }
 
+/// Supported automatic exposure metering modes (value, display name).
+pub const METERING_MODES: &[(&str, &str)] = &[
+    ("highlight-safe", "高光保护"),
+    ("matrix", "矩阵测光"),
+    ("center-weighted", "中央重点测光"),
+    ("average", "平均测光"),
+    ("hybrid", "混合测光"),
+];
+
 #[cfg(test)]
 mod tests {
     use super::*;

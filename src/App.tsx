@@ -83,9 +83,26 @@ function App() {
       await cancelAiEdit();
     };
 
-    w.__tauriTriggerColorGrading = async (filePath: string, lutId: string, useAutoExposure: string, manualEv: string) => {
+    w.__tauriGetAutoColorGradingEnabled = () => {
+      const draft = useConfigStore.getState().draft;
+      return String(draft?.autoColorGrading?.enabled ?? false);
+    };
+
+    w.__tauriTriggerColorGrading = async (filePath: string, lutId: string, useAutoExposure: string, meteringMode: string, manualEv: string, syncToAuto: string) => {
       const { enqueueColorGrading } = await import('./hooks/useColorGradingProgress');
-      await enqueueColorGrading([filePath], lutId, useAutoExposure === 'true', parseFloat(manualEv));
+      await enqueueColorGrading([filePath], lutId, useAutoExposure === 'true', meteringMode, parseFloat(manualEv));
+      if (syncToAuto === 'true') {
+        updateDraft(d => ({
+          ...d,
+          autoColorGrading: d.autoColorGrading ? {
+            ...d.autoColorGrading,
+            presetId: lutId,
+            useAutoExposure: useAutoExposure === 'true',
+            meteringMode,
+            manualEv: parseFloat(manualEv),
+          } : d.autoColorGrading,
+        }));
+      }
     };
 
     w.__tauriGetColorGradingProgress = () => {
@@ -102,6 +119,7 @@ function App() {
       delete w.__tauriTriggerAiEditWithPrompt;
       delete w.__tauriGetAiEditProgress;
       delete w.__tauriCancelAiEdit;
+      delete w.__tauriGetAutoColorGradingEnabled;
       delete w.__tauriTriggerColorGrading;
       delete w.__tauriGetColorGradingProgress;
       delete w.__tauriCancelColorGrading;

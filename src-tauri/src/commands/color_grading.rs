@@ -6,13 +6,17 @@ use std::path::PathBuf;
 use tauri::{command, State};
 
 use crate::error::AppError;
-use crate::color_grading::presets::{ColorGradingPreset, all_presets};
+use crate::color_grading::presets::{ColorGradingPreset, all_presets, METERING_MODES};
 use crate::color_grading::service::ColorGradingService;
-use crate::image_utils;
 
 #[command]
 pub async fn get_color_grading_presets() -> Vec<ColorGradingPreset> {
     all_presets().to_vec()
+}
+
+#[command]
+pub fn get_metering_modes() -> Vec<(&'static str, &'static str)> {
+    METERING_MODES.to_vec()
 }
 
 #[command]
@@ -21,10 +25,11 @@ pub async fn enqueue_color_grading(
     file_paths: Vec<String>,
     lut_id: String,
     use_auto_exposure: bool,
+    metering_mode: String,
     manual_ev: f32,
 ) -> Result<(), AppError> {
     let paths: Vec<PathBuf> = file_paths.iter().map(PathBuf::from).collect();
-    color_grading.enqueue(paths, lut_id, use_auto_exposure, manual_ev).await
+    color_grading.enqueue(paths, lut_id, use_auto_exposure, metering_mode, manual_ev).await
 }
 
 #[command]
@@ -37,5 +42,5 @@ pub async fn cancel_color_grading(
 
 #[command]
 pub fn is_raw_file(file_path: String) -> bool {
-    image_utils::is_raw_file(&PathBuf::from(file_path))
+    crate::image_utils::is_raw_file(&PathBuf::from(file_path))
 }

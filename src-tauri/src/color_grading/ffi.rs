@@ -248,6 +248,7 @@ impl RawAlchemyLib {
         lut_path: Option<&str>,
         lensfun_db_path: Option<&str>,
         use_auto_exposure: bool,
+        metering_mode: &str,
         manual_ev: f32,
     ) -> Result<(), AppError> {
         let input_c = std::ffi::CString::new(input_path.to_string_lossy().into_owned())
@@ -260,7 +261,7 @@ impl RawAlchemyLib {
         let lut_c = lut_path
             .map(|s| std::ffi::CString::new(s).unwrap())
             .unwrap_or_else(|| std::ffi::CString::new("").unwrap());
-        let metering_c = std::ffi::CString::new("matrix").unwrap();
+        let metering_c = std::ffi::CString::new(metering_mode).unwrap();
         let lensfun_c = lensfun_db_path.map(|s| std::ffi::CString::new(s).unwrap());
 
         let result = unsafe {
@@ -320,6 +321,7 @@ impl RawAlchemyLib {
         lut_data: &super::lut_data::LutData,
         lensfun_db_path: Option<&str>,
         use_auto_exposure: bool,
+        metering_mode: &str,
         manual_ev: f32,
     ) -> Result<(), AppError> {
         let input_c = std::ffi::CString::new(input_path.to_string_lossy().into_owned())
@@ -329,7 +331,7 @@ impl RawAlchemyLib {
         let log_c = log_space
             .map(|s| std::ffi::CString::new(s).unwrap())
             .unwrap_or_else(|| std::ffi::CString::new("").unwrap());
-        let metering_c = std::ffi::CString::new("highlight-safe").unwrap();
+        let metering_c = std::ffi::CString::new(metering_mode).unwrap();
         let lensfun_c = lensfun_db_path.map(|s| std::ffi::CString::new(s).unwrap());
 
         let result = unsafe {

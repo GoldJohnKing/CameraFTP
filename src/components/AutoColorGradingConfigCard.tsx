@@ -13,6 +13,14 @@ import { Select } from './ui/Select';
 import type { SelectOption } from './ui/Select';
 import type { ColorGradingPreset } from '../types';
 
+const METERING_MODES: SelectOption[] = [
+  { value: 'highlight-safe', label: '高光保护' },
+  { value: 'matrix', label: '矩阵测光' },
+  { value: 'center-weighted', label: '中央重点测光' },
+  { value: 'average', label: '平均测光' },
+  { value: 'hybrid', label: '混合测光' },
+];
+
 export const AutoColorGradingConfigCard = memo(function AutoColorGradingConfigCard() {
   const { isLoading, updateDraft } = useConfigStore();
   const draft = useDraftConfig();
@@ -57,6 +65,16 @@ export const AutoColorGradingConfigCard = memo(function AutoColorGradingConfigCa
       autoColorGrading: {
         ...d.autoColorGrading!,
         useAutoExposure: !d.autoColorGrading!.useAutoExposure,
+      },
+    }));
+  };
+
+  const handleMeteringModeChange = (meteringMode: string) => {
+    updateDraft(d => ({
+      ...d,
+      autoColorGrading: {
+        ...d.autoColorGrading!,
+        meteringMode,
       },
     }));
   };
@@ -115,6 +133,18 @@ export const AutoColorGradingConfigCard = memo(function AutoColorGradingConfigCa
               />
             </div>
 
+            {draft.autoColorGrading.useAutoExposure && (
+              <div className="space-y-2">
+                <label className="block text-sm font-medium text-gray-700">测光模式</label>
+                <Select
+                  value={draft.autoColorGrading.meteringMode}
+                  options={METERING_MODES}
+                  onChange={handleMeteringModeChange}
+                  disabled={isLoading}
+                />
+              </div>
+            )}
+
             {!draft.autoColorGrading.useAutoExposure && (
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
@@ -131,7 +161,7 @@ export const AutoColorGradingConfigCard = memo(function AutoColorGradingConfigCa
                   value={draft.autoColorGrading.manualEv}
                   onChange={(e) => handleManualEvChange(parseFloat(e.target.value))}
                   disabled={isLoading}
-                  className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-violet-600 disabled:opacity-50"
+                  className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-600 disabled:opacity-50"
                 />
                 <div className="flex justify-between text-xs text-gray-400">
                   <span>-5.0</span>

@@ -156,14 +156,14 @@ export const GalleryCard = memo(function GalleryCard() {
     setShowColorGradingDialog(true);
   }, [toggleMenu]);
 
-  const handleColorGradingConfirm = useCallback(async (lutId: string, useAutoExposure: boolean, manualEv: number) => {
+  const handleColorGradingConfirm = useCallback(async (lutId: string, useAutoExposure: boolean, meteringMode: string, manualEv: number) => {
     setShowColorGradingDialog(false);
     const filePaths = Array.from(selectedIds)
       .map(id => pager.items.find(item => item.mediaId === id))
       .filter((item): item is NonNullable<typeof item> => item != null)
       .map(item => window.ImageViewerAndroid?.resolveFilePath?.(item.uri) ?? item.uri);
     if (filePaths.length > 0) {
-      await enqueueColorGrading(filePaths, lutId, useAutoExposure, manualEv);
+      await enqueueColorGrading(filePaths, lutId, useAutoExposure, meteringMode, manualEv);
     }
   }, [selectedIds, pager.items]);
 

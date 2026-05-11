@@ -13,10 +13,18 @@ import type { SelectOption } from './ui/Select';
 import type { ColorGradingPreset } from '../types';
 import { useConfigStore, useDraftConfig } from '../stores/configStore';
 
+const METERING_MODES: SelectOption[] = [
+  { value: 'highlight-safe', label: '高光保护' },
+  { value: 'matrix', label: '矩阵测光' },
+  { value: 'center-weighted', label: '中央重点测光' },
+  { value: 'average', label: '平均测光' },
+  { value: 'hybrid', label: '混合测光' },
+];
+
 interface ColorGradingDialogProps {
   isOpen: boolean;
   colorGradingPresets: ColorGradingPreset[];
-  onConfirm: (lutId: string, useAutoExposure: boolean, manualEv: number) => void;
+  onConfirm: (lutId: string, useAutoExposure: boolean, meteringMode: string, manualEv: number) => void;
   onCancel: () => void;
 }
 
@@ -31,16 +39,17 @@ export function ColorGradingDialog({ isOpen, colorGradingPresets, onConfirm, onC
 
   const [selectedId, setSelectedId] = useState('');
   const [useAutoExposure, setUseAutoExposure] = useState(true);
+  const [meteringMode, setMeteringMode] = useState('highlight-safe');
   const [manualEv, setManualEv] = useState(0.0);
   const [syncToAuto, setSyncToAuto] = useState(false);
 
   useEffect(() => {
     if (isOpen) {
       const lastUsed = draft?.colorGradingLastUsed;
-      // Matches DEFAULT_PRESET_ID in src-tauri/src/color_grading/presets.rs
       const initialPreset = lastUsed?.presetId || colorGradingPresets[0]?.id || 'fujifilm-provia';
       setSelectedId(initialPreset);
       setUseAutoExposure(lastUsed?.useAutoExposure ?? true);
+      setMeteringMode(lastUsed?.meteringMode ?? 'highlight-safe');
       setManualEv(lastUsed?.manualEv ?? 0.0);
       setSyncToAuto(false);
     }
@@ -54,6 +63,7 @@ export function ColorGradingDialog({ isOpen, colorGradingPresets, onConfirm, onC
       colorGradingLastUsed: {
         presetId: selectedId,
         useAutoExposure,
+        meteringMode,
         manualEv,
       },
       ...(syncToAuto && d.autoColorGrading ? {
@@ -61,12 +71,13 @@ export function ColorGradingDialog({ isOpen, colorGradingPresets, onConfirm, onC
           ...d.autoColorGrading,
           presetId: selectedId,
           useAutoExposure,
+          meteringMode,
           manualEv,
         },
       } : {}),
     }));
 
-    onConfirm(selectedId, useAutoExposure, manualEv);
+    onConfirm(selectedId, useAutoExposure, meteringMode, manualEv);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -136,6 +147,17 @@ export function ColorGradingDialog({ isOpen, colorGradingPresets, onConfirm, onC
           />
         </div>
 
+        {useAutoExposure && (
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">测光模式</label>
+            <Select
+              value={meteringMode}
+              options={METERING_MODES}
+              onChange={setMeteringMode}
+            />
+          </div>
+        )}
+
         {!useAutoExposure && (
           <div className="space-y-2">
             <div className="flex items-center justify-between">
@@ -149,7 +171,7 @@ export function ColorGradingDialog({ isOpen, colorGradingPresets, onConfirm, onC
               step={0.1}
               value={manualEv}
               onChange={(e) => setManualEv(parseFloat(e.target.value))}
-              className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-violet-600"
+              className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
             />
             <div className="flex justify-between text-xs text-gray-400">
               <span>-5.0</span>

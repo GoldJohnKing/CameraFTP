@@ -142,6 +142,8 @@ pub struct AutoColorGradingConfig {
     pub preset_id: String,
     /// 是否使用自动曝光
     pub use_auto_exposure: bool,
+    /// 自动曝光测光模式（仅自动曝光时有效）
+    pub metering_mode: String,
     /// 手动曝光补偿值（EV），仅当 use_auto_exposure=false 时有效
     pub manual_ev: f32,
 }
@@ -152,6 +154,7 @@ impl Default for AutoColorGradingConfig {
             enabled: false,
             preset_id: crate::color_grading::presets::DEFAULT_PRESET_ID.to_string(),
             use_auto_exposure: true,
+            metering_mode: "highlight-safe".to_string(),
             manual_ev: 0.0,
         }
     }
@@ -166,6 +169,8 @@ pub struct ColorGradingLastUsed {
     pub preset_id: String,
     /// 是否使用自动曝光
     pub use_auto_exposure: bool,
+    /// 自动曝光测光模式
+    pub metering_mode: String,
     /// 手动曝光补偿值（EV）
     pub manual_ev: f32,
 }
@@ -175,6 +180,7 @@ impl Default for ColorGradingLastUsed {
         Self {
             preset_id: crate::color_grading::presets::DEFAULT_PRESET_ID.to_string(),
             use_auto_exposure: true,
+            metering_mode: "highlight-safe".to_string(),
             manual_ev: 0.0,
         }
     }

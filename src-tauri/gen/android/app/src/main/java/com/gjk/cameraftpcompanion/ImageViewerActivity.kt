@@ -404,10 +404,24 @@ class ImageViewerActivity : AppCompatActivity() {
             return
         }
 
-        showColorGradingOverlay(filePath)
+        val mainActivity = MainActivity.instance
+        if (mainActivity == null) {
+            Log.w(TAG, "MainActivity not available for color grading config")
+            showColorGradingOverlay(filePath, false)
+            return
+        }
+
+        mainActivity.runOnUiThread {
+            mainActivity.getWebView()?.evaluateJavascript(
+                "(function(){try{return window.__tauriGetAutoColorGradingEnabled?.()??'false'}catch(e){return 'false'}})();"
+            ) { result ->
+                val enabled = result?.trim()?.removeSurrounding("\"")?.toBoolean() ?: false
+                showColorGradingOverlay(filePath, enabled)
+            }
+        }
     }
 
-    private fun showColorGradingOverlay(filePath: String) {
+    private fun showColorGradingOverlay(filePath: String, autoColorGradingEnabled: Boolean) {
         requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LOCKED
         val rootView = findViewById<FrameLayout>(android.R.id.content)
 
@@ -441,6 +455,13 @@ class ImageViewerActivity : AppCompatActivity() {
             """<div class="dropdown-opt${if (value == firstId) " selected" else ""}" data-value="$value">$label</div>"""
         }
 
+        val saveToggleHtml = if (autoColorGradingEnabled) {
+            """<div class="save-toggle" onclick="toggleSync()">
+                    <div class="toggle" id="syncToggle"></div>
+                    <span>同步到自动调色</span>
+                  </div>"""
+        } else ""
+
         val html = """
             <!DOCTYPE html>
             <html>
@@ -448,7 +469,7 @@ class ImageViewerActivity : AppCompatActivity() {
             <meta charset="utf-8">
             <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
             <style>
-              * { margin: 0; padding: 0; box-sizing: border-box; }
+              * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
               body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
               .overlay {
                 position: fixed; inset: 0;
@@ -466,17 +487,18 @@ class ImageViewerActivity : AppCompatActivity() {
                 padding: 16px; border-bottom: 1px solid #e5e7eb;
               }
               .title-group { display: flex; flex-direction: column; }
-              .title { font-size: 16px; font-weight: 600; color: #111827; }
-              .subtitle { font-size: 13px; color: #6b7280; margin-top: 2px; }
+              .title { font-size: 18px; font-weight: 600; color: #111827; }
+              .subtitle { font-size: 14px; color: #6b7280; margin-top: 2px; }
               .close-btn {
-                width: 32px; height: 32px; display: flex; align-items: center; justify-content: center;
-                border: none; background: none; cursor: pointer; color: #9ca3af; border-radius: 8px;
+                padding: 8px; border: none; background: none; cursor: pointer;
+                color: #9ca3af; border-radius: 8px;
               }
-              .close-btn:hover { background: #f3f4f6; color: #6b7280; }
+              .close-btn:hover { color: #4b5563; background: #f3f4f6; }
               .close-btn svg { width: 20px; height: 20px; }
-              .content { padding: 16px; overflow-y: auto; }
+              .content { padding: 16px; overflow: visible; }
               .field-group { margin-bottom: 12px; }
-              .field-label { font-size: 14px; font-weight: 500; color: #374151; margin-bottom: 8px; }
+              .field-group:last-child { margin-bottom: 0; }
+              .field-label { font-size: 14px; font-weight: 500; color: #374151; margin-bottom: 4px; }
               .dropdown { position: relative; }
               .dropdown-btn {
                 width: 100%; padding: 8px 12px; border: 1px solid #e5e7eb;
@@ -533,7 +555,7 @@ class ImageViewerActivity : AppCompatActivity() {
                 left: 2px; bottom: 2px; background: #fff; border-radius: 50%;
                 transition: transform 0.2s;
               }
-              .toggle-switch input:checked + .toggle-slider { background: #7c3aed; }
+              .toggle-switch input:checked + .toggle-slider { background: #2563eb; }
               .toggle-switch input:checked + .toggle-slider:before { transform: translateX(20px); }
               .slider-group { margin-top: 12px; }
               .slider-header {
@@ -546,16 +568,32 @@ class ImageViewerActivity : AppCompatActivity() {
               }
               input[type="range"]::-webkit-slider-thumb {
                 -webkit-appearance: none; width: 20px; height: 20px;
-                background: #7c3aed; border-radius: 50%; cursor: pointer;
+                background: #2563eb; border-radius: 50%; cursor: pointer;
               }
               .slider-labels {
                 display: flex; justify-content: space-between;
                 font-size: 11px; color: #9ca3af; margin-top: 4px;
               }
               .footer {
-                display: flex; align-items: center; justify-content: flex-end;
-                padding: 16px; border-top: 1px solid #e5e7eb; gap: 8px;
+                display: flex; align-items: center; justify-content: space-between;
+                padding: 16px; border-top: 1px solid #e5e7eb;
               }
+              .save-toggle { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+              .save-toggle span { font-size: 14px; color: #374151; font-weight: 500; }
+              .toggle {
+                position: relative; width: 44px; height: 24px;
+                background: #d1d5db; border-radius: 12px;
+                transition: background 0.2s; cursor: pointer; flex-shrink: 0;
+              }
+              .toggle.on { background: #2563eb; }
+              .toggle::after {
+                content: ''; position: absolute;
+                width: 16px; height: 16px; background: #fff;
+                border-radius: 50%; top: 4px; left: 4px;
+                transition: transform 0.2s;
+              }
+              .toggle.on::after { transform: translateX(20px); }
+              .actions { display: flex; gap: 8px; margin-left: auto; }
               .btn {
                 padding: 8px 16px; border-radius: 8px; font-size: 14px;
                 font-weight: 500; border: none; cursor: pointer;
@@ -572,7 +610,7 @@ class ImageViewerActivity : AppCompatActivity() {
               <div class="card">
                 <div class="header">
                   <div style="display:flex;align-items:center;gap:12px">
-                    <div style="width:40px;height:40px;background:#f5f3ff;border-radius:8px;display:flex;align-items:center;justify-content:center"><svg class="header-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="13.5" cy="6.5" r="1.5" fill="currentColor" stroke="none"/><circle cx="17.5" cy="10.5" r="1.5" fill="currentColor" stroke="none"/><circle cx="8.5" cy="7.5" r="1.5" fill="currentColor" stroke="none"/><circle cx="6.5" cy="12.5" r="1.5" fill="currentColor" stroke="none"/><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z"/></svg></div>
+                    <div style="width:40px;height:40px;background:#f3f4f6;border-radius:8px;display:flex;align-items:center;justify-content:center"><svg class="header-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="13.5" cy="6.5" r="1.5" fill="currentColor" stroke="none"/><circle cx="17.5" cy="10.5" r="1.5" fill="currentColor" stroke="none"/><circle cx="8.5" cy="7.5" r="1.5" fill="currentColor" stroke="none"/><circle cx="6.5" cy="12.5" r="1.5" fill="currentColor" stroke="none"/><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z"/></svg></div>
                     <div class="title-group">
                       <div class="title">调色</div>
                       <div class="subtitle">使用胶片模拟调色处理 RAW 照片</div>
@@ -612,10 +650,31 @@ class ImageViewerActivity : AppCompatActivity() {
                     <input type="range" id="evSlider" min="-5.0" max="5.0" step="0.1" value="0" oninput="onEvChange()">
                     <div class="slider-labels"><span>-5.0</span><span>0</span><span>+5.0</span></div>
                   </div>
+                  <div id="meteringGroup" style="margin-top:12px">
+                    <div class="field-group" style="margin-bottom:0">
+                      <div class="field-label">测光模式</div>
+                      <div class="dropdown" id="meteringDropdown">
+                        <button class="dropdown-btn" type="button" onclick="toggleMeteringDropdown()">
+                          <span id="meteringLabel">高光保护</span>
+                          <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+                        </button>
+                        <div class="dropdown-panel" id="meteringPanel">
+                          <div class="dropdown-opt selected" data-value="highlight-safe" onclick="selectMetering(this)">高光保护</div>
+                          <div class="dropdown-opt" data-value="matrix" onclick="selectMetering(this)">矩阵测光</div>
+                          <div class="dropdown-opt" data-value="center-weighted" onclick="selectMetering(this)">中央重点测光</div>
+                          <div class="dropdown-opt" data-value="average" onclick="selectMetering(this)">平均测光</div>
+                          <div class="dropdown-opt" data-value="hybrid" onclick="selectMetering(this)">混合测光</div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
                 </div>
                 <div class="footer">
-                  <button class="btn btn-cancel" onclick="NativeBridge.onCancel()">取消</button>
-                  <button class="btn btn-confirm" onclick="onConfirm()">应用</button>
+                  $saveToggleHtml
+                  <div class="actions">
+                    <button class="btn btn-cancel" onclick="NativeBridge.onCancel()">取消</button>
+                    <button class="btn btn-confirm" onclick="onConfirm()">应用</button>
+                  </div>
                 </div>
               </div>
             </div>
@@ -657,16 +716,54 @@ class ImageViewerActivity : AppCompatActivity() {
               function onExposureToggle() {
                 var checked = document.getElementById('autoExposureToggle').checked;
                 document.getElementById('evSliderGroup').style.display = checked ? 'none' : 'block';
+                document.getElementById('meteringGroup').style.display = checked ? 'block' : 'none';
                 document.getElementById('exposureDesc').textContent = checked ? '自动检测并调整曝光' : '手动设置曝光补偿值';
               }
               function onEvChange() {
                 var val = parseFloat(document.getElementById('evSlider').value);
                 document.getElementById('evValue').textContent = (val > 0 ? '+' : '') + val.toFixed(1) + ' EV';
               }
+              var selectedMetering = 'highlight-safe';
+              function toggleMeteringDropdown() {
+                var panel = document.getElementById('meteringPanel');
+                var btn = panel.previousElementSibling;
+                var isOpen = panel.classList.contains('open');
+                if (isOpen) {
+                  panel.classList.remove('open');
+                  btn.classList.remove('open');
+                } else {
+                  panel.classList.add('open');
+                  btn.classList.add('open');
+                }
+              }
+              function closeMeteringDropdown() {
+                var panel = document.getElementById('meteringPanel');
+                var btn = panel.previousElementSibling;
+                panel.classList.remove('open');
+                btn.classList.remove('open');
+              }
+              function selectMetering(opt) {
+                selectedMetering = opt.getAttribute('data-value');
+                document.getElementById('meteringLabel').textContent = opt.textContent;
+                var allOpts = document.getElementById('meteringPanel').querySelectorAll('.dropdown-opt');
+                for (var i = 0; i < allOpts.length; i++) allOpts[i].classList.remove('selected');
+                opt.classList.add('selected');
+                closeMeteringDropdown();
+              }
+              document.addEventListener('click', function(e) {
+                if (!document.getElementById('meteringDropdown').contains(e.target)) {
+                  closeMeteringDropdown();
+                }
+              });
+              var syncToAuto = false;
+              function toggleSync() {
+                syncToAuto = !syncToAuto;
+                document.getElementById('syncToggle').className = 'toggle' + (syncToAuto ? ' on' : '');
+              }
               function onConfirm() {
                 var autoExp = document.getElementById('autoExposureToggle').checked;
                 var ev = parseFloat(document.getElementById('evSlider').value);
-                NativeBridge.onConfirm(selectedPreset, autoExp, ev);
+                NativeBridge.onConfirm(selectedPreset, autoExp, selectedMetering, ev, syncToAuto);
               }
             </script>
             </body>
@@ -681,10 +778,10 @@ class ImageViewerActivity : AppCompatActivity() {
             isHorizontalScrollBarEnabled = false
             addJavascriptInterface(object {
                 @JavascriptInterface
-                fun onConfirm(lutId: String, useAutoExposure: Boolean, manualEv: Float) {
+                fun onConfirm(lutId: String, useAutoExposure: Boolean, meteringMode: String, manualEv: Float, syncToAuto: Boolean) {
                     runOnUiThread {
                         dismissColorGradingWebView()
-                        dispatchColorGrading(filePath, lutId, useAutoExposure, manualEv)
+                        dispatchColorGrading(filePath, lutId, useAutoExposure, meteringMode, manualEv, syncToAuto)
                     }
                 }
                 @JavascriptInterface
@@ -712,7 +809,7 @@ class ImageViewerActivity : AppCompatActivity() {
         requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
     }
 
-    private fun dispatchColorGrading(filePath: String, lutId: String, useAutoExposure: Boolean, manualEv: Float) {
+    private fun dispatchColorGrading(filePath: String, lutId: String, useAutoExposure: Boolean, meteringMode: String, manualEv: Float, syncToAuto: Boolean) {
         val mainActivity = MainActivity.instance
         if (mainActivity == null) {
             Log.w(TAG, "MainActivity not available for color grading")
@@ -721,12 +818,14 @@ class ImageViewerActivity : AppCompatActivity() {
 
         val escapedFilePath = filePath.replace("\\", "\\\\").replace("'", "\\'")
         val escapedLutId = lutId.replace("\\", "\\\\").replace("'", "\\'")
+        val escapedMeteringMode = meteringMode.replace("\\", "\\\\").replace("'", "\\'")
         val useAutoExpStr = useAutoExposure.toString()
         val manualEvStr = manualEv.toString()
+        val syncToAutoStr = syncToAuto.toString()
         val js = """
             (function(){
                 if(window.__tauriTriggerColorGrading){
-                    window.__tauriTriggerColorGrading('$escapedFilePath','$escapedLutId','$useAutoExpStr','$manualEvStr');
+                    window.__tauriTriggerColorGrading('$escapedFilePath','$escapedLutId','$useAutoExpStr','$escapedMeteringMode','$manualEvStr','$syncToAutoStr');
                     return 'ok';
                 }
                 return 'no_handler';
@@ -1008,7 +1107,7 @@ class ImageViewerActivity : AppCompatActivity() {
             <meta charset="utf-8">
             <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,interactive-widget=resizes-content">
             <style>
-              * { margin: 0; padding: 0; box-sizing: border-box; }
+              * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
               body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
               .overlay {
                 position: fixed; inset: 0;
