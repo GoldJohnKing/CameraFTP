@@ -49,7 +49,7 @@ impl DataListener for FtpDataListener {
                     event_bus.emit_file_uploaded(path.clone(), bytes);
                     info!(file = %path, size = bytes, "File uploaded");
 
-                    let is_image = FileIndexService::is_supported_image(std::path::Path::new(&path));
+                    let is_image = crate::image_utils::is_supported_image(std::path::Path::new(&path));
 
                     if is_image {
                         if let Some(handle) = app_handle.as_ref() {
@@ -92,7 +92,7 @@ impl DataListener for FtpDataListener {
                     // RAW files are NOT in is_supported_image, so must be handled separately.
                     if let Some(handle) = app_handle.as_ref() {
                         let file_path = std::path::Path::new(&path);
-                        if crate::color_grading::is_raw_file_path(file_path) {
+                        if crate::image_utils::is_raw_file(file_path) {
                             let full_path = save_path.join(&path);
                             let handle_clone = handle.clone();
                             tokio::spawn(async move {
@@ -112,7 +112,7 @@ impl DataListener for FtpDataListener {
                 DataEvent::Deleted { path } => {
                     info!(file = %path, "File deleted");
 
-                    let is_image = FileIndexService::is_supported_image(std::path::Path::new(&path));
+                    let is_image = crate::image_utils::is_supported_image(std::path::Path::new(&path));
 
                     // 从文件索引中移除
                     if let Some(handle) = app_handle.as_ref() {

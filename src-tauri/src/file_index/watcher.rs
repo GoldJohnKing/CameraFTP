@@ -116,7 +116,7 @@ impl FileWatcher {
         match event.kind {
             EventKind::Create(_) => {
                 for path in &event.paths {
-                    if FileIndexService::is_supported_image(path) {
+                    if crate::image_utils::is_supported_image(path) {
                         let _ = tx.try_send(FileSystemEvent::Created(path.clone()));
                     }
                 }
@@ -126,7 +126,7 @@ impl FileWatcher {
             }
             EventKind::Remove(_) => {
                 for path in &event.paths {
-                    if FileIndexService::is_supported_image(path) {
+                    if crate::image_utils::is_supported_image(path) {
                         let _ = tx.try_send(FileSystemEvent::Deleted(path.clone()));
                     }
                 }
@@ -137,8 +137,8 @@ impl FileWatcher {
                     // 可能是重命名事件
                     let from = &event.paths[0];
                     let to = &event.paths[1];
-                    if FileIndexService::is_supported_image(from) || 
-                       FileIndexService::is_supported_image(to) {
+                    if crate::image_utils::is_supported_image(from) || 
+                       crate::image_utils::is_supported_image(to) {
                         let _ = tx.try_send(FileSystemEvent::Renamed {
                             from: from.clone(),
                             to: to.clone(),

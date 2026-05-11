@@ -8,18 +8,7 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::sync::{Arc, RwLock};
 
-const RAW_EXTENSIONS: &[&str] = &[
-    "nef", "nrw", "cr2", "cr3", "arw", "sr2",
-    "raf", "orf", "rw2", "pef", "dng", "x3f", "raw", "srw",
-];
-
-/// Check if a file path has a RAW image extension.
-pub fn is_raw_file(path: &Path) -> bool {
-    path.extension()
-        .and_then(|e| e.to_str())
-        .map(|e| RAW_EXTENSIONS.contains(&e.to_lowercase().as_str()))
-        .unwrap_or(false)
-}
+use crate::image_utils::is_raw_file;
 
 /// Get MIME type based on file extension.
 pub fn content_type_for(path: &Path) -> &'static str {

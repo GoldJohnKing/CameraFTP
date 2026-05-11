@@ -73,7 +73,7 @@ impl ColorGradingService {
             .map(|cg| cg.enabled && !cg.preset_id.is_empty())
             .unwrap_or(false);
 
-        if !should_enqueue || !is_raw_file_path(&file_path) {
+        if !should_enqueue || !crate::image_utils::is_raw_file(&file_path) {
             return;
         }
 
@@ -246,12 +246,4 @@ async fn process_single_file(task: &ColorGradingTask) -> Result<String, AppError
     Ok(output_path.to_string_lossy().into_owned())
 }
 
-pub fn is_raw_file_path(path: &std::path::Path) -> bool {
-    let ext = path.extension()
-        .map(|e| e.to_string_lossy().to_lowercase())
-        .unwrap_or_default();
-    matches!(ext.as_str(),
-        "nef" | "nrw" | "cr2" | "cr3" | "arw" | "sr2" | "raf" |
-        "orf" | "rw2" | "pef" | "dng" | "x3f" | "raw" | "srw"
-    )
-}
+

@@ -206,7 +206,7 @@ impl FileIndexService {
                     }
                 } else if metadata.is_file() {
                     // 检查是否是支持的图片格式
-                    if Self::is_supported_image(&path) {
+                    if crate::image_utils::is_supported_image(&path) {
                         match self.get_file_info(&path, &metadata).await {
                             Ok(file_info) => files.push(file_info),
                             Err(e) => warn!("Failed to get file info for {:?}: {}", path, e),
@@ -219,19 +219,7 @@ impl FileIndexService {
         })
     }
 
-    /// Check if a file is a supported image format (including RAW files).
-    pub fn is_supported_image(path: &Path) -> bool {
-        let ext = path.extension()
-            .and_then(|e| e.to_str())
-            .map(|e| e.to_lowercase())
-            .unwrap_or_default();
-        
-        matches!(ext.as_str(), 
-            "jpg" | "jpeg" | "heif" | "hif" | "heic" |
-            "nef" | "nrw" | "cr2" | "cr3" | "arw" | "sr2" |
-            "raf" | "orf" | "rw2" | "pef" | "dng" | "x3f" | "raw" | "srw"
-        )
-    }
+
 
     /// 获取文件信息（包括EXIF时间）
     async fn get_file_info(&self, path: &Path, metadata: &std::fs::Metadata) -> Result<FileInfo, AppError> {
@@ -292,7 +280,7 @@ impl FileIndexService {
 
     /// 添加新文件（FTP上传时调用）
     pub async fn add_file(&self, path: PathBuf) -> Result<(), AppError> {
-        if !Self::is_supported_image(&path) {
+        if !crate::image_utils::is_supported_image(&path) {
             return Ok(()); // 跳过非图片文件
         }
 

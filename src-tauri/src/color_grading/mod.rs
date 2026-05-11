@@ -12,4 +12,4 @@ pub mod service;
 
 pub use presets::ColorGradingPreset;
 pub use service::ColorGradingService;
-pub use service::is_raw_file_path;
+pub use crate::image_utils::is_raw_file as is_raw_file_path;

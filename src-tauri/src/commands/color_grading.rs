@@ -8,6 +8,7 @@ use tauri::{command, State};
 use crate::error::AppError;
 use crate::color_grading::presets::{ColorGradingPreset, all_presets};
 use crate::color_grading::service::ColorGradingService;
+use crate::image_utils;
 
 #[command]
 pub async fn get_color_grading_presets() -> Vec<ColorGradingPreset> {
@@ -34,12 +35,5 @@ pub async fn cancel_color_grading(
 
 #[command]
 pub fn is_raw_file(file_path: String) -> bool {
-    let ext = PathBuf::from(&file_path)
-        .extension()
-        .map(|e| e.to_string_lossy().to_lowercase())
-        .unwrap_or_default();
-    matches!(ext.as_str(),
-        "nef" | "nrw" | "cr2" | "cr3" | "arw" | "sr2" | "raf" |
-        "orf" | "rw2" | "pef" | "dng" | "x3f" | "raw" | "srw"
-    )
+    image_utils::is_raw_file(&PathBuf::from(file_path))
 }
