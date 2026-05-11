@@ -1,5 +1,5 @@
 fn main() {
-    compress_lut_files();
+    pack_lut_zip();
     compress_lensfun_db();
     compress_raw_alchemy_dll();
 
@@ -14,15 +14,9 @@ fn main() {
     tauri_build::try_build(attributes).expect("failed to run tauri-build");
 }
 
-fn compress_lut_files() {
-    use flate2::write::GzEncoder;
-    use flate2::Compression;
+fn pack_lut_zip() {
     use std::fs;
     use std::io::{Read, Write};
-
-    let out_dir = std::path::PathBuf::from(std::env::var("OUT_DIR").expect("OUT_DIR not set"));
-    let luts_out = out_dir.join("luts");
-    fs::create_dir_all(&luts_out).expect("Failed to create luts output dir");
 
     let luts_src = std::path::Path::new("resources/luts");
     if !luts_src.exists() {
@@ -30,25 +24,51 @@ fn compress_lut_files() {
         return;
     }
 
-    let entries = fs::read_dir(luts_src).expect("Failed to read LUT source directory");
-    for entry in entries {
-        let entry = entry.expect("Failed to read dir entry");
-        let path = entry.path();
-        if path.extension().map(|e| e == "cube").unwrap_or(false) {
-            let file_name = path.file_name().unwrap();
-            println!("cargo:rerun-if-changed={}", path.display());
+    // Collect and sort .cube files for deterministic output
+    let mut entries: Vec<_> = fs::read_dir(luts_src)
+        .expect("Failed to read LUT source directory")
+        .filter_map(|e| e.ok())
+        .filter(|e| e.path().extension().map(|ext| ext == "cube").unwrap_or(false))
+        .collect();
+    entries.sort_by_key(|e| e.file_name());
 
-            let mut input = fs::File::open(&path).expect("Failed to open LUT file");
-            let mut data = Vec::new();
-            input.read_to_end(&mut data).expect("Failed to read LUT file");
-
-            let output_path = luts_out.join(format!("{}.gz", file_name.to_string_lossy()));
-            let output = fs::File::create(&output_path).expect("Failed to create compressed file");
-            let mut encoder = GzEncoder::new(output, Compression::best());
-            encoder.write_all(&data).expect("Failed to compress LUT file");
-            encoder.finish().expect("Failed to finish compression");
-        }
+    if entries.is_empty() {
+        println!("cargo:warning=No .cube files found in resources/luts");
+        return;
     }
+
+    let out_dir = std::path::PathBuf::from(std::env::var("OUT_DIR").expect("OUT_DIR not set"));
+    let zip_path = out_dir.join("luts.zip");
+
+    let zip_file = fs::File::create(&zip_path).expect("Failed to create luts.zip");
+    let mut zip_writer = zip::ZipWriter::new(zip_file);
+    let options = zip::write::SimpleFileOptions::default()
+        .compression_method(zip::CompressionMethod::Deflated)
+        .compression_level(Some(9));
+
+    for entry in &entries {
+        let path = entry.path();
+        let file_name = path.file_name().unwrap().to_string_lossy().into_owned();
+        println!("cargo:rerun-if-changed={}", path.display());
+
+        let mut data = Vec::new();
+        let mut input = fs::File::open(&path).expect("Failed to open LUT file");
+        input.read_to_end(&mut data).expect("Failed to read LUT file");
+
+        zip_writer
+            .start_file(&file_name, options)
+            .expect("Failed to start ZIP entry");
+        zip_writer.write_all(&data).expect("Failed to write ZIP entry");
+    }
+
+    zip_writer.finish().expect("Failed to finalize ZIP archive");
+
+    let compressed_size = fs::metadata(&zip_path).map(|m| m.len()).unwrap_or(0);
+    println!(
+        "cargo:warning=Packed {} LUT files into luts.zip ({} KB)",
+        entries.len(),
+        compressed_size / 1024
+    );
 }
 
 fn is_windows_msvc_target() -> bool {

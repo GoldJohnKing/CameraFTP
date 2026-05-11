@@ -2,7 +2,9 @@
 // Copyright (C) 2026 GoldJohnKing <GoldJohnKing@Live.cn>
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-use std::sync::OnceLock;
+use std::sync::LazyLock;
+
+use dashmap::DashMap;
 
 use crate::error::AppError;
 
@@ -13,78 +15,65 @@ pub struct LutData {
     pub table: Vec<f32>,
 }
 
-macro_rules! lut_embed {
-    ($id:expr, $file:expr) => {
-        (
-            $id,
-            include_bytes!(concat!(env!("OUT_DIR"), "/luts/", $file, ".gz")).as_slice(),
-        )
-    };
-}
+static LUT_ZIP: &[u8] =
+    include_bytes!(concat!(env!("OUT_DIR"), "/luts.zip"));
 
-static LUT_CACHE: OnceLock<std::collections::HashMap<&'static str, LutData>> = OnceLock::new();
+static LUT_CACHE: LazyLock<DashMap<String, LutData>> = LazyLock::new(DashMap::new);
 
-fn compressed_luts() -> Vec<(&'static str, &'static [u8])> {
-    vec![
-        lut_embed!("arri-alexa-classic-709", "ARRI_ALEXA_Classic-709_VLog.cube"),
-        lut_embed!("fujifilm-acros", "Fujifilm_ACROS_VLog.cube"),
-        lut_embed!("fujifilm-astia", "Fujifilm_ASTIA_VLog.cube"),
-        lut_embed!("fujifilm-classic-chrome", "Fujifilm_CLASSIC-CHROME_VLog.cube"),
-        lut_embed!("fujifilm-classic-neg", "Fujifilm_CLASSIC-Neg_VLog.cube"),
-        lut_embed!("fujifilm-eterna-3513di", "Fujifilm_ETERNA-3513DI_VLog.cube"),
-        lut_embed!("fujifilm-eterna-bb", "Fujifilm_ETERNA-BB_VLog.cube"),
-        lut_embed!("fujifilm-eterna", "Fujifilm_ETERNA_VLog.cube"),
-        lut_embed!("fujifilm-pro-neg-std", "Fujifilm_PRO-Neg.-Std_VLog.cube"),
-        lut_embed!("fujifilm-provia", "Fujifilm_PROVIA_VLog.cube"),
-        lut_embed!("fujifilm-reala-ace", "Fujifilm_REALA-ACE_VLog.cube"),
-        lut_embed!("fujifilm-velvia", "Fujifilm_Velvia_VLog.cube"),
-        lut_embed!("kodak-vision-2383", "Kodak_VISION-2383_VLog.cube"),
-        lut_embed!("leica-classic", "Leica_Classic_VLog.cube"),
-        lut_embed!("leica-natural", "Leica_Natural_VLog.cube"),
-        lut_embed!("red-achromic", "RED_Achromic_VLog.cube"),
-        lut_embed!("red-filmbias-bb", "RED_FilmBias-BB_VLog.cube"),
-        lut_embed!("red-filmbias-offset", "RED_FilmBias-Offset_VLog.cube"),
-        lut_embed!("red-filmbias", "RED_FilmBias_VLog.cube"),
-        lut_embed!("red-rec-709", "RED_Rec.709_VLog.cube"),
-    ]
-}
+pub fn get_lut_data(preset_id: &str) -> Result<LutData, AppError> {
+    // Return cached if available
+    if let Some(entry) = LUT_CACHE.get(preset_id) {
+        return Ok(LutData {
+            size: entry.size,
+            domain_min: entry.domain_min,
+            domain_max: entry.domain_max,
+            table: entry.table.clone(),
+        });
+    }
 
-pub fn get_lut_data(preset_id: &str) -> Result<&'static LutData, AppError> {
-    let cache = LUT_CACHE.get_or_init(|| {
-        let mut map = std::collections::HashMap::new();
-        for (id, compressed) in compressed_luts() {
-            match decompress_and_parse(compressed) {
-                Ok(data) => {
-                    tracing::info!(
-                        "LUT '{}' loaded: {}^3, {} entries",
-                        id,
-                        data.size,
-                        data.table.len() / 3
-                    );
-                    map.insert(id, data);
-                }
-                Err(e) => {
-                    tracing::error!("Failed to load LUT '{}': {}", id, e);
-                }
-            }
-        }
-        map
+    // Look up the .cube filename for this preset
+    let preset = super::presets::find_preset(preset_id).ok_or_else(|| {
+        AppError::ColorGradingError(format!("Unknown color grading preset: {}", preset_id))
+    })?;
+
+    // Extract and parse the single entry from the ZIP
+    let lut_data = extract_and_parse(&preset.cube_filename)?;
+
+    tracing::info!(
+        "LUT '{}' loaded: {}^3, {} entries",
+        preset_id,
+        lut_data.size,
+        lut_data.table.len() / 3
+    );
+
+    LUT_CACHE.insert(preset_id.to_string(), LutData {
+        size: lut_data.size,
+        domain_min: lut_data.domain_min,
+        domain_max: lut_data.domain_max,
+        table: lut_data.table.clone(),
     });
 
-    cache.get(preset_id).ok_or_else(|| {
-        AppError::ColorGradingError(format!("LUT data not available for preset: {}", preset_id))
-    })
+    Ok(lut_data)
 }
 
-fn decompress_and_parse(compressed: &[u8]) -> Result<LutData, AppError> {
-    use flate2::read::GzDecoder;
-    use std::io::Read;
+fn extract_and_parse(cube_filename: &str) -> Result<LutData, AppError> {
+    let reader = std::io::Cursor::new(LUT_ZIP);
+    let mut archive = zip::ZipArchive::new(reader).map_err(|e| {
+        AppError::ColorGradingError(format!("Failed to open LUT ZIP archive: {}", e))
+    })?;
 
-    let mut decoder = GzDecoder::new(compressed);
+    let mut file = archive.by_name(cube_filename).map_err(|e| {
+        AppError::ColorGradingError(format!(
+            "LUT '{}' not found in archive: {}",
+            cube_filename, e
+        ))
+    })?;
+
     let mut text = String::new();
-    decoder
-        .read_to_string(&mut text)
-        .map_err(|e| AppError::ColorGradingError(format!("LUT decompression failed: {}", e)))?;
+    std::io::Read::read_to_string(&mut file, &mut text).map_err(|e| {
+        AppError::ColorGradingError(format!("Failed to read LUT entry '{}': {}", cube_filename, e))
+    })?;
+
     parse_cube_text(&text)
 }
 
@@ -119,7 +108,6 @@ fn parse_cube_text(text: &str) -> Result<LutData, AppError> {
             continue;
         }
 
-        // Skip other header keywords
         if trimmed
             .chars()
             .next()
@@ -129,7 +117,6 @@ fn parse_cube_text(text: &str) -> Result<LutData, AppError> {
             continue;
         }
 
-        // Data line: "R G B"
         let parts: Vec<&str> = trimmed.split_whitespace().collect();
         if parts.len() >= 3 {
             let r: f32 = parts[0].parse().map_err(|e| {

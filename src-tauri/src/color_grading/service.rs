@@ -239,7 +239,7 @@ async fn process_single_file(task: &ColorGradingTask) -> Result<String, AppError
         &task.input_path,
         &output_path,
         Some(&preset.log_space),
-        lut_data,
+        &lut_data,
         lensfun_path.as_deref(),
     )?;
 
