@@ -382,3 +382,64 @@ impl RawAlchemyLib {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ra_result_is_ok_only_for_ok_variant() {
+        assert!(RaResult::Ok.is_ok());
+
+        assert!(!RaResult::ErrUnknown.is_ok());
+        assert!(!RaResult::ErrFileNotFound.is_ok());
+        assert!(!RaResult::ErrDecodeFailed.is_ok());
+        assert!(!RaResult::ErrInvalidParam.is_ok());
+        assert!(!RaResult::ErrLogUnsupported.is_ok());
+        assert!(!RaResult::ErrLutLoadFailed.is_ok());
+        assert!(!RaResult::ErrWriteFailed.is_ok());
+        assert!(!RaResult::ErrNoLensProfile.is_ok());
+        assert!(!RaResult::ErrOutOfMemory.is_ok());
+    }
+
+    #[test]
+    fn ra_result_description_returns_non_empty() {
+        let variants = [
+            RaResult::Ok,
+            RaResult::ErrUnknown,
+            RaResult::ErrFileNotFound,
+            RaResult::ErrDecodeFailed,
+            RaResult::ErrInvalidParam,
+            RaResult::ErrLogUnsupported,
+            RaResult::ErrLutLoadFailed,
+            RaResult::ErrWriteFailed,
+            RaResult::ErrNoLensProfile,
+            RaResult::ErrOutOfMemory,
+        ];
+
+        let descriptions: Vec<&str> = variants.iter().map(|v| v.description()).collect();
+
+        for desc in &descriptions {
+            assert!(!desc.is_empty(), "Description should not be empty");
+        }
+
+        // Verify all descriptions are distinct
+        for i in 0..descriptions.len() {
+            for j in (i + 1)..descriptions.len() {
+                assert_ne!(
+                    descriptions[i], descriptions[j],
+                    "Descriptions for {:?} and {:?} should differ",
+                    variants[i], variants[j]
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn ra_result_repr_values() {
+        assert_eq!(RaResult::Ok as i32, 0);
+        assert_eq!(RaResult::ErrUnknown as i32, -1);
+        assert_eq!(RaResult::ErrFileNotFound as i32, -2);
+        assert_eq!(RaResult::ErrDecodeFailed as i32, -3);
+    }
+}

@@ -165,3 +165,163 @@ fn parse_three_floats(s: &str, out: &mut [f32; 3]) -> Result<(), AppError> {
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn minimal_2x2x2_cube() -> String {
+        [
+            "# Minimal 2x2x2 LUT",
+            "TITLE \"test\"",
+            "",
+            "LUT_3D_SIZE 2",
+            "",
+            "0.0 0.0 0.0",
+            "1.0 0.0 0.0",
+            "0.0 1.0 0.0",
+            "1.0 1.0 0.0",
+            "0.0 0.0 1.0",
+            "1.0 0.0 1.0",
+            "0.0 1.0 1.0",
+            "1.0 1.0 1.0",
+        ]
+        .join("\n")
+    }
+
+    #[test]
+    fn parse_cube_minimal_valid() {
+        let lut = parse_cube_text(&minimal_2x2x2_cube()).unwrap();
+        assert_eq!(lut.size, 2);
+        assert_eq!(lut.domain_min, [0.0, 0.0, 0.0]);
+        assert_eq!(lut.domain_max, [1.0, 1.0, 1.0]);
+        assert_eq!(lut.table.len(), 2 * 2 * 2 * 3);
+
+        // First triplet: 0.0 0.0 0.0
+        assert_eq!(lut.table[0], 0.0);
+        assert_eq!(lut.table[1], 0.0);
+        assert_eq!(lut.table[2], 0.0);
+
+        // Second triplet: 1.0 0.0 0.0
+        assert_eq!(lut.table[3], 1.0);
+        assert_eq!(lut.table[4], 0.0);
+        assert_eq!(lut.table[5], 0.0);
+
+        // Last triplet: 1.0 1.0 1.0
+        assert_eq!(lut.table[21], 1.0);
+        assert_eq!(lut.table[22], 1.0);
+        assert_eq!(lut.table[23], 1.0);
+    }
+
+    #[test]
+    fn parse_cube_with_domain_directives() {
+        let text = [
+            "LUT_3D_SIZE 2",
+            "DOMAIN_MIN 0.1 0.2 0.3",
+            "DOMAIN_MAX 0.9 0.8 0.7",
+            "0.0 0.0 0.0",
+            "1.0 0.0 0.0",
+            "0.0 1.0 0.0",
+            "1.0 1.0 0.0",
+            "0.0 0.0 1.0",
+            "1.0 0.0 1.0",
+            "0.0 1.0 1.0",
+            "1.0 1.0 1.0",
+        ]
+        .join("\n");
+
+        let lut = parse_cube_text(&text).unwrap();
+        assert_eq!(lut.domain_min, [0.1, 0.2, 0.3]);
+        assert_eq!(lut.domain_max, [0.9, 0.8, 0.7]);
+    }
+
+    #[test]
+    fn parse_cube_skips_comments_and_keywords() {
+        let text = [
+            "# This is a comment",
+            "TITLE \"My LUT\"",
+            "LUT_3D_SIZE 2",
+            "# Another comment",
+            "CREATED_BY \"test\"",
+            "",
+            "0.0 0.0 0.0",
+            "1.0 0.0 0.0",
+            "0.0 1.0 0.0",
+            "1.0 1.0 0.0",
+            "0.0 0.0 1.0",
+            "1.0 0.0 1.0",
+            "0.0 1.0 1.0",
+            "1.0 1.0 1.0",
+        ]
+        .join("\n");
+
+        let lut = parse_cube_text(&text).unwrap();
+        assert_eq!(lut.size, 2);
+        assert_eq!(lut.table.len(), 24);
+    }
+
+    #[test]
+    fn parse_cube_wrong_row_count_returns_error() {
+        let text = [
+            "LUT_3D_SIZE 2",
+            "0.0 0.0 0.0",
+            "1.0 0.0 0.0",
+            "0.0 1.0 0.0",
+            // Only 3 of 8 rows provided
+        ]
+        .join("\n");
+
+        let result = parse_cube_text(&text);
+        assert!(result.is_err(), "Should fail with wrong row count");
+        if let Err(AppError::ColorGradingError(msg)) = result {
+            assert!(
+                msg.contains("expected") && msg.contains("got"),
+                "Error should mention expected vs got counts: {}",
+                msg
+            );
+        } else {
+            panic!("Expected ColorGradingError");
+        }
+    }
+
+    #[test]
+    fn parse_three_floats_valid() {
+        let mut out = [0.0f32; 3];
+        parse_three_floats("0.1 0.2 0.3", &mut out).unwrap();
+        assert!((out[0] - 0.1).abs() < f32::EPSILON);
+        assert!((out[1] - 0.2).abs() < f32::EPSILON);
+        assert!((out[2] - 0.3).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn parse_three_floats_too_few_values() {
+        let mut out = [0.0f32; 3];
+        if let Err(AppError::ColorGradingError(msg)) =
+            parse_three_floats("0.1 0.2", &mut out)
+        {
+            assert!(
+                msg.contains("Expected 3 float values"),
+                "Should report missing values: {}",
+                msg
+            );
+        } else {
+            panic!("Expected ColorGradingError");
+        }
+    }
+
+    #[test]
+    fn parse_three_floats_non_numeric() {
+        let mut out = [0.0f32; 3];
+        if let Err(AppError::ColorGradingError(msg)) =
+            parse_three_floats("abc def ghi", &mut out)
+        {
+            assert!(
+                msg.contains("Invalid float"),
+                "Should report parse failure: {}",
+                msg
+            );
+        } else {
+            panic!("Expected ColorGradingError");
+        }
+    }
+}

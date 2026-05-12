@@ -64,3 +64,31 @@ impl ImagePreviewCache {
         Ok(bytes)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::Path;
+
+    #[test]
+    fn content_type_for_jpeg_extensions() {
+        assert_eq!(content_type_for(Path::new("photo.jpg")), "image/jpeg");
+        assert_eq!(content_type_for(Path::new("photo.jpeg")), "image/jpeg");
+        assert_eq!(content_type_for(Path::new("photo.JPG")), "image/jpeg");
+    }
+
+    #[test]
+    fn content_type_for_heif_extensions() {
+        assert_eq!(content_type_for(Path::new("photo.heif")), "image/heic");
+        assert_eq!(content_type_for(Path::new("photo.hif")), "image/heic");
+        assert_eq!(content_type_for(Path::new("photo.heic")), "image/heic");
+    }
+
+    #[test]
+    fn content_type_for_unknown_defaults_to_jpeg() {
+        assert_eq!(content_type_for(Path::new("photo.nef")), "image/jpeg");
+        assert_eq!(content_type_for(Path::new("photo.cr2")), "image/jpeg");
+        assert_eq!(content_type_for(Path::new("photo.png")), "image/jpeg");
+        assert_eq!(content_type_for(Path::new("photo")), "image/jpeg");
+    }
+}

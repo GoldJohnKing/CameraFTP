@@ -442,12 +442,13 @@ mod tests {
     }
 
     #[test]
-    fn auth_enabled_with_empty_username_fails_validation() {
+    fn auth_enabled_with_empty_username_passes_validation() {
+        // Username validation was intentionally removed — config saves should not be blocked
         let mut config = AppConfig::default();
         config.advanced_connection.enabled = true;
         config.advanced_connection.auth.anonymous = false;
         config.advanced_connection.auth.username = String::new();
-        assert!(config.validate().is_err());
+        assert!(config.validate().is_ok());
     }
 
     #[test]

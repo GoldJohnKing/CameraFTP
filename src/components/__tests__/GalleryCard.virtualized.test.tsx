@@ -85,6 +85,7 @@ vi.mock('../../services/gallery-media-v2', () => ({
 
 vi.mock('../../stores/configStore', () => ({
   useConfigStore: () => ({ activeTab: 'gallery' }),
+  useDraftConfig: () => null,
 }));
 
 import { flush } from '../../test-utils/flush';
@@ -176,8 +177,7 @@ describe('GalleryCard (virtualized)', () => {
   });
 
   it('shows empty state when no items and not loading', async () => {
-    const savedLength = mockItems.length;
-    (mockItems as MediaItemDto[]).length = 0;
+    const savedItems = mockItems.splice(0);
 
     await act(async () => {
       getRoot().render(<GalleryCard />);
@@ -186,8 +186,7 @@ describe('GalleryCard (virtualized)', () => {
 
     expect(getContainer().textContent).toContain('暂无图片');
 
-    // Restore
-    (mockItems as MediaItemDto[]).length = savedLength;
+    mockItems.push(...savedItems);
   });
 
   it('reports viewport range changes to scheduler', async () => {

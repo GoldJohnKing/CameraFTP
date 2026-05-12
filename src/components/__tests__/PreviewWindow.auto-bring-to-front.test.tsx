@@ -42,8 +42,9 @@ vi.mock('@tauri-apps/api/window', () => ({
 }));
 
 vi.mock('../../stores/configStore', () => ({
-  useConfigStore: (selector: (state: { updatePreviewConfig: typeof updatePreviewConfigMock }) => unknown) =>
-    selector({ updatePreviewConfig: updatePreviewConfigMock }),
+  useConfigStore: (selector?: (state: { updatePreviewConfig: typeof updatePreviewConfigMock }) => unknown) =>
+    selector ? selector({ updatePreviewConfig: updatePreviewConfigMock }) : { updatePreviewConfig: updatePreviewConfigMock },
+  useDraftConfig: () => null,
 }));
 
 vi.mock('../../hooks/usePreviewWindowLifecycle', () => ({

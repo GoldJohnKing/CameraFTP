@@ -105,6 +105,7 @@ fn find_largest_jpeg(data: &[u8]) -> Option<Vec<u8>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::image_utils::{build_orientation_app1, inject_orientation_exif};
 
     #[test]
     fn build_orientation_app1_has_correct_structure() {
@@ -143,8 +144,11 @@ mod tests {
         // APP1 marker follows immediately
         assert_eq!(&result[2..4], &[0xFF, 0xE1]);
         // Original DQT still present after injected segment
+        // APP1 length field at result[4..6] gives length of (length field + payload)
         let app1_len = u16::from_be_bytes([result[4], result[5]]) as usize;
-        assert_eq!(&result[2 + app1_len..2 + app1_len + 2], &[0xFF, 0xDB]);
+        // APP1 total = 2 (marker) + app1_len (length field + payload)
+        let app1_total = 2 + app1_len;
+        assert_eq!(&result[2 + app1_total..2 + app1_total + 2], &[0xFF, 0xDB]);
     }
 
     #[test]
@@ -158,5 +162,42 @@ mod tests {
         // JPEG without APP1 (DQT immediately after SOI)
         let without_exif = vec![0xFF, 0xD8, 0xFF, 0xDB, 0x00, 0x01, 0x00];
         assert!(!has_exif_app1(&without_exif));
+    }
+
+    #[test]
+    fn find_largest_jpeg_returns_largest() {
+        // Small JPEG: SOI + 2 payload bytes + EOI = 6 bytes
+        let small: Vec<u8> = vec![0xFF, 0xD8, 0xAA, 0xBB, 0xFF, 0xD9];
+        // Large JPEG: SOI + 10 payload bytes + EOI = 14 bytes
+        let large: Vec<u8> = vec![
+            0xFF, 0xD8, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0xFF, 0xD9,
+        ];
+
+        // Place small JPEG first, then some filler, then large JPEG
+        let mut data = Vec::new();
+        data.extend_from_slice(&small);
+        data.extend_from_slice(&[0xDE, 0xAD]); // non-JPEG filler
+        data.extend_from_slice(&large);
+
+        let result = find_largest_jpeg(&data).expect("should find a JPEG");
+        assert_eq!(result.len(), 14);
+        assert_eq!(result, large);
+    }
+
+    #[test]
+    fn find_largest_jpeg_returns_none_for_no_jpeg() {
+        let data: Vec<u8> = vec![0x00, 0x01, 0x02, 0x03, 0x04, 0x05];
+        assert!(find_largest_jpeg(&data).is_none());
+    }
+
+    #[test]
+    fn find_largest_jpeg_returns_none_for_empty() {
+        assert!(find_largest_jpeg(&[]).is_none());
+    }
+
+    #[test]
+    fn find_largest_jpeg_handles_soi_without_eoi() {
+        let data: Vec<u8> = vec![0xFF, 0xD8, 0x00, 0x01, 0x02, 0x03];
+        assert!(find_largest_jpeg(&data).is_none());
     }
 }

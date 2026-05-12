@@ -231,11 +231,9 @@ describe('useAiEditProgress', () => {
 
     await act(async () => {
       eventHandler!(doneEvent());
-      // Multiple flushes to resolve nested dynamic imports
-      await flush();
-      await flush();
-      await flush();
-      await flush();
+      // Resolve nested dynamic import chain:
+      // autoPreviewIfEnabled → import(configStore) → autoPreviewOutput → import(image-open) → import(configStore)
+      for (let i = 0; i < 8; i++) await flush();
     });
 
     expect(openImagePreviewMock).toHaveBeenCalledWith({

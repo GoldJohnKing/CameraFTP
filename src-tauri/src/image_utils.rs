@@ -199,4 +199,52 @@ mod tests {
         assert!(!is_supported_image(Path::new("photo.mp4")));
         assert!(!is_supported_image(Path::new("photo.txt")));
     }
+
+    #[test]
+    fn test_has_exif_app1() {
+        // JPEG with APP1 marker (0xFF 0xD8 0xFF 0xE1 ...)
+        let jpeg_with_app1 = vec![0xFF, 0xD8, 0xFF, 0xE1, 0x00, 0x04, 0x00, 0x00];
+        assert!(has_exif_app1(&jpeg_with_app1));
+
+        // JPEG without APP1 (SOI + APP0/DQT marker instead)
+        let jpeg_without_app1 = vec![0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x04, 0x00, 0x00];
+        assert!(!has_exif_app1(&jpeg_without_app1));
+
+        // Too short to contain a valid JPEG
+        let too_short = vec![0xFF, 0xD8];
+        assert!(!has_exif_app1(&too_short));
+
+        // Not a JPEG at all
+        let not_jpeg = vec![0x89, 0x50, 0x4E, 0x47];
+        assert!(!has_exif_app1(&not_jpeg));
+    }
+
+    #[test]
+    fn test_build_orientation_app1_length() {
+        for orientation in [1u8, 2, 3, 4, 5, 6, 7, 8] {
+            let app1 = build_orientation_app1(orientation);
+            assert_eq!(app1.len(), 36, "APP1 segment should be 36 bytes for orientation {}", orientation);
+        }
+    }
+
+    #[test]
+    fn test_inject_orientation_exif_preserves_original() {
+        // Minimal valid JPEG: SOI + some data
+        let original = vec![0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x02, 0xAA, 0xBB];
+
+        let result = inject_orientation_exif(original.clone(), 6);
+
+        // SOI is preserved at the start
+        assert_eq!(&result[0..2], &[0xFF, 0xD8]);
+
+        // APP1 segment follows SOI (starts with FFE1)
+        assert_eq!(&result[2..4], &[0xFF, 0xE1]);
+
+        // Original data after SOI is preserved after the injected APP1
+        let app1_len = 36;
+        assert_eq!(&result[2 + app1_len..], &original[2..]);
+
+        // Total length = original + 36 (the injected APP1 segment)
+        assert_eq!(result.len(), original.len() + app1_len);
+    }
 }
