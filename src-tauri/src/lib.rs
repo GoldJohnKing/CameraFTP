@@ -277,7 +277,7 @@ pub fn run() {
 
             // 调色
             get_color_grading_presets,
-    get_metering_modes,
+            get_metering_modes,
             enqueue_color_grading,
             cancel_color_grading,
             is_raw_file,

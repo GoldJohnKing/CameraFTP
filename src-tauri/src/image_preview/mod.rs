@@ -68,6 +68,7 @@ impl ImagePreviewCache {
 
             cache.insert(key.clone(), Arc::clone(&bytes));
             order.push(key);
+            self.size.fetch_add(1, Ordering::Relaxed);
 
             while order.len() > MAX_CACHE_ENTRIES {
                 let old_key = order.remove(0);
@@ -75,8 +76,6 @@ impl ImagePreviewCache {
                 self.size.fetch_sub(1, Ordering::Relaxed);
             }
         }
-
-        self.size.fetch_add(1, Ordering::Relaxed);
 
         Ok(bytes)
     }
