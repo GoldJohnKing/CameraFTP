@@ -563,11 +563,22 @@ class ImageViewerActivity : AppCompatActivity() {
         // Only swap the bottom bar info section — ViewPager, adapter, task panel survive
         bindBottomBarInfo()
 
+        // Re-fit the visible image to the new screen dimensions
+        resetCurrentImageScale()
+
         updateUI()
         taskController.syncAiEditProgress()
         taskController.syncColorGradingProgress()
         if (taskController.isVisible) {
             taskController.updatePosition(isBottomBarVisible, bottomBar)
+        }
+    }
+
+    private fun resetCurrentImageScale() {
+        val rv = viewPager.getChildAt(0) as? androidx.recyclerview.widget.RecyclerView ?: return
+        for (i in 0 until rv.childCount) {
+            val holder = rv.getChildViewHolder(rv.getChildAt(i)) as? ImageViewerAdapter.ViewHolder ?: continue
+            holder.imageView.resetScaleAndCenter()
         }
     }
 

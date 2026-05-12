@@ -192,7 +192,10 @@ android {
     }
     sourceSets {
         getByName("main") {
-            assets.setSrcDirs(listOf(tauriStagingAssetsDir.get().asFile))
+            assets.setSrcDirs(listOf(
+                tauriStagingAssetsDir.get().asFile,
+                generatedAssetsSourceDir.asFile
+            ))
             jniLibs.setSrcDirs(listOf(
                 tauriStagingJniLibsDir.get().asFile,
                 file("${project.projectDir}/extra-jniLibs")
@@ -203,6 +206,11 @@ android {
 
 tasks.matching { it.name.endsWith("Assets") && it.name.contains("merge") }.configureEach {
     dependsOn(stageTauriAssets)
+    doFirst {
+        // Remove src/main/assets/tauri.conf.json to avoid duplicate with staging copy
+        val srcAsset = file("src/main/assets/tauri.conf.json")
+        if (srcAsset.exists()) srcAsset.delete()
+    }
 }
 
 tasks.matching { it.name.contains("lint", ignoreCase = true) }.configureEach {
