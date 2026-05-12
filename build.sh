@@ -179,6 +179,11 @@ fi
 
 export FRONTEND_ALREADY_BUILT=1
 
+# Run all tests once before platform builds (frontend + Rust are platform-independent)
+if [ "$CHECK_ONLY" = false ]; then
+    run_tests
+fi
+
 FAILED_TARGETS=()
 
 if [ "$SERIAL_MODE" = true ] || [ "$CHECK_ONLY" = true ]; then

@@ -125,7 +125,7 @@ main() {
     if [ "$CHECK_ONLY" = true ]; then
         check_windows_env
     else
-        check_windows_env && run_tests && build_windows "$BUILD_TYPE"
+        check_windows_env && build_windows "$BUILD_TYPE"
     fi
 }
 
