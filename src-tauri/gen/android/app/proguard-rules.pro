@@ -30,3 +30,8 @@
 
 # Keep Android service coordinator JNI entrypoints referenced only from Rust native code.
 -keep class com.gjk.cameraftpcompanion.AndroidServiceStateCoordinator { *; }
+
+# Keep WebView @JavascriptInterface bridge classes (referenced via addJavascriptInterface)
+-keepclassmembers class * {
+    @android.webkit.JavascriptInterface <methods>;
+}

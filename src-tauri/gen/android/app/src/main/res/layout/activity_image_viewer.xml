@@ -1,5 +1,4 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- TODO: Extract shared layout into include to reduce duplication with layout-land variant -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
@@ -162,45 +161,13 @@
         android:paddingHorizontal="14dp"
         android:paddingVertical="10dp">
 
-        <!-- Left: filename + EXIF info -->
-        <LinearLayout
+        <!-- Left: filename + EXIF info — dynamically inflated from bottom_bar_info_portrait/landscape -->
+        <FrameLayout
+            android:id="@+id/bottom_bar_info"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:orientation="vertical"
-            android:minWidth="0dp">
-
-            <TextView
-                android:id="@+id/filename"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:textColor="#E5E7EB"
-                android:textSize="14sp"
-                android:textStyle="bold"
-                android:singleLine="true"
-                android:ellipsize="middle" />
-
-            <TextView
-                android:id="@+id/exif_params"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:textColor="#9CA3AF"
-                android:textSize="12sp"
-                android:singleLine="true"
-                android:layout_marginTop="3dp"
-                android:visibility="gone" />
-
-            <TextView
-                android:id="@+id/exif_datetime"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:textColor="#9CA3AF"
-                android:textSize="12sp"
-                android:singleLine="true"
-                android:layout_marginTop="2dp"
-                android:visibility="gone" />
-
-        </LinearLayout>
+            android:minWidth="0dp" />
 
         <!-- Right: action buttons -->
         <LinearLayout
