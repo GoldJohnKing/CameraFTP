@@ -7,7 +7,6 @@
 import { act } from 'react';
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 import { GalleryCard } from '../GalleryCard';
-import type { MediaItemDto } from '../../types';
 import { makeItems } from '../../test-utils/media-factory';
 import { setupReactRoot } from '../../test-utils/react-root';
 
