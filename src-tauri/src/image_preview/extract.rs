@@ -4,6 +4,8 @@
 
 use std::path::Path;
 
+use memchr::memchr;
+
 /// Extract the embedded JPEG preview from a RAW file by binary scanning
 /// for the largest complete JPEG segment (SOI...EOI).
 ///
@@ -33,7 +35,7 @@ pub fn extract_preview_jpeg(path: &Path) -> Result<Vec<u8>, String> {
 
     // Camera-embedded preview JPEGs often omit EXIF metadata entirely.
     // Read the Orientation from the RAW file's TIFF structure and inject it.
-    if !has_exif_app1(&jpeg) {
+    if !crate::image_utils::has_exif_app1(&jpeg) {
         if let Some(orientation) = read_raw_orientation(path) {
             if orientation != 1 {
                 tracing::debug!(
@@ -54,13 +56,9 @@ fn read_raw_orientation(path: &Path) -> Option<u8> {
     crate::image_utils::parse_exif(path).ok()??.orientation
 }
 
-/// Check if a JPEG already has an APP1/EXIF marker.
-fn has_exif_app1(jpeg: &[u8]) -> bool {
-    crate::image_utils::has_exif_app1(jpeg)
-}
-
 /// Scan binary data for the largest complete JPEG segment.
 /// JPEG segments are delimited by SOI (0xFF 0xD8) and EOI (0xFF 0xD9) markers.
+/// Uses memchr for SIMD-accelerated 0xFF byte scanning.
 fn find_largest_jpeg(data: &[u8]) -> Option<Vec<u8>> {
     let mut best_start = 0;
     let mut best_size = 0;
@@ -72,26 +70,35 @@ fn find_largest_jpeg(data: &[u8]) -> Option<Vec<u8>> {
 
     let mut i = 0;
     while i < len - 1 {
-        // Look for JPEG SOI marker
-        if data[i] == 0xFF && data[i + 1] == 0xD8 {
-            let start = i;
-            // Find the corresponding EOI marker
-            let mut j = i + 2;
+        // Skip to next 0xFF byte using SIMD-accelerated memchr
+        let relative = match memchr(0xFF, &data[i..len - 1]) {
+            Some(p) => p,
+            None => break,
+        };
+        let ff_pos = i + relative;
+
+        if data[ff_pos + 1] == 0xD8 {
+            // Found SOI marker — scan for matching EOI
+            let start = ff_pos;
+            let mut j = start + 2;
             while j < len - 1 {
-                if data[j] == 0xFF && data[j + 1] == 0xD9 {
-                    let size = j + 2 - start;
+                let rel = match memchr(0xFF, &data[j..len - 1]) {
+                    Some(p) => j + p,
+                    None => break,
+                };
+                if data[rel + 1] == 0xD9 {
+                    let size = rel + 2 - start;
                     if size > best_size {
                         best_start = start;
                         best_size = size;
                     }
                     break;
                 }
-                j += 1;
+                j = rel + 1;
             }
-            // Continue scanning from after this SOI
-            i += 2;
+            i = ff_pos + 2;
         } else {
-            i += 1;
+            i = ff_pos + 1;
         }
     }
 
@@ -105,7 +112,7 @@ fn find_largest_jpeg(data: &[u8]) -> Option<Vec<u8>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::image_utils::{build_orientation_app1, inject_orientation_exif};
+    use crate::image_utils::{build_orientation_app1, has_exif_app1, inject_orientation_exif};
 
     #[test]
     fn build_orientation_app1_has_correct_structure() {

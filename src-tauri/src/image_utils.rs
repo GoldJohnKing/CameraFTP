@@ -18,12 +18,13 @@ pub const RAW_EXTENSIONS: &[&str] = &[
     "nef", "nrw", "cr2", "cr3", "arw", "sr2",
     "raf", "orf", "rw2", "pef", "dng", "x3f", "raw", "srw",
 ];
+// NOTE: Keep in sync with src/utils/raw.ts (TypeScript side).
 
 /// Check if a file path has a RAW image extension.
 pub fn is_raw_file(path: &Path) -> bool {
     path.extension()
         .and_then(|e| e.to_str())
-        .map(|e| RAW_EXTENSIONS.contains(&e.to_lowercase().as_str()))
+        .map(|e| RAW_EXTENSIONS.iter().any(|ext| ext.eq_ignore_ascii_case(e)))
         .unwrap_or(false)
 }
 

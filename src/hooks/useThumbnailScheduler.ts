@@ -121,7 +121,12 @@ export function useThumbnailScheduler(opts?: UseThumbnailSchedulerOptions) {
           );
         } else {
           const url = convertFileSrc(result.localPath);
-          setThumbnails((prev) => new Map(prev).set(result.mediaId, url));
+          setThumbnails((prev) => {
+            if (prev.get(result.mediaId) === url) return prev;
+            const next = new Map(prev);
+            next.set(result.mediaId, url);
+            return next;
+          });
           cleanupRequest(result.requestId, result.mediaId);
         }
       } else {
@@ -155,12 +160,22 @@ export function useThumbnailScheduler(opts?: UseThumbnailSchedulerOptions) {
           await invoke<boolean>('inject_exif_orientation', { thumbnailPath, orientation });
         }
         const url = convertFileSrc(thumbnailPath);
-        setThumbnails((prev) => new Map(prev).set(mediaId, url));
+        setThumbnails((prev) => {
+          if (prev.get(mediaId) === url) return prev;
+          const next = new Map(prev);
+          next.set(mediaId, url);
+          return next;
+        });
       } catch (e) {
         // Orientation fix failed — display thumbnail as-is (better than nothing)
         console.warn(`Failed to fix RAW orientation for ${rawFilePath}:`, e);
         const url = convertFileSrc(thumbnailPath);
-        setThumbnails((prev) => new Map(prev).set(mediaId, url));
+        setThumbnails((prev) => {
+          if (prev.get(mediaId) === url) return prev;
+          const next = new Map(prev);
+          next.set(mediaId, url);
+          return next;
+        });
       } finally {
         cleanupRequest(requestId, mediaId);
       }

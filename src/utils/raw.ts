@@ -8,6 +8,7 @@ const RAW_EXTENSIONS = new Set([
   'nef', 'nrw', 'cr2', 'cr3', 'arw', 'sr2',
   'raf', 'orf', 'rw2', 'pef', 'dng', 'x3f', 'raw', 'srw',
 ]);
+// NOTE: Keep in sync with src-tauri/src/image_utils.rs RAW_EXTENSIONS (Rust side).
 
 /** Check if a filename/path has a RAW image extension. */
 export function isRawFile(filenameOrPath: string): boolean {

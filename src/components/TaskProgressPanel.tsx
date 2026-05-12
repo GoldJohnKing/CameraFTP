@@ -136,19 +136,6 @@ export function TaskProgressPanel({ position }: TaskProgressPanelProps) {
           )}
         </div>
       </div>
-
-      <style>{`
-        @keyframes slide-up {
-          from { opacity: 0; transform: translateY(8px); }
-          to { opacity: 1; transform: translateY(0); }
-        }
-        .animate-slide-up {
-          animation: slide-up 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-        }
-        @media (prefers-reduced-motion: reduce) {
-          .animate-slide-up { animation: none; opacity: 1; }
-        }
-      `}</style>
     </div>
   );
 }

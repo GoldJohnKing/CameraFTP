@@ -92,3 +92,19 @@ input[type="password"]::-webkit-credentials-auto-fill-button {
 [data-sonner-toaster] {
   bottom: 80px !important;
 }
+
+/* ========================================
+   TaskProgressPanel slide-up animation
+   ======================================== */
+@keyframes slide-up {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-slide-up {
+  animation: slide-up 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-slide-up { animation: none; opacity: 1; }
+}

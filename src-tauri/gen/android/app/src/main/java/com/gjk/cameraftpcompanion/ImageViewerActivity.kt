@@ -1074,106 +1074,33 @@ class ImageViewerActivity : AppCompatActivity() {
         runOnUiThread {
             isAiEditing = false
             if (isFinishing || isDestroyed) return@runOnUiThread
-
-            if (cancelled) {
-                taskRowAiEdit.visibility = View.GONE
-                updateTaskPanelVisibility()
-                return@runOnUiThread
-            }
-
-            taskAiEditCancel.visibility = View.GONE
-            val state = com.gjk.cameraftpcompanion.bridges.ImageViewerBridge.aiEditState
-            if (state is com.gjk.cameraftpcompanion.bridges.TaskProgressState.Done && state.total > 0) {
-                taskAiEditCount.text = "${state.total} / ${state.total}"
-            }
-
-            updateTaskPanelFooter()
-            checkAutoDismiss()
+            onTaskRowComplete(aiEditRefs(), com.gjk.cameraftpcompanion.bridges.ImageViewerBridge.aiEditState, cancelled)
         }
     }
 
     fun updateAiEditProgress(current: Int, total: Int, failedCount: Int) {
         runOnUiThread {
             if (isFinishing || isDestroyed) return@runOnUiThread
-
             isAiEditing = true
-
-            taskProgressPanel.visibility = View.VISIBLE
-            taskRowAiEdit.visibility = View.VISIBLE
-            taskAiEditCount.text = "$current / $total"
-
-            if (failedCount > 0) {
-                taskAiEditFailed.visibility = View.VISIBLE
-                taskAiEditFailed.text = "(失败 $failedCount)"
-            } else {
-                taskAiEditFailed.visibility = View.GONE
-            }
-
-            taskAiEditCancel.visibility = View.VISIBLE
-            taskAiEditCancel.setOnClickListener {
-                val mainActivity = MainActivity.instance
-                mainActivity?.runOnUiThread {
-                    mainActivity.getWebView()?.evaluateJavascript(
-                        "(function(){try{window.__tauriCancelAiEdit?.()}catch(e){}})();", null
-                    )
-                }
-            }
-
-            updateTaskPanelPosition()
-            updateTaskPanelFooter()
+            updateTaskRowProgress(aiEditRefs(), current, total, failedCount)
         }
     }
 
 
     private fun syncAiEditProgressFromWebView() {
-        val state = com.gjk.cameraftpcompanion.bridges.ImageViewerBridge.aiEditState
-        if (state is com.gjk.cameraftpcompanion.bridges.TaskProgressState.InProgress) {
-            isAiEditing = true
-            updateAiEditProgress(state.current, state.total, state.failedCount)
-        } else if (state is com.gjk.cameraftpcompanion.bridges.TaskProgressState.Done) {
-            taskRowAiEdit.visibility = View.VISIBLE
-            taskAiEditCancel.visibility = View.GONE
-            if (state.total > 0) {
-                taskAiEditCount.text = "${state.total} / ${state.total}"
-                if (state.failedCount > 0) {
-                    taskAiEditFailed.visibility = View.VISIBLE
-                    taskAiEditFailed.text = "(失败 ${state.failedCount})"
-                }
-            }
-            taskProgressPanel.visibility = View.VISIBLE
-            updateTaskPanelFooter()
-        }
+        syncTaskRowFromWebView(
+            com.gjk.cameraftpcompanion.bridges.ImageViewerBridge.aiEditState,
+            aiEditRefs(),
+            { isAiEditing = true },
+            { c, t, f -> updateAiEditProgress(c, t, f) },
+        )
     }
 
     fun updateColorGradingProgress(current: Int, total: Int, failedCount: Int) {
         runOnUiThread {
             if (isFinishing || isDestroyed) return@runOnUiThread
-
             isColorGrading = true
-
-            taskProgressPanel.visibility = View.VISIBLE
-            taskRowColorGrading.visibility = View.VISIBLE
-            taskCgCount.text = "$current / $total"
-
-            if (failedCount > 0) {
-                taskCgFailed.visibility = View.VISIBLE
-                taskCgFailed.text = "(失败 $failedCount)"
-            } else {
-                taskCgFailed.visibility = View.GONE
-            }
-
-            taskCgCancel.visibility = View.VISIBLE
-            taskCgCancel.setOnClickListener {
-                val mainActivity = MainActivity.instance
-                mainActivity?.runOnUiThread {
-                    mainActivity.getWebView()?.evaluateJavascript(
-                        "(function(){try{window.__tauriCancelColorGrading?.()}catch(e){}})();", null
-                    )
-                }
-            }
-
-            updateTaskPanelPosition()
-            updateTaskPanelFooter()
+            updateTaskRowProgress(cgRefs(), current, total, failedCount)
         }
     }
 
@@ -1181,42 +1108,17 @@ class ImageViewerActivity : AppCompatActivity() {
         runOnUiThread {
             isColorGrading = false
             if (isFinishing || isDestroyed) return@runOnUiThread
-
-            if (cancelled) {
-                taskRowColorGrading.visibility = View.GONE
-                updateTaskPanelVisibility()
-                return@runOnUiThread
-            }
-
-            taskCgCancel.visibility = View.GONE
-            val state = com.gjk.cameraftpcompanion.bridges.ImageViewerBridge.colorGradingState
-            if (state is com.gjk.cameraftpcompanion.bridges.TaskProgressState.Done && state.total > 0) {
-                taskCgCount.text = "${state.total} / ${state.total}"
-            }
-
-            updateTaskPanelFooter()
-            checkAutoDismiss()
+            onTaskRowComplete(cgRefs(), com.gjk.cameraftpcompanion.bridges.ImageViewerBridge.colorGradingState, cancelled)
         }
     }
 
     private fun syncColorGradingProgressFromWebView() {
-        val state = com.gjk.cameraftpcompanion.bridges.ImageViewerBridge.colorGradingState
-        if (state is com.gjk.cameraftpcompanion.bridges.TaskProgressState.InProgress) {
-            isColorGrading = true
-            updateColorGradingProgress(state.current, state.total, state.failedCount)
-        } else if (state is com.gjk.cameraftpcompanion.bridges.TaskProgressState.Done) {
-            taskRowColorGrading.visibility = View.VISIBLE
-            taskCgCancel.visibility = View.GONE
-            if (state.total > 0) {
-                taskCgCount.text = "${state.total} / ${state.total}"
-                if (state.failedCount > 0) {
-                    taskCgFailed.visibility = View.VISIBLE
-                    taskCgFailed.text = "(失败 ${state.failedCount})"
-                }
-            }
-            taskProgressPanel.visibility = View.VISIBLE
-            updateTaskPanelFooter()
-        }
+        syncTaskRowFromWebView(
+            com.gjk.cameraftpcompanion.bridges.ImageViewerBridge.colorGradingState,
+            cgRefs(),
+            { isColorGrading = true },
+            { c, t, f -> updateColorGradingProgress(c, t, f) },
+        )
     }
 
     private fun updateTaskPanelFooter() {
@@ -1283,6 +1185,84 @@ class ImageViewerActivity : AppCompatActivity() {
                 com.gjk.cameraftpcompanion.bridges.ImageViewerBridge.clearColorGradingProgress()
             }
             taskPanelAutoDismissHandler?.postDelayed(taskPanelAutoDismissRunnable!!, 3000)
+        }
+    }
+
+    private data class TaskRowRefs(
+        val row: LinearLayout,
+        val countView: TextView,
+        val failedView: TextView,
+        val cancelView: TextView,
+        val cancelJs: String,
+    )
+
+    // Functions (not lazy vals) so they always read current lateinit views after config changes.
+    private fun aiEditRefs() = TaskRowRefs(taskRowAiEdit, taskAiEditCount, taskAiEditFailed, taskAiEditCancel, "__tauriCancelAiEdit")
+    private fun cgRefs() = TaskRowRefs(taskRowColorGrading, taskCgCount, taskCgFailed, taskCgCancel, "__tauriCancelColorGrading")
+
+    private fun updateTaskRowProgress(refs: TaskRowRefs, current: Int, total: Int, failedCount: Int) {
+        taskProgressPanel.visibility = View.VISIBLE
+        refs.row.visibility = View.VISIBLE
+        refs.countView.text = "$current / $total"
+
+        if (failedCount > 0) {
+            refs.failedView.visibility = View.VISIBLE
+            refs.failedView.text = "(失败 $failedCount)"
+        } else {
+            refs.failedView.visibility = View.GONE
+        }
+
+        refs.cancelView.visibility = View.VISIBLE
+        refs.cancelView.setOnClickListener {
+            val mainActivity = MainActivity.instance
+            mainActivity?.runOnUiThread {
+                mainActivity.getWebView()?.evaluateJavascript(
+                    "(function(){try{window.${refs.cancelJs}?.()}catch(e){}})();", null
+                )
+            }
+        }
+
+        updateTaskPanelPosition()
+        updateTaskPanelFooter()
+    }
+
+    private fun onTaskRowComplete(refs: TaskRowRefs, state: com.gjk.cameraftpcompanion.bridges.TaskProgressState?, cancelled: Boolean) {
+        if (cancelled) {
+            refs.row.visibility = View.GONE
+            updateTaskPanelVisibility()
+            return
+        }
+
+        refs.cancelView.visibility = View.GONE
+        if (state is com.gjk.cameraftpcompanion.bridges.TaskProgressState.Done && state.total > 0) {
+            refs.countView.text = "${state.total} / ${state.total}"
+        }
+
+        updateTaskPanelFooter()
+        checkAutoDismiss()
+    }
+
+    private fun syncTaskRowFromWebView(
+        state: com.gjk.cameraftpcompanion.bridges.TaskProgressState?,
+        refs: TaskRowRefs,
+        setActive: () -> Unit,
+        updateProgress: (Int, Int, Int) -> Unit,
+    ) {
+        if (state is com.gjk.cameraftpcompanion.bridges.TaskProgressState.InProgress) {
+            setActive()
+            updateProgress(state.current, state.total, state.failedCount)
+        } else if (state is com.gjk.cameraftpcompanion.bridges.TaskProgressState.Done) {
+            refs.row.visibility = View.VISIBLE
+            refs.cancelView.visibility = View.GONE
+            if (state.total > 0) {
+                refs.countView.text = "${state.total} / ${state.total}"
+                if (state.failedCount > 0) {
+                    refs.failedView.visibility = View.VISIBLE
+                    refs.failedView.text = "(失败 ${state.failedCount})"
+                }
+            }
+            taskProgressPanel.visibility = View.VISIBLE
+            updateTaskPanelFooter()
         }
     }
 
