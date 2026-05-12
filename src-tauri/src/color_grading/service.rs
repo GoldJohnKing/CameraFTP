@@ -9,6 +9,7 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use tauri::{AppHandle, Emitter};
 
+use crate::config::AutoColorGradingConfig;
 use crate::config_service::ConfigService;
 use crate::error::AppError;
 use crate::image_utils;
@@ -83,11 +84,7 @@ impl ColorGradingService {
         let auto_cg = config.as_ref()
             .and_then(|c| c.auto_color_grading.as_ref());
 
-        let should_enqueue = auto_cg
-            .map(|cg| cg.enabled && !cg.preset_id.is_empty())
-            .unwrap_or(false);
-
-        if !should_enqueue || !image_utils::is_raw_file(&file_path) {
+        if !should_auto_color_grade(auto_cg, &file_path) {
             return;
         }
 
@@ -102,6 +99,18 @@ impl ColorGradingService {
             tracing::warn!("Auto color grading enqueue failed for {}: {}", file_path.display(), e);
         }
     }
+}
+
+/// Pure predicate: should auto color grading trigger for this file + config?
+pub(crate) fn should_auto_color_grade(
+    config: Option<&AutoColorGradingConfig>,
+    file_path: &std::path::Path,
+) -> bool {
+    let _cg = match config {
+        Some(cg) if cg.enabled && !cg.preset_id.is_empty() => cg,
+        _ => return false,
+    };
+    image_utils::is_raw_file(file_path)
 }
 
 async fn worker_loop(
@@ -286,23 +295,40 @@ async fn process_single_file(task: &ColorGradingTask) -> Result<String, AppError
 
 #[cfg(test)]
 mod tests {
-    use crate::config::AutoColorGradingConfig;
+    use super::*;
+    use std::path::Path;
 
-    #[test]
-    fn auto_trigger_requires_enabled_and_preset() {
-        let config = AutoColorGradingConfig::default();
-        assert!(!config.enabled || !config.preset_id.is_empty());
-
-        let enabled = AutoColorGradingConfig { enabled: true, ..Default::default() };
-        assert!(enabled.enabled && !enabled.preset_id.is_empty());
+    fn enabled_cg() -> AutoColorGradingConfig {
+        AutoColorGradingConfig { enabled: true, ..Default::default() }
     }
 
     #[test]
-    fn auto_trigger_skips_non_raw() {
-        let raw_path = std::path::PathBuf::from("/tmp/photo.nef");
-        let jpg_path = std::path::PathBuf::from("/tmp/photo.jpg");
-        assert!(crate::image_utils::is_raw_file(&raw_path));
-        assert!(!crate::image_utils::is_raw_file(&jpg_path));
+    fn should_auto_color_grade_enabled_raw_file() {
+        assert!(should_auto_color_grade(Some(&enabled_cg()), Path::new("photo.nef")));
+        assert!(should_auto_color_grade(Some(&enabled_cg()), Path::new("photo.CR3")));
+    }
+
+    #[test]
+    fn should_auto_color_grade_disabled_even_for_raw() {
+        let disabled = AutoColorGradingConfig { enabled: false, ..Default::default() };
+        assert!(!should_auto_color_grade(Some(&disabled), Path::new("photo.nef")));
+    }
+
+    #[test]
+    fn should_auto_color_grade_non_raw_even_if_enabled() {
+        assert!(!should_auto_color_grade(Some(&enabled_cg()), Path::new("photo.jpg")));
+        assert!(!should_auto_color_grade(Some(&enabled_cg()), Path::new("photo.mp4")));
+    }
+
+    #[test]
+    fn should_auto_color_grade_requires_nonempty_preset() {
+        let empty_preset = AutoColorGradingConfig { enabled: true, preset_id: String::new(), ..Default::default() };
+        assert!(!should_auto_color_grade(Some(&empty_preset), Path::new("photo.nef")));
+    }
+
+    #[test]
+    fn should_auto_color_grade_returns_false_when_no_config() {
+        assert!(!should_auto_color_grade(None, Path::new("photo.nef")));
     }
 }
 
