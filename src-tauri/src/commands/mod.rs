@@ -34,7 +34,7 @@ pub use config::{
     update_preview_config,
 };
 
-pub use exif::get_image_exif;
+pub use exif::{get_image_exif, get_raw_orientation, inject_exif_orientation};
 
 pub use file_index::{
     get_current_file_index,

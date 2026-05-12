@@ -17,6 +17,7 @@ import type { ThumbRequest, ThumbResult } from '../../types';
 
 vi.mock('@tauri-apps/api/core', () => ({
   convertFileSrc: (path: string) => `asset://localhost${path}`,
+  invoke: vi.fn().mockResolvedValue(null),
 }));
 
 vi.mock('../../services/gallery-media-v2', () => ({
@@ -36,7 +37,7 @@ function getRegisteredListener(): (result: ThumbResult) => void {
 }
 
 function makeMedia(mediaId: string, dateModifiedMs = 1000) {
-  return { mediaId, uri: `content://media/${mediaId}`, dateModifiedMs };
+  return { mediaId, uri: `content://media/${mediaId}`, dateModifiedMs, filePath: null };
 }
 
 function makeReadyResult(requestId: string, mediaId: string, localPath: string): ThumbResult {

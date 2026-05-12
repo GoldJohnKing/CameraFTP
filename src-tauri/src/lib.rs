@@ -45,6 +45,8 @@ use commands::{
     get_current_file_index,
     get_file_list,
     get_image_exif,
+    get_raw_orientation,
+    inject_exif_orientation,
     get_latest_image,
     get_platform,
     get_server_runtime_state,
@@ -265,6 +267,8 @@ pub fn run() {
 
             // EXIF 信息
             get_image_exif,
+            get_raw_orientation,
+            inject_exif_orientation,
 
             // AI 修图
             trigger_ai_edit,

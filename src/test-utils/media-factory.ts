@@ -18,5 +18,6 @@ export function makeItems(count: number): MediaItemDto[] {
     height: 100,
     mimeType: 'image/jpeg',
     displayName: null,
+    filePath: null,
   }));
 }

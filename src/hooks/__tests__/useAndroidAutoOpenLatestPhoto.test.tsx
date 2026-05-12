@@ -40,6 +40,7 @@ function createItem(mediaId: string, uri: string): MediaItemDto {
     height: null,
     mimeType: 'image/jpeg',
     displayName: `${mediaId}.jpg`,
+    filePath: null,
   };
 }
 

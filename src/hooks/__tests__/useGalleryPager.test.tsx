@@ -66,6 +66,7 @@ function makeItem(mediaId: string, dateModifiedMs = 1000): MediaItemDto {
     height: 1080,
     mimeType: 'image/jpeg',
     displayName: null,
+    filePath: null,
   };
 }
 

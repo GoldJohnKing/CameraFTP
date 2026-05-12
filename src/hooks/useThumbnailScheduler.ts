@@ -10,9 +10,16 @@
  * Manages a batched, debounced thumbnail pipeline for the V2 gallery.
  * Enqueues visible items as high priority, nearby items as medium priority,
  * and cancels requests that scroll out of range.
+ *
+ * For RAW files (NEF, CR2, ARW, etc.), Android's ImageDecoder cannot reliably
+ * read EXIF orientation from the RAW file's TIFF structure. After the Kotlin
+ * thumbnail pipeline saves a JPEG thumbnail (without EXIF), this scheduler
+ * calls Rust's nomexif to read the correct orientation from the RAW file and
+ * injects it into the saved JPEG. The browser's `imageOrientation: from-image`
+ * CSS then applies the rotation.
  */
 
-import { convertFileSrc } from '@tauri-apps/api/core';
+import { convertFileSrc, invoke } from '@tauri-apps/api/core';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   enqueueThumbnails,
@@ -21,6 +28,7 @@ import {
   unregisterThumbnailListener,
 } from '../services/gallery-media-v2';
 import type { ThumbRequest, ThumbResult } from '../types';
+import { isRawFile } from '../utils/raw';
 
 const DEBOUNCE_MS = 60;
 const VIEW_ID = 'gallery-grid';
@@ -53,6 +61,7 @@ type ThumbnailSchedulerMedia = {
   mediaId: string;
   uri: string;
   dateModifiedMs: number;
+  filePath: string | null;
 };
 
 type UseThumbnailSchedulerOptions = {
@@ -101,21 +110,59 @@ export function useThumbnailScheduler(opts?: UseThumbnailSchedulerOptions) {
       if (active.wantedKey !== currentWantedKey) return;
 
       if (result.status === 'ready' && result.localPath) {
-        const url = result.localPath.startsWith('data:image/')
-          ? result.localPath
-          : convertFileSrc(result.localPath);
-        setThumbnails((prev) => new Map(prev).set(result.mediaId, url));
+        const isRaw = media.filePath ? isRawFile(media.filePath) : false;
+        if (isRaw && media.filePath) {
+          // Defer cleanup to the async orientation fix
+          void fixRawOrientation(
+            result.mediaId,
+            result.requestId,
+            media.filePath,
+            result.localPath,
+          );
+        } else {
+          const url = convertFileSrc(result.localPath);
+          setThumbnails((prev) => new Map(prev).set(result.mediaId, url));
+          cleanupRequest(result.requestId, result.mediaId);
+        }
+      } else {
+        cleanupRequest(result.requestId, result.mediaId);
       }
-
-      activeRequestsRef.current.delete(result.requestId);
-      setLoadingThumbs((prev) => {
-        const next = new Set(prev);
-        next.delete(result.mediaId);
-        return next;
-      });
 
       if (result.status === 'failed' && !isRetryable(result.errorCode)) {
         failedMediaRef.current.add(result.mediaId);
+      }
+    };
+
+    const cleanupRequest = (requestId: string, mediaId: string) => {
+      activeRequestsRef.current.delete(requestId);
+      setLoadingThumbs((prev) => {
+        const next = new Set(prev);
+        next.delete(mediaId);
+        return next;
+      });
+    };
+
+    /** Read orientation from RAW file via Rust nomexif and inject into thumbnail JPEG. */
+    const fixRawOrientation = async (
+      mediaId: string,
+      requestId: string,
+      rawFilePath: string,
+      thumbnailPath: string,
+    ) => {
+      try {
+        const orientation = await invoke<number>('get_raw_orientation', { filePath: rawFilePath });
+        if (orientation > 1) {
+          await invoke<boolean>('inject_exif_orientation', { thumbnailPath, orientation });
+        }
+        const url = convertFileSrc(thumbnailPath);
+        setThumbnails((prev) => new Map(prev).set(mediaId, url));
+      } catch (e) {
+        // Orientation fix failed — display thumbnail as-is (better than nothing)
+        console.warn(`Failed to fix RAW orientation for ${rawFilePath}:`, e);
+        const url = convertFileSrc(thumbnailPath);
+        setThumbnails((prev) => new Map(prev).set(mediaId, url));
+      } finally {
+        cleanupRequest(requestId, mediaId);
       }
     };
 

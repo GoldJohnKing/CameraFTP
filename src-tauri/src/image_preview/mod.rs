@@ -2,7 +2,7 @@
 // Copyright (C) 2026 GoldJohnKing <GoldJohnKing@Live.cn>
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-mod extract;
+pub(crate) mod extract;
 
 use std::collections::HashMap;
 use std::path::Path;

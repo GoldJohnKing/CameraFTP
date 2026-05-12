@@ -31,6 +31,7 @@ export interface MediaItemDto {
   height: number | null;
   mimeType: string | null;
   displayName: string | null;
+  filePath: string | null;
 }
 
 /** Response from a media page query */

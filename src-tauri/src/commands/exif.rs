@@ -4,6 +4,7 @@
 
 use tauri::command;
 use crate::error::AppError;
+use std::path::Path;
 
 /// EXIF 信息结构体
 #[derive(Debug, Clone, serde::Serialize, ts_rs::TS)]
@@ -96,6 +97,38 @@ pub async fn get_image_exif(file_path: String) -> Result<Option<ExifInfo>, AppEr
         datetime,
         orientation,
     }))
+}
+
+/// Read the EXIF Orientation tag value from an image file.
+/// Returns `0` if the file has no EXIF or no Orientation tag (valid values are 1–8).
+#[command]
+pub async fn get_raw_orientation(file_path: String) -> Result<u8, AppError> {
+    let parsed = crate::image_utils::parse_exif(Path::new(&file_path))
+        .map_err(|e| AppError::Io(e))?;
+    Ok(parsed.and_then(|p| p.orientation).unwrap_or(0))
+}
+
+/// Inject EXIF orientation into a JPEG file that lacks it.
+/// Reads orientation from a RAW source file via nomexif, then injects a minimal
+/// APP1 segment into the JPEG at `thumbnail_path`.
+/// Returns `true` if orientation was injected, `false` if not needed.
+#[command]
+pub async fn inject_exif_orientation(
+    thumbnail_path: String,
+    orientation: u8,
+) -> Result<bool, AppError> {
+    if orientation == 1 || orientation == 0 {
+        return Ok(false);
+    }
+
+    let jpeg = std::fs::read(&thumbnail_path)
+        .map_err(|e| AppError::Io(format!("Failed to read thumbnail: {}", e)))?;
+
+    let fixed = crate::image_utils::inject_orientation_exif(jpeg, orientation);
+    std::fs::write(&thumbnail_path, fixed)
+        .map_err(|e| AppError::Io(format!("Failed to write thumbnail: {}", e)))?;
+
+    Ok(true)
 }
 
 #[cfg(test)]

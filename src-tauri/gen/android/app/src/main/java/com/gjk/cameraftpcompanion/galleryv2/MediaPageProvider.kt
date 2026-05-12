@@ -22,7 +22,8 @@ data class MediaPageItem(
     val width: Int?,
     val height: Int?,
     val mimeType: String?,
-    val displayName: String?
+    val displayName: String?,
+    val filePath: String?
 )
 
 data class MediaPageResult(
@@ -43,7 +44,8 @@ class MediaPageProvider(private val context: Context) {
             MediaStore.Images.Media.WIDTH,
             MediaStore.Images.Media.HEIGHT,
             MediaStore.Images.Media.MIME_TYPE,
-            MediaStore.Images.Media.DISPLAY_NAME
+            MediaStore.Images.Media.DISPLAY_NAME,
+            MediaStore.Images.Media.DATA
         )
 
         private const val SELECTION = "${MediaStore.Images.Media.RELATIVE_PATH} LIKE '%DCIM/CameraFTP/%'"
@@ -115,6 +117,7 @@ class MediaPageProvider(private val context: Context) {
                 val heightColumn = mediaCursor.getColumnIndexOrThrow(MediaStore.Images.Media.HEIGHT)
                 val mimeTypeColumn = mediaCursor.getColumnIndexOrThrow(MediaStore.Images.Media.MIME_TYPE)
                 val displayNameColumn = mediaCursor.getColumnIndexOrThrow(MediaStore.Images.Media.DISPLAY_NAME)
+                val dataColumn = mediaCursor.getColumnIndexOrThrow(MediaStore.Images.Media.DATA)
 
                 var count = 0
                 while (mediaCursor.moveToNext() && count < pageSize) {
@@ -125,6 +128,7 @@ class MediaPageProvider(private val context: Context) {
                     val height = mediaCursor.getInt(heightColumn).takeIf { it > 0 }
                     val mimeType = mediaCursor.getString(mimeTypeColumn)
                     val displayName = mediaCursor.getString(displayNameColumn)
+                    val filePath = mediaCursor.getString(dataColumn)
 
                     val contentUri = ContentUris.withAppendedId(
                         MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
@@ -139,7 +143,8 @@ class MediaPageProvider(private val context: Context) {
                             width = width,
                             height = height,
                             mimeType = mimeType,
-                            displayName = displayName
+                            displayName = displayName,
+                            filePath = filePath
                         )
                     )
 

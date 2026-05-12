@@ -47,6 +47,7 @@ describe('gallery-media-v2 service', () => {
             height: 1080,
             mimeType: 'image/jpeg',
             displayName: null,
+            filePath: null,
           },
         ],
         nextCursor: 'cursor-2',

@@ -41,7 +41,7 @@ pub fn extract_preview_jpeg(path: &Path) -> Result<Vec<u8>, String> {
                     orientation,
                     path_str
                 );
-                jpeg = inject_orientation_exif(jpeg, orientation);
+                jpeg = crate::image_utils::inject_orientation_exif(jpeg, orientation);
             }
         }
     }
@@ -56,67 +56,7 @@ fn read_raw_orientation(path: &Path) -> Option<u8> {
 
 /// Check if a JPEG already has an APP1/EXIF marker.
 fn has_exif_app1(jpeg: &[u8]) -> bool {
-    if jpeg.len() < 4 || jpeg[0] != 0xFF || jpeg[1] != 0xD8 {
-        return false;
-    }
-    let mut i = 2;
-    while i + 3 < jpeg.len() {
-        if jpeg[i] != 0xFF {
-            return false;
-        }
-        let marker = jpeg[i + 1];
-        if marker == 0xE1 {
-            return true;
-        }
-        if marker == 0xDA {
-            return false;
-        }
-        if marker == 0x00 || (0xD0..=0xD9).contains(&marker) {
-            i += 2;
-            continue;
-        }
-        let seg_len = u16::from_be_bytes([jpeg[i + 2], jpeg[i + 3]]) as usize;
-        i += 2 + seg_len;
-    }
-    false
-}
-
-/// Inject a minimal EXIF APP1 segment with an Orientation tag into a JPEG.
-/// Inserted right after the SOI marker (FF D8).
-fn inject_orientation_exif(jpeg: Vec<u8>, orientation: u8) -> Vec<u8> {
-    let app1 = build_orientation_app1(orientation);
-    let mut result = Vec::with_capacity(jpeg.len() + app1.len());
-    result.extend_from_slice(&jpeg[..2]); // SOI
-    result.extend(app1);
-    result.extend_from_slice(&jpeg[2..]); // Rest of JPEG
-    result
-}
-
-/// Build a minimal APP1/EXIF segment containing only the Orientation tag.
-///
-/// Structure:
-///   FFE1              - APP1 marker
-///   0022              - Length: 34 (2 + 32 payload)
-///   "Exif\0\0"        - EXIF header (6 bytes)
-///   II 2A00 08000000  - TIFF header: little-endian, magic 42, IFD0 at offset 8
-///   0100              - 1 IFD entry
-///   1201 0300 01000000 XX000000 - Orientation tag: SHORT, count=1, value=XX
-///   00000000          - Next IFD: none
-fn build_orientation_app1(orientation: u8) -> Vec<u8> {
-    vec![
-        0xFF, 0xE1, // APP1 marker
-        0x00, 0x22, // Length: 34
-        b'E', b'x', b'i', b'f', 0x00, 0x00, // "Exif\0\0"
-        b'I', b'I', // Little-endian
-        0x2A, 0x00, // TIFF magic: 42
-        0x08, 0x00, 0x00, 0x00, // IFD0 offset: 8
-        0x01, 0x00, // 1 IFD entry
-        0x12, 0x01, // Tag: Orientation (0x0112)
-        0x03, 0x00, // Type: SHORT
-        0x01, 0x00, 0x00, 0x00, // Count: 1
-        orientation, 0x00, 0x00, 0x00, // Value
-        0x00, 0x00, 0x00, 0x00, // Next IFD: 0
-    ]
+    crate::image_utils::has_exif_app1(jpeg)
 }
 
 /// Scan binary data for the largest complete JPEG segment.
