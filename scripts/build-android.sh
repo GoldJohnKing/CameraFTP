@@ -439,7 +439,7 @@ main() {
     if [ "$CHECK_ONLY" = true ]; then
         check_toolchain
     else
-        check_toolchain && build_android "$BUILD_TYPE"
+        check_toolchain && run_tests && build_android "$BUILD_TYPE"
     fi
 }
 

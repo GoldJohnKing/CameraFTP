@@ -399,6 +399,26 @@ clean_build_cache() {
     success "清理完成"
 }
 
+# Run Rust and frontend tests. Fails the build if any test fails.
+run_tests() {
+    local cargo_cmd
+    cargo_cmd=$(get_tool_cmd "cargo")
+    if [ -z "$cargo_cmd" ]; then
+        error "Cargo 未找到，无法运行测试"
+        return 1
+    fi
+
+    task "正在运行 Rust 测试..."
+    cd src-tauri
+    $cargo_cmd test --lib 2>&1 | tail -5
+    cd ..
+    success "Rust 测试通过"
+
+    task "正在运行前端测试..."
+    npx vitest run 2>&1 | tail -5
+    success "前端测试通过"
+}
+
 show_build_help() {
     local script_name="${1:-build.sh}"
     local VERSION
