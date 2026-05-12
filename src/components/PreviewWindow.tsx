@@ -17,9 +17,9 @@ import { usePreviewZoomPan } from '../hooks/usePreviewZoomPan';
 import { usePreviewToolbarAutoHide } from '../hooks/usePreviewToolbarAutoHide';
 import { PromptDialog } from './PromptDialog';
 import { TaskProgressPanel } from './TaskProgressPanel';
-import { useAiEditProgressListener, enqueueAiEdit } from '../hooks/useAiEditProgress';
+import { enqueueAiEdit } from '../hooks/useAiEditProgress';
 import { ColorGradingDialog } from './ColorGradingDialog';
-import { useColorGradingProgressListener, enqueueColorGrading } from '../hooks/useColorGradingProgress';
+import { enqueueColorGrading } from '../hooks/useColorGradingProgress';
 import type { ColorGradingPreset } from '../types';
 import { isRawFile as isRawFileType } from '../utils/raw';
 
@@ -47,9 +47,7 @@ const PreviewWindowContent = memo(function PreviewWindowContent({
   const effectiveAutoBringToFront = storeAutoBringToFront ?? autoBringToFront;
   const [imageError, setImageError] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
-  useAiEditProgressListener();
   const [showPromptDialog, setShowPromptDialog] = useState(false);
-  useColorGradingProgressListener();
   const [showColorGradingDialog, setShowColorGradingDialog] = useState(false);
   const [colorGradingPresets, setColorGradingPresets] = useState<ColorGradingPreset[]>([]);
 

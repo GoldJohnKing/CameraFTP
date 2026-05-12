@@ -168,7 +168,7 @@ export const GalleryCard = memo(function GalleryCard() {
 
   const hasRawSelected = Array.from(selectedIds).some(id => {
     const item = pager.items.find(i => i.mediaId === id);
-    return item?.displayName ? isRawFile(item.displayName) : false;
+    return item?.filePath ? isRawFile(item.filePath) : false;
   });
 
   // Full refresh on permission granted (necessary because gallery was empty before)

@@ -443,7 +443,7 @@ mod tests {
 
     #[test]
     fn auth_enabled_with_empty_username_passes_validation() {
-        // Username validation was intentionally removed — config saves should not be blocked
+        // validate() only checks port and save_path — empty username is allowed
         let mut config = AppConfig::default();
         config.advanced_connection.enabled = true;
         config.advanced_connection.auth.anonymous = false;

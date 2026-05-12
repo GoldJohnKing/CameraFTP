@@ -2,7 +2,7 @@
 // Copyright (C) 2026 GoldJohnKing <GoldJohnKing@Live.cn>
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-use std::sync::LazyLock;
+use std::sync::{Arc, LazyLock};
 
 use dashmap::DashMap;
 
@@ -12,32 +12,24 @@ pub struct LutData {
     pub size: usize,
     pub domain_min: [f32; 3],
     pub domain_max: [f32; 3],
-    pub table: Vec<f32>,
+    pub table: Arc<Vec<f32>>,
 }
 
 static LUT_ZIP: &[u8] =
     include_bytes!(concat!(env!("OUT_DIR"), "/luts.zip"));
 
-static LUT_CACHE: LazyLock<DashMap<String, LutData>> = LazyLock::new(DashMap::new);
+static LUT_CACHE: LazyLock<DashMap<String, Arc<LutData>>> = LazyLock::new(DashMap::new);
 
-pub fn get_lut_data(preset_id: &str) -> Result<LutData, AppError> {
-    // Return cached if available
+pub fn get_lut_data(preset_id: &str) -> Result<Arc<LutData>, AppError> {
     if let Some(entry) = LUT_CACHE.get(preset_id) {
-        return Ok(LutData {
-            size: entry.size,
-            domain_min: entry.domain_min,
-            domain_max: entry.domain_max,
-            table: entry.table.clone(),
-        });
+        return Ok(Arc::clone(entry.value()));
     }
 
-    // Look up the .cube filename for this preset
     let preset = super::presets::find_preset(preset_id).ok_or_else(|| {
         AppError::ColorGradingError(format!("Unknown color grading preset: {}", preset_id))
     })?;
 
-    // Extract and parse the single entry from the ZIP
-    let lut_data = extract_and_parse(&preset.cube_filename)?;
+    let lut_data = Arc::new(extract_and_parse(&preset.cube_filename)?);
 
     tracing::info!(
         "LUT '{}' loaded: {}^3, {} entries",
@@ -46,12 +38,7 @@ pub fn get_lut_data(preset_id: &str) -> Result<LutData, AppError> {
         lut_data.table.len() / 3
     );
 
-    LUT_CACHE.insert(preset_id.to_string(), LutData {
-        size: lut_data.size,
-        domain_min: lut_data.domain_min,
-        domain_max: lut_data.domain_max,
-        table: lut_data.table.clone(),
-    });
+    LUT_CACHE.insert(preset_id.to_string(), Arc::clone(&lut_data));
 
     Ok(lut_data)
 }
@@ -147,21 +134,18 @@ fn parse_cube_text(text: &str) -> Result<LutData, AppError> {
         size,
         domain_min,
         domain_max,
-        table,
+        table: Arc::new(table),
     })
 }
 
 fn parse_three_floats(s: &str, out: &mut [f32; 3]) -> Result<(), AppError> {
-    let parts: Vec<&str> = s.trim().split_whitespace().collect();
-    if parts.len() < 3 {
-        return Err(AppError::ColorGradingError(
-            "Expected 3 float values".into(),
-        ));
-    }
+    let mut parts = s.trim().split_whitespace();
     for i in 0..3 {
-        out[i] = parts[i].parse().map_err(|e| {
-            AppError::ColorGradingError(format!("Invalid float: {}", e))
-        })?;
+        out[i] = parts
+            .next()
+            .ok_or_else(|| AppError::ColorGradingError("Expected 3 float values".into()))?
+            .parse()
+            .map_err(|e| AppError::ColorGradingError(format!("Invalid float: {}", e)))?;
     }
     Ok(())
 }

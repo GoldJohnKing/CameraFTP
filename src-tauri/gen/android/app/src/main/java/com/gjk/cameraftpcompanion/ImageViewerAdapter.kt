@@ -13,6 +13,7 @@ import android.view.ViewGroup
 import androidx.recyclerview.widget.RecyclerView
 import com.davemorrissey.labs.subscaleview.ImageSource
 import com.davemorrissey.labs.subscaleview.SubsamplingScaleImageView
+import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.abs
 
 class ImageViewerAdapter(
@@ -40,7 +41,7 @@ class ImageViewerAdapter(
      * Values are 0, 90, 180, or 270 (matching SubsamplingScaleImageView constants).
      * Set by ImageViewerActivity.
      */
-    var orientationCache: MutableMap<Int, Int> = mutableMapOf()
+    var orientationCache: ConcurrentHashMap<Int, Int> = ConcurrentHashMap()
 
     class ViewHolder(val imageView: SubsamplingScaleImageView) : RecyclerView.ViewHolder(imageView) {
         /** Track which adapter position this holder is currently bound to */

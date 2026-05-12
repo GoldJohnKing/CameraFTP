@@ -30,13 +30,11 @@ const colorGrading = createTaskProgressHook<ColorGradingEvent>({
     switch (event.type) {
       case 'progress':
         return { type: 'progress', current: event.current, total: event.total, fileName: event.fileName, failedCount: event.failedCount };
-      case 'completed':
-        return { type: 'completed', total: event.total, failedCount: event.failedCount };
-      case 'failed':
-        return { type: 'failed', total: event.total, failedCount: event.failedCount };
       case 'done':
         return { type: 'done', total: event.total, failedCount: event.failedCount, failedFiles: event.failedFiles, outputFiles: event.outputFiles, cancelled: event.cancelled };
       case 'queued':
+        return null;
+      default:
         return null;
     }
   },
@@ -103,8 +101,4 @@ export function dismissColorGradingDone() {
 
 export function getCurrentColorGradingProgress(): ColorGradingProgressState {
   return mapToState(colorGrading.getProgressState());
-}
-
-export function useColorGradingProgressListener() {
-  colorGrading.useProgressListener();
 }

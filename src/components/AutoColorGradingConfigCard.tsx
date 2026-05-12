@@ -12,14 +12,7 @@ import { Card, CardHeader, ToggleSwitch } from './ui';
 import { Select } from './ui/Select';
 import type { SelectOption } from './ui/Select';
 import type { ColorGradingPreset } from '../types';
-
-const METERING_MODES: SelectOption[] = [
-  { value: 'highlight-safe', label: '高光保护' },
-  { value: 'matrix', label: '矩阵测光' },
-  { value: 'center-weighted', label: '中央重点测光' },
-  { value: 'average', label: '平均测光' },
-  { value: 'hybrid', label: '混合测光' },
-];
+import { METERING_MODES } from '../constants/color-grading';
 
 export const AutoColorGradingConfigCard = memo(function AutoColorGradingConfigCard() {
   const { isLoading, updateDraft } = useConfigStore();

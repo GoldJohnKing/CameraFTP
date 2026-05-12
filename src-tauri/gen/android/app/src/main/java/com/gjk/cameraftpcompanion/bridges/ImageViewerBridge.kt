@@ -11,57 +11,31 @@ import com.gjk.cameraftpcompanion.ImageViewerActivity
 import com.gjk.cameraftpcompanion.MainActivity
 import org.json.JSONArray
 
+sealed class TaskProgressState {
+    data object Idle : TaskProgressState()
+    data class InProgress(val current: Int, val total: Int, val failedCount: Int) : TaskProgressState()
+    data class Done(val success: Boolean, val total: Int, val failedCount: Int) : TaskProgressState()
+}
+
 class ImageViewerBridge(activity: android.app.Activity) : BaseJsBridge(activity) {
 
     companion object {
         private const val TAG = "ImageViewerBridge"
 
-        data class AiEditProgressState(
-            val current: Int,
-            val total: Int,
-            val failedCount: Int,
-        )
-
-        data class ColorGradingProgressState(
-            val current: Int,
-            val total: Int,
-            val failedCount: Int,
-        )
-
         @Volatile
-        var lastProgress: AiEditProgressState? = null
+        var aiEditState: TaskProgressState = TaskProgressState.Idle
             private set
 
         @Volatile
-        var isAiEditing: Boolean = false
-            private set
-
-        @Volatile
-        var lastColorGradingProgress: ColorGradingProgressState? = null
-            private set
-
-        @Volatile
-        var isColorGrading: Boolean = false
-            private set
-
-        @Volatile
-        var isAiEditDone: Boolean = false
-            private set
-
-        @Volatile
-        var isColorGradingDone: Boolean = false
+        var colorGradingState: TaskProgressState = TaskProgressState.Idle
             private set
 
         fun clearProgress() {
-            lastProgress = null
-            isAiEditing = false
-            isAiEditDone = false
+            aiEditState = TaskProgressState.Idle
         }
 
         fun clearColorGradingProgress() {
-            lastColorGradingProgress = null
-            isColorGrading = false
-            isColorGradingDone = false
+            colorGradingState = TaskProgressState.Idle
         }
     }
 
@@ -116,19 +90,19 @@ class ImageViewerBridge(activity: android.app.Activity) : BaseJsBridge(activity)
      */
     @android.webkit.JavascriptInterface
     fun onAiEditComplete(success: Boolean, message: String?, cancelled: Boolean) {
-        isAiEditing = false
-        if (cancelled) {
-            clearProgress()
+        val prev = aiEditState as? TaskProgressState.InProgress
+        aiEditState = if (cancelled) {
+            TaskProgressState.Idle
+        } else {
+            TaskProgressState.Done(success, prev?.total ?: 0, prev?.failedCount ?: 0)
         }
-        isAiEditDone = !cancelled && success
         val viewer = ImageViewerActivity.instance ?: return
         viewer.onAiEditComplete(success, message, cancelled)
     }
 
     @android.webkit.JavascriptInterface
     fun updateAiEditProgress(current: Int, total: Int, failedCount: Int) {
-        isAiEditing = true
-        lastProgress = AiEditProgressState(current, total, failedCount)
+        aiEditState = TaskProgressState.InProgress(current, total, failedCount)
         val viewer = ImageViewerActivity.instance ?: return
         viewer.updateAiEditProgress(current, total, failedCount)
     }
@@ -146,19 +120,19 @@ class ImageViewerBridge(activity: android.app.Activity) : BaseJsBridge(activity)
 
     @android.webkit.JavascriptInterface
     fun updateColorGradingProgress(current: Int, total: Int, failedCount: Int) {
-        isColorGrading = true
-        lastColorGradingProgress = ColorGradingProgressState(current, total, failedCount)
+        colorGradingState = TaskProgressState.InProgress(current, total, failedCount)
         val viewer = ImageViewerActivity.instance ?: return
         viewer.updateColorGradingProgress(current, total, failedCount)
     }
 
     @android.webkit.JavascriptInterface
     fun onColorGradingComplete(success: Boolean, message: String?, cancelled: Boolean) {
-        isColorGrading = false
-        if (cancelled) {
-            clearColorGradingProgress()
+        val prev = colorGradingState as? TaskProgressState.InProgress
+        colorGradingState = if (cancelled) {
+            TaskProgressState.Idle
+        } else {
+            TaskProgressState.Done(success, prev?.total ?: 0, prev?.failedCount ?: 0)
         }
-        isColorGradingDone = !cancelled && success
         val viewer = ImageViewerActivity.instance ?: return
         viewer.onColorGradingComplete(success, message, cancelled)
     }
@@ -178,13 +152,10 @@ class ImageViewerBridge(activity: android.app.Activity) : BaseJsBridge(activity)
     fun requestExifForPositions(requestJson: String?) {
         if (requestJson == null) return
         try {
-            val items = org.json.JSONArray(requestJson)
-            val jsItems = mutableListOf<String>()
-            for (i in 0 until items.length()) {
-                jsItems.add(items.getJSONObject(i).toString())
-            }
+            // Validate JSON; pass through to the activity for JS evaluation
+            org.json.JSONArray(requestJson)
             val viewer = ImageViewerActivity.instance ?: return
-            viewer.requestExifPrefetch(jsItems)
+            viewer.requestExifPrefetch(requestJson)
         } catch (e: Exception) {
             Log.e(TAG, "requestExifForPositions error", e)
         }

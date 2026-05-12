@@ -6,6 +6,7 @@
 
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
+import { invoke } from '@tauri-apps/api/core';
 import { useThumbnailScheduler } from '../useThumbnailScheduler';
 import {
   enqueueThumbnails,
@@ -15,10 +16,18 @@ import {
 } from '../../services/gallery-media-v2';
 import type { ThumbRequest, ThumbResult } from '../../types';
 
-vi.mock('@tauri-apps/api/core', () => ({
-  convertFileSrc: (path: string) => `asset://localhost${path}`,
-  invoke: vi.fn().mockResolvedValue(null),
-}));
+vi.mock('@tauri-apps/api/core', async () => {
+  const actual = await vi.importActual('@tauri-apps/api/core');
+  return {
+    ...actual,
+    convertFileSrc: (path: string) => `asset://localhost${path}`,
+    invoke: vi.fn().mockResolvedValue(null),
+  };
+});
+
+/** Typed reference to the mocked invoke for per-test overrides. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let mockInvoke: ReturnType<typeof vi.fn>;
 
 vi.mock('../../services/gallery-media-v2', () => ({
   enqueueThumbnails: vi.fn().mockResolvedValue(undefined),
@@ -62,6 +71,8 @@ async function flushDebounce() {
 describe('useThumbnailScheduler', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockInvoke = vi.mocked(invoke);
+    mockInvoke.mockResolvedValue(null);
   });
 
   it('enqueues visible items as high priority after debounce', async () => {
@@ -398,5 +409,152 @@ describe('useThumbnailScheduler', () => {
     unmount();
 
     expect(unregisterThumbnailListener).toHaveBeenCalledWith(LISTENER_ID);
+  });
+
+  describe('RAW orientation fix', () => {
+    function makeRawMedia(mediaId: string, dateModifiedMs = 1000) {
+      return {
+        mediaId,
+        uri: `content://media/${mediaId}`,
+        dateModifiedMs,
+        filePath: `/sdcard/DCIM/IMG_${mediaId}.nef`,
+      };
+    }
+
+    /** Flush the debounce and resolve any pending async work from orientation fix. */
+    async function flushOrientation() {
+      await act(async () => {
+        // Allow debounce + microtask queue to settle
+        await new Promise((r) => setTimeout(r, TEST_DEBOUNCE + 20));
+      });
+    }
+
+    it('calls get_raw_orientation for RAW files and injects EXIF when orientation > 1', async () => {
+      mockInvoke.mockImplementation((cmd: string, _args?: Record<string, unknown>) => {
+        if (cmd === 'get_raw_orientation') return Promise.resolve(6);
+        if (cmd === 'inject_exif_orientation') return Promise.resolve(true);
+        return Promise.resolve(null);
+      });
+
+      const { result } = renderHook(() => useThumbnailScheduler({ debounceMs: TEST_DEBOUNCE }));
+
+      act(() => {
+        result.current.registerMedia([makeRawMedia('raw1')]);
+      });
+      act(() => {
+        result.current.updateViewport(['raw1'], []);
+      });
+      await flushOrientation();
+
+      const reqs = vi.mocked(enqueueThumbnails).mock.calls[0][0] as ThumbRequest[];
+      const req = reqs[0];
+
+      const listener = getRegisteredListener();
+      await act(async () => {
+        listener(makeReadyResult(req.requestId, 'raw1', '/cache/thumb_raw1.jpg'));
+        // Allow the async fixRawOrientation to settle
+        await new Promise((r) => setTimeout(r, 10));
+      });
+
+      expect(mockInvoke).toHaveBeenCalledWith('get_raw_orientation', {
+        filePath: '/sdcard/DCIM/IMG_raw1.nef',
+      });
+      expect(mockInvoke).toHaveBeenCalledWith('inject_exif_orientation', {
+        thumbnailPath: '/cache/thumb_raw1.jpg',
+        orientation: 6,
+      });
+      expect(result.current.thumbnails.get('raw1')).toBe('asset://localhost/cache/thumb_raw1.jpg');
+      expect(result.current.loadingThumbs.has('raw1')).toBe(false);
+    });
+
+    it('skips inject_exif_orientation when orientation is 1 (no rotation needed)', async () => {
+      mockInvoke.mockImplementation((cmd: string) => {
+        if (cmd === 'get_raw_orientation') return Promise.resolve(1);
+        return Promise.resolve(null);
+      });
+
+      const { result } = renderHook(() => useThumbnailScheduler({ debounceMs: TEST_DEBOUNCE }));
+
+      act(() => {
+        result.current.registerMedia([makeRawMedia('raw2')]);
+      });
+      act(() => {
+        result.current.updateViewport(['raw2'], []);
+      });
+      await flushOrientation();
+
+      const reqs = vi.mocked(enqueueThumbnails).mock.calls[0][0] as ThumbRequest[];
+      const req = reqs[0];
+
+      const listener = getRegisteredListener();
+      await act(async () => {
+        listener(makeReadyResult(req.requestId, 'raw2', '/cache/thumb_raw2.jpg'));
+        await new Promise((r) => setTimeout(r, 10));
+      });
+
+      expect(mockInvoke).toHaveBeenCalledWith('get_raw_orientation', {
+        filePath: '/sdcard/DCIM/IMG_raw2.nef',
+      });
+      expect(mockInvoke).not.toHaveBeenCalledWith('inject_exif_orientation', expect.anything());
+      expect(result.current.thumbnails.get('raw2')).toBe('asset://localhost/cache/thumb_raw2.jpg');
+    });
+
+    it('falls back to displaying thumbnail as-is when orientation read fails', async () => {
+      mockInvoke.mockImplementation((cmd: string) => {
+        if (cmd === 'get_raw_orientation') return Promise.reject(new Error('nomexif failed'));
+        return Promise.resolve(null);
+      });
+
+      const { result } = renderHook(() => useThumbnailScheduler({ debounceMs: TEST_DEBOUNCE }));
+
+      act(() => {
+        result.current.registerMedia([makeRawMedia('raw3')]);
+      });
+      act(() => {
+        result.current.updateViewport(['raw3'], []);
+      });
+      await flushOrientation();
+
+      const reqs = vi.mocked(enqueueThumbnails).mock.calls[0][0] as ThumbRequest[];
+      const req = reqs[0];
+
+      const listener = getRegisteredListener();
+      await act(async () => {
+        listener(makeReadyResult(req.requestId, 'raw3', '/cache/thumb_raw3.jpg'));
+        await new Promise((r) => setTimeout(r, 10));
+      });
+
+      expect(mockInvoke).toHaveBeenCalledWith('get_raw_orientation', {
+        filePath: '/sdcard/DCIM/IMG_raw3.nef',
+      });
+      // Thumbnail still displayed despite orientation failure
+      expect(result.current.thumbnails.get('raw3')).toBe('asset://localhost/cache/thumb_raw3.jpg');
+      expect(result.current.loadingThumbs.has('raw3')).toBe(false);
+    });
+
+    it('skips orientation fix entirely for non-RAW files', async () => {
+      mockInvoke.mockResolvedValue(null);
+
+      const { result } = renderHook(() => useThumbnailScheduler({ debounceMs: TEST_DEBOUNCE }));
+
+      act(() => {
+        result.current.registerMedia([makeMedia('jpg1')]);
+      });
+      act(() => {
+        result.current.updateViewport(['jpg1'], []);
+      });
+      await flushOrientation();
+
+      const reqs = vi.mocked(enqueueThumbnails).mock.calls[0][0] as ThumbRequest[];
+      const req = reqs[0];
+
+      const listener = getRegisteredListener();
+      await act(async () => {
+        listener(makeReadyResult(req.requestId, 'jpg1', '/cache/thumb_jpg1.jpg'));
+      });
+
+      expect(mockInvoke).not.toHaveBeenCalledWith('get_raw_orientation', expect.anything());
+      expect(result.current.thumbnails.get('jpg1')).toBe('asset://localhost/cache/thumb_jpg1.jpg');
+    });
   });
 });

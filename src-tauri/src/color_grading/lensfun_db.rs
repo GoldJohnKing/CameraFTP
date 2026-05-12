@@ -77,19 +77,15 @@ fn extract_db_files(db_dir: &Path) -> Result<(), AppError> {
     use flate2::read::GzDecoder;
     use std::io::Read;
 
-    std::fs::create_dir_all(db_dir).map_err(|e| {
-        AppError::ColorGradingError(format!("Failed to create lensfun DB dir: {}", e))
-    })?;
-
-    // Clear existing files to avoid stale data from a previous version
     if db_dir.exists() {
         if let Err(e) = std::fs::remove_dir_all(db_dir) {
             tracing::warn!("Failed to clear old lensfun DB: {}", e);
         }
-        std::fs::create_dir_all(db_dir).map_err(|e| {
-            AppError::ColorGradingError(format!("Failed to recreate lensfun DB dir: {}", e))
-        })?;
     }
+
+    std::fs::create_dir_all(db_dir).map_err(|e| {
+        AppError::ColorGradingError(format!("Failed to create lensfun DB dir: {}", e))
+    })?;
 
     for &(filename, compressed) in LENSFUN_DB_FILES {
         let output_path = db_dir.join(filename);

@@ -149,14 +149,23 @@ async fn worker_loop(
             continue;
         }
 
-        let task = match receiver.recv().await {
-            Some(t) => t,
-            None => {
+        let task = tokio::select! {
+            t = receiver.recv() => match t {
+                Some(t) => t,
+                None => {
+                    drain_pending_tasks(&mut receiver, &queue_depth);
+                    if state.processed_count() > 0 {
+                        emit_done(&mut state, &app_handle, true);
+                    }
+                    break;
+                }
+            },
+            _ = cancel_token.cancelled() => {
                 drain_pending_tasks(&mut receiver, &queue_depth);
                 if state.processed_count() > 0 {
                     emit_done(&mut state, &app_handle, true);
                 }
-                break;
+                continue;
             }
         };
 
@@ -275,4 +284,25 @@ async fn process_single_file(task: &ColorGradingTask) -> Result<String, AppError
     Ok(result_path)
 }
 
+#[cfg(test)]
+mod tests {
+    use crate::config::AutoColorGradingConfig;
+
+    #[test]
+    fn auto_trigger_requires_enabled_and_preset() {
+        let config = AutoColorGradingConfig::default();
+        assert!(!config.enabled || !config.preset_id.is_empty());
+
+        let enabled = AutoColorGradingConfig { enabled: true, ..Default::default() };
+        assert!(enabled.enabled && !enabled.preset_id.is_empty());
+    }
+
+    #[test]
+    fn auto_trigger_skips_non_raw() {
+        let raw_path = std::path::PathBuf::from("/tmp/photo.nef");
+        let jpg_path = std::path::PathBuf::from("/tmp/photo.jpg");
+        assert!(crate::image_utils::is_raw_file(&raw_path));
+        assert!(!crate::image_utils::is_raw_file(&jpg_path));
+    }
+}
 

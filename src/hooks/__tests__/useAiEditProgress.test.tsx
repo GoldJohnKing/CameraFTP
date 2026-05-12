@@ -65,7 +65,7 @@ vi.mock('../../stores/configStore', () => ({
   useConfigStore: { getState: mockConfigGetState },
 }));
 
-import { useAiEditProgress, dismissDone, useAiEditProgressListener, cancelAiEdit, enqueueAiEdit } from '../useAiEditProgress';
+import { useAiEditProgress, dismissDone, cancelAiEdit, enqueueAiEdit } from '../useAiEditProgress';
 
 function Harness() {
   const state = useAiEditProgress();
@@ -311,24 +311,6 @@ describe('useAiEditProgress', () => {
     expect(getText('failed-count')).toBe('1');
 
     vi.useRealTimers();
-  });
-
-  it('useAiEditProgressListener does not register duplicate listener', async () => {
-    listenMock.mockClear();
-
-    function ListenerHarness() {
-      useAiEditProgressListener();
-      return null;
-    }
-
-    await act(async () => {
-      getRoot().render(<ListenerHarness />);
-      await flush();
-      await flush();
-    });
-
-    // Already registered from module load, should NOT call listen again
-    expect(listenMock).not.toHaveBeenCalled();
   });
 
   it('queuedDropped event is handled without error', async () => {

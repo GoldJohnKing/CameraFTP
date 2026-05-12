@@ -124,19 +124,6 @@ impl RaResult {
     }
 }
 
-type RaProcessFileFn = unsafe extern "C" fn(
-    *const c_char,
-    *const c_char,
-    *const c_char,
-    *const c_char,
-    *const c_char,
-    c_float,
-    c_int,
-    c_int,
-    c_int,
-    *const c_char,
-) -> c_int;
-
 type RaProcessFileWithLUTFn = unsafe extern "C" fn(
     *const c_char,   // inputPath
     *const c_char,   // outputPath
@@ -158,10 +145,25 @@ type RaGetVersionFn = unsafe extern "C" fn() -> *const c_char;
 
 pub struct RawAlchemyLib {
     _lib: Library,
-    process_file: RaProcessFileFn,
     process_file_with_lut: RaProcessFileWithLUTFn,
     get_last_error: RaGetLastErrorFn,
     get_version: RaGetVersionFn,
+}
+
+fn ra_result_from_code(code: c_int) -> RaResult {
+    match code {
+        0 => RaResult::Ok,
+        -1 => RaResult::ErrUnknown,
+        -2 => RaResult::ErrFileNotFound,
+        -3 => RaResult::ErrDecodeFailed,
+        -4 => RaResult::ErrInvalidParam,
+        -5 => RaResult::ErrLogUnsupported,
+        -6 => RaResult::ErrLutLoadFailed,
+        -7 => RaResult::ErrWriteFailed,
+        -8 => RaResult::ErrNoLensProfile,
+        -9 => RaResult::ErrOutOfMemory,
+        _ => RaResult::ErrUnknown,
+    }
 }
 
 static GLOBAL_LIB: OnceLock<Arc<RawAlchemyLib>> = OnceLock::new();
@@ -174,12 +176,6 @@ impl RawAlchemyLib {
             })?
         };
 
-        let process_file = unsafe {
-            *lib.get::<RaProcessFileFn>(b"raProcessFile\0")
-                .map_err(|e| {
-                    AppError::ColorGradingError(format!("Symbol raProcessFile not found: {}", e))
-                })?
-        };
         let process_file_with_lut = unsafe {
             *lib.get::<RaProcessFileWithLUTFn>(b"raProcessFileWithLUT\0")
                 .map_err(|e| {
@@ -204,7 +200,6 @@ impl RawAlchemyLib {
 
         Ok(Self {
             _lib: lib,
-            process_file,
             process_file_with_lut,
             get_last_error,
             get_version,
@@ -240,77 +235,20 @@ impl RawAlchemyLib {
         }
     }
 
-    pub fn process_file(
-        &self,
-        input_path: &Path,
-        output_path: &Path,
-        log_space: Option<&str>,
-        lut_path: Option<&str>,
-        lensfun_db_path: Option<&str>,
-        use_auto_exposure: bool,
-        metering_mode: &str,
-        manual_ev: f32,
-    ) -> Result<(), AppError> {
-        let input_c = std::ffi::CString::new(input_path.to_string_lossy().into_owned())
-            .map_err(|e| AppError::ColorGradingError(format!("Invalid input path: {}", e)))?;
-        let output_c = std::ffi::CString::new(output_path.to_string_lossy().into_owned())
-            .map_err(|e| AppError::ColorGradingError(format!("Invalid output path: {}", e)))?;
-        let log_c = log_space
-            .map(|s| std::ffi::CString::new(s).unwrap())
-            .unwrap_or_else(|| std::ffi::CString::new("").unwrap());
-        let lut_c = lut_path
-            .map(|s| std::ffi::CString::new(s).unwrap())
-            .unwrap_or_else(|| std::ffi::CString::new("").unwrap());
-        let metering_c = std::ffi::CString::new(metering_mode).unwrap();
-        let lensfun_c = lensfun_db_path.map(|s| std::ffi::CString::new(s).unwrap());
-
-        let result = unsafe {
-            (self.process_file)(
-                input_c.as_ptr(),
-                output_c.as_ptr(),
-                if log_space.is_some() {
-                    log_c.as_ptr()
-                } else {
-                    std::ptr::null()
-                },
-                if lut_path.is_some() {
-                    lut_c.as_ptr()
-                } else {
-                    std::ptr::null()
-                },
-                metering_c.as_ptr(),
-                manual_ev,
-                if use_auto_exposure { 1 } else { 0 },
-                95,  // jpegQuality
-                1,   // enableLensCorrection
-                lensfun_c
-                    .as_ref()
-                    .map(|c| c.as_ptr())
-                    .unwrap_or(std::ptr::null()),
-            )
-        };
-
-        let ra_result = unsafe { std::mem::transmute::<c_int, RaResult>(result) };
-
-        if ra_result.is_ok() {
-            Ok(())
-        } else {
-            let last_error = unsafe {
-                let ptr = (self.get_last_error)();
-                if ptr.is_null() {
-                    String::new()
-                } else {
-                    std::ffi::CStr::from_ptr(ptr)
-                        .to_string_lossy()
-                        .into_owned()
-                }
-            };
-            Err(AppError::ColorGradingError(if last_error.is_empty() {
-                format!("{} ({})", ra_result.description(), result)
+    fn format_last_error(&self, ra_result: RaResult, raw_code: c_int) -> AppError {
+        let last_error = unsafe {
+            let ptr = (self.get_last_error)();
+            if ptr.is_null() {
+                String::new()
             } else {
-                format!("{}: {}", ra_result.description(), last_error)
-            }))
-        }
+                std::ffi::CStr::from_ptr(ptr).to_string_lossy().into_owned()
+            }
+        };
+        AppError::ColorGradingError(if last_error.is_empty() {
+            format!("{} ({})", ra_result.description(), raw_code)
+        } else {
+            format!("{}: {}", ra_result.description(), last_error)
+        })
     }
 
     pub fn process_file_with_lut(
@@ -318,7 +256,7 @@ impl RawAlchemyLib {
         input_path: &Path,
         output_path: &Path,
         log_space: Option<&str>,
-        lut_data: &super::lut_data::LutData,
+        lut_data: &Arc<super::lut_data::LutData>,
         lensfun_db_path: Option<&str>,
         use_auto_exposure: bool,
         metering_mode: &str,
@@ -359,26 +297,12 @@ impl RawAlchemyLib {
             )
         };
 
-        let ra_result = unsafe { std::mem::transmute::<c_int, RaResult>(result) };
+        let ra_result = ra_result_from_code(result);
 
         if ra_result.is_ok() {
             Ok(())
         } else {
-            let last_error = unsafe {
-                let ptr = (self.get_last_error)();
-                if ptr.is_null() {
-                    String::new()
-                } else {
-                    std::ffi::CStr::from_ptr(ptr)
-                        .to_string_lossy()
-                        .into_owned()
-                }
-            };
-            Err(AppError::ColorGradingError(if last_error.is_empty() {
-                format!("{} ({})", ra_result.description(), result)
-            } else {
-                format!("{}: {}", ra_result.description(), last_error)
-            }))
+            Err(self.format_last_error(ra_result, result))
         }
     }
 }

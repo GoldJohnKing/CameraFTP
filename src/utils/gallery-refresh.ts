@@ -7,7 +7,7 @@
 export const GALLERY_REFRESH_REQUESTED_EVENT = 'gallery-refresh-requested';
 export const LATEST_PHOTO_REFRESH_REQUESTED_EVENT = 'latest-photo-refresh-requested';
 
-type MediaLibraryRefreshReason =
+export type MediaLibraryRefreshReason =
   | 'manual'
   | 'upload'
   | 'delete'

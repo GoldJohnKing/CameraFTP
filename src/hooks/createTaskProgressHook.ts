@@ -5,9 +5,8 @@
  */
 
 import { create, type StoreApi } from 'zustand';
-import { useEffect } from 'react';
 import { listen } from '@tauri-apps/api/event';
-import { requestMediaLibraryRefresh } from '../utils/gallery-refresh';
+import { requestMediaLibraryRefresh, type MediaLibraryRefreshReason } from '../utils/gallery-refresh';
 
 export interface TaskProgressState {
   isActive: boolean;
@@ -34,8 +33,6 @@ const GALLERY_REFRESH_DELAY_MS = 500;
 /** Discriminated union for type-safe event switching inside the factory. */
 export type StandardTaskEvent =
   | { type: 'progress'; current: number; total: number; fileName: string; failedCount: number }
-  | { type: 'completed'; total: number; failedCount: number }
-  | { type: 'failed'; total: number; failedCount: number }
   | { type: 'done'; total: number; failedCount: number; failedFiles: string[]; outputFiles: string[]; cancelled: boolean };
 
 /** Shape of the `done` event — used in `onDone` callback. */
@@ -84,18 +81,7 @@ export function createTaskProgressHook<TEvent extends { type: string }>(
           currentFileName: mapped.fileName,
           failedCount: mapped.failedCount,
         });
-        break;
-      case 'completed':
-        store.setState({
-          total: mapped.total,
-          failedCount: mapped.failedCount,
-        });
-        break;
-      case 'failed':
-        store.setState({
-          total: mapped.total,
-          failedCount: mapped.failedCount,
-        });
+        config.onAfterUpdate?.(mapped, store);
         break;
       case 'done': {
         const outputFiles = mapped.outputFiles ?? [];
@@ -105,7 +91,7 @@ export function createTaskProgressHook<TEvent extends { type: string }>(
           config.onAfterUpdate?.(mapped, store);
           scanOutputFiles(outputFiles);
           setTimeout(() => {
-            requestMediaLibraryRefresh({ reason: config.debugLabel as any });
+            requestMediaLibraryRefresh({ reason: config.debugLabel as MediaLibraryRefreshReason });
           }, GALLERY_REFRESH_DELAY_MS);
           config.onDone?.(mapped);
           break;
@@ -124,16 +110,12 @@ export function createTaskProgressHook<TEvent extends { type: string }>(
         scanOutputFiles(outputFiles);
 
         setTimeout(() => {
-          requestMediaLibraryRefresh({ reason: config.debugLabel as any });
+          requestMediaLibraryRefresh({ reason: config.debugLabel as MediaLibraryRefreshReason });
         }, GALLERY_REFRESH_DELAY_MS);
 
         config.onDone?.(mapped);
         break;
       }
-    }
-
-    if (mapped.type !== 'done') {
-      config.onAfterUpdate?.(mapped, store);
     }
   }
 
@@ -167,15 +149,9 @@ export function createTaskProgressHook<TEvent extends { type: string }>(
     store.setState({ ...initialTaskProgressState });
   }
 
-  function useProgressListener() {
-    useEffect(() => {
-      registerListener();
-    }, []);
-  }
-
   function getProgressState(): TaskProgressState {
     return store.getState();
   }
 
-  return { useProgress, dismissDone, useProgressListener, getProgressState };
+  return { useProgress, dismissDone, getProgressState };
 }

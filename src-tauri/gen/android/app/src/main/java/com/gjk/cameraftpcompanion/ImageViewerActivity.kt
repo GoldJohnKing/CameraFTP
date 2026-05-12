@@ -39,10 +39,73 @@ import androidx.exifinterface.media.ExifInterface
 import androidx.viewpager2.widget.ViewPager2
 import com.davemorrissey.labs.subscaleview.SubsamplingScaleImageView
 import org.json.JSONArray
+import java.lang.ref.WeakReference
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.roundToInt
+
+private class NativeColorGradingBridge(activity: ImageViewerActivity) {
+    private val activityRef: WeakReference<ImageViewerActivity> = WeakReference(activity)
+
+    @JavascriptInterface
+    fun onConfirm(lutId: String, useAutoExposure: Boolean, meteringMode: String, manualEv: Float, syncToAuto: Boolean) {
+        val activity = activityRef.get() ?: return
+        activity.runOnUiThread {
+            activity.dismissColorGradingWebView()
+            activity.dispatchColorGrading(
+                activity.currentColorGradingFilePath,
+                lutId, useAutoExposure, meteringMode, manualEv, syncToAuto,
+            )
+        }
+    }
+
+    @JavascriptInterface
+    fun onCancel() {
+        val activity = activityRef.get() ?: return
+        activity.runOnUiThread { activity.dismissColorGradingWebView() }
+    }
+}
+
+private class NativeAiEditBridge(
+    activity: ImageViewerActivity,
+    private val filePath: String,
+    private val mainActivity: MainActivity,
+) {
+    private companion object {
+        private const val TAG = "NativeAiEditBridge"
+    }
+
+    private val activityRef: WeakReference<ImageViewerActivity> = WeakReference(activity)
+
+    @JavascriptInterface
+    fun onConfirm(prompt: String, model: String, saveAsAutoEdit: Boolean, apiKey: String) {
+        val activity = activityRef.get() ?: return
+        activity.runOnUiThread {
+            activity.dismissPromptWebView()
+            activity.dispatchAiEdit(filePath, prompt, model, saveAsAutoEdit, apiKey, mainActivity)
+        }
+    }
+
+    @JavascriptInterface
+    fun onCancel() {
+        val activity = activityRef.get() ?: return
+        activity.runOnUiThread { activity.dismissPromptWebView() }
+    }
+
+    @JavascriptInterface
+    fun openLink(url: String) {
+        val activity = activityRef.get() ?: return
+        activity.runOnUiThread {
+            try {
+                activity.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to open external link: $url", e)
+            }
+        }
+    }
+}
 
 class ImageViewerActivity : AppCompatActivity() {
 
@@ -123,10 +186,16 @@ class ImageViewerActivity : AppCompatActivity() {
             start(context, plan.uris, plan.safeTargetIndex)
         }
 
-        /**
-         * Resolve a URI string to a file system path.
-         * Handles file://, content:// (via MediaStore), and fallback.
-         */
+        @JvmStatic
+        fun exifOrientationToDegrees(orientation: Int): Int {
+            return when (orientation) {
+                3 -> 180
+                6 -> 90
+                8 -> 270
+                else -> 0
+            }
+        }
+
         @JvmStatic
         fun resolveUriToFilePath(context: android.content.Context, uriString: String): String? {
             return try {
@@ -176,13 +245,15 @@ class ImageViewerActivity : AppCompatActivity() {
     /** Cache of adapter position → orientation degrees for RAW files.
      *  Only populated for RAW files where backend EXIF has been resolved.
      *  JPEG/HEIC files rely on ORIENTATION_USE_EXIF and are never cached here. */
-    private val orientationCache = mutableMapOf<Int, Int>()
+    private val orientationCache = ConcurrentHashMap<Int, Int>()
     private var pendingDeleteUri: String? = null
     private var isAiEditing = false
     private var isColorGrading = false
     private var promptWebView: WebView? = null
     private var menuPopupWindow: android.widget.PopupWindow? = null
+    private val exifExecutor = java.util.concurrent.Executors.newFixedThreadPool(2)
     private var colorGradingWebView: WebView? = null
+    internal var currentColorGradingFilePath: String = ""
 
     private val deleteRequestLauncher = registerForActivityResult(
         ActivityResultContracts.StartIntentSenderForResult(),
@@ -447,6 +518,8 @@ class ImageViewerActivity : AppCompatActivity() {
 
         dismissColorGradingWebView()
 
+        currentColorGradingFilePath = filePath
+
         val presets = listOf(
             "arri-alexa-classic-709" to "ARRI ALEXA Classic 709",
             "fujifilm-acros" to "Fujifilm ACROS",
@@ -482,313 +555,11 @@ class ImageViewerActivity : AppCompatActivity() {
                   </div>"""
         } else ""
 
-        val html = """
-            <!DOCTYPE html>
-            <html>
-            <head>
-            <meta charset="utf-8">
-            <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
-            <style>
-              * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-              body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
-              .overlay {
-                position: fixed; inset: 0;
-                background: rgba(0,0,0,0.5);
-                display: flex; align-items: center; justify-content: center;
-                padding: 16px; z-index: 50;
-              }
-              .card {
-                background: #fff; border-radius: 12px; width: 100%; max-width: 448px;
-                box-shadow: 0 25px 50px -12px rgba(0,0,0,0.25);
-                display: flex; flex-direction: column; max-height: 90vh;
-              }
-              .header {
-                display: flex; align-items: center; justify-content: space-between;
-                padding: 16px; border-bottom: 1px solid #e5e7eb;
-              }
-              .title-group { display: flex; flex-direction: column; }
-              .title { font-size: 18px; font-weight: 600; color: #111827; }
-              .subtitle { font-size: 14px; color: #6b7280; margin-top: 2px; }
-              .close-btn {
-                padding: 8px; border: none; background: none; cursor: pointer;
-                color: #9ca3af; border-radius: 8px;
-              }
-              .close-btn:hover { color: #4b5563; background: #f3f4f6; }
-              .close-btn svg { width: 20px; height: 20px; }
-              .content { padding: 16px; overflow: visible; }
-              .field-group { margin-bottom: 12px; }
-              .field-group:last-child { margin-bottom: 0; }
-              .field-label { font-size: 14px; font-weight: 500; color: #374151; margin-bottom: 4px; }
-              .dropdown { position: relative; }
-              .dropdown-btn {
-                width: 100%; padding: 8px 12px; border: 1px solid #e5e7eb;
-                border-radius: 8px; font-size: 14px; color: #374151;
-                background: #fff; outline: none; cursor: pointer;
-                display: flex; align-items: center; justify-content: space-between;
-                text-align: left; -webkit-user-select: none; user-select: none;
-                -webkit-tap-highlight-color: transparent;
-              }
-              .dropdown-btn:hover { border-color: #d1d5db; }
-              .dropdown-btn .chevron {
-                width: 16px; height: 16px; color: #9ca3af;
-                transition: transform 0.2s; flex-shrink: 0;
-              }
-              .dropdown-btn.open .chevron { transform: rotate(180deg); }
-              .dropdown-panel {
-                position: absolute; left: 0; right: 0;
-                margin-top: 4px; background: #fff; border: 1px solid #e5e7eb;
-                border-radius: 8px; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1), 0 4px 6px -4px rgba(0,0,0,0.1);
-                padding: 4px 0; z-index: 10; max-height: 240px; overflow-y: auto;
-                opacity: 0; transform: scaleY(0.95) translateY(-4px);
-                transform-origin: top; pointer-events: none;
-                transition: opacity 0.15s ease, transform 0.15s ease;
-              }
-              .dropdown-panel.open {
-                opacity: 1; transform: scaleY(1) translateY(0);
-                pointer-events: auto;
-              }
-              .dropdown-opt {
-                padding: 8px 12px; font-size: 14px;
-                color: #374151; cursor: pointer;
-                -webkit-tap-highlight-color: transparent;
-              }
-              .dropdown-opt:hover { background: #f9fafb; }
-              .dropdown-opt.selected { background: #eff6ff; color: #1d4ed8; font-weight: 500; }
-              .divider { border-top: 1px solid #f3f4f6; margin: 12px 0; }
-              .toggle-row {
-                display: flex; align-items: center; justify-content: space-between;
-                padding: 4px 0;
-              }
-              .toggle-label-group { flex: 1; }
-              .toggle-label { font-size: 14px; font-weight: 500; color: #374151; }
-              .toggle-desc { font-size: 12px; color: #6b7280; margin-top: 2px; }
-              .toggle-switch {
-                position: relative; width: 44px; height: 24px; flex-shrink: 0; margin-left: 12px;
-              }
-              .toggle-switch input { opacity: 0; width: 0; height: 0; }
-              .toggle-slider {
-                position: absolute; inset: 0; background: #d1d5db; border-radius: 12px;
-                transition: background 0.2s; cursor: pointer;
-              }
-              .toggle-slider:before {
-                content: ''; position: absolute; width: 20px; height: 20px;
-                left: 2px; bottom: 2px; background: #fff; border-radius: 50%;
-                transition: transform 0.2s;
-              }
-              .toggle-switch input:checked + .toggle-slider { background: #2563eb; }
-              .toggle-switch input:checked + .toggle-slider:before { transform: translateX(20px); }
-              .slider-group { margin-top: 12px; }
-              .slider-header {
-                display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;
-              }
-              .slider-value { font-size: 13px; font-family: monospace; color: #6b7280; }
-              input[type="range"] {
-                -webkit-appearance: none; width: 100%; height: 6px;
-                background: #e5e7eb; border-radius: 3px; outline: none;
-              }
-              input[type="range"]::-webkit-slider-thumb {
-                -webkit-appearance: none; width: 20px; height: 20px;
-                background: #2563eb; border-radius: 50%; cursor: pointer;
-              }
-              .slider-labels {
-                display: flex; justify-content: space-between;
-                font-size: 11px; color: #9ca3af; margin-top: 4px;
-              }
-              .footer {
-                display: flex; align-items: center; justify-content: space-between;
-                padding: 16px; border-top: 1px solid #e5e7eb;
-              }
-              .save-toggle { display: flex; align-items: center; gap: 8px; cursor: pointer; }
-              .save-toggle span { font-size: 14px; color: #374151; font-weight: 500; }
-              .toggle {
-                position: relative; width: 44px; height: 24px;
-                background: #d1d5db; border-radius: 12px;
-                transition: background 0.2s; cursor: pointer; flex-shrink: 0;
-              }
-              .toggle.on { background: #2563eb; }
-              .toggle::after {
-                content: ''; position: absolute;
-                width: 16px; height: 16px; background: #fff;
-                border-radius: 50%; top: 4px; left: 4px;
-                transition: transform 0.2s;
-              }
-              .toggle.on::after { transform: translateX(20px); }
-              .actions { display: flex; gap: 8px; margin-left: auto; }
-              .btn {
-                padding: 8px 16px; border-radius: 8px; font-size: 14px;
-                font-weight: 500; border: none; cursor: pointer;
-              }
-              .btn-cancel { background: #f3f4f6; color: #374151; }
-              .btn-cancel:hover { background: #e5e7eb; }
-              .btn-confirm { background: #2563eb; color: #fff; }
-              .btn-confirm:hover { background: #1d4ed8; }
-              .header-icon { color: #7c3aed; flex-shrink: 0; }
-            </style>
-            </head>
-            <body>
-            <div class="overlay" onclick="if(event.target===this)NativeBridge.onCancel()">
-              <div class="card">
-                <div class="header">
-                  <div style="display:flex;align-items:center;gap:12px">
-                    <div style="width:40px;height:40px;background:#f3f4f6;border-radius:8px;display:flex;align-items:center;justify-content:center"><svg class="header-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="13.5" cy="6.5" r="1.5" fill="currentColor" stroke="none"/><circle cx="17.5" cy="10.5" r="1.5" fill="currentColor" stroke="none"/><circle cx="8.5" cy="7.5" r="1.5" fill="currentColor" stroke="none"/><circle cx="6.5" cy="12.5" r="1.5" fill="currentColor" stroke="none"/><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z"/></svg></div>
-                    <div class="title-group">
-                      <div class="title">调色</div>
-                      <div class="subtitle">使用胶片模拟调色处理 RAW 照片</div>
-                    </div>
-                  </div>
-                  <button class="close-btn" onclick="NativeBridge.onCancel()">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-                  </button>
-                </div>
-                <div class="content">
-                  <div class="field-group">
-                    <div class="field-label">调色预设</div>
-                    <div class="dropdown" id="presetDropdown">
-                      <button class="dropdown-btn" type="button" onclick="toggleDropdown()">
-                        <span id="presetLabel">$firstLabel</span>
-                        <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
-                      </button>
-                      <div class="dropdown-panel" id="presetPanel">$presetOptionsHtml</div>
-                    </div>
-                  </div>
-                  <div class="divider"></div>
-                  <div class="toggle-row">
-                    <div class="toggle-label-group">
-                      <div class="toggle-label">自动曝光</div>
-                      <div class="toggle-desc" id="exposureDesc">自动检测并调整曝光</div>
-                    </div>
-                    <label class="toggle-switch">
-                      <input type="checkbox" id="autoExposureToggle" checked onchange="onExposureToggle()">
-                      <span class="toggle-slider"></span>
-                    </label>
-                  </div>
-                  <div class="slider-group" id="evSliderGroup" style="display:none">
-                    <div class="slider-header">
-                      <span class="field-label" style="margin-bottom:0">曝光补偿</span>
-                      <span class="slider-value" id="evValue">0.0 EV</span>
-                    </div>
-                    <input type="range" id="evSlider" min="-5.0" max="5.0" step="0.1" value="0" oninput="onEvChange()">
-                    <div class="slider-labels"><span>-5.0</span><span>0</span><span>+5.0</span></div>
-                  </div>
-                  <div id="meteringGroup" style="margin-top:12px">
-                    <div class="field-group" style="margin-bottom:0">
-                      <div class="field-label">测光模式</div>
-                      <div class="dropdown" id="meteringDropdown">
-                        <button class="dropdown-btn" type="button" onclick="toggleMeteringDropdown()">
-                          <span id="meteringLabel">高光保护</span>
-                          <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
-                        </button>
-                        <div class="dropdown-panel" id="meteringPanel">
-                          <div class="dropdown-opt selected" data-value="highlight-safe" onclick="selectMetering(this)">高光保护</div>
-                          <div class="dropdown-opt" data-value="matrix" onclick="selectMetering(this)">矩阵测光</div>
-                          <div class="dropdown-opt" data-value="center-weighted" onclick="selectMetering(this)">中央重点测光</div>
-                          <div class="dropdown-opt" data-value="average" onclick="selectMetering(this)">平均测光</div>
-                          <div class="dropdown-opt" data-value="hybrid" onclick="selectMetering(this)">混合测光</div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-                <div class="footer">
-                  $saveToggleHtml
-                  <div class="actions">
-                    <button class="btn btn-cancel" onclick="NativeBridge.onCancel()">取消</button>
-                    <button class="btn btn-confirm" onclick="onConfirm()">应用</button>
-                  </div>
-                </div>
-              </div>
-            </div>
-            <script>
-              var selectedPreset = '$firstId';
-              function toggleDropdown() {
-                var panel = document.getElementById('presetPanel');
-                var btn = panel.previousElementSibling;
-                var isOpen = panel.classList.contains('open');
-                if (isOpen) {
-                  panel.classList.remove('open');
-                  btn.classList.remove('open');
-                } else {
-                  panel.classList.add('open');
-                  btn.classList.add('open');
-                }
-              }
-              function closeDropdown() {
-                var panel = document.getElementById('presetPanel');
-                var btn = panel.previousElementSibling;
-                panel.classList.remove('open');
-                btn.classList.remove('open');
-              }
-              document.getElementById('presetPanel').addEventListener('click', function(e) {
-                var opt = e.target.closest('.dropdown-opt');
-                if (!opt) return;
-                selectedPreset = opt.getAttribute('data-value');
-                document.getElementById('presetLabel').textContent = opt.textContent;
-                var allOpts = this.querySelectorAll('.dropdown-opt');
-                for (var i = 0; i < allOpts.length; i++) allOpts[i].classList.remove('selected');
-                opt.classList.add('selected');
-                closeDropdown();
-              });
-              document.addEventListener('click', function(e) {
-                if (!document.getElementById('presetDropdown').contains(e.target)) {
-                  closeDropdown();
-                }
-              });
-              function onExposureToggle() {
-                var checked = document.getElementById('autoExposureToggle').checked;
-                document.getElementById('evSliderGroup').style.display = checked ? 'none' : 'block';
-                document.getElementById('meteringGroup').style.display = checked ? 'block' : 'none';
-                document.getElementById('exposureDesc').textContent = checked ? '自动检测并调整曝光' : '手动设置曝光补偿值';
-              }
-              function onEvChange() {
-                var val = parseFloat(document.getElementById('evSlider').value);
-                document.getElementById('evValue').textContent = (val > 0 ? '+' : '') + val.toFixed(1) + ' EV';
-              }
-              var selectedMetering = 'highlight-safe';
-              function toggleMeteringDropdown() {
-                var panel = document.getElementById('meteringPanel');
-                var btn = panel.previousElementSibling;
-                var isOpen = panel.classList.contains('open');
-                if (isOpen) {
-                  panel.classList.remove('open');
-                  btn.classList.remove('open');
-                } else {
-                  panel.classList.add('open');
-                  btn.classList.add('open');
-                }
-              }
-              function closeMeteringDropdown() {
-                var panel = document.getElementById('meteringPanel');
-                var btn = panel.previousElementSibling;
-                panel.classList.remove('open');
-                btn.classList.remove('open');
-              }
-              function selectMetering(opt) {
-                selectedMetering = opt.getAttribute('data-value');
-                document.getElementById('meteringLabel').textContent = opt.textContent;
-                var allOpts = document.getElementById('meteringPanel').querySelectorAll('.dropdown-opt');
-                for (var i = 0; i < allOpts.length; i++) allOpts[i].classList.remove('selected');
-                opt.classList.add('selected');
-                closeMeteringDropdown();
-              }
-              document.addEventListener('click', function(e) {
-                if (!document.getElementById('meteringDropdown').contains(e.target)) {
-                  closeMeteringDropdown();
-                }
-              });
-              var syncToAuto = false;
-              function toggleSync() {
-                syncToAuto = !syncToAuto;
-                document.getElementById('syncToggle').className = 'toggle' + (syncToAuto ? ' on' : '');
-              }
-              function onConfirm() {
-                var autoExp = document.getElementById('autoExposureToggle').checked;
-                var ev = parseFloat(document.getElementById('evSlider').value);
-                NativeBridge.onConfirm(selectedPreset, autoExp, selectedMetering, ev, syncToAuto);
-              }
-            </script>
-            </body>
-            </html>
-        """.trimIndent()
+        val html = assets.open("color_grading_dialog.html").bufferedReader().use { it.readText() }
+            .replace("{{FIRST_ID}}", firstId)
+            .replace("{{FIRST_LABEL}}", firstLabel)
+            .replace("{{PRESET_OPTIONS}}", presetOptionsHtml)
+            .replace("{{SAVE_TOGGLE}}", saveToggleHtml)
 
         val webView = WebView(this).apply {
             settings.javaScriptEnabled = true
@@ -796,19 +567,7 @@ class ImageViewerActivity : AppCompatActivity() {
             setBackgroundColor(0)
             isVerticalScrollBarEnabled = false
             isHorizontalScrollBarEnabled = false
-            addJavascriptInterface(object {
-                @JavascriptInterface
-                fun onConfirm(lutId: String, useAutoExposure: Boolean, meteringMode: String, manualEv: Float, syncToAuto: Boolean) {
-                    runOnUiThread {
-                        dismissColorGradingWebView()
-                        dispatchColorGrading(filePath, lutId, useAutoExposure, meteringMode, manualEv, syncToAuto)
-                    }
-                }
-                @JavascriptInterface
-                fun onCancel() {
-                    runOnUiThread { dismissColorGradingWebView() }
-                }
-            }, "NativeBridge")
+            addJavascriptInterface(NativeColorGradingBridge(this@ImageViewerActivity), "NativeBridge")
             loadDataWithBaseURL(null, html, "text/html", "UTF-8", null)
         }
 
@@ -820,7 +579,7 @@ class ImageViewerActivity : AppCompatActivity() {
         colorGradingWebView = webView
     }
 
-    private fun dismissColorGradingWebView() {
+    internal fun dismissColorGradingWebView() {
         colorGradingWebView?.let {
             (it.parent as? FrameLayout)?.removeView(it)
             it.destroy()
@@ -829,7 +588,7 @@ class ImageViewerActivity : AppCompatActivity() {
         requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
     }
 
-    private fun dispatchColorGrading(filePath: String, lutId: String, useAutoExposure: Boolean, meteringMode: String, manualEv: Float, syncToAuto: Boolean) {
+    internal fun dispatchColorGrading(filePath: String, lutId: String, useAutoExposure: Boolean, meteringMode: String, manualEv: Float, syncToAuto: Boolean) {
         val mainActivity = MainActivity.instance
         if (mainActivity == null) {
             Log.w(TAG, "MainActivity not available for color grading")
@@ -883,23 +642,36 @@ class ImageViewerActivity : AppCompatActivity() {
             items.add(pos to uris[pos])
         }
         if (items.isEmpty()) return
-        requestExifPrefetch(items.map { """{"position":${it.first},"uri":"${it.second}"}""" })
+        val jsonArray = JSONArray().apply {
+            for ((pos, uri) in items) {
+                put(org.json.JSONObject().apply {
+                    put("position", pos)
+                    put("uri", uri)
+                })
+            }
+        }
+        requestExifPrefetch(jsonArray.toString())
     }
 
     private fun requestSingleExif(position: Int, uri: String) {
         if (orientationCache.containsKey(position)) return
-        requestExifPrefetch(listOf("""{"position":$position,"uri":"$uri"}"""))
+        val jsonArray = JSONArray().apply {
+            put(org.json.JSONObject().apply {
+                put("position", position)
+                put("uri", uri)
+            })
+        }
+        requestExifPrefetch(jsonArray.toString())
     }
 
     /**
      * Trigger EXIF prefetch via JS bridge → TypeScript → Rust backend.
      * Results arrive asynchronously via onExifResultForPosition.
      */
-    internal fun requestExifPrefetch(jsonItems: List<String>) {
+    internal fun requestExifPrefetch(jsonString: String) {
         val mainActivity = MainActivity.instance ?: return
         val webView = mainActivity.getWebView() ?: return
-        val jsonArray = "[" + jsonItems.joinToString(",") + "]"
-        val escaped = jsonArray
+        val escaped = jsonString
             .replace("\\", "\\\\")
             .replace("'", "\\'")
             .replace("\n", "\\n")
@@ -965,7 +737,7 @@ class ImageViewerActivity : AppCompatActivity() {
     }
 
     private fun readExifParams(uri: Uri) {
-        Thread {
+        exifExecutor.execute {
             try {
                 val parts = mutableListOf<String>()
                 contentResolver.openInputStream(uri)?.use { stream ->
@@ -1013,7 +785,7 @@ class ImageViewerActivity : AppCompatActivity() {
                     }
                 }
             }
-        }.start()
+        }
     }
 
     /**
@@ -1052,12 +824,7 @@ class ImageViewerActivity : AppCompatActivity() {
                 // the in-progress decode and triggers a redundant re-decode.
                 if (isRawFileByExtension(currentDisplayName)) {
                     val orientation = exif.optInt("orientation", 0)
-                    val degrees = when (orientation) {
-                        3 -> 180
-                        6 -> 90
-                        8 -> 270
-                        else -> SubsamplingScaleImageView.ORIENTATION_USE_EXIF
-                    }
+                    val degrees = exifOrientationToDegrees(orientation)
                     orientationCache[currentIndex] = degrees
                     applyOrientationFromExif(exif)
                 }
@@ -1077,13 +844,8 @@ class ImageViewerActivity : AppCompatActivity() {
         val orientation = exif.optInt("orientation", 0)
         if (orientation <= 1) return // 0 = not present, 1 = normal (no rotation needed)
 
-        // Map EXIF orientation (1-8) to clockwise rotation degrees
-        val degrees = when (orientation) {
-            3 -> 180
-            6 -> 90
-            8 -> 270
-            else -> return // 2,4,5,7 involve flips — not supported by SubsamplingScaleImageView
-        }
+        val degrees = exifOrientationToDegrees(orientation)
+        if (degrees == 0) return
 
         // ViewPager2's first child is a RecyclerView; find the ViewHolder for current page
         val rv = viewPager.getChildAt(0) as? androidx.recyclerview.widget.RecyclerView ?: return
@@ -1112,12 +874,7 @@ class ImageViewerActivity : AppCompatActivity() {
                 val exif = org.json.JSONObject(exifJson)
 
                 val orientation = exif.optInt("orientation", 0)
-                val degrees = when (orientation) {
-                    3 -> 180
-                    6 -> 90
-                    8 -> 270
-                    else -> SubsamplingScaleImageView.ORIENTATION_USE_EXIF
-                }
+                val degrees = exifOrientationToDegrees(orientation)
                 orientationCache[position] = degrees
 
                 applyOrientationToHolder(position, degrees)
@@ -1201,13 +958,11 @@ class ImageViewerActivity : AppCompatActivity() {
         requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LOCKED
         val rootView = findViewById<FrameLayout>(android.R.id.content)
 
-        // Dismiss any existing overlay
         dismissPromptWebView()
 
         val escapedPrompt = TextUtils.htmlEncode(currentPrompt)
             .replace("\n", "&#10;")
 
-        // Determine which model option is selected — validate against whitelist
         val modelOptions = listOf(
             "doubao-seedream-5-0-260128" to "Doubao-Seedream-5.0-lite",
             "doubao-seedream-4-5-251128" to "Doubao-Seedream-4.5",
@@ -1244,288 +999,13 @@ class ImageViewerActivity : AppCompatActivity() {
             """
         } else ""
 
-        val html = """
-            <!DOCTYPE html>
-            <html>
-            <head>
-            <meta charset="utf-8">
-            <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,interactive-widget=resizes-content">
-            <style>
-              * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-              body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
-              .overlay {
-                position: fixed; inset: 0;
-                background: rgba(0,0,0,0.5);
-                display: flex; align-items: center; justify-content: center;
-                padding: 16px; z-index: 50;
-              }
-              .card {
-                background: #fff; border-radius: 12px; width: 100%; max-width: 448px;
-                box-shadow: 0 25px 50px -12px rgba(0,0,0,0.25);
-                display: flex; flex-direction: column; max-height: 90vh;
-              }
-              .header {
-                display: flex; align-items: center; justify-content: space-between;
-                padding: 16px; border-bottom: 1px solid #e5e7eb;
-              }
-              .title-group { display: flex; flex-direction: column; }
-              .title { font-size: 18px; font-weight: 600; color: #111827; }
-              .subtitle { font-size: 14px; color: #6b7280; margin-top: 2px; }
-              .close-btn {
-                padding: 8px; border: none; background: none; cursor: pointer;
-                color: #9ca3af; border-radius: 8px;
-              }
-              .close-btn:hover { color: #4b5563; background: #f3f4f6; }
-              .close-btn svg { width: 20px; height: 20px; }
-              .content { padding: 16px; overflow: visible; }
-              .field-group { margin-bottom: 12px; }
-              .field-group:last-child { margin-bottom: 0; }
-              .field-label { font-size: 14px; font-weight: 500; color: #374151; margin-bottom: 4px; }
-              textarea {
-                width: 100%; padding: 8px 12px; border: 1px solid #e5e7eb;
-                border-radius: 8px; font-size: 14px; color: #374151;
-                background: #fff; resize: none; outline: none;
-                font-family: inherit; line-height: 1.5;
-              }
-              textarea:focus { border-color: transparent; box-shadow: 0 0 0 2px #3b82f6; }
-              .dropdown { position: relative; }
-              .dropdown-btn {
-                width: 100%; padding: 8px 12px; border: 1px solid #e5e7eb;
-                border-radius: 8px; font-size: 14px; color: #374151;
-                background: #fff; outline: none; cursor: pointer;
-                display: flex; align-items: center; justify-content: space-between;
-                text-align: left; -webkit-user-select: none; user-select: none;
-                -webkit-tap-highlight-color: transparent;
-              }
-              .dropdown-btn:hover { border-color: #d1d5db; }
-              .dropdown-btn .chevron {
-                width: 16px; height: 16px; color: #9ca3af;
-                transition: transform 0.2s; flex-shrink: 0;
-              }
-              .dropdown-btn.open .chevron { transform: rotate(180deg); }
-              .dropdown-panel {
-                position: absolute; left: 0; right: 0;
-                margin-top: 4px; background: #fff; border: 1px solid #e5e7eb;
-                border-radius: 8px; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1), 0 4px 6px -4px rgba(0,0,0,0.1);
-                padding: 4px 0; z-index: 10; max-height: 240px; overflow-y: auto;
-                opacity: 0; transform: scaleY(0.95) translateY(-4px);
-                transform-origin: top; pointer-events: none;
-                transition: opacity 0.15s ease, transform 0.15s ease;
-              }
-              .dropdown-panel.open {
-                opacity: 1; transform: scaleY(1) translateY(0);
-                pointer-events: auto;
-              }
-              .dropdown-opt {
-                padding: 8px 12px; font-size: 14px;
-                color: #374151; cursor: pointer;
-                -webkit-tap-highlight-color: transparent;
-              }
-              .dropdown-opt:hover { background: #f9fafb; }
-              .dropdown-opt.selected { background: #eff6ff; color: #1d4ed8; font-weight: 500; }
-          .footer {
-            display: flex; align-items: center; justify-content: space-between;
-            padding: 16px; border-top: 1px solid #e5e7eb;
-          }
-          .save-toggle { display: flex; align-items: center; gap: 8px; cursor: pointer; -webkit-tap-highlight-color: transparent; }
-          .save-toggle span { font-size: 14px; color: #374151; font-weight: 500; }
-          .toggle {
-            position: relative; width: 44px; height: 24px;
-            background: #d1d5db; border-radius: 12px;
-            transition: background 0.2s; cursor: pointer; flex-shrink: 0;
-          }
-          .toggle.on { background: #2563eb; }
-          .toggle::after {
-            content: ''; position: absolute;
-            width: 16px; height: 16px; background: #fff;
-            border-radius: 50%; top: 4px; left: 4px;
-            transition: transform 0.2s;
-          }
-          .toggle.on::after { transform: translateX(20px); }
-          .actions { display: flex; gap: 8px; }
-              .btn {
-                padding: 8px 16px; border-radius: 8px; font-size: 14px;
-                font-weight: 500; border: none; cursor: pointer;
-              }
-              .btn-cancel { background: #f3f4f6; color: #374151; }
-              .btn-cancel:hover { background: #e5e7eb; }
-              .btn-confirm { background: #2563eb; color: #fff; }
-              .btn-confirm:hover { background: #1d4ed8; }
-              .btn-confirm:disabled { opacity: 0.5; cursor: not-allowed; }
-              .header-icon { color: #d97706; flex-shrink: 0; }
-              #apiKey {
-                width: 100%; padding: 8px 40px 8px 12px; border: 1px solid #e5e7eb;
-                border-radius: 8px; font-size: 14px; color: #374151;
-                background: #fff; outline: none; font-family: inherit;
-              }
-              #apiKey:focus { border-color: transparent; box-shadow: 0 0 0 2px #3b82f6; }
-              .eye-btn {
-                position: absolute; right: 8px; top: 50%; transform: translateY(-50%);
-                background: none; border: none; cursor: pointer; padding: 4px; color: #9ca3af;
-              }
-              .eye-btn:hover { color: #4b5563; }
-              .api-link {
-                display: inline-flex; align-items: center; gap: 2px;
-                font-size: 14px; color: #2563eb; text-decoration: none; margin-top: 4px;
-              }
-              .api-link:hover { color: #1d4ed8; }
-              .api-link svg { flex-shrink: 0; }
-            </style>
-            </head>
-            <body>
-            <div class="overlay" onclick="if(event.target===this)NativeBridge.onCancel()">
-              <div class="card">
-                <div class="header">
-                  <div style="display:flex;align-items:center;gap:12px">
-                    <div style="width:40px;height:40px;background:#f3f4f6;border-radius:8px;display:flex;align-items:center;justify-content:center"><svg class="header-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/><path d="M20 3v4"/><path d="M22 5h-4"/></svg></div>
-                    <div class="title-group">
-                      <div class="title">AI修图</div>
-                      <div class="subtitle">使用生成式 AI 调整照片</div>
-                    </div>
-                  </div>
-                  <button class="close-btn" onclick="NativeBridge.onCancel()">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-                  </button>
-                </div>
-                <div class="content">
-                  $apiKeyHtml
-                  <div class="field-group">
-                    <div class="field-label">模型</div>
-                    <div class="dropdown" id="modelDropdown">
-                      <button class="dropdown-btn" type="button" onclick="toggleDropdown()">
-                        <span id="modelLabel">$selectedLabel</span>
-                        <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
-                      </button>
-                      <div class="dropdown-panel" id="modelPanel">$modelOptionHtml</div>
-                    </div>
-                  </div>
-                  <div class="field-group">
-                    <div class="field-label">提示词</div>
-                    <textarea id="prompt" rows="4" placeholder="请输入提示词">${escapedPrompt}</textarea>
-                  </div>
-                </div>
-                <div class="footer">
-                  $saveToggleHtml
-                  <div class="actions" style="margin-left:auto">
-                    <button class="btn btn-cancel" onclick="NativeBridge.onCancel()">取消</button>
-                    <button class="btn btn-confirm" id="confirmBtn" onclick="onConfirm()" disabled>确认</button>
-                  </div>
-                </div>
-              </div>
-            </div>
-            <script>
-              var saveAsAutoEdit = false;
-              var selectedModel = '$selectedModel';
-              function toggleSave() {
-                saveAsAutoEdit = !saveAsAutoEdit;
-                document.getElementById('saveToggle').className = 'toggle' + (saveAsAutoEdit ? ' on' : '');
-              }
-              function toggleDropdown() {
-                var panel = document.getElementById('modelPanel');
-                var btn = panel.previousElementSibling;
-                var isOpen = panel.classList.contains('open');
-                if (isOpen) {
-                  panel.classList.remove('open');
-                  btn.classList.remove('open');
-                } else {
-                  panel.classList.add('open');
-                  btn.classList.add('open');
-                }
-              }
-              function closeDropdown() {
-                var panel = document.getElementById('modelPanel');
-                var btn = panel.previousElementSibling;
-                panel.classList.remove('open');
-                btn.classList.remove('open');
-              }
-              document.getElementById('modelPanel').addEventListener('click', function(e) {
-                var opt = e.target.closest('.dropdown-opt');
-                if (!opt) return;
-                selectedModel = opt.getAttribute('data-value');
-                document.getElementById('modelLabel').textContent = opt.textContent;
-                var allOpts = this.querySelectorAll('.dropdown-opt');
-                for (var i = 0; i < allOpts.length; i++) allOpts[i].classList.remove('selected');
-                opt.classList.add('selected');
-                closeDropdown();
-              });
-              document.addEventListener('click', function(e) {
-                if (!document.getElementById('modelDropdown').contains(e.target)) {
-                  closeDropdown();
-                }
-              });
-              var realApiKey = '';
-              var apiKeyVisible = false;
-              function syncApiKeyDisplay() {
-                var el = document.getElementById('apiKey');
-                if (!el) return;
-                el.value = apiKeyVisible ? realApiKey : '\u2022'.repeat(realApiKey.length);
-              }
-              function onConfirm() {
-                var prompt = document.getElementById('prompt').value.trim();
-                if (!prompt) return;
-                var apiKeyOk = !document.getElementById('apiKey') || realApiKey.length > 0;
-                if (!apiKeyOk) return;
-                NativeBridge.onConfirm(prompt, selectedModel, saveAsAutoEdit, realApiKey);
-              }
-              function updateConfirmBtn() {
-                var prompt = document.getElementById('prompt').value.trim();
-                var apiKeyEl = document.getElementById('apiKey');
-                var apiKeyOk = !apiKeyEl || realApiKey.length > 0;
-                document.getElementById('confirmBtn').disabled = !(prompt && apiKeyOk);
-              }
-              function toggleApiKeyVisibility() {
-                apiKeyVisible = !apiKeyVisible;
-                syncApiKeyDisplay();
-                var icon = document.getElementById('eyeIcon');
-                if (apiKeyVisible) {
-                  icon.innerHTML = '<path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/>';
-                } else {
-                  icon.innerHTML = '<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>';
-                }
-              }
-              function onApiKeyInput(e) {
-                var el = e.target;
-                var raw = el.value;
-                if (apiKeyVisible) {
-                  realApiKey = raw;
-                  updateConfirmBtn();
-                  return;
-                }
-                var prevLen = realApiKey.length;
-                var maskChar = '\u2022';
-                var nonDots = raw.replace(/\u2022/g, '');
-                var newValue;
-                if (nonDots.length > 0) {
-                  if (raw.length !== nonDots.length) {
-                    var firstNew = raw.indexOf(nonDots[0]);
-                    var dotsAfter = raw.length - firstNew - nonDots.length;
-                    newValue = realApiKey.slice(0, firstNew) + nonDots + realApiKey.slice(prevLen - dotsAfter);
-                  } else {
-                    newValue = nonDots;
-                  }
-                } else if (raw.length < prevLen) {
-                  var cursor = el.selectionStart != null ? el.selectionStart : raw.length;
-                  var deleted = prevLen - raw.length;
-                  newValue = realApiKey.slice(0, cursor) + realApiKey.slice(cursor + deleted);
-                } else {
-                  return;
-                }
-                realApiKey = newValue;
-                updateConfirmBtn();
-                var newDisplay = maskChar.repeat(newValue.length);
-                var newCursor = el.selectionStart;
-                el.value = newDisplay;
-                if (newCursor != null) el.setSelectionRange(newCursor, newCursor);
-              }
-              document.getElementById('prompt').addEventListener('input', updateConfirmBtn);
-              var apiKeyInput = document.getElementById('apiKey');
-              if (apiKeyInput) apiKeyInput.addEventListener('input', onApiKeyInput);
-              updateConfirmBtn();
-              (document.getElementById('apiKey') || document.getElementById('prompt')).focus();
-            </script>
-            </body>
-            </html>
-        """.trimIndent()
+        val html = assets.open("ai_edit_dialog.html").bufferedReader().use { it.readText() }
+            .replace("{{ESCAPED_PROMPT}}", escapedPrompt)
+            .replace("{{SELECTED_MODEL}}", selectedModel)
+            .replace("{{SELECTED_LABEL}}", selectedLabel)
+            .replace("{{MODEL_OPTIONS}}", modelOptionHtml)
+            .replace("{{SAVE_TOGGLE}}", saveToggleHtml)
+            .replace("{{API_KEY_HTML}}", apiKeyHtml)
 
         val webView = WebView(this).apply {
             settings.javaScriptEnabled = true
@@ -1533,29 +1013,7 @@ class ImageViewerActivity : AppCompatActivity() {
             setBackgroundColor(0)
             isVerticalScrollBarEnabled = false
             isHorizontalScrollBarEnabled = false
-            addJavascriptInterface(object {
-                @JavascriptInterface
-                fun onConfirm(prompt: String, model: String, saveAsAutoEdit: Boolean, apiKey: String) {
-                    runOnUiThread {
-                        dismissPromptWebView()
-                        dispatchAiEdit(filePath, prompt, model, saveAsAutoEdit, apiKey, mainActivity)
-                    }
-                }
-                @JavascriptInterface
-                fun onCancel() {
-                    runOnUiThread { dismissPromptWebView() }
-                }
-                @JavascriptInterface
-                fun openLink(url: String) {
-                    runOnUiThread {
-                        try {
-                            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
-                        } catch (e: Exception) {
-                            Log.w(TAG, "Failed to open external link: $url", e)
-                        }
-                    }
-                }
-            }, "NativeBridge")
+            addJavascriptInterface(NativeAiEditBridge(this@ImageViewerActivity, filePath, mainActivity), "NativeBridge")
             loadDataWithBaseURL(null, html, "text/html", "UTF-8", null)
         }
 
@@ -1567,7 +1025,7 @@ class ImageViewerActivity : AppCompatActivity() {
         promptWebView = webView
     }
 
-    private fun dismissPromptWebView() {
+    internal fun dismissPromptWebView() {
         promptWebView?.let {
             (it.parent as? FrameLayout)?.removeView(it)
             it.destroy()
@@ -1576,7 +1034,7 @@ class ImageViewerActivity : AppCompatActivity() {
         requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
     }
 
-    private fun dispatchAiEdit(filePath: String, prompt: String, model: String, saveAsAutoEdit: Boolean, apiKey: String, mainActivity: MainActivity) {
+    internal fun dispatchAiEdit(filePath: String, prompt: String, model: String, saveAsAutoEdit: Boolean, apiKey: String, mainActivity: MainActivity) {
         isAiEditing = true
 
         // Use JSONArray for safe JSON encoding — avoids JS string injection vulnerabilities
@@ -1624,8 +1082,8 @@ class ImageViewerActivity : AppCompatActivity() {
             }
 
             taskAiEditCancel.visibility = View.GONE
-            val state = com.gjk.cameraftpcompanion.bridges.ImageViewerBridge.lastProgress
-            if (state != null) {
+            val state = com.gjk.cameraftpcompanion.bridges.ImageViewerBridge.aiEditState
+            if (state is com.gjk.cameraftpcompanion.bridges.TaskProgressState.Done && state.total > 0) {
                 taskAiEditCount.text = "${state.total} / ${state.total}"
             }
 
@@ -1668,17 +1126,14 @@ class ImageViewerActivity : AppCompatActivity() {
 
 
     private fun syncAiEditProgressFromWebView() {
-        val progress = com.gjk.cameraftpcompanion.bridges.ImageViewerBridge.lastProgress
-        val editing = com.gjk.cameraftpcompanion.bridges.ImageViewerBridge.isAiEditing
-        val done = com.gjk.cameraftpcompanion.bridges.ImageViewerBridge.isAiEditDone
-        if (editing && progress != null) {
+        val state = com.gjk.cameraftpcompanion.bridges.ImageViewerBridge.aiEditState
+        if (state is com.gjk.cameraftpcompanion.bridges.TaskProgressState.InProgress) {
             isAiEditing = true
-            updateAiEditProgress(progress.current, progress.total, progress.failedCount)
-        } else if (done) {
+            updateAiEditProgress(state.current, state.total, state.failedCount)
+        } else if (state is com.gjk.cameraftpcompanion.bridges.TaskProgressState.Done) {
             taskRowAiEdit.visibility = View.VISIBLE
             taskAiEditCancel.visibility = View.GONE
-            val state = com.gjk.cameraftpcompanion.bridges.ImageViewerBridge.lastProgress
-            if (state != null) {
+            if (state.total > 0) {
                 taskAiEditCount.text = "${state.total} / ${state.total}"
                 if (state.failedCount > 0) {
                     taskAiEditFailed.visibility = View.VISIBLE
@@ -1734,8 +1189,8 @@ class ImageViewerActivity : AppCompatActivity() {
             }
 
             taskCgCancel.visibility = View.GONE
-            val state = com.gjk.cameraftpcompanion.bridges.ImageViewerBridge.lastColorGradingProgress
-            if (state != null) {
+            val state = com.gjk.cameraftpcompanion.bridges.ImageViewerBridge.colorGradingState
+            if (state is com.gjk.cameraftpcompanion.bridges.TaskProgressState.Done && state.total > 0) {
                 taskCgCount.text = "${state.total} / ${state.total}"
             }
 
@@ -1745,17 +1200,14 @@ class ImageViewerActivity : AppCompatActivity() {
     }
 
     private fun syncColorGradingProgressFromWebView() {
-        val progress = com.gjk.cameraftpcompanion.bridges.ImageViewerBridge.lastColorGradingProgress
-        val grading = com.gjk.cameraftpcompanion.bridges.ImageViewerBridge.isColorGrading
-        val done = com.gjk.cameraftpcompanion.bridges.ImageViewerBridge.isColorGradingDone
-        if (grading && progress != null) {
+        val state = com.gjk.cameraftpcompanion.bridges.ImageViewerBridge.colorGradingState
+        if (state is com.gjk.cameraftpcompanion.bridges.TaskProgressState.InProgress) {
             isColorGrading = true
-            updateColorGradingProgress(progress.current, progress.total, progress.failedCount)
-        } else if (done) {
+            updateColorGradingProgress(state.current, state.total, state.failedCount)
+        } else if (state is com.gjk.cameraftpcompanion.bridges.TaskProgressState.Done) {
             taskRowColorGrading.visibility = View.VISIBLE
             taskCgCancel.visibility = View.GONE
-            val state = com.gjk.cameraftpcompanion.bridges.ImageViewerBridge.lastColorGradingProgress
-            if (state != null) {
+            if (state.total > 0) {
                 taskCgCount.text = "${state.total} / ${state.total}"
                 if (state.failedCount > 0) {
                     taskCgFailed.visibility = View.VISIBLE
@@ -2061,6 +1513,7 @@ class ImageViewerActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        exifExecutor.shutdownNow()
         taskPanelAutoDismissRunnable?.let { taskPanelAutoDismissHandler?.removeCallbacks(it) }
         taskPanelAutoDismissRunnable = null
         dismissPromptWebView()

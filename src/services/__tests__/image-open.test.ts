@@ -6,7 +6,7 @@
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { invoke } from '@tauri-apps/api/core';
-import { openImagePreview } from '../image-open';
+import { openImagePreview, requestExifForPositions } from '../image-open';
 
 vi.mock('@tauri-apps/api/core', () => ({
   invoke: vi.fn(),
@@ -185,5 +185,59 @@ describe('image-open service', () => {
     });
 
     expect(invoke).toHaveBeenCalledWith('open_preview_window', { filePath: '/tmp/pic.jpg' });
+  });
+
+  describe('requestExifForPositions', () => {
+    it('calls onExifResultForPosition for each item with EXIF data', async () => {
+      const onExifResultForPosition = vi.fn();
+      window.ImageViewerAndroid = {
+        openOrNavigateTo: vi.fn(),
+        isAppVisible: vi.fn(),
+        onExifResult: vi.fn(),
+        onExifResultForPosition,
+        requestExifForPositions: vi.fn(),
+        resolveFilePath: vi.fn().mockReturnValue('/real/path.jpg'),
+      };
+      vi.mocked(invoke).mockResolvedValue({ iso: 400, aperture: 'f/2.8' });
+
+      await requestExifForPositions([
+        { position: 0, uri: 'content://media/1' },
+        { position: 2, uri: 'content://media/3' },
+      ]);
+
+      expect(onExifResultForPosition).toHaveBeenCalledTimes(2);
+      expect(onExifResultForPosition).toHaveBeenCalledWith(0, JSON.stringify({ iso: 400, aperture: 'f/2.8' }));
+      expect(onExifResultForPosition).toHaveBeenCalledWith(2, JSON.stringify({ iso: 400, aperture: 'f/2.8' }));
+    });
+
+    it('passes null when EXIF fetch fails', async () => {
+      const onExifResultForPosition = vi.fn();
+      window.ImageViewerAndroid = {
+        openOrNavigateTo: vi.fn(),
+        isAppVisible: vi.fn(),
+        onExifResult: vi.fn(),
+        onExifResultForPosition,
+        requestExifForPositions: vi.fn(),
+        resolveFilePath: vi.fn().mockReturnValue('/real/path.jpg'),
+      };
+      vi.mocked(invoke).mockRejectedValue(new Error('EXIF failed'));
+
+      await requestExifForPositions([{ position: 0, uri: 'content://media/1' }]);
+
+      expect(onExifResultForPosition).toHaveBeenCalledWith(0, null);
+    });
+
+    it('does nothing when onExifResultForPosition is not available', async () => {
+      window.ImageViewerAndroid = {
+        openOrNavigateTo: vi.fn(),
+        isAppVisible: vi.fn(),
+        onExifResult: vi.fn(),
+        requestExifForPositions: vi.fn(),
+        resolveFilePath: vi.fn(),
+      } as unknown as Window['ImageViewerAndroid'];
+
+      // Should not throw
+      await requestExifForPositions([{ position: 0, uri: 'content://media/1' }]);
+    });
   });
 });

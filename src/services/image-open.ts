@@ -53,21 +53,25 @@ export async function requestExifForPositions(
     return;
   }
 
-  for (const { position, uri } of items) {
-    try {
-      const realPath =
-        window.ImageViewerAndroid.resolveFilePath?.(uri) ?? uri;
-      const exif = await invoke<ExifInfo | null>('get_image_exif', {
-        filePath: realPath,
-      });
-      window.ImageViewerAndroid.onExifResultForPosition(
-        position,
-        exif ? JSON.stringify(exif) : null
-      );
-    } catch {
-      window.ImageViewerAndroid.onExifResultForPosition(position, null);
-    }
-  }
+  const bridge = window.ImageViewerAndroid;
+
+  await Promise.all(
+    items.map(async ({ position, uri }) => {
+      try {
+        const realPath =
+          bridge?.resolveFilePath?.(uri) ?? uri;
+        const exif = await invoke<ExifInfo | null>('get_image_exif', {
+          filePath: realPath,
+        });
+        bridge?.onExifResultForPosition?.(
+          position,
+          exif ? JSON.stringify(exif) : null
+        );
+      } catch {
+        bridge?.onExifResultForPosition?.(position, null);
+      }
+    })
+  );
 }
 
 function isChooserOpenSuccess(result: unknown): boolean {
