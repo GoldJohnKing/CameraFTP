@@ -537,9 +537,11 @@ class ImageViewerActivity : AppCompatActivity() {
 
     internal fun onDeleteSuccess(updatedUris: MutableList<String>, newIndex: Int) {
         currentIndex = newIndex
+        exifController.orientationCache.clear()
         (viewPager.adapter as? ImageViewerAdapter)?.replaceUris(uris)
         viewPager.setCurrentItem(currentIndex, false)
         updateUI()
+        exifController.prefetchOrientations(around = currentIndex)
     }
 
     // --- UI update ---
