@@ -63,9 +63,6 @@ const aiEdit = createTaskProgressHook<AiEditProgressEvent>({
   onDone: (event) => {
     syncToNativeLayer(event);
     notifyNativeDone(event);
-    if (!event.cancelled && event.outputFiles.length > 0 && event.failedCount === 0) {
-      void autoPreviewIfEnabled(event.outputFiles);
-    }
   },
 });
 
@@ -87,34 +84,7 @@ function notifyNativeDone(event: DoneEvent) {
   window.ImageViewerAndroid?.onAiEditComplete?.(event.failedCount === 0, message, false);
 }
 
-async function autoPreviewIfEnabled(outputFiles: string[]) {
-  try {
-    const { useConfigStore: _useConfigStore } = await import('../stores/configStore');
-    const autoOpen = _useConfigStore.getState().draft?.androidImageViewer?.autoOpenLatestWhenVisible ?? false;
-    if (autoOpen) {
-      void autoPreviewOutput(outputFiles);
-    }
-  } catch {
-    // Non-critical
-  }
-}
 
-async function autoPreviewOutput(outputFiles: string[]) {
-  if (outputFiles.length === 0) return;
-
-  const { openImagePreview } = await import('../services/image-open');
-  const { useConfigStore: _useConfigStore } = await import('../stores/configStore');
-  const openMethod = _useConfigStore.getState().draft?.androidImageViewer?.openMethod;
-
-  const firstFile = outputFiles[0];
-  const allUris = [firstFile];
-
-  void openImagePreview({
-    filePath: firstFile,
-    openMethod,
-    allUris,
-  });
-}
 
 export function useAiEditProgress(): AiEditProgressState {
   return mapToState(aiEdit.useProgress());
