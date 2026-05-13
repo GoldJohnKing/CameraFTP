@@ -14,7 +14,6 @@ const {
   listenMock,
   invokeMock,
   requestMediaLibraryRefreshMock,
-  openImagePreviewMock,
   capturedHandler,
 } = vi.hoisted(() => {
   const _captured: { current: ((payload: AiEditProgressEvent) => void) | undefined } = { current: undefined };
@@ -29,18 +28,8 @@ const {
     listenMock: _listenMock,
     invokeMock: vi.fn(),
     requestMediaLibraryRefreshMock: vi.fn(),
-    openImagePreviewMock: vi.fn(),
     capturedHandler: _captured,
   };
-});
-
-const mockConfigGetState = vi.fn().mockReturnValue({
-  draft: {
-    androidImageViewer: {
-      autoOpenLatestWhenVisible: false,
-      openMethod: 'built-in-viewer',
-    },
-  },
 });
 
 vi.mock('@tauri-apps/api/event', () => ({
@@ -55,14 +44,6 @@ vi.mock('../../utils/gallery-refresh', () => ({
   requestMediaLibraryRefresh: requestMediaLibraryRefreshMock,
   GALLERY_REFRESH_REQUESTED_EVENT: 'gallery-refresh-requested',
   LATEST_PHOTO_REFRESH_REQUESTED_EVENT: 'latest-photo-refresh-requested',
-}));
-
-vi.mock('../../services/image-open', () => ({
-  openImagePreview: openImagePreviewMock,
-}));
-
-vi.mock('../../stores/configStore', () => ({
-  useConfigStore: { getState: mockConfigGetState },
 }));
 
 import { useAiEditProgress, dismissDone, cancelAiEdit, enqueueAiEdit } from '../useAiEditProgress';
@@ -87,16 +68,6 @@ describe('useAiEditProgress', () => {
 
   beforeEach(async () => {
     requestMediaLibraryRefreshMock.mockClear();
-    openImagePreviewMock.mockClear();
-    mockConfigGetState.mockClear();
-    mockConfigGetState.mockReturnValue({
-      draft: {
-        androidImageViewer: {
-          autoOpenLatestWhenVisible: false,
-          openMethod: 'built-in-viewer',
-        },
-      },
-    });
     window.ImageViewerAndroid = undefined;
     dismissDone();
 
@@ -202,46 +173,6 @@ describe('useAiEditProgress', () => {
       '成功1张 失败2张',
       false,
     );
-  });
-
-  it('handleEvent "done" does not auto-preview when autoOpenLatestWhenVisible is false', async () => {
-    mockConfigGetState.mockReturnValue({
-      draft: {
-        androidImageViewer: {
-          autoOpenLatestWhenVisible: false,
-          openMethod: 'built-in-viewer',
-        },
-      },
-    });
-
-    eventHandler!(doneEvent());
-    await flush();
-
-    expect(openImagePreviewMock).not.toHaveBeenCalled();
-  });
-
-  it('handleEvent "done" auto-previews when autoOpenLatestWhenVisible is true', async () => {
-    mockConfigGetState.mockReturnValue({
-      draft: {
-        androidImageViewer: {
-          autoOpenLatestWhenVisible: true,
-          openMethod: 'built-in-viewer',
-        },
-      },
-    });
-
-    await act(async () => {
-      eventHandler!(doneEvent());
-      // Resolve nested dynamic import chain:
-      // autoPreviewIfEnabled → import(configStore) → autoPreviewOutput → import(image-open) → import(configStore)
-      for (let i = 0; i < 8; i++) await flush();
-    });
-
-    expect(openImagePreviewMock).toHaveBeenCalledWith({
-      filePath: '/tmp/out1.jpg',
-      openMethod: 'built-in-viewer',
-      allUris: ['/tmp/out1.jpg'],
-    });
   });
 
   it('handleEvent "done" with failures shows done state', async () => {
