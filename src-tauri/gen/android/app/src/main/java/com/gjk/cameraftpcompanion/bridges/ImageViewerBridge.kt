@@ -145,6 +145,7 @@ class ImageViewerBridge(activity: android.app.Activity) : BaseJsBridge(activity)
         if (uri == null) return
         val viewer = ImageViewerActivity.instance ?: return
         if (!ImageViewerActivity.isViewerVisible) return
+        if (viewer.isFinishing || viewer.isDestroyed) return
         viewer.navigateToExistingUri(uri)
     }
 

@@ -84,12 +84,12 @@ class ImageViewerActivityInsertTest {
     }
 
     @Test
-    fun insert_intoEmptyList_currentIndexAtZero_shiftsToFirstItem() {
+    fun insert_intoEmptyList_currentIndexAtZero_setsToFirstItem() {
         val result = ImageViewerActivity.computeInsertState(emptyList(), 0, "uri_new", 0)!!
 
         assertEquals(listOf("uri_new"), result.uris)
-        // Empty list with currentIndex=0: insert at 0 (== currentIndex) → shifts to 1
-        assertEquals(1, result.currentIndex)
+        // Empty list: only item, index must be 0 (not out-of-bounds 1)
+        assertEquals(0, result.currentIndex)
     }
 
     // --- computeNavigateToExistingIndex ---

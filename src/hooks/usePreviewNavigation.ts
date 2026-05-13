@@ -64,6 +64,7 @@ export function usePreviewNavigation({
     const unlistenPromise = listen<{ count: number; latestFilename: string | null }>(
       'file-index-changed',
       async (event) => {
+        if (aborted) return;
         setTotalFiles(event.payload.count);
 
         try {

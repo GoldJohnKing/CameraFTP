@@ -134,7 +134,14 @@ class ImageViewerActivity : AppCompatActivity() {
             val clampedIndex = insertIndex.coerceIn(0, currentUris.size)
             val newUris = currentUris.toMutableList()
             newUris.add(clampedIndex, uri)
-            val newIndex = if (clampedIndex <= currentIndex) currentIndex + 1 else currentIndex
+            // Empty list: only item, index must be 0
+            val newIndex = if (currentUris.isEmpty()) {
+                0
+            } else if (clampedIndex <= currentIndex) {
+                currentIndex + 1
+            } else {
+                currentIndex
+            }
             return InsertResult(newUris, newIndex)
         }
 

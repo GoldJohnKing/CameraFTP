@@ -47,9 +47,9 @@ export function useAndroidAutoOpenLatestPhoto({
       let viewerHandledInsertion = false;
 
       // Insert all new items at index 0 (newest first, matching MediaStore dateDesc order).
-      // Items are iterated newest→oldest so that each insert at index 0 produces
-      // correct final order: newest at 0, second-newest at 1, etc.
-      for (let i = items.length - 1; i >= 0; i--) {
+      // items[0]=oldest, items[n-1]=newest. Iterate oldest→newest, each at index 0,
+      // so each newer item pushes previous ones right: newest ends up at 0.
+      for (let i = 0; i < items.length; i++) {
         const inserted = bridge?.insertImage?.(items[i].uri, 0) ?? false;
         if (inserted) viewerHandledInsertion = true;
       }
