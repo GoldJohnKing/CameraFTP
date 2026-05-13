@@ -61,12 +61,18 @@ export function usePreviewNavigation({
   useEffect(() => {
     const unlistenPromise = listen<{ count: number; latestFilename: string | null }>(
       'file-index-changed',
-      (event) => {
+      async (event) => {
         setTotalFiles(event.payload.count);
-        setCurrentIndex((prev) => {
-          if (event.payload.count === 0) return 0;
-          return Math.min(prev, event.payload.count - 1);
-        });
+
+        try {
+          const backendIndex = await invoke<number | null>('get_current_file_index');
+          setCurrentIndex(backendIndex ?? 0);
+        } catch {
+          setCurrentIndex((prev) => {
+            if (event.payload.count === 0) return 0;
+            return Math.min(prev, event.payload.count - 1);
+          });
+        }
       },
     );
 
