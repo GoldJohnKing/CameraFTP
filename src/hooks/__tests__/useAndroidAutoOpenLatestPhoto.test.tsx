@@ -301,10 +301,10 @@ describe('useAndroidAutoOpenLatestPhoto', () => {
       );
     });
 
-    // Items inserted newest→oldest, each at index 0
+    // Items inserted oldest→newest, each at index 0 (newest ends up at index 0)
     expect(insertImageMock).toHaveBeenCalledTimes(2);
-    expect(insertImageMock).toHaveBeenNthCalledWith(1, 'content://added/2', 0);
-    expect(insertImageMock).toHaveBeenNthCalledWith(2, 'content://added/1', 0);
+    expect(insertImageMock).toHaveBeenNthCalledWith(1, 'content://added/1', 0);
+    expect(insertImageMock).toHaveBeenNthCalledWith(2, 'content://added/2', 0);
     expect(navigateToExistingUriMock).toHaveBeenCalledWith('content://added/2');
     expect(openImagePreviewMock).not.toHaveBeenCalled();
   });
@@ -348,8 +348,8 @@ describe('useAndroidAutoOpenLatestPhoto', () => {
     });
 
     expect(insertImageMock).toHaveBeenCalledTimes(2);
-    expect(insertImageMock).toHaveBeenNthCalledWith(1, 'content://added/2', 0);
-    expect(insertImageMock).toHaveBeenNthCalledWith(2, 'content://added/1', 0);
+    expect(insertImageMock).toHaveBeenNthCalledWith(1, 'content://added/1', 0);
+    expect(insertImageMock).toHaveBeenNthCalledWith(2, 'content://added/2', 0);
     expect(navigateToExistingUriMock).not.toHaveBeenCalled();
     expect(openImagePreviewMock).not.toHaveBeenCalled();
   });
