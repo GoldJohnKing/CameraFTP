@@ -576,9 +576,12 @@ class ImageViewerActivity : AppCompatActivity() {
 
     private fun resetCurrentImageScale() {
         val rv = viewPager.getChildAt(0) as? androidx.recyclerview.widget.RecyclerView ?: return
-        for (i in 0 until rv.childCount) {
-            val holder = rv.getChildViewHolder(rv.getChildAt(i)) as? ImageViewerAdapter.ViewHolder ?: continue
-            holder.imageView.resetScaleAndCenter()
+        // Defer until after the layout pass so SubsamplingScaleImageView uses new dimensions
+        rv.post {
+            for (i in 0 until rv.childCount) {
+                val holder = rv.getChildViewHolder(rv.getChildAt(i)) as? ImageViewerAdapter.ViewHolder ?: continue
+                holder.imageView.resetScaleAndCenter()
+            }
         }
     }
 
