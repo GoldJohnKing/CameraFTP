@@ -118,6 +118,17 @@ class ImageViewerActivity : AppCompatActivity() {
             }
         }
 
+        @JvmStatic
+        fun buildColorGradingArgsJson(
+            filePath: String, lutId: String, useAutoExposure: Boolean,
+            meteringMode: String, manualEv: Float, syncToAuto: Boolean,
+        ): String {
+            return JSONArray().apply {
+                put(filePath); put(lutId); put(useAutoExposure.toString())
+                put(meteringMode); put(manualEv.toString()); put(syncToAuto.toString())
+            }.toString()
+        }
+
         data class InsertResult(
             val uris: List<String>,
             val currentIndex: Int,
@@ -477,7 +488,12 @@ class ImageViewerActivity : AppCompatActivity() {
             mainActivity.getWebView()?.evaluateJavascript(
                 "(function(){try{var e=window.__tauriGetAutoColorGradingEnabled?.()??'false';var l=window.__tauriGetColorGradingLastUsed?.()??'null';return JSON.stringify({enabled:e,lastUsed:l})}catch(e){return JSON.stringify({enabled:'false',lastUsed:'null'})}})();"
             ) { result ->
-                val jsonString = result?.trim()?.removeSurrounding("\"") ?: "{}"
+                val jsonString = try {
+                    val trimmed = result?.trim() ?: ""
+                    if (trimmed.startsWith("\"")) JSONArray("[$trimmed]").getString(0) else trimmed
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to decode color grading config from WebView: $result", e); "{}"
+                }
                 val json = try { org.json.JSONObject(jsonString) } catch (e: Exception) { null }
                 val enabled = json?.optString("enabled", "false")?.toBoolean() ?: false
                 val lastUsedStr = json?.optString("lastUsed", "null") ?: "null"
@@ -502,14 +518,11 @@ class ImageViewerActivity : AppCompatActivity() {
         val mainActivity = MainActivity.instance ?: run {
             Log.w(TAG, "MainActivity not available for color grading"); return
         }
-        val args = JSONArray().apply {
-            put(filePath); put(lutId); put(useAutoExposure.toString())
-            put(meteringMode); put(manualEv.toString()); put(syncToAuto.toString())
-        }
+        val args = buildColorGradingArgsJson(filePath, lutId, useAutoExposure, meteringMode, manualEv, syncToAuto)
         val js = """
             (function(){
                 if(window.__tauriTriggerColorGrading){
-                    window.__tauriTriggerColorGrading(...${args.toString()});
+                    window.__tauriTriggerColorGrading(...${args});
                     return 'ok';
                 }
                 return 'no_handler';
