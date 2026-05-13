@@ -109,13 +109,24 @@ class ImageViewerBridge(activity: android.app.Activity) : BaseJsBridge(activity)
 
     /**
      * Triggers a MediaStore scan for a newly created file so it appears in the system gallery.
+     * On completion, emits a gallery-items-added event so the active viewer can insert it.
      */
     @android.webkit.JavascriptInterface
     fun scanNewFile(filePath: String?) {
         if (filePath == null) return
         val viewer = ImageViewerActivity.instance
         val context = (viewer ?: activity) as? android.content.Context ?: return
-        android.media.MediaScannerConnection.scanFile(context, arrayOf(filePath), null, null)
+        // Use MainActivity for emitting events since the WebView listener lives there
+        val mainActivity = MainActivity.instance ?: return
+        android.media.MediaScannerConnection.scanFile(context, arrayOf(filePath), null,
+            object : android.media.MediaScannerConnection.OnScanCompletedListener {
+                override fun onScanCompleted(path: String?, uri: android.net.Uri?) {
+                    if (uri == null) return
+                    com.gjk.cameraftpcompanion.bridges.MediaStoreBridge.Companion
+                        .emitGalleryItemsAdded(mainActivity, uri.toString())
+                }
+            }
+        )
     }
 
     /**
