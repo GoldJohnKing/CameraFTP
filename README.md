@@ -2,7 +2,7 @@
 
 一款跨平台的相机FTP伴侣应用，让相机照片直接传输到电脑或手机。
 
-![版本](https://img.shields.io/badge/version-1.6.1-blue)
+![版本](https://img.shields.io/badge/version-1.7.0-blue)
 ![平台](https://img.shields.io/badge/platform-Windows%20%7C%20Android-brightgreen)
 ![技术栈](https://img.shields.io/badge/tech-Tauri%20v2%20%2B%20React%2018%20%2B%20Rust%202021-orange)
 [![QQ群](https://img.shields.io/badge/QQ%E7%BE%A4-936189868-12B7F5?logo=tencentqq&logoColor=white)](https://qm.qq.com/q/IUGLEM5V28)
@@ -20,6 +20,7 @@
 - 📷 **EXIF元数据** - 预览窗口支持显示ISO/光圈/快门速度/焦距/拍摄时间
 - 🎨 **多格式支持** - 支持 JPG、HEIF、RAW 等格式
 - 🤖 **AI修图** - 支持火山引擎 Seedream 系列大模型，支持自动/手动AI修图
+- 🎨 **RAW调色** - 支持套用多款胶片模拟调色滤镜，支持自动/手动曝光补偿，支持自动镜头校正，支持自动/批量调色
 
 ### 🖥️ Windows专属功能
 
@@ -34,6 +35,43 @@
 - 🚦 **状态指示** - 常驻通知显示服务器状态
 - 🛡️ **运行保活** - 前台服务保活，WiFi锁+Wake锁，避免进程意外结束（需ROM支持）
 - 🖼️ **内置图库** - 以缩略图形式显示已接收的图片，支持批量选中、删除和分享
+
+---
+
+## 📱 界面预览
+
+<table>
+  <tr>
+    <td align="center"><b>主页 · 服务器控制与实时统计</b></td>
+    <td align="center"><b>内置图库 · Android</b></td>
+  </tr>
+  <tr>
+    <td><img src="docs/images/main_page.png" alt="主页" width="400"/></td>
+    <td><img src="docs/images/android_gallery.jpg" alt="Android图库" width="400"/></td>
+  </tr>
+  <tr>
+    <td align="center"><b>图片查看器 · Android</b></td>
+    <td align="center"><b>基础设置 · 连接与高级配置</b></td>
+  </tr>
+  <tr>
+    <td><img src="docs/images/android_image_viewer.jpg" alt="Android图片查看器" width="400"/></td>
+    <td><img src="docs/images/basic_&_connect_settings.png" alt="设置" width="400"/></td>
+  </tr>
+  <tr>
+    <td align="center"><b>自动调色 · AI修图</b></td>
+    <td align="center"><b>调色 · 胶片模拟</b></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="docs/images/color_grading_&_AI_edit_setting.png" alt="自动调色与AI修图设置" width="400"/></td>
+    <td align="center"><img src="docs/images/color_grading.jpg" alt="自动预览设置" width="400"/></td>
+  </tr>
+  <tr>
+    <td align="center" colspan="2"><b>图片查看器 · Windows</b></td>
+  </tr>
+  <tr>
+    <td align="center" colspan="2"><img src="docs/images/windows_image_viewer_&_auto_view.png" alt="Windows图片查看器" width="100%"/></td>
+  </tr>
+</table>
 
 ---
 
@@ -135,19 +173,25 @@ AGPL-3.0-or-later © 2026 GoldJohnKing <GoldJohnKing@Live.cn>
 | **异步运行时** | tokio | ^1.0 |
 | **FTP服务器** | libunftp | 0.23.0 |
 | **FTP存储后端** | unftp-sbe-fs | 0.4.0 |
+| **FTP核心** | unftp-core | 0.1.0 |
 | **类型生成** | ts-rs | 10.1 |
 | **EXIF读取** | nom-exif | 2.7 |
 | **时间处理** | chrono | 0.4 |
-| **托盘图标** | image | 0.25 |
+| **图像处理** | image | 0.25 |
 | **HEIC支持** | heic | 0.1 |
+| **压缩解压** | zip | 2 |
+| **DEFLATE** | flate2 | 1 |
+| **字节扫描** | memchr | 2 |
 | **密码哈希** | argon2 | 0.5 |
 | **内存安全** | zeroize | 1.8 |
 | **TLS证书** | rcgen | 0.13 |
+| **动态库加载** | libloading | 0.8 |
 | **并发集合** | dashmap | 6.0 |
 | **错误处理** | thiserror | 2.0 |
 | **日志** | tracing | 0.1 |
 | **文件监听(Win)** | notify | 8.0 |
 | **AI修图** | Volcengine Seedream | doubao-seedream-5-0 |
+| **调色引擎** | RawAlchemyCpp | LUT + Lensfun |
 | **Android Native** | Kotlin | JVM 21 |
 | **Android API** | min 33 / target 36 | Android 13+ |
 | **JDK** | Java | 21 |
@@ -204,8 +248,11 @@ cameraftp/
 │   │   ├── PermissionList.tsx    # 权限列表
 │   │   ├── AiEditConfigCard.tsx  # AI修图配置卡片
 │   │   ├── AiEditConfigPanel.tsx # AI修图配置面板
-│   │   ├── AiEditProgressBar.tsx # AI修图进度条
 │   │   ├── PromptDialog.tsx      # AI修图提示词对话框
+│   │   ├── ColorGradingDialog.tsx # 调色对话框
+│   │   ├── AutoColorGradingConfigCard.tsx # 自动调色配置
+│   │   ├── ExposureConfigSection.tsx # 曝光补偿配置
+│   │   ├── TaskProgressPanel.tsx # 任务进度面板
 │   │   ├── AboutCard.tsx         # 关于信息
 │   │   └── WeChatDonateDialog.tsx # 赞赏对话框
 │   ├── hooks/                    # React Hooks
@@ -217,6 +264,9 @@ cameraftp/
 │   │   ├── useThumbnailScheduler.ts # 缩略图调度
 │   │   ├── useImagePreviewOpener.ts # 图片预览
 │   │   ├── useAiEditProgress.ts  # AI修图进度
+│   │   ├── useColorGradingPresets.ts # 调色预设
+│   │   ├── useColorGradingProgress.ts # 调色进度
+│   │   ├── createTaskProgressHook.ts # 通用任务进度Hook工厂
 │   │   ├── useAndroidAutoOpenLatestPhoto.ts # Android自动打开
 │   │   ├── usePreviewWindowLifecycle.ts # 预览窗口生命周期
 │   │   ├── usePreviewZoomPan.ts  # 预览缩放平移
@@ -240,13 +290,16 @@ cameraftp/
 │   │   ├── events.ts             # 事件类型
 │   │   └── global.ts             # 全局类型声明
 │   ├── constants/                # 常量定义
-│   │   └── seedream-models.ts    # Seedream可用模型列表
+│   │   ├── seedream-models.ts    # Seedream可用模型列表
+│   │   └── color-grading.ts      # 调色相关常量
 │   └── utils/                    # 工具函数
 │       ├── events.ts             # 事件管理器
 │       ├── format.ts             # 格式化工具
 │       ├── error.ts              # 错误处理
 │       ├── gallery-refresh.ts    # 图库刷新
 │       ├── gallery-delete.ts     # 图库删除
+│       ├── raw.ts                # RAW文件工具
+│       ├── external-link.ts      # 外部链接打开
 │       └── store.ts              # 异步Store辅助
 │
 ├── 📁 src-tauri/                 # Rust后端源码
@@ -262,7 +315,8 @@ cameraftp/
 │   │   │   ├── storage.rs        # 存储/权限/自启命令
 │   │   │   ├── file_index.rs     # 文件索引命令
 │   │   │   ├── exif.rs           # EXIF读取命令
-│   │   │   └── ai_edit.rs        # AI修图命令
+│   │   │   ├── ai_edit.rs        # AI修图命令
+│   │   │   └── color_grading.rs  # 调色命令
 │   │   ├── ftp/                  # FTP服务器实现
 │   │   │   ├── server.rs         # FtpServerActor（生命周期管理）
 │   │   │   ├── server_factory.rs # 启动流水线
@@ -288,6 +342,17 @@ cameraftp/
 │   │   │       ├── mod.rs        # 平台分发
 │   │   │       ├── rust_processor.rs  # Windows（image+heic）
 │   │   │       └── android_processor.rs # Android（JNI）
+│   │   ├── color_grading/        # 调色服务（RawAlchemyCpp FFI）
+│   │   │   ├── mod.rs            # 模块入口
+│   │   │   ├── service.rs        # 调色队列服务
+│   │   │   ├── presets.rs        # 预设管理
+│   │   │   ├── progress.rs       # 进度事件
+│   │   │   ├── resources.rs      # 资源提取
+│   │   │   ├── ffi.rs            # RawAlchemyCpp FFI绑定
+│   │   │   ├── lut_data.rs       # LUT数据加载
+│   │   │   └── lensfun_db.rs     # Lensfun镜头数据库
+│   │   ├── image_preview/        # 图片预览缓存（Windows）
+│   │   │   └── mod.rs            # 预览缓存服务
 │   │   ├── file_index/           # 文件索引服务
 │   │   │   ├── service.rs        # 索引服务（EXIF排序）
 │   │   │   ├── types.rs          # 索引类型
@@ -309,7 +374,8 @@ cameraftp/
 │   │   ├── crypto.rs             # Argon2id密码哈希
 │   │   ├── network.rs            # 网络接口检测
 │   │   ├── constants.rs          # 应用常量
-│   │   └── error.rs              # 错误处理
+│   │   ├── error.rs              # 错误处理
+│   │   └── image_utils.rs        # 图片工具函数
 │   │
 │   └── 📁 gen/android/           # Android原生代码 (Kotlin)
 │       └── app/src/main/java/com/gjk/cameraftpcompanion/
