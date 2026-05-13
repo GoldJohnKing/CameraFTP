@@ -69,6 +69,24 @@ mod tests {
     use super::*;
 
     #[test]
+    fn done_serializes_with_camel_case_keys() {
+        let event = ColorGradingEvent::Done {
+            total: 2,
+            failed_count: 1,
+            failed_files: vec!["b.nef".into()],
+            output_files: vec!["/out/a_lut.jpg".into()],
+            cancelled: false,
+        };
+        let json = serde_json::to_value(&event).unwrap();
+        let obj = json.as_object().unwrap();
+        assert_eq!(obj.get("type").unwrap(), "done");
+        assert!(obj.contains_key("failedCount"), "expected camelCase 'failedCount', got: {:?}", obj.keys().collect::<Vec<_>>());
+        assert!(obj.contains_key("failedFiles"), "expected camelCase 'failedFiles', got: {:?}", obj.keys().collect::<Vec<_>>());
+        assert!(obj.contains_key("outputFiles"), "expected camelCase 'outputFiles', got: {:?}", obj.keys().collect::<Vec<_>>());
+        assert!(obj.contains_key("cancelled"));
+    }
+
+    #[test]
     fn all_variants_roundtrip_through_json() {
         let events: Vec<ColorGradingEvent> = vec![
             ColorGradingEvent::Queued { queue_depth: 2 },
