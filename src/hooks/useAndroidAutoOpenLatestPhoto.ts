@@ -30,11 +30,7 @@ export function useAndroidAutoOpenLatestPhoto({
 
   useEffect(() => {
     const handleItemsAdded = (event: GalleryItemsAddedEvent) => {
-      if (openMethodRef.current !== 'built-in-viewer' || autoOpenWhenVisibleRef.current !== true) {
-        return;
-      }
-
-      if (!window.ImageViewerAndroid?.isAppVisible?.()) {
+      if (openMethodRef.current !== 'built-in-viewer') {
         return;
       }
 
@@ -43,24 +39,51 @@ export function useAndroidAutoOpenLatestPhoto({
         return;
       }
 
+      const bridge = window.ImageViewerAndroid;
+
+      // Try incremental insertion into active viewer.
+      // insertImage returns false when the viewer is not visible.
       const newest = items[items.length - 1];
+      let viewerHandledInsertion = false;
+
+      // Insert all new items at index 0 (newest first, matching MediaStore dateDesc order).
+      // Items are iterated newest→oldest so that each insert at index 0 produces
+      // correct final order: newest at 0, second-newest at 1, etc.
+      for (let i = items.length - 1; i >= 0; i--) {
+        const inserted = bridge?.insertImage?.(items[i].uri, 0) ?? false;
+        if (inserted) viewerHandledInsertion = true;
+      }
+
+      if (viewerHandledInsertion) {
+        // Auto-navigate to the newest image only when config enabled
+        if (autoOpenWhenVisibleRef.current === true) {
+          bridge?.navigateToExistingUri?.(newest.uri);
+        }
+        return;
+      }
+
+      // Viewer is NOT active: only open if auto-view is enabled
+      if (autoOpenWhenVisibleRef.current !== true) {
+        return;
+      }
+
+      if (!bridge?.isAppVisible?.()) {
+        return;
+      }
+
       const allUris: string[] = [];
       const seenUris = new Set<string>();
       const addedUris = new Set<string>();
 
       for (const item of items) {
-        if (seenUris.has(item.uri)) {
-          continue;
-        }
+        if (seenUris.has(item.uri)) continue;
         seenUris.add(item.uri);
         addedUris.add(item.uri);
         allUris.push(item.uri);
       }
 
       for (const item of galleryItemsRef.current) {
-        if (seenUris.has(item.uri)) {
-          continue;
-        }
+        if (seenUris.has(item.uri)) continue;
         seenUris.add(item.uri);
         allUris.push(item.uri);
       }
