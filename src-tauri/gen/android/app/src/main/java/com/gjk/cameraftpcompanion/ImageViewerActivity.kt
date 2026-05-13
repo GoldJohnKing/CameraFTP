@@ -277,6 +277,44 @@ class ImageViewerActivity : AppCompatActivity() {
         }
     }
 
+    fun insertImage(uri: String, insertIndex: Int) {
+        runOnUiThread {
+            if (isFinishing || isDestroyed) return@runOnUiThread
+            if (uris.contains(uri)) return
+
+            val adapter = viewPager.adapter as? ImageViewerAdapter ?: return@runOnUiThread
+            val clampedIndex = insertIndex.coerceIn(0, uris.size)
+
+            uris.add(clampedIndex, uri)
+            adapter.insertUri(clampedIndex, uri)
+
+            // Adjust currentIndex if insert is before or at current position
+            if (clampedIndex <= currentIndex) {
+                currentIndex += 1
+            }
+
+            // ViewPager2 stays at current position; update bottom bar info
+            viewPager.setCurrentItem(currentIndex, false)
+            updateUI()
+        }
+    }
+
+    fun navigateToExistingUri(uri: String) {
+        runOnUiThread {
+            if (isFinishing || isDestroyed) return@runOnUiThread
+            val targetIndex = uris.indexOf(uri)
+            if (targetIndex < 0) return@runOnUiThread
+            if (targetIndex == currentIndex) return@runOnUiThread
+
+            val adapter = viewPager.adapter as? ImageViewerAdapter ?: return@runOnUiThread
+            currentIndex = targetIndex
+            adapter.immediateLoadPosition = targetIndex
+            viewPager.setCurrentItem(targetIndex, false)
+            updateUI()
+            exifController.prefetchOrientations(around = targetIndex)
+        }
+    }
+
     private fun toggleBottomBar() {
         isBottomBarVisible = !isBottomBarVisible
         if (isBottomBarVisible) {
