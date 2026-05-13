@@ -280,7 +280,7 @@ class ImageViewerActivity : AppCompatActivity() {
     fun insertImage(uri: String, insertIndex: Int) {
         runOnUiThread {
             if (isFinishing || isDestroyed) return@runOnUiThread
-            if (uris.contains(uri)) return
+            if (uris.contains(uri)) return@runOnUiThread
 
             val adapter = viewPager.adapter as? ImageViewerAdapter ?: return@runOnUiThread
             val clampedIndex = insertIndex.coerceIn(0, uris.size)
