@@ -10,42 +10,53 @@ use ts_rs::TS;
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum ColorGradingEvent {
     Queued {
+        #[serde(rename = "queueDepth")]
         #[ts(rename = "queueDepth")]
         queue_depth: u32,
     },
     Progress {
         current: u32,
         total: u32,
+        #[serde(rename = "fileName")]
         #[ts(rename = "fileName")]
         file_name: String,
+        #[serde(rename = "failedCount")]
         #[ts(rename = "failedCount")]
         failed_count: u32,
     },
     Completed {
         current: u32,
         total: u32,
+        #[serde(rename = "fileName")]
         #[ts(rename = "fileName")]
         file_name: String,
+        #[serde(rename = "failedCount")]
         #[ts(rename = "failedCount")]
         failed_count: u32,
+        #[serde(rename = "outputPath")]
         #[ts(rename = "outputPath")]
         output_path: String,
     },
     Failed {
         current: u32,
         total: u32,
+        #[serde(rename = "fileName")]
         #[ts(rename = "fileName")]
         file_name: String,
         error: String,
+        #[serde(rename = "failedCount")]
         #[ts(rename = "failedCount")]
         failed_count: u32,
     },
     Done {
         total: u32,
+        #[serde(rename = "failedCount")]
         #[ts(rename = "failedCount")]
         failed_count: u32,
+        #[serde(rename = "failedFiles")]
         #[ts(rename = "failedFiles")]
         failed_files: Vec<String>,
+        #[serde(rename = "outputFiles")]
         #[ts(rename = "outputFiles")]
         output_files: Vec<String>,
         #[serde(default)]
