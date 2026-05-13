@@ -118,6 +118,38 @@ class ImageViewerActivity : AppCompatActivity() {
             }
         }
 
+        data class InsertResult(
+            val uris: List<String>,
+            val currentIndex: Int,
+        )
+
+        @JvmStatic
+        fun computeInsertState(
+            currentUris: List<String>,
+            currentIndex: Int,
+            uri: String,
+            insertIndex: Int,
+        ): InsertResult? {
+            if (currentUris.contains(uri)) return null
+            val clampedIndex = insertIndex.coerceIn(0, currentUris.size)
+            val newUris = currentUris.toMutableList()
+            newUris.add(clampedIndex, uri)
+            val newIndex = if (clampedIndex <= currentIndex) currentIndex + 1 else currentIndex
+            return InsertResult(newUris, newIndex)
+        }
+
+        @JvmStatic
+        fun computeNavigateToExistingIndex(
+            currentUris: List<String>,
+            currentIndex: Int,
+            uri: String,
+        ): Int? {
+            val targetIndex = currentUris.indexOf(uri)
+            if (targetIndex < 0) return null
+            if (targetIndex == currentIndex) return null
+            return targetIndex
+        }
+
         @JvmStatic
         fun resolveUriToFilePath(context: android.content.Context, uriString: String): String? {
             return try {
