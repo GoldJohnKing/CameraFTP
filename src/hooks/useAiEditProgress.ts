@@ -8,6 +8,7 @@ import { invoke } from '@tauri-apps/api/core';
 import type { AiEditProgressEvent } from '../types';
 import { createTaskProgressHook } from './createTaskProgressHook';
 import type { TaskProgressState, DoneEvent } from './createTaskProgressHook';
+import { useConfigStore } from '../stores/configStore';
 
 export interface AiEditProgressState {
   isEditing: boolean;
@@ -96,6 +97,45 @@ export async function enqueueAiEdit(files: string[], prompt: string, model?: str
     prompt: prompt || null,
     model: model || null,
   });
+}
+
+/**
+ * Save AI edit parameters to config and enqueue the edit task.
+ * Shared by all AI edit trigger paths (PreviewWindow, GalleryCard, Android bridge).
+ */
+export async function applyAndEnqueueAiEdit(opts: {
+  filePaths: string[];
+  prompt: string;
+  model: string;
+  saveAsAutoEdit?: boolean;
+  apiKey?: string;
+}): Promise<void> {
+  const { filePaths, prompt, model, saveAsAutoEdit, apiKey } = opts;
+  const { updateDraft, flushConfigSave } = useConfigStore.getState();
+
+  updateDraft(d => ({
+    ...d,
+    aiEdit: {
+      ...d.aiEdit,
+      manualPrompt: prompt,
+      manualModel: model,
+      ...(apiKey ? { provider: { ...d.aiEdit.provider, apiKey } } : {}),
+      ...(saveAsAutoEdit ? {
+        prompt,
+        provider: {
+          ...d.aiEdit.provider,
+          model: model || d.aiEdit.provider.model,
+          ...(apiKey ? { apiKey } : {}),
+        },
+      } : {}),
+    },
+  }));
+
+  if (apiKey) {
+    await flushConfigSave();
+  }
+
+  await enqueueAiEdit(filePaths, prompt, model);
 }
 
 export async function cancelAiEdit(): Promise<void> {

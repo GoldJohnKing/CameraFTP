@@ -19,8 +19,9 @@ import { PermissionDialog } from './components/PermissionDialog';
 import { PreviewWindow } from './components/PreviewWindow';
 import { useAppBootstrap } from './bootstrap/useAppBootstrap';
 import { useQuitFlow } from './hooks/useQuitFlow';
-import { enqueueAiEdit, getCurrentAiEditProgress } from './hooks/useAiEditProgress';
+import { applyAndEnqueueAiEdit, getCurrentAiEditProgress } from './hooks/useAiEditProgress';
 import { getCurrentColorGradingProgress } from './hooks/useColorGradingProgress';
+import { getCachedColorGradingPresets } from './hooks/useColorGradingPresets';
 import { useServerStore } from './stores/serverStore';
 import { useConfigStore } from './stores/configStore';
 
@@ -49,29 +50,7 @@ function App() {
     };
 
     w.__tauriTriggerAiEditWithPrompt = async (filePath: string, prompt: string, model?: string, saveAsAutoEdit?: boolean, apiKey?: string) => {
-      updateDraft(d => ({
-        ...d,
-        aiEdit: {
-          ...d.aiEdit,
-          manualPrompt: prompt,
-          manualModel: model ?? '',
-          ...(apiKey ? { provider: { ...d.aiEdit.provider, apiKey } } : {}),
-          ...(saveAsAutoEdit ? {
-            prompt,
-            provider: {
-              ...d.aiEdit.provider,
-              model: model ?? d.aiEdit.provider.model,
-              ...(apiKey ? { apiKey } : {}),
-            },
-          } : {}),
-        },
-      }));
-
-      if (apiKey) {
-        await useConfigStore.getState().flushConfigSave();
-      }
-
-      await enqueueAiEdit([filePath], prompt, model);
+      await applyAndEnqueueAiEdit({ filePaths: [filePath], prompt, model: model ?? '', saveAsAutoEdit, apiKey });
     };
 
     w.__tauriGetAiEditProgress = () => {
@@ -91,6 +70,10 @@ function App() {
     w.__tauriGetColorGradingLastUsed = () => {
       const draft = useConfigStore.getState().draft;
       return JSON.stringify(draft?.colorGradingLastUsed ?? null);
+    };
+
+    w.__tauriGetColorGradingPresets = () => {
+      return JSON.stringify(getCachedColorGradingPresets().map(p => [p.id, p.displayName]));
     };
 
     w.__tauriTriggerColorGrading = async (filePath: string, lutId: string, useAutoExposure: boolean, meteringMode: string, manualEv: number, syncToAuto: boolean) => {
@@ -133,6 +116,7 @@ function App() {
       delete w.__tauriCancelAiEdit;
       delete w.__tauriGetAutoColorGradingEnabled;
       delete w.__tauriGetColorGradingLastUsed;
+      delete w.__tauriGetColorGradingPresets;
       delete w.__tauriTriggerColorGrading;
       delete w.__tauriGetColorGradingProgress;
       delete w.__tauriCancelColorGrading;

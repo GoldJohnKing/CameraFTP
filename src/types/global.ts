@@ -351,6 +351,12 @@ declare global {
     __tauriGetColorGradingLastUsed?: () => string;
 
     /**
+     * Returns the color grading presets as a JSON string ([[id, displayName], ...]).
+     * Called by native ImageViewerActivity to populate the preset dropdown.
+     */
+    __tauriGetColorGradingPresets?: () => string;
+
+    /**
      * Cancels the in-progress color grading batch.
      * Called by native ImageViewerActivity when the user taps the cancel button on the progress bar.
      */

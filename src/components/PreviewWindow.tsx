@@ -18,7 +18,7 @@ import { usePreviewToolbarAutoHide } from '../hooks/usePreviewToolbarAutoHide';
 import { useColorGradingPresets } from '../hooks/useColorGradingPresets';
 import { PromptDialog } from './PromptDialog';
 import { TaskProgressPanel } from './TaskProgressPanel';
-import { enqueueAiEdit } from '../hooks/useAiEditProgress';
+import { applyAndEnqueueAiEdit } from '../hooks/useAiEditProgress';
 import { ColorGradingDialog } from './ColorGradingDialog';
 import { enqueueColorGrading } from '../hooks/useColorGradingProgress';
 import { isRawFile as isRawFileType } from '../utils/raw';
@@ -55,7 +55,6 @@ const PreviewWindowContent = memo(function PreviewWindowContent({
   const isRawFile = useMemo(() => imagePath ? isRawFileType(imagePath) : false, [imagePath]);
 
   const draft = useConfigStore(state => state.draft);
-  const updateDraft = useConfigStore(state => state.updateDraft);
   const exifInfo = usePreviewExif(imagePath);
   const {
     showToolbar,
@@ -206,36 +205,11 @@ const PreviewWindowContent = memo(function PreviewWindowContent({
     await enqueueColorGrading([imagePath], lutId, useAutoExposure, meteringMode, manualEv);
   }, [imagePath]);
 
-  const flushConfigSave = useConfigStore(state => state.flushConfigSave);
-
   const handlePromptConfirm = useCallback(async (prompt: string, model: string, saveAsAutoEdit: boolean, apiKey?: string) => {
     if (!imagePath) return;
     setShowPromptDialog(false);
-
-    updateDraft(d => ({
-      ...d,
-      aiEdit: {
-        ...d.aiEdit,
-        manualPrompt: prompt,
-        manualModel: model,
-        ...(apiKey ? { provider: { ...d.aiEdit.provider, apiKey } } : {}),
-        ...(saveAsAutoEdit ? {
-          prompt,
-          provider: {
-            ...d.aiEdit.provider,
-            model,
-            ...(apiKey ? { apiKey } : {}),
-          },
-        } : {}),
-      },
-    }));
-
-    if (apiKey) {
-      await flushConfigSave();
-    }
-
-    await enqueueAiEdit([imagePath], prompt, model);
-  }, [imagePath, updateDraft]);
+    await applyAndEnqueueAiEdit({ filePaths: [imagePath], prompt, model, saveAsAutoEdit, apiKey });
+  }, [imagePath]);
 
   if (!imagePath) {
     return (

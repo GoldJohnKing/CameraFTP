@@ -106,6 +106,7 @@ class WebViewOverlayController(private val activity: ImageViewerActivity) {
     fun showColorGrading(
         filePath: String,
         autoColorGradingEnabled: Boolean,
+        presets: List<Pair<String, String>>,
         lastUsedPresetId: String? = null,
         lastUsedAutoExposure: Boolean? = null,
         lastUsedMeteringMode: String? = null,
@@ -116,30 +117,12 @@ class WebViewOverlayController(private val activity: ImageViewerActivity) {
 
         dismissColorGrading()
 
-        val presets = listOf(
-            "arri-alexa-classic-709" to "ARRI ALEXA Classic 709",
-            "fujifilm-acros" to "Fujifilm ACROS",
-            "fujifilm-astia" to "Fujifilm ASTIA",
-            "fujifilm-classic-chrome" to "Fujifilm CLASSIC CHROME",
-            "fujifilm-classic-neg" to "Fujifilm CLASSIC Neg",
-            "fujifilm-eterna-3513di" to "Fujifilm ETERNA 3513DI",
-            "fujifilm-eterna-bb" to "Fujifilm ETERNA BB",
-            "fujifilm-eterna" to "Fujifilm ETERNA",
-            "fujifilm-pro-neg-std" to "Fujifilm PRO Neg. Std",
-            "fujifilm-provia" to "Fujifilm PROVIA",
-            "fujifilm-reala-ace" to "Fujifilm REALA ACE",
-            "fujifilm-velvia" to "Fujifilm Velvia",
-            "kodak-vision-2383" to "Kodak VISION 2383",
-            "leica-classic" to "Leica Classic",
-            "leica-natural" to "Leica Natural",
-            "red-achromic" to "RED Achromic",
-            "red-filmbias-bb" to "RED FilmBias BB",
-            "red-filmbias-offset" to "RED FilmBias Offset",
-            "red-filmbias" to "RED FilmBias",
-            "red-rec-709" to "RED Rec.709",
-        )
-
-        val initialPresetId = lastUsedPresetId?.takeIf { id -> presets.any { it.first == id } } ?: presets.first().first
+        val initialPresetId = lastUsedPresetId?.takeIf { id -> presets.any { it.first == id } } ?: presets.firstOrNull()?.first
+            ?: run {
+                Log.w(TAG, "No color grading presets available")
+                android.widget.Toast.makeText(activity, "调色预设尚未加载", android.widget.Toast.LENGTH_SHORT).show()
+                return
+            }
         val initialPresetLabel = presets.find { it.first == initialPresetId }?.second ?: presets.first().second
         val presetOptionsHtml = presets.joinToString("") { (value, label) ->
             """<div class="dropdown-opt${if (value == initialPresetId) " selected" else ""}" data-value="$value">$label</div>"""

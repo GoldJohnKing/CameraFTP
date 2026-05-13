@@ -8,12 +8,21 @@ import { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import type { ColorGradingPreset } from '../types';
 
+let _cachedPresets: ColorGradingPreset[] = [];
+
+export function getCachedColorGradingPresets(): ColorGradingPreset[] {
+  return _cachedPresets;
+}
+
 export function useColorGradingPresets() {
-  const [presets, setPresets] = useState<ColorGradingPreset[]>([]);
+  const [presets, setPresets] = useState<ColorGradingPreset[]>(_cachedPresets);
 
   useEffect(() => {
     invoke<ColorGradingPreset[]>('get_color_grading_presets')
-      .then(setPresets)
+      .then(result => {
+        _cachedPresets = result;
+        setPresets(result);
+      })
       .catch((e) => console.error('Failed to load color grading presets:', e));
   }, []);
 

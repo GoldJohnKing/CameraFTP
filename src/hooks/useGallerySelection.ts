@@ -7,8 +7,7 @@
 import { useCallback, useEffect, useRef, useState, type RefObject } from 'react';
 import { toast } from 'sonner';
 import { buildDeleteFailureMessage } from '../utils/gallery-delete';
-import { useConfigStore } from '../stores/configStore';
-import { enqueueAiEdit } from './useAiEditProgress';
+import { applyAndEnqueueAiEdit } from './useAiEditProgress';
 import type { DeleteImagesResult } from '../types';
 
 const LONG_PRESS_DURATION = 400; // Android ViewConfiguration.DEFAULT_LONG_PRESS_TIMEOUT
@@ -245,32 +244,6 @@ export function useGallerySelection({ activeTab, onDeleteApplied, getUriForId }:
   const handleAiEditPromptConfirm = useCallback(async (prompt: string, model: string, saveAsAutoEdit: boolean, apiKey?: string) => {
     setShowAiEditPrompt(false);
 
-    const store = useConfigStore.getState();
-    const draft = store.draft;
-    if (draft) {
-      store.updateDraft(d => ({
-        ...d,
-        aiEdit: {
-          ...d.aiEdit,
-          manualPrompt: prompt,
-          manualModel: model,
-          ...(apiKey ? { provider: { ...d.aiEdit.provider, apiKey } } : {}),
-          ...(saveAsAutoEdit ? {
-            prompt,
-            provider: {
-              ...d.aiEdit.provider,
-              model,
-              ...(apiKey ? { apiKey } : {}),
-            },
-          } : {}),
-        },
-      }));
-
-      if (apiKey) {
-        await store.flushConfigSave();
-      }
-    }
-
     const uris = [...selectedIds]
       .map((mediaId) => getUriForId(mediaId))
       .filter((uri): uri is string => uri !== undefined);
@@ -282,7 +255,7 @@ export function useGallerySelection({ activeTab, onDeleteApplied, getUriForId }:
     const filePaths = uris
       .map((uri) => window.ImageViewerAndroid?.resolveFilePath?.(uri) ?? uri);
 
-    await enqueueAiEdit(filePaths, prompt, model);
+    await applyAndEnqueueAiEdit({ filePaths, prompt, model, saveAsAutoEdit, apiKey });
   }, [selectedIds, getUriForId]);
 
   const handleCancelAiEditPrompt = useCallback(() => {

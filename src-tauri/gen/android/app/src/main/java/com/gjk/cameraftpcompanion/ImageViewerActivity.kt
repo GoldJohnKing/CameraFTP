@@ -481,12 +481,12 @@ class ImageViewerActivity : AppCompatActivity() {
         val mainActivity = MainActivity.instance
         if (mainActivity == null) {
             Log.w(TAG, "MainActivity not available for color grading config")
-            overlayController.showColorGrading(filePath, false)
+            overlayController.showColorGrading(filePath, false, emptyList())
             return
         }
         mainActivity.runOnUiThread {
             mainActivity.getWebView()?.evaluateJavascript(
-                "(function(){try{var e=window.__tauriGetAutoColorGradingEnabled?.()??'false';var l=window.__tauriGetColorGradingLastUsed?.()??'null';return JSON.stringify({enabled:e,lastUsed:l})}catch(e){return JSON.stringify({enabled:'false',lastUsed:'null'})}})();"
+                "(function(){try{var e=window.__tauriGetAutoColorGradingEnabled?.()??'false';var l=window.__tauriGetColorGradingLastUsed?.()??'null';var p=window.__tauriGetColorGradingPresets?.()??'[]';return JSON.stringify({enabled:e,lastUsed:l,presets:p})}catch(e){return JSON.stringify({enabled:'false',lastUsed:'null',presets:'[]'})}})();"
             ) { result ->
                 val jsonString = try {
                     val trimmed = result?.trim() ?: ""
@@ -500,8 +500,19 @@ class ImageViewerActivity : AppCompatActivity() {
                 val lastUsed = if (lastUsedStr != "null" && lastUsedStr.isNotEmpty()) {
                     try { org.json.JSONObject(lastUsedStr) } catch (e: Exception) { null }
                 } else null
+                val presetsStr = json?.optString("presets", "[]") ?: "[]"
+                val presets = try {
+                    val arr = JSONArray(presetsStr)
+                    (0 until arr.length()).mapNotNull { i ->
+                        val pair = arr.getJSONArray(i)
+                        if (pair.length() >= 2) pair.getString(0) to pair.getString(1) else null
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to parse color grading presets: $presetsStr", e)
+                    emptyList<Pair<String, String>>()
+                }
                 overlayController.showColorGrading(
-                    filePath, enabled,
+                    filePath, enabled, presets,
                     lastUsed?.optString("presetId"),
                     lastUsed?.optBoolean("useAutoExposure", true),
                     lastUsed?.optString("meteringMode"),
