@@ -118,6 +118,36 @@ class ImageViewerBridge(activity: android.app.Activity) : BaseJsBridge(activity)
         android.media.MediaScannerConnection.scanFile(context, arrayOf(filePath), null, null)
     }
 
+    /**
+     * Insert a new image into the currently visible viewer at a specific position.
+     * No-op if the viewer is not visible or URI already exists in the list.
+     * @param uri Content URI of the new image
+     * @param insertIndex Position to insert at (clamped to valid range by the activity)
+     * @returns true if inserted into an active viewer
+     */
+    @android.webkit.JavascriptInterface
+    fun insertImage(uri: String?, insertIndex: Int): Boolean {
+        if (uri == null) return false
+        val viewer = ImageViewerActivity.instance ?: return false
+        if (!ImageViewerActivity.isViewerVisible) return false
+        if (viewer.isFinishing || viewer.isDestroyed) return false
+        viewer.insertImage(uri, insertIndex)
+        return true
+    }
+
+    /**
+     * Navigate the currently visible viewer to an existing URI in its list.
+     * No-op if the viewer is not visible or URI is not in the list.
+     * @param uri Content URI to navigate to
+     */
+    @android.webkit.JavascriptInterface
+    fun navigateToExistingUri(uri: String?) {
+        if (uri == null) return
+        val viewer = ImageViewerActivity.instance ?: return
+        if (!ImageViewerActivity.isViewerVisible) return
+        viewer.navigateToExistingUri(uri)
+    }
+
     @android.webkit.JavascriptInterface
     fun updateColorGradingProgress(current: Int, total: Int, failedCount: Int) {
         colorGradingState = TaskProgressState.InProgress(current, total, failedCount)
