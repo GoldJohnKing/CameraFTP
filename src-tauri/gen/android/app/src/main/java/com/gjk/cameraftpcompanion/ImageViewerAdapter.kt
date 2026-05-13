@@ -130,10 +130,11 @@ class ImageViewerAdapter(
         return uris[position]
     }
 
-    fun insertUri(position: Int, uri: String) {
-        if (uris.contains(uri)) return
+    fun insertUri(position: Int, uri: String): Boolean {
+        if (uris.contains(uri)) return false
         val clampedPosition = position.coerceIn(0, uris.size)
         uris.add(clampedPosition, uri)
         notifyItemInserted(clampedPosition)
+        return true
     }
 }

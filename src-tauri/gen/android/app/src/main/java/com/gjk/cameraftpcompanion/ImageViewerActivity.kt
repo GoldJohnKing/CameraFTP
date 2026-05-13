@@ -286,7 +286,26 @@ class ImageViewerActivity : AppCompatActivity() {
             val clampedIndex = insertIndex.coerceIn(0, uris.size)
 
             uris.add(clampedIndex, uri)
-            adapter.insertUri(clampedIndex, uri)
+
+            // Shift orientation cache entries for positions >= clampedIndex
+            val shiftedCache = java.util.concurrent.ConcurrentHashMap<Int, Int>()
+            for ((pos, degrees) in exifController.orientationCache) {
+                shiftedCache[if (pos >= clampedIndex) pos + 1 else pos] = degrees
+            }
+            exifController.orientationCache.clear()
+            exifController.orientationCache.putAll(shiftedCache)
+
+            if (!adapter.insertUri(clampedIndex, uri)) {
+                // Adapter rejected (duplicate or other issue) — revert
+                uris.removeAt(clampedIndex)
+                exifController.orientationCache.clear()
+                shiftedCache.let { old ->
+                    for ((pos, degrees) in old) {
+                        exifController.orientationCache[if (pos > clampedIndex) pos - 1 else pos] = degrees
+                    }
+                }
+                return@runOnUiThread
+            }
 
             // Adjust currentIndex if insert is before or at current position
             if (clampedIndex <= currentIndex) {
@@ -296,6 +315,7 @@ class ImageViewerActivity : AppCompatActivity() {
             // ViewPager2 stays at current position; update bottom bar info
             viewPager.setCurrentItem(currentIndex, false)
             updateUI()
+            exifController.prefetchOrientations(around = currentIndex)
         }
     }
 
