@@ -103,7 +103,14 @@ class WebViewOverlayController(private val activity: ImageViewerActivity) {
         savedOrientation = null
     }
 
-    fun showColorGrading(filePath: String, autoColorGradingEnabled: Boolean) {
+    fun showColorGrading(
+        filePath: String,
+        autoColorGradingEnabled: Boolean,
+        lastUsedPresetId: String? = null,
+        lastUsedAutoExposure: Boolean? = null,
+        lastUsedMeteringMode: String? = null,
+        lastUsedManualEv: Float? = null,
+    ) {
         lockOrientation()
         val rootView = activity.findViewById<FrameLayout>(android.R.id.content)
 
@@ -131,11 +138,17 @@ class WebViewOverlayController(private val activity: ImageViewerActivity) {
             "red-filmbias" to "RED FilmBias",
             "red-rec-709" to "RED Rec.709",
         )
-        val firstId = presets.first().first
-        val firstLabel = presets.first().second
+
+        val initialPresetId = lastUsedPresetId?.takeIf { id -> presets.any { it.first == id } } ?: presets.first().first
+        val initialPresetLabel = presets.find { it.first == initialPresetId }?.second ?: presets.first().second
         val presetOptionsHtml = presets.joinToString("") { (value, label) ->
-            """<div class="dropdown-opt${if (value == firstId) " selected" else ""}" data-value="$value">$label</div>"""
+            """<div class="dropdown-opt${if (value == initialPresetId) " selected" else ""}" data-value="$value">$label</div>"""
         }
+
+        val autoExposureChecked = lastUsedAutoExposure ?: true
+        val evValue = lastUsedManualEv ?: 0.0f
+        val evDisplay = if (evValue > 0) "+${"%.1f".format(evValue)} EV" else "${"%.1f".format(evValue)} EV"
+        val initialMetering = lastUsedMeteringMode ?: "highlight-safe"
 
         val saveToggleHtml = if (autoColorGradingEnabled) {
             """<div class="save-toggle" onclick="toggleSync()">
@@ -145,10 +158,14 @@ class WebViewOverlayController(private val activity: ImageViewerActivity) {
         } else ""
 
         val html = activity.assets.open("color_grading_dialog.html").bufferedReader().use { it.readText() }
-            .replace("{{FIRST_ID}}", firstId)
-            .replace("{{FIRST_LABEL}}", firstLabel)
+            .replace("{{FIRST_ID}}", initialPresetId)
+            .replace("{{FIRST_LABEL}}", initialPresetLabel)
             .replace("{{PRESET_OPTIONS}}", presetOptionsHtml)
             .replace("{{SAVE_TOGGLE}}", saveToggleHtml)
+            .replace("{{AUTO_EXPOSURE_CHECKED}}", if (autoExposureChecked) "checked" else "")
+            .replace("{{EV_VALUE}}", evValue.toString())
+            .replace("{{EV_DISPLAY}}", evDisplay)
+            .replace("{{SELECTED_METERING}}", initialMetering)
 
         val webView = WebView(activity).apply {
             settings.javaScriptEnabled = true

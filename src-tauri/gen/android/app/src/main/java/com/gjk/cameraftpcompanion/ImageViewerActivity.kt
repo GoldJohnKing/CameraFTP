@@ -475,10 +475,22 @@ class ImageViewerActivity : AppCompatActivity() {
         }
         mainActivity.runOnUiThread {
             mainActivity.getWebView()?.evaluateJavascript(
-                "(function(){try{return window.__tauriGetAutoColorGradingEnabled?.()??'false'}catch(e){return 'false'}})();"
+                "(function(){try{var e=window.__tauriGetAutoColorGradingEnabled?.()??'false';var l=window.__tauriGetColorGradingLastUsed?.()??'null';return JSON.stringify({enabled:e,lastUsed:l})}catch(e){return JSON.stringify({enabled:'false',lastUsed:'null'})}})();"
             ) { result ->
-                val enabled = result?.trim()?.removeSurrounding("\"")?.toBoolean() ?: false
-                overlayController.showColorGrading(filePath, enabled)
+                val jsonString = result?.trim()?.removeSurrounding("\"") ?: "{}"
+                val json = try { org.json.JSONObject(jsonString) } catch (e: Exception) { null }
+                val enabled = json?.optString("enabled", "false")?.toBoolean() ?: false
+                val lastUsedStr = json?.optString("lastUsed", "null") ?: "null"
+                val lastUsed = if (lastUsedStr != "null" && lastUsedStr.isNotEmpty()) {
+                    try { org.json.JSONObject(lastUsedStr) } catch (e: Exception) { null }
+                } else null
+                overlayController.showColorGrading(
+                    filePath, enabled,
+                    lastUsed?.optString("presetId"),
+                    lastUsed?.optBoolean("useAutoExposure", true),
+                    lastUsed?.optString("meteringMode"),
+                    lastUsed?.optDouble("manualEv", 0.0)?.toFloat(),
+                )
             }
         }
     }
