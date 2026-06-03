@@ -181,6 +181,12 @@ type RaEndPreviewSessionFn = unsafe extern "C" fn(
     *mut std::ffi::c_void, // session (RaPreviewSession.ptr)
 );
 
+type RaToggleLensCorrectionFn = unsafe extern "C" fn(
+    *mut std::ffi::c_void, // session
+    c_int,                 // enable (0/1)
+    *const c_char,         // customLensfunDb (nullable)
+) -> c_int;
+
 pub struct RawAlchemyLib {
     _lib: Library,
     process_file_with_lut: RaProcessFileWithLUTFn,
@@ -189,6 +195,7 @@ pub struct RawAlchemyLib {
     begin_preview_session: RaBeginPreviewSessionFn,
     apply_preview_grading: RaApplyPreviewGradingFn,
     end_preview_session: RaEndPreviewSessionFn,
+    toggle_lens_correction: RaToggleLensCorrectionFn,
 }
 
 fn ra_result_from_code(code: c_int) -> RaResult {
@@ -266,6 +273,16 @@ impl RawAlchemyLib {
                 })?
         };
 
+        let toggle_lens_correction = unsafe {
+            *lib.get::<RaToggleLensCorrectionFn>(b"raToggleLensCorrection\0")
+                .map_err(|e| {
+                    AppError::ColorGradingError(format!(
+                        "Symbol raToggleLensCorrection not found: {}",
+                        e
+                    ))
+                })?
+        };
+
         Ok(Self {
             _lib: lib,
             process_file_with_lut,
@@ -274,6 +291,7 @@ impl RawAlchemyLib {
             begin_preview_session,
             apply_preview_grading,
             end_preview_session,
+            toggle_lens_correction,
         })
     }
 
@@ -450,6 +468,35 @@ impl RawAlchemyLib {
                 if use_auto_exposure { 1 } else { 0 },
                 jpeg_quality as c_int,
                 output_c.as_ptr(),
+            )
+        };
+
+        let ra_result = ra_result_from_code(result);
+        if ra_result.is_ok() {
+            Ok(())
+        } else {
+            Err(self.format_last_error(ra_result, result))
+        }
+    }
+
+    pub(crate) fn toggle_lens_correction(
+        &self,
+        session: &RaPreviewSession,
+        enable: bool,
+        lensfun_db_path: Option<&str>,
+    ) -> Result<(), AppError> {
+        let lensfun_c = lensfun_db_path
+            .map(|s| std::ffi::CString::new(s).map_err(|e| AppError::ColorGradingError(format!("Invalid lensfun path: {}", e))))
+            .transpose()?;
+
+        let result = unsafe {
+            (self.toggle_lens_correction)(
+                session.ptr,
+                if enable { 1 } else { 0 },
+                lensfun_c
+                    .as_ref()
+                    .map(|c| c.as_ptr())
+                    .unwrap_or(std::ptr::null()),
             )
         };
 

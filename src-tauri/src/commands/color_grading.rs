@@ -63,11 +63,12 @@ pub async fn begin_color_grading_preview(
 pub async fn apply_color_grading_preview(
     preview: State<'_, ColorGradingPreviewState>,
     lut_id: String,
+    enable_lens_correction: bool,
     use_auto_exposure: bool,
     metering_mode: String,
     manual_ev: f32,
 ) -> Result<String, AppError> {
-    preview.apply(&lut_id, use_auto_exposure, &metering_mode, manual_ev).await
+    preview.apply(&lut_id, enable_lens_correction, use_auto_exposure, &metering_mode, manual_ev).await
 }
 
 #[command]

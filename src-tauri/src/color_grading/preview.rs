@@ -17,6 +17,7 @@ struct ActiveSession {
     session: RaPreviewSession,
     image_path: String,
     preview_output_path: PathBuf,
+    enable_lens_correction: bool,
 }
 
 pub struct ColorGradingPreviewState {
@@ -73,6 +74,7 @@ impl ColorGradingPreviewState {
             session,
             image_path: image_path.to_string(),
             preview_output_path,
+            enable_lens_correction: true,
         });
 
         Ok(())
@@ -81,6 +83,7 @@ impl ColorGradingPreviewState {
     pub async fn apply(
         &self,
         lut_id: &str,
+        enable_lens_correction: bool,
         use_auto_exposure: bool,
         metering_mode: &str,
         manual_ev: f32,
@@ -90,10 +93,26 @@ impl ColorGradingPreviewState {
             .ok_or_else(|| AppError::ColorGradingError(format!("Unknown LUT preset: {}", lut_id)))?;
         let lut_data = lut_data::get_lut_data(&preset.id)?;
 
+        let lensfun_db_path = super::resources::get_resources()
+            .ok()
+            .map(|r| r.lensfun_db_dir.to_string_lossy().into_owned());
+
         let (session_addr, output_path) = {
-            let guard = self.inner.lock().await;
-            let active = guard.as_ref()
+            let mut guard = self.inner.lock().await;
+            let active = guard.as_mut()
                 .ok_or_else(|| AppError::ColorGradingError("No active preview session".into()))?;
+
+            if enable_lens_correction != active.enable_lens_correction {
+                tracing::info!(
+                    from = active.enable_lens_correction,
+                    to = enable_lens_correction,
+                    "Toggling lens correction"
+                );
+                let session = RaPreviewSession { ptr: active.session.ptr };
+                lib.toggle_lens_correction(&session, enable_lens_correction, lensfun_db_path.as_deref())?;
+                active.enable_lens_correction = enable_lens_correction;
+            }
+
             (active.session.ptr as usize, active.preview_output_path.clone())
         };
         let output_path_for_url = output_path.clone();
@@ -101,7 +120,7 @@ impl ColorGradingPreviewState {
         let log_space = preset.log_space.clone();
         let metering = metering_mode.to_string();
 
-        tracing::debug!(lut = lut_id, ev = manual_ev, "Applying preview grading");
+        tracing::debug!(lut = lut_id, ev = manual_ev, lens = enable_lens_correction, "Applying preview grading");
 
         tokio::task::spawn_blocking(move || {
             let session = RaPreviewSession { ptr: session_addr as *mut std::ffi::c_void };
