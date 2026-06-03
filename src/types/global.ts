@@ -377,6 +377,31 @@ declare global {
     };
 
     /**
+     * Begins a color grading preview session by decoding the RAW file.
+     * Called by native ColorGradingActivity to start real-time preview.
+     */
+    __tauriBeginColorGradingPreview?: (filePath: string) => Promise<void>;
+
+    /**
+     * Applies color grading parameters to the current preview session.
+     * Returns the local file path of the generated JPEG preview.
+     * Called by native ColorGradingActivity on each parameter change.
+     */
+    __tauriApplyColorGradingPreview?: (lutId: string, meteringMode: string, evOffset: number) => Promise<string>;
+
+    /**
+     * Ends the current color grading preview session, cleaning up resources.
+     * Called by native ColorGradingActivity when leaving or saving.
+     */
+    __tauriEndColorGradingPreview?: () => Promise<void>;
+
+    /**
+     * Saves the color grading parameters as the last-used defaults.
+     * Called by native ColorGradingActivity when saving.
+     */
+    __tauriSaveColorGradingLastUsed?: (lutId: string, meteringMode: string, evOffset: number) => void;
+
+    /**
      * Global handler for EXIF prefetch requests from native viewer.
      * Called via evaluateJavascript from ImageViewerActivity.
      * @param requestJson JSON array of { position: number, uri: string }
