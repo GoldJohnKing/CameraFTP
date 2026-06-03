@@ -91,7 +91,7 @@ const BASE_DRAFT: AppConfig = {
   advancedConnection: { enabled: false, auth: { anonymous: true, username: '', passwordHash: '' } },
   previewConfig: null,
   androidImageViewer: null,
-  autoColorGrading: { enabled: true, presetId: 'fujifilm-provia', useAutoExposure: true, meteringMode: 'highlight-safe', manualEv: 0 },
+  autoColorGrading: { enabled: true, presetId: 'fujifilm-provia', meteringMode: 'highlight-safe', evOffset: 0 },
   colorGradingLastUsed: null,
   aiEdit: {
     autoEdit: false, prompt: '', manualPrompt: '', manualModel: '',
@@ -106,7 +106,7 @@ function setPartialDraft(overrides: Partial<AppConfig>) {
   }));
 }
 
-type TriggerFn = (f: string, l: string, a: boolean, m: string, e: number, s: boolean) => Promise<void>;
+type TriggerFn = (f: string, l: string, m: string, e: number, s: boolean) => Promise<void>;
 
 describe('Color grading bridge functions', () => {
   const { getRoot } = setupReactRoot();
@@ -138,13 +138,13 @@ describe('Color grading bridge functions', () => {
 
   describe('__tauriGetAutoColorGradingEnabled', () => {
     it('returns "true" when autoColorGrading is enabled', () => {
-      setPartialDraft({ autoColorGrading: { enabled: true, presetId: 'x', useAutoExposure: true, meteringMode: 'matrix', manualEv: 0 } });
+      setPartialDraft({ autoColorGrading: { enabled: true, presetId: 'x', meteringMode: 'matrix', evOffset: 0 } });
       const result = (w.__tauriGetAutoColorGradingEnabled as () => string)();
       expect(result).toBe('true');
     });
 
     it('returns "false" when autoColorGrading is disabled', () => {
-      setPartialDraft({ autoColorGrading: { enabled: false, presetId: 'x', useAutoExposure: true, meteringMode: 'matrix', manualEv: 0 } });
+      setPartialDraft({ autoColorGrading: { enabled: false, presetId: 'x', meteringMode: 'matrix', evOffset: 0 } });
       const result = (w.__tauriGetAutoColorGradingEnabled as () => string)();
       expect(result).toBe('false');
     });
@@ -162,15 +162,15 @@ describe('Color grading bridge functions', () => {
     it('returns last-used config as JSON', () => {
       setPartialDraft({
         colorGradingLastUsed: {
-          presetId: 'fujifilm-velvia', useAutoExposure: false,
-          meteringMode: 'matrix', manualEv: 1.5,
+          presetId: 'fujifilm-velvia',
+          meteringMode: 'matrix', evOffset: 1.5,
         },
       });
 
       const result = (w.__tauriGetColorGradingLastUsed as () => string)();
       expect(JSON.parse(result)).toEqual({
-        presetId: 'fujifilm-velvia', useAutoExposure: false,
-        meteringMode: 'matrix', manualEv: 1.5,
+        presetId: 'fujifilm-velvia',
+        meteringMode: 'matrix', evOffset: 1.5,
       });
     });
   });
@@ -178,36 +178,35 @@ describe('Color grading bridge functions', () => {
   // --- __tauriTriggerColorGrading ---
 
   describe('__tauriTriggerColorGrading', () => {
-    it('passes native boolean true for useAutoExposure', async () => {
+    it('passes meteringMode and evOffset to enqueueColorGrading', async () => {
       await act(async () => {
-        await trigger('/photo.nef', 'fujifilm-provia', true, 'highlight-safe', 0, false);
+        await trigger('/photo.nef', 'fujifilm-provia', 'highlight-safe', 0, false);
       });
 
       expect(enqueueColorGradingMock).toHaveBeenCalledWith(
-        ['/photo.nef'], 'fujifilm-provia', true, 'highlight-safe', 0,
+        ['/photo.nef'], 'fujifilm-provia', 'highlight-safe', 0,
       );
     });
 
-    it('passes native boolean false and negative EV', async () => {
+    it('passes negative evOffset', async () => {
       await act(async () => {
-        await trigger('/photo.nef', 'fujifilm-velvia', false, 'matrix', -2.5, false);
+        await trigger('/photo.nef', 'fujifilm-velvia', 'matrix', -2.5, false);
       });
 
       expect(enqueueColorGradingMock).toHaveBeenCalledWith(
-        ['/photo.nef'], 'fujifilm-velvia', false, 'matrix', -2.5,
+        ['/photo.nef'], 'fujifilm-velvia', 'matrix', -2.5,
       );
     });
 
     it('always saves colorGradingLastUsed on confirm', async () => {
       await act(async () => {
-        await trigger('/photo.nef', 'fujifilm-provia', true, 'highlight-safe', 0, false);
+        await trigger('/photo.nef', 'fujifilm-provia', 'highlight-safe', 0, false);
       });
 
       expect(useConfigStore.getState().draft?.colorGradingLastUsed).toEqual({
         presetId: 'fujifilm-provia',
-        useAutoExposure: true,
         meteringMode: 'highlight-safe',
-        manualEv: 0,
+        evOffset: 0,
       });
     });
 
@@ -215,41 +214,41 @@ describe('Color grading bridge functions', () => {
       setPartialDraft({
         autoColorGrading: {
           enabled: true, presetId: 'kodak-vision-2383',
-          useAutoExposure: false, meteringMode: 'average', manualEv: 3.0,
+          meteringMode: 'average', evOffset: 3.0,
         },
       });
 
       await act(async () => {
-        await trigger('/photo.nef', 'fujifilm-provia', true, 'highlight-safe', 0, false);
+        await trigger('/photo.nef', 'fujifilm-provia', 'highlight-safe', 0, false);
       });
 
       expect(useConfigStore.getState().draft?.autoColorGrading).toEqual({
         enabled: true, presetId: 'kodak-vision-2383',
-        useAutoExposure: false, meteringMode: 'average', manualEv: 3.0,
+        meteringMode: 'average', evOffset: 3.0,
       });
     });
 
     it('syncs to autoColorGrading when syncToAuto is true', async () => {
       await act(async () => {
-        await trigger('/photo.nef', 'fujifilm-velvia', false, 'matrix', 2.5, true);
+        await trigger('/photo.nef', 'fujifilm-velvia', 'matrix', 2.5, true);
       });
 
       expect(useConfigStore.getState().draft?.autoColorGrading).toEqual({
         enabled: true, presetId: 'fujifilm-velvia',
-        useAutoExposure: false, meteringMode: 'matrix', manualEv: 2.5,
+        meteringMode: 'matrix', evOffset: 2.5,
       });
     });
 
     it('preserves autoColorGrading.enabled when syncing', async () => {
       setPartialDraft({
         autoColorGrading: {
-          enabled: false, presetId: 'old', useAutoExposure: true,
-          meteringMode: 'spot', manualEv: -1.0,
+          enabled: false, presetId: 'old',
+          meteringMode: 'spot', evOffset: -1.0,
         },
       });
 
       await act(async () => {
-        await trigger('/photo.nef', 'fujifilm-provia', true, 'highlight-safe', 0, true);
+        await trigger('/photo.nef', 'fujifilm-provia', 'highlight-safe', 0, true);
       });
 
       expect(useConfigStore.getState().draft?.autoColorGrading?.enabled).toBe(false);

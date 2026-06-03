@@ -47,16 +47,6 @@ export const AutoColorGradingConfigCard = memo(function AutoColorGradingConfigCa
     }));
   };
 
-  const handleExposureToggle = () => {
-    updateDraft(d => ({
-      ...d,
-      autoColorGrading: {
-        ...d.autoColorGrading!,
-        useAutoExposure: !d.autoColorGrading!.useAutoExposure,
-      },
-    }));
-  };
-
   const handleMeteringModeChange = (meteringMode: string) => {
     updateDraft(d => ({
       ...d,
@@ -67,12 +57,12 @@ export const AutoColorGradingConfigCard = memo(function AutoColorGradingConfigCa
     }));
   };
 
-  const handleManualEvChange = (ev: number) => {
+  const handleEvOffsetChange = (ev: number) => {
     updateDraft(d => ({
       ...d,
       autoColorGrading: {
         ...d.autoColorGrading!,
-        manualEv: ev,
+        evOffset: ev,
       },
     }));
   };
@@ -112,12 +102,10 @@ export const AutoColorGradingConfigCard = memo(function AutoColorGradingConfigCa
             </div>
 
             <ExposureConfigSection
-              useAutoExposure={draft.autoColorGrading.useAutoExposure}
-              onAutoExposureChange={handleExposureToggle}
               meteringMode={draft.autoColorGrading.meteringMode}
               onMeteringModeChange={handleMeteringModeChange}
-              manualEv={draft.autoColorGrading.manualEv}
-              onManualEvChange={handleManualEvChange}
+              evOffset={draft.autoColorGrading.evOffset}
+              onEvOffsetChange={handleEvOffsetChange}
               disabled={isLoading}
             />
           </div>

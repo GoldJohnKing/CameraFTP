@@ -85,11 +85,10 @@ export function useColorGradingProgress(): ColorGradingProgressState {
 export async function enqueueColorGrading(
   files: string[],
   lutId: string,
-  useAutoExposure: boolean = true,
   meteringMode: string = 'highlight-safe',
-  manualEv: number = 0.0,
+  evOffset: number = 0.0,
 ): Promise<void> {
-  await invoke('enqueue_color_grading', { filePaths: files, lutId, useAutoExposure, meteringMode, manualEv });
+  await invoke('enqueue_color_grading', { filePaths: files, lutId, meteringMode, evOffset });
 }
 
 export async function cancelColorGrading(): Promise<void> {

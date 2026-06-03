@@ -68,9 +68,8 @@ describe('AutoColorGradingConfigCard', () => {
       autoColorGrading: {
         enabled: false,
         presetId: 'fujifilm-provia',
-        useAutoExposure: true,
         meteringMode: 'highlight-safe',
-        manualEv: 0,
+        evOffset: 0,
       },
     });
     await act(async () => { await flush(); });
@@ -87,16 +86,15 @@ describe('AutoColorGradingConfigCard', () => {
       autoColorGrading: {
         enabled: true,
         presetId: 'fujifilm-provia',
-        useAutoExposure: true,
         meteringMode: 'highlight-safe',
-        manualEv: 0,
+        evOffset: 0,
       },
     });
     await act(async () => { await flush(); });
     await act(async () => { await flush(); });
 
     expect(getContainer().textContent).toContain('调色预设');
-    expect(getContainer().textContent).toContain('自动曝光');
+    expect(getContainer().textContent).toContain('曝光偏移');
     expect(getContainer().textContent).toContain('测光模式');
   });
 
@@ -105,9 +103,8 @@ describe('AutoColorGradingConfigCard', () => {
       autoColorGrading: {
         enabled: false,
         presetId: 'fujifilm-provia',
-        useAutoExposure: true,
         meteringMode: 'highlight-safe',
-        manualEv: 0,
+        evOffset: 0,
       },
     });
     await act(async () => { await flush(); });
@@ -121,9 +118,8 @@ describe('AutoColorGradingConfigCard', () => {
       autoColorGrading: {
         enabled: false,
         presetId: 'fujifilm-provia',
-        useAutoExposure: true,
         meteringMode: 'highlight-safe',
-        manualEv: 0,
+        evOffset: 0,
       },
     });
     await act(async () => { await flush(); });

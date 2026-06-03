@@ -224,14 +224,13 @@ describe('useColorGradingProgress', () => {
     expect(invokeMock).toHaveBeenCalledWith('cancel_color_grading');
   });
 
-  it('enqueueColorGrading passes files to backend', async () => {
-    await enqueueColorGrading(['/tmp/a.nef', '/tmp/b.nef'], 'preset-1');
+  it('enqueueColorGrading passes files to backend with meteringMode and evOffset', async () => {
+    await enqueueColorGrading(['/tmp/a.nef', '/tmp/b.nef'], 'preset-1', 'highlight-safe', 0);
     expect(invokeMock).toHaveBeenCalledWith('enqueue_color_grading', {
       filePaths: ['/tmp/a.nef', '/tmp/b.nef'],
       lutId: 'preset-1',
-      useAutoExposure: true,
       meteringMode: 'highlight-safe',
-      manualEv: 0,
+      evOffset: 0,
     });
   });
 });

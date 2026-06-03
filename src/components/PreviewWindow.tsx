@@ -199,10 +199,10 @@ const PreviewWindowContent = memo(function PreviewWindowContent({
     setShowColorGradingDialog(true);
   }, [imagePath]);
 
-  const handleColorGradingConfirm = useCallback(async (lutId: string, useAutoExposure: boolean, meteringMode: string, manualEv: number) => {
+  const handleColorGradingConfirm = useCallback(async (lutId: string, meteringMode: string, evOffset: number) => {
     if (!imagePath) return;
     setShowColorGradingDialog(false);
-    await enqueueColorGrading([imagePath], lutId, useAutoExposure, meteringMode, manualEv);
+    await enqueueColorGrading([imagePath], lutId, meteringMode, evOffset);
   }, [imagePath]);
 
   const handlePromptConfirm = useCallback(async (prompt: string, model: string, saveAsAutoEdit: boolean, apiKey?: string) => {

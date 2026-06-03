@@ -336,7 +336,7 @@ declare global {
      * Triggers color grading for a single file.
      * Called by native ImageViewerActivity after user confirms the color grading dialog.
      */
-    __tauriTriggerColorGrading?: (filePath: string, lutId: string, useAutoExposure: boolean, meteringMode: string, manualEv: number, syncToAuto: boolean) => Promise<void>;
+    __tauriTriggerColorGrading?: (filePath: string, lutId: string, meteringMode: string, evOffset: number, syncToAuto: boolean) => Promise<void>;
 
     /**
      * Returns whether auto color grading is enabled as a string 'true'/'false'.

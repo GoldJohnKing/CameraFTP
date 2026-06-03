@@ -19,7 +19,7 @@ import { ExposureConfigSection } from './ExposureConfigSection';
 interface ColorGradingDialogProps {
   isOpen: boolean;
   colorGradingPresets: ColorGradingPreset[];
-  onConfirm: (lutId: string, useAutoExposure: boolean, meteringMode: string, manualEv: number) => void;
+  onConfirm: (lutId: string, meteringMode: string, evOffset: number) => void;
   onCancel: () => void;
 }
 
@@ -33,9 +33,8 @@ export function ColorGradingDialog({ isOpen, colorGradingPresets, onConfirm, onC
   const draft = useDraftConfig();
 
   const [selectedId, setSelectedId] = useState('');
-  const [useAutoExposure, setUseAutoExposure] = useState(true);
   const [meteringMode, setMeteringMode] = useState('highlight-safe');
-  const [manualEv, setManualEv] = useState(0.0);
+  const [evOffset, setEvOffset] = useState(0.0);
   const [syncToAuto, setSyncToAuto] = useState(false);
 
   useEffect(() => {
@@ -43,9 +42,8 @@ export function ColorGradingDialog({ isOpen, colorGradingPresets, onConfirm, onC
       const lastUsed = draft?.colorGradingLastUsed;
       const initialPreset = lastUsed?.presetId || colorGradingPresets[0]?.id || 'fujifilm-provia';
       setSelectedId(initialPreset);
-      setUseAutoExposure(lastUsed?.useAutoExposure ?? true);
       setMeteringMode(lastUsed?.meteringMode ?? 'highlight-safe');
-      setManualEv(lastUsed?.manualEv ?? 0.0);
+      setEvOffset(lastUsed?.evOffset ?? 0.0);
       setSyncToAuto(false);
     }
   // draft intentionally excluded — effect should only run on mount/dialog open
@@ -58,22 +56,20 @@ export function ColorGradingDialog({ isOpen, colorGradingPresets, onConfirm, onC
       ...d,
       colorGradingLastUsed: {
         presetId: selectedId,
-        useAutoExposure,
         meteringMode,
-        manualEv,
+        evOffset,
       },
       ...(syncToAuto && d.autoColorGrading ? {
         autoColorGrading: {
           ...d.autoColorGrading,
           presetId: selectedId,
-          useAutoExposure,
           meteringMode,
-          manualEv,
+          evOffset,
         },
       } : {}),
     }));
 
-    onConfirm(selectedId, useAutoExposure, meteringMode, manualEv);
+    onConfirm(selectedId, meteringMode, evOffset);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -135,12 +131,10 @@ export function ColorGradingDialog({ isOpen, colorGradingPresets, onConfirm, onC
         </div>
 
         <ExposureConfigSection
-          useAutoExposure={useAutoExposure}
-          onAutoExposureChange={setUseAutoExposure}
           meteringMode={meteringMode}
           onMeteringModeChange={setMeteringMode}
-          manualEv={manualEv}
-          onManualEvChange={setManualEv}
+          evOffset={evOffset}
+          onEvOffsetChange={setEvOffset}
         />
       </div>
     </Dialog>
