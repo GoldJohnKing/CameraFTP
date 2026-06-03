@@ -79,6 +79,14 @@
             android:theme="@style/Theme.MaterialComponents.DayNight.NoActionBar"
             android:windowSoftInputMode="adjustNothing" />
 
+        <!-- Color Grading Preview Activity -->
+        <activity
+            android:name=".ColorGradingActivity"
+            android:configChanges="orientation|screenSize|smallestScreenSize|density|keyboard|keyboardHidden|navigation"
+            android:exported="false"
+            android:theme="@style/Theme.MaterialComponents.DayNight.NoActionBar"
+            android:windowSoftInputMode="adjustNothing" />
+
         <!-- FTP Foreground Service -->
         <service
             android:name=".FtpForegroundService"
