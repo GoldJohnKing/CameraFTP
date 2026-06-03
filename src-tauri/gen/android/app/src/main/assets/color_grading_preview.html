@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #111; color: #e0e0e0; height: 100vh; overflow: hidden; display: flex; flex-direction: column; }
+
+  .top-bar {
+    display: flex; align-items: center; padding: 12px 16px;
+    border-bottom: 1px solid #333; flex-shrink: 0; min-height: 48px;
+  }
+  .back-btn {
+    color: #fff; font-size: 16px; cursor: pointer; display: flex;
+    align-items: center; gap: 4px; background: none; border: none;
+    padding: 4px 8px; border-radius: 8px; -webkit-user-select: none;
+  }
+  .back-btn:active { background: rgba(255,255,255,0.1); }
+  .back-btn.disabled { color: #555; pointer-events: none; }
+  .top-bar-title { flex: 1; text-align: center; font-weight: 600; font-size: 17px; }
+  .top-bar-spacer { width: 60px; }
+
+  .preview-area {
+    flex: 1; display: flex; align-items: center; justify-content: center;
+    overflow: hidden; position: relative; min-height: 0;
+  }
+  .preview-area img {
+    max-width: 100%; max-height: 100%; object-fit: contain;
+  }
+
+  .loading-overlay {
+    position: absolute; inset: 0; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 16px;
+    background: #111; z-index: 10;
+  }
+  .loading-overlay.hidden { display: none; }
+  .spinner {
+    width: 48px; height: 48px; border: 3px solid #333;
+    border-top-color: #a78bfa; border-radius: 50%;
+    animation: spin 1s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .loading-text { color: #999; font-size: 14px; }
+  .loading-hint { color: #666; font-size: 12px; }
+
+  .error-overlay {
+    position: absolute; inset: 0; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 16px;
+    background: #111; z-index: 10;
+  }
+  .error-overlay.hidden { display: none; }
+  .error-text { color: #f87171; font-size: 14px; text-align: center; padding: 0 32px; }
+  .error-actions { display: flex; gap: 12px; }
+  .btn-error {
+    padding: 10px 20px; border-radius: 8px; border: none; font-size: 14px;
+    font-weight: 500; cursor: pointer;
+  }
+  .btn-error-retry { background: #a78bfa; color: #fff; }
+  .btn-error-back { background: #333; color: #ccc; }
+
+  .controls {
+    padding: 16px; background: #1a1a1a; border-top: 1px solid #333;
+    flex-shrink: 0;
+  }
+  .controls.disabled { opacity: 0.3; pointer-events: none; }
+  .controls-row { display: flex; gap: 8px; margin-bottom: 12px; }
+  .dropdown { position: relative; flex: 1; }
+  .dropdown-btn {
+    width: 100%; padding: 10px 12px; border: 1px solid #333;
+    border-radius: 8px; font-size: 13px; color: #e0e0e0;
+    background: #252525; outline: none; cursor: pointer;
+    display: flex; align-items: center; justify-content: space-between;
+    text-align: left; -webkit-user-select: none;
+  }
+  .dropdown-btn .chevron {
+    width: 14px; height: 14px; color: #666;
+    transition: transform 0.2s; flex-shrink: 0;
+  }
+  .dropdown-btn.open .chevron { transform: rotate(180deg); }
+  .dropdown-panel {
+    position: absolute; left: 0; right: 0; bottom: 100%;
+    margin-bottom: 4px; background: #2a2a2a; border: 1px solid #444;
+    border-radius: 8px; box-shadow: 0 -10px 25px -5px rgba(0,0,0,0.5);
+    padding: 4px 0; z-index: 20; max-height: 200px; overflow-y: auto;
+    opacity: 0; transform: scaleY(0.95) translateY(4px);
+    transform-origin: bottom; pointer-events: none;
+    transition: opacity 0.15s ease, transform 0.15s ease;
+  }
+  .dropdown-panel.open {
+    opacity: 1; transform: scaleY(1) translateY(0);
+    pointer-events: auto;
+  }
+  .dropdown-opt {
+    padding: 10px 12px; font-size: 13px;
+    color: #ccc; cursor: pointer;
+  }
+  .dropdown-opt:active { background: #333; }
+  .dropdown-opt.selected { color: #a78bfa; font-weight: 500; }
+
+  .slider-group { margin-bottom: 12px; }
+  .slider-header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 8px;
+  }
+  .slider-label { font-size: 13px; color: #999; }
+  .slider-value { font-size: 13px; font-family: monospace; color: #60a5fa; }
+  input[type="range"] {
+    -webkit-appearance: none; width: 100%; height: 4px;
+    background: #333; border-radius: 2px; outline: none;
+  }
+  input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none; width: 20px; height: 20px;
+    background: #a78bfa; border-radius: 50%; cursor: pointer;
+  }
+
+  .actions { display: flex; gap: 8px; }
+  .btn-action {
+    padding: 10px 0; border-radius: 8px; border: none; font-size: 14px;
+    font-weight: 600; cursor: pointer; -webkit-user-select: none;
+  }
+  .btn-reset { flex: 1; background: #252525; color: #999; }
+  .btn-reset:active { background: #333; }
+  .btn-save { flex: 2; background: #a78bfa; color: #fff; }
+  .btn-save:active { background: #8b5cf6; }
+  .btn-save.saving { background: #555; pointer-events: none; }
+</style>
+</head>
+<body>
+
+<div class="top-bar">
+  <button class="back-btn" id="backBtn" onclick="onBack()">← 返回</button>
+  <div class="top-bar-title">调色</div>
+  <div class="top-bar-spacer"></div>
+</div>
+
+<div class="preview-area">
+  <img id="previewImg" style="display:none" src="" alt="Preview">
+  <div class="loading-overlay" id="loadingOverlay">
+    <div class="spinner"></div>
+    <div class="loading-text">正在解码 RAW 图片...</div>
+    <div class="loading-hint">请勿返回，否则将中断解码</div>
+  </div>
+  <div class="error-overlay hidden" id="errorOverlay">
+    <div class="error-text" id="errorText">解码失败</div>
+    <div class="error-actions">
+      <button class="btn-error btn-error-back" onclick="NativeBridge.cancelPreview()">返回</button>
+      <button class="btn-error btn-error-retry" onclick="retryBegin()">重试</button>
+    </div>
+  </div>
+</div>
+
+<div class="controls disabled" id="controls">
+  <div class="controls-row">
+    <div class="dropdown" id="lutDropdown">
+      <button class="dropdown-btn" type="button" onclick="toggleDropdown('lut')">
+        <span id="lutLabel">Provia</span>
+        <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg>
+      </button>
+      <div class="dropdown-panel" id="lutPanel"></div>
+    </div>
+    <div class="dropdown" id="meteringDropdown">
+      <button class="dropdown-btn" type="button" onclick="toggleDropdown('metering')">
+        <span id="meteringLabel">高光保护</span>
+        <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg>
+      </button>
+      <div class="dropdown-panel" id="meteringPanel">
+        <div class="dropdown-opt" data-value="highlight-safe" onclick="selectMetering(this)">高光保护</div>
+        <div class="dropdown-opt" data-value="matrix" onclick="selectMetering(this)">矩阵测光</div>
+        <div class="dropdown-opt" data-value="center-weighted" onclick="selectMetering(this)">中央重点测光</div>
+        <div class="dropdown-opt" data-value="average" onclick="selectMetering(this)">平均测光</div>
+        <div class="dropdown-opt" data-value="hybrid" onclick="selectMetering(this)">混合测光</div>
+      </div>
+    </div>
+  </div>
+  <div class="slider-group">
+    <div class="slider-header">
+      <span class="slider-label">曝光偏移</span>
+      <span class="slider-value" id="evValue">0.0 EV</span>
+    </div>
+    <input type="range" id="evSlider" min="-5.0" max="5.0" step="0.1" value="0" oninput="onEvChange()">
+  </div>
+  <div class="actions">
+    <button class="btn-action btn-reset" onclick="onReset()">重置</button>
+    <button class="btn-action btn-save" id="saveBtn" onclick="onSave()">保存</button>
+  </div>
+</div>
+
+<script>
+  var state = 'LOADING';
+  var filePath = '';
+  var presets = [];
+  var selectedLut = 'provia';
+  var selectedMetering = 'highlight-safe';
+  var currentEv = 0.0;
+  var applyPending = false;
+
+  var METERING_NAMES = {
+    'highlight-safe': '高光保护', 'matrix': '矩阵测光',
+    'center-weighted': '中央重点测光', 'average': '平均测光', 'hybrid': '混合测光'
+  };
+
+  function init() {
+    var config = JSON.parse(NativeBridge.getConfig() || '{}');
+    presets = config.presets || [];
+    filePath = config.filePath || '';
+
+    if (presets.length > 0) {
+      var lastUsed = config.lastUsed || {};
+      var defaultLut = lastUsed.presetId || presets[0][0];
+      var defaultMetering = lastUsed.meteringMode || 'highlight-safe';
+      var defaultEv = lastUsed.evOffset || 0;
+
+      selectedLut = presets.some(function(p) { return p[0] === defaultLut; }) ? defaultLut : presets[0][0];
+      selectedMetering = METERING_NAMES[defaultMetering] ? defaultMetering : 'highlight-safe';
+      currentEv = typeof defaultEv === 'number' ? defaultEv : 0;
+
+      var html = '';
+      for (var i = 0; i < presets.length; i++) {
+        var sel = presets[i][0] === selectedLut ? ' selected' : '';
+        html += '<div class="dropdown-opt' + sel + '" data-value="' + presets[i][0] + '" onclick="selectLut(this)">' + presets[i][1] + '</div>';
+      }
+      document.getElementById('lutPanel').innerHTML = html;
+      var found = presets.find(function(p) { return p[0] === selectedLut; });
+      document.getElementById('lutLabel').textContent = found ? found[1] : presets[0][1];
+
+      document.getElementById('meteringLabel').textContent = METERING_NAMES[selectedMetering];
+      var meteringOpts = document.getElementById('meteringPanel').querySelectorAll('.dropdown-opt');
+      for (var j = 0; j < meteringOpts.length; j++) {
+        meteringOpts[j].classList.toggle('selected', meteringOpts[j].getAttribute('data-value') === selectedMetering);
+      }
+
+      document.getElementById('evSlider').value = currentEv;
+      updateEvDisplay();
+    }
+
+    NativeBridge.beginPreview(filePath);
+  }
+
+  function toggleDropdown(name) {
+    var panel = document.getElementById(name === 'lut' ? 'lutPanel' : 'meteringPanel');
+    var btn = panel.previousElementSibling;
+    var isOpen = panel.classList.contains('open');
+    closeAllDropdowns();
+    if (!isOpen) { panel.classList.add('open'); btn.classList.add('open'); }
+  }
+  function closeAllDropdowns() {
+    var panels = document.querySelectorAll('.dropdown-panel');
+    var btns = document.querySelectorAll('.dropdown-btn');
+    for (var i = 0; i < panels.length; i++) panels[i].classList.remove('open');
+    for (var j = 0; j < btns.length; j++) btns[j].classList.remove('open');
+  }
+  document.addEventListener('click', function(e) {
+    if (!e.target.closest('.dropdown')) closeAllDropdowns();
+  });
+
+  function selectLut(opt) {
+    selectedLut = opt.getAttribute('data-value');
+    document.getElementById('lutLabel').textContent = opt.textContent;
+    var allOpts = document.getElementById('lutPanel').querySelectorAll('.dropdown-opt');
+    for (var i = 0; i < allOpts.length; i++) allOpts[i].classList.remove('selected');
+    opt.classList.add('selected');
+    closeAllDropdowns();
+    requestApply();
+  }
+  function selectMetering(opt) {
+    selectedMetering = opt.getAttribute('data-value');
+    document.getElementById('meteringLabel').textContent = opt.textContent;
+    var allOpts = document.getElementById('meteringPanel').querySelectorAll('.dropdown-opt');
+    for (var i = 0; i < allOpts.length; i++) allOpts[i].classList.remove('selected');
+    opt.classList.add('selected');
+    closeAllDropdowns();
+    requestApply();
+  }
+
+  function onEvChange() {
+    currentEv = parseFloat(document.getElementById('evSlider').value);
+    updateEvDisplay();
+    requestApply();
+  }
+  function updateEvDisplay() {
+    var v = currentEv;
+    document.getElementById('evValue').textContent = (v > 0 ? '+' : '') + v.toFixed(1) + ' EV';
+  }
+
+  function requestApply() {
+    if (state === 'LOADING' || state === 'SAVING' || state === 'ERROR') return;
+    state = 'ADJUSTING';
+    if (!applyPending) {
+      applyPending = true;
+      NativeBridge.applyPreview(selectedLut, selectedMetering, currentEv);
+    }
+  }
+
+  window.onPreviewReady = function() {
+    state = 'READY';
+    document.getElementById('loadingOverlay').classList.add('hidden');
+    document.getElementById('errorOverlay').classList.add('hidden');
+    document.getElementById('controls').classList.remove('disabled');
+    NativeBridge.applyPreview(selectedLut, selectedMetering, currentEv);
+  };
+  window.onPreviewError = function(message) {
+    state = 'ERROR';
+    document.getElementById('loadingOverlay').classList.add('hidden');
+    document.getElementById('errorText').textContent = message || '处理失败';
+    document.getElementById('errorOverlay').classList.remove('hidden');
+  };
+  window.refreshPreview = function() {
+    applyPending = false;
+    var img = document.getElementById('previewImg');
+    img.style.display = 'block';
+    img.src = 'preview://latest?t=' + Date.now();
+    if (state === 'ADJUSTING') state = 'READY';
+  };
+  window.notifyPreviewError = function(message) {
+    applyPending = false;
+    console.warn('Preview apply error: ' + message);
+  };
+
+  function onBack() {
+    if (state === 'SAVING') return;
+    NativeBridge.cancelPreview();
+  }
+  function onReset() {
+    selectedLut = 'provia';
+    selectedMetering = 'highlight-safe';
+    currentEv = 0;
+    document.getElementById('evSlider').value = 0;
+    updateEvDisplay();
+    var found = presets.find(function(p) { return p[0] === 'provia'; });
+    document.getElementById('lutLabel').textContent = found ? found[1] : 'Provia';
+    var lutOpts = document.getElementById('lutPanel').querySelectorAll('.dropdown-opt');
+    for (var i = 0; i < lutOpts.length; i++) {
+      lutOpts[i].classList.toggle('selected', lutOpts[i].getAttribute('data-value') === 'provia');
+    }
+    document.getElementById('meteringLabel').textContent = '高光保护';
+    var meteringOpts = document.getElementById('meteringPanel').querySelectorAll('.dropdown-opt');
+    for (var j = 0; j < meteringOpts.length; j++) {
+      meteringOpts[j].classList.toggle('selected', meteringOpts[j].getAttribute('data-value') === 'highlight-safe');
+    }
+    requestApply();
+  }
+  function onSave() {
+    if (state === 'SAVING') return;
+    state = 'SAVING';
+    document.getElementById('saveBtn').classList.add('saving');
+    document.getElementById('controls').classList.add('disabled');
+    document.getElementById('backBtn').classList.add('disabled');
+    NativeBridge.save(selectedLut, selectedMetering, currentEv);
+  }
+  function retryBegin() {
+    state = 'LOADING';
+    document.getElementById('errorOverlay').classList.add('hidden');
+    document.getElementById('loadingOverlay').classList.remove('hidden');
+    NativeBridge.beginPreview(filePath);
+  }
+
+  window.addEventListener('load', function() { setTimeout(init, 100); });
+</script>
+</body>
+</html>
