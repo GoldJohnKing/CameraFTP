@@ -6,6 +6,7 @@
 
 import { useEffect } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
+import { invoke } from '@tauri-apps/api/core';
 import { Camera, X } from 'lucide-react';
 import { ServerCard } from './components/ServerCard';
 import { StatsCard } from './components/StatsCard';
@@ -107,6 +108,28 @@ function App() {
       await cancelColorGrading();
     };
 
+    w.__tauriBeginColorGradingPreview = async (filePath: string) => {
+      await invoke('begin_color_grading_preview', { imagePath: filePath });
+    };
+
+    w.__tauriApplyColorGradingPreview = async (lutId: string, meteringMode: string, evOffset: number) => {
+      return await invoke<string>('apply_color_grading_preview', {
+        lutId, meteringMode, evOffset,
+        enableLensCorrection: true,
+      });
+    };
+
+    w.__tauriEndColorGradingPreview = async () => {
+      await invoke('end_color_grading_preview');
+    };
+
+    w.__tauriSaveColorGradingLastUsed = (lutId: string, meteringMode: string, evOffset: number) => {
+      updateDraft(d => ({
+        ...d,
+        colorGradingLastUsed: { presetId: lutId, meteringMode, evOffset },
+      }));
+    };
+
     return () => {
       delete w.__tauriGetAiEditPrompt;
       delete w.__tauriTriggerAiEditWithPrompt;
@@ -118,6 +141,10 @@ function App() {
       delete w.__tauriTriggerColorGrading;
       delete w.__tauriGetColorGradingProgress;
       delete w.__tauriCancelColorGrading;
+      delete w.__tauriBeginColorGradingPreview;
+      delete w.__tauriApplyColorGradingPreview;
+      delete w.__tauriEndColorGradingPreview;
+      delete w.__tauriSaveColorGradingLastUsed;
     };
   }, [updateDraft]);
 
