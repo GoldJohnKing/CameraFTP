@@ -84,9 +84,8 @@ impl ColorGradingPreviewState {
         &self,
         lut_id: &str,
         enable_lens_correction: bool,
-        use_auto_exposure: bool,
         metering_mode: &str,
-        manual_ev: f32,
+        ev_offset: f32,
     ) -> Result<String, AppError> {
         let lib = RawAlchemyLib::get()?;
         let preset = find_preset(lut_id)
@@ -120,7 +119,7 @@ impl ColorGradingPreviewState {
         let log_space = preset.log_space.clone();
         let metering = metering_mode.to_string();
 
-        tracing::debug!(lut = lut_id, ev = manual_ev, lens = enable_lens_correction, "Applying preview grading");
+        tracing::debug!(lut = lut_id, ev = ev_offset, lens = enable_lens_correction, "Applying preview grading");
 
         tokio::task::spawn_blocking(move || {
             let session = RaPreviewSession { ptr: session_addr as *mut std::ffi::c_void };
@@ -128,9 +127,8 @@ impl ColorGradingPreviewState {
                 &session,
                 Some(log_space.as_str()),
                 &lut_data,
-                use_auto_exposure,
+                ev_offset,
                 &metering,
-                manual_ev,
                 PREVIEW_JPEG_QUALITY,
                 Path::new(&output_path),
             )

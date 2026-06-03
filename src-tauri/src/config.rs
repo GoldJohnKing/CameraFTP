@@ -140,12 +140,10 @@ pub struct AutoColorGradingConfig {
     /// 调色预设 ID
     #[serde(alias = "presetLutId")]
     pub preset_id: String,
-    /// 是否使用自动曝光
-    pub use_auto_exposure: bool,
-    /// 自动曝光测光模式（仅自动曝光时有效）
+    /// 曝光偏移量（EV），基于自动测光结果的偏移
+    pub ev_offset: f32,
+    /// 自动曝光测光模式
     pub metering_mode: String,
-    /// 手动曝光补偿值（EV），仅当 use_auto_exposure=false 时有效
-    pub manual_ev: f32,
 }
 
 impl Default for AutoColorGradingConfig {
@@ -153,9 +151,8 @@ impl Default for AutoColorGradingConfig {
         Self {
             enabled: false,
             preset_id: crate::color_grading::presets::DEFAULT_PRESET_ID.to_string(),
-            use_auto_exposure: true,
+            ev_offset: 0.0,
             metering_mode: "highlight-safe".to_string(),
-            manual_ev: 0.0,
         }
     }
 }
@@ -167,21 +164,18 @@ impl Default for AutoColorGradingConfig {
 pub struct ColorGradingLastUsed {
     /// 调色预设 ID
     pub preset_id: String,
-    /// 是否使用自动曝光
-    pub use_auto_exposure: bool,
+    /// 曝光偏移量（EV），基于自动测光结果的偏移
+    pub ev_offset: f32,
     /// 自动曝光测光模式
     pub metering_mode: String,
-    /// 手动曝光补偿值（EV）
-    pub manual_ev: f32,
 }
 
 impl Default for ColorGradingLastUsed {
     fn default() -> Self {
         Self {
             preset_id: crate::color_grading::presets::DEFAULT_PRESET_ID.to_string(),
-            use_auto_exposure: true,
+            ev_offset: 0.0,
             metering_mode: "highlight-safe".to_string(),
-            manual_ev: 0.0,
         }
     }
 }

@@ -136,8 +136,7 @@ type RaProcessFileWithLUTFn = unsafe extern "C" fn(
     *const c_float,  // lutDomainMin
     *const c_float,  // lutDomainMax
     *const c_char,   // metering
-    c_float,         // manualEv
-    c_int,           // useAutoExposure
+    c_float,         // evOffset
     c_int,           // jpegQuality
     c_int,           // enableLensCorrection
     *const c_char,   // customLensfunDb
@@ -171,8 +170,7 @@ type RaApplyPreviewGradingFn = unsafe extern "C" fn(
     *const c_float,  // lutDomainMin
     *const c_float,  // lutDomainMax
     *const c_char,   // metering
-    c_float,         // manualEv
-    c_int,           // useAutoExposure
+    c_float,         // evOffset
     c_int,           // jpegQuality
     *const c_char,   // outputPath
 ) -> c_int;
@@ -347,9 +345,8 @@ impl RawAlchemyLib {
         log_space: Option<&str>,
         lut_data: &Arc<super::lut_data::LutData>,
         lensfun_db_path: Option<&str>,
-        use_auto_exposure: bool,
+        ev_offset: f32,
         metering_mode: &str,
-        manual_ev: f32,
     ) -> Result<(), AppError> {
         let input_c = std::ffi::CString::new(input_path.to_string_lossy().into_owned())
             .map_err(|e| AppError::ColorGradingError(format!("Invalid input path: {}", e)))?;
@@ -382,8 +379,7 @@ impl RawAlchemyLib {
                 lut_data.domain_min.as_ptr(),
                 lut_data.domain_max.as_ptr(),
                 metering_c.as_ptr(),
-                manual_ev,
-                if use_auto_exposure { 1 } else { 0 },
+                ev_offset,
                 DEFAULT_JPEG_QUALITY,
                 ENABLE_LENS_CORRECTION,
                 lensfun_c
@@ -440,9 +436,8 @@ impl RawAlchemyLib {
         session: &RaPreviewSession,
         log_space: Option<&str>,
         lut_data: &Arc<super::lut_data::LutData>,
-        use_auto_exposure: bool,
+        ev_offset: f32,
         metering_mode: &str,
-        manual_ev: f32,
         jpeg_quality: i32,
         output_path: &Path,
     ) -> Result<(), AppError> {
@@ -464,8 +459,7 @@ impl RawAlchemyLib {
                 lut_data.domain_min.as_ptr(),
                 lut_data.domain_max.as_ptr(),
                 metering_c.as_ptr(),
-                manual_ev,
-                if use_auto_exposure { 1 } else { 0 },
+                ev_offset,
                 jpeg_quality as c_int,
                 output_c.as_ptr(),
             )

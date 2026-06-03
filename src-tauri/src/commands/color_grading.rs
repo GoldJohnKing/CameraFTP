@@ -24,12 +24,11 @@ pub async fn enqueue_color_grading(
     color_grading: State<'_, ColorGradingService>,
     file_paths: Vec<String>,
     lut_id: String,
-    use_auto_exposure: bool,
     metering_mode: String,
-    manual_ev: f32,
+    ev_offset: f32,
 ) -> Result<(), AppError> {
     let paths: Vec<PathBuf> = file_paths.iter().map(PathBuf::from).collect();
-    color_grading.enqueue(paths, lut_id, use_auto_exposure, metering_mode, manual_ev).await
+    color_grading.enqueue(paths, lut_id, metering_mode, ev_offset).await
 }
 
 #[command]
@@ -64,11 +63,10 @@ pub async fn apply_color_grading_preview(
     preview: State<'_, ColorGradingPreviewState>,
     lut_id: String,
     enable_lens_correction: bool,
-    use_auto_exposure: bool,
     metering_mode: String,
-    manual_ev: f32,
+    ev_offset: f32,
 ) -> Result<String, AppError> {
-    preview.apply(&lut_id, enable_lens_correction, use_auto_exposure, &metering_mode, manual_ev).await
+    preview.apply(&lut_id, enable_lens_correction, &metering_mode, ev_offset).await
 }
 
 #[command]

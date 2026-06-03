@@ -20,9 +20,8 @@ use super::presets::find_preset;
 struct ColorGradingTask {
     input_path: PathBuf,
     lut_id: String,
-    use_auto_exposure: bool,
     metering_mode: String,
-    manual_ev: f32,
+    ev_offset: f32,
 }
 
 pub struct ColorGradingService {
@@ -50,7 +49,7 @@ impl ColorGradingService {
         Self { config_service, app_handle, sender, queue_depth, cancel_token }
     }
 
-    pub async fn enqueue(&self, file_paths: Vec<PathBuf>, lut_id: String, use_auto_exposure: bool, metering_mode: String, manual_ev: f32) -> Result<(), AppError> {
+    pub async fn enqueue(&self, file_paths: Vec<PathBuf>, lut_id: String, metering_mode: String, ev_offset: f32) -> Result<(), AppError> {
         let preset = find_preset(&lut_id)
             .ok_or_else(|| AppError::ColorGradingError(format!("Unknown LUT preset: {}", lut_id)))?;
 
@@ -65,9 +64,8 @@ impl ColorGradingService {
             match self.sender.send(ColorGradingTask {
                 input_path: path,
                 lut_id: preset.id.clone(),
-                use_auto_exposure,
                 metering_mode: metering_mode.clone(),
-                manual_ev,
+                ev_offset,
             }).await {
                 Ok(()) => sent += 1,
                 Err(_) => {
@@ -103,9 +101,8 @@ impl ColorGradingService {
         if let Err(e) = self.enqueue(
             vec![file_path.clone()],
             cg.preset_id.clone(),
-            cg.use_auto_exposure,
             cg.metering_mode.clone(),
-            cg.manual_ev,
+            cg.ev_offset,
         ).await {
             tracing::warn!("Auto color grading enqueue failed for {}: {}", file_path.display(), e);
         }
@@ -285,8 +282,7 @@ async fn process_single_file(task: &ColorGradingTask) -> Result<String, AppError
     let input_path = task.input_path.clone();
     let log_space = preset.log_space.clone();
     let metering_mode = task.metering_mode.clone();
-    let use_auto_exposure = task.use_auto_exposure;
-    let manual_ev = task.manual_ev;
+    let ev_offset = task.ev_offset;
 
     tokio::task::spawn_blocking(move || {
         lib.process_file_with_lut(
@@ -295,9 +291,8 @@ async fn process_single_file(task: &ColorGradingTask) -> Result<String, AppError
             Some(&log_space),
             &lut_data,
             lensfun_path.as_deref(),
-            use_auto_exposure,
+            ev_offset,
             &metering_mode,
-            manual_ev,
         )
     }).await.map_err(|e| AppError::ColorGradingError(format!("Blocking task failed: {}", e)))??;
 
