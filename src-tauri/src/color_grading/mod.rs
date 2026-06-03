@@ -6,6 +6,7 @@ pub mod ffi;
 pub mod lensfun_db;
 pub mod lut_data;
 pub mod presets;
+pub mod preview;
 pub mod progress;
 pub mod resources;
 pub mod service;

@@ -146,11 +146,49 @@ type RaProcessFileWithLUTFn = unsafe extern "C" fn(
 type RaGetLastErrorFn = unsafe extern "C" fn() -> *const c_char;
 type RaGetVersionFn = unsafe extern "C" fn() -> *const c_char;
 
+/// Opaque handle to a C++ preview session (decoded RAW cached in C++ heap).
+#[repr(transparent)]
+pub(crate) struct RaPreviewSession {
+    pub(crate) ptr: *mut std::ffi::c_void,
+}
+
+// SAFETY: The C++ session is accessed from Rust only via spawn_blocking,
+// so only one thread uses a session at a time.
+unsafe impl Send for RaPreviewSession {}
+
+type RaBeginPreviewSessionFn = unsafe extern "C" fn(
+    *const c_char,   // inputPath
+    c_int,           // enableLensCorrection
+    *const c_char,   // customLensfunDb
+    *mut RaPreviewSession, // outSession
+) -> c_int;
+
+type RaApplyPreviewGradingFn = unsafe extern "C" fn(
+    *mut std::ffi::c_void, // session (RaPreviewSession.ptr)
+    *const c_char,   // logSpace
+    *const c_float,  // lutTable
+    c_int,           // lutSize
+    *const c_float,  // lutDomainMin
+    *const c_float,  // lutDomainMax
+    *const c_char,   // metering
+    c_float,         // manualEv
+    c_int,           // useAutoExposure
+    c_int,           // jpegQuality
+    *const c_char,   // outputPath
+) -> c_int;
+
+type RaEndPreviewSessionFn = unsafe extern "C" fn(
+    *mut std::ffi::c_void, // session (RaPreviewSession.ptr)
+);
+
 pub struct RawAlchemyLib {
     _lib: Library,
     process_file_with_lut: RaProcessFileWithLUTFn,
     get_last_error: RaGetLastErrorFn,
     get_version: RaGetVersionFn,
+    begin_preview_session: RaBeginPreviewSessionFn,
+    apply_preview_grading: RaApplyPreviewGradingFn,
+    end_preview_session: RaEndPreviewSessionFn,
 }
 
 fn ra_result_from_code(code: c_int) -> RaResult {
@@ -200,12 +238,42 @@ impl RawAlchemyLib {
                     AppError::ColorGradingError(format!("Symbol raGetVersion not found: {}", e))
                 })?
         };
+        let begin_preview_session = unsafe {
+            *lib.get::<RaBeginPreviewSessionFn>(b"raBeginPreviewSession\0")
+                .map_err(|e| {
+                    AppError::ColorGradingError(format!(
+                        "Symbol raBeginPreviewSession not found: {}",
+                        e
+                    ))
+                })?
+        };
+        let apply_preview_grading = unsafe {
+            *lib.get::<RaApplyPreviewGradingFn>(b"raApplyPreviewGrading\0")
+                .map_err(|e| {
+                    AppError::ColorGradingError(format!(
+                        "Symbol raApplyPreviewGrading not found: {}",
+                        e
+                    ))
+                })?
+        };
+        let end_preview_session = unsafe {
+            *lib.get::<RaEndPreviewSessionFn>(b"raEndPreviewSession\0")
+                .map_err(|e| {
+                    AppError::ColorGradingError(format!(
+                        "Symbol raEndPreviewSession not found: {}",
+                        e
+                    ))
+                })?
+        };
 
         Ok(Self {
             _lib: lib,
             process_file_with_lut,
             get_last_error,
             get_version,
+            begin_preview_session,
+            apply_preview_grading,
+            end_preview_session,
         })
     }
 
@@ -313,6 +381,91 @@ impl RawAlchemyLib {
             Ok(())
         } else {
             Err(self.format_last_error(ra_result, result))
+        }
+    }
+    pub(crate) fn begin_preview_session(
+        &self,
+        input_path: &Path,
+        enable_lens_correction: bool,
+        lensfun_db_path: Option<&str>,
+    ) -> Result<RaPreviewSession, AppError> {
+        let input_c = std::ffi::CString::new(input_path.to_string_lossy().into_owned())
+            .map_err(|e| AppError::ColorGradingError(format!("Invalid input path: {}", e)))?;
+        let lensfun_c = lensfun_db_path
+            .map(|s| std::ffi::CString::new(s).map_err(|e| AppError::ColorGradingError(format!("Invalid lensfun path: {}", e))))
+            .transpose()?;
+
+        let mut session = RaPreviewSession { ptr: std::ptr::null_mut() };
+
+        let result = unsafe {
+            (self.begin_preview_session)(
+                input_c.as_ptr(),
+                if enable_lens_correction { 1 } else { 0 },
+                lensfun_c
+                    .as_ref()
+                    .map(|c| c.as_ptr())
+                    .unwrap_or(std::ptr::null()),
+                &mut session,
+            )
+        };
+
+        let ra_result = ra_result_from_code(result);
+        if ra_result.is_ok() {
+            Ok(session)
+        } else {
+            Err(self.format_last_error(ra_result, result))
+        }
+    }
+
+    pub(crate) fn apply_preview_grading(
+        &self,
+        session: &RaPreviewSession,
+        log_space: Option<&str>,
+        lut_data: &Arc<super::lut_data::LutData>,
+        use_auto_exposure: bool,
+        metering_mode: &str,
+        manual_ev: f32,
+        jpeg_quality: i32,
+        output_path: &Path,
+    ) -> Result<(), AppError> {
+        let log_c = log_space
+            .map(|s| std::ffi::CString::new(s).map_err(|e| AppError::ColorGradingError(format!("Invalid log space: {}", e))))
+            .transpose()?
+            .unwrap_or_else(|| std::ffi::CString::new("").expect("empty string is valid CString"));
+        let metering_c = std::ffi::CString::new(metering_mode)
+            .map_err(|e| AppError::ColorGradingError(format!("Invalid metering mode: {}", e)))?;
+        let output_c = std::ffi::CString::new(output_path.to_string_lossy().into_owned())
+            .map_err(|e| AppError::ColorGradingError(format!("Invalid output path: {}", e)))?;
+
+        let result = unsafe {
+            (self.apply_preview_grading)(
+                session.ptr,
+                if log_space.is_some() { log_c.as_ptr() } else { std::ptr::null() },
+                lut_data.table.as_ptr(),
+                lut_data.size as c_int,
+                lut_data.domain_min.as_ptr(),
+                lut_data.domain_max.as_ptr(),
+                metering_c.as_ptr(),
+                manual_ev,
+                if use_auto_exposure { 1 } else { 0 },
+                jpeg_quality as c_int,
+                output_c.as_ptr(),
+            )
+        };
+
+        let ra_result = ra_result_from_code(result);
+        if ra_result.is_ok() {
+            Ok(())
+        } else {
+            Err(self.format_last_error(ra_result, result))
+        }
+    }
+
+    pub(crate) fn end_preview_session(&self, session: RaPreviewSession) {
+        if !session.ptr.is_null() {
+            unsafe {
+                (self.end_preview_session)(session.ptr);
+            }
         }
     }
 }

@@ -44,3 +44,35 @@ pub async fn cancel_color_grading(
 pub fn is_raw_file(file_path: String) -> bool {
     crate::image_utils::is_raw_file(&PathBuf::from(file_path))
 }
+
+use crate::color_grading::preview::ColorGradingPreviewState;
+
+#[command]
+pub async fn begin_color_grading_preview(
+    preview: State<'_, ColorGradingPreviewState>,
+    image_path: String,
+) -> Result<(), AppError> {
+    let lensfun_db_path = crate::color_grading::resources::get_resources()
+        .ok()
+        .map(|r| r.lensfun_db_dir.to_string_lossy().into_owned());
+    let path: Option<&str> = lensfun_db_path.as_deref();
+    preview.begin(&image_path, path).await
+}
+
+#[command]
+pub async fn apply_color_grading_preview(
+    preview: State<'_, ColorGradingPreviewState>,
+    lut_id: String,
+    use_auto_exposure: bool,
+    metering_mode: String,
+    manual_ev: f32,
+) -> Result<String, AppError> {
+    preview.apply(&lut_id, use_auto_exposure, &metering_mode, manual_ev).await
+}
+
+#[command]
+pub async fn end_color_grading_preview(
+    preview: State<'_, ColorGradingPreviewState>,
+) -> Result<(), AppError> {
+    preview.end().await
+}

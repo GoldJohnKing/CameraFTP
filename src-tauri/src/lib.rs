@@ -31,6 +31,9 @@ use auto_open::AutoOpenService;
 use config_service::ConfigService;
 use file_index::FileIndexService;
 use commands::{
+    begin_color_grading_preview,
+    apply_color_grading_preview,
+    end_color_grading_preview,
     check_permission_status,
     check_port_available,
     check_server_start_prerequisites,
@@ -194,6 +197,7 @@ pub fn run() {
                 }
 
                 app.manage(color_grading::ColorGradingService::new(app.handle().clone(), Arc::clone(&config_service)));
+                app.manage(color_grading::preview::ColorGradingPreviewState::new());
             }
 
             // 开机自启模式：隐藏窗口
@@ -280,6 +284,9 @@ pub fn run() {
             get_metering_modes,
             enqueue_color_grading,
             cancel_color_grading,
+            begin_color_grading_preview,
+            apply_color_grading_preview,
+            end_color_grading_preview,
             is_raw_file,
         ]);
 
