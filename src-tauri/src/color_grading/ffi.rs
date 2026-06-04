@@ -166,16 +166,19 @@ type RaBeginPreviewSessionFn = unsafe extern "C" fn(
 ) -> c_int;
 
 type RaApplyPreviewGradingFn = unsafe extern "C" fn(
-    *mut std::ffi::c_void, // session (RaPreviewSession.ptr)
-    *const c_char,   // logSpace
-    *const c_float,  // lutTable
-    c_int,           // lutSize
-    *const c_float,  // lutDomainMin
-    *const c_float,  // lutDomainMax
-    *const c_char,   // metering
-    c_float,         // evOffset
-    c_int,           // jpegQuality
-    *const c_char,   // outputPath
+    *mut std::ffi::c_void, // session
+    *const c_char,         // logSpace
+    *const c_float,        // lutTable
+    c_int,                 // lutSize
+    *const c_float,        // lutDomainMin
+    *const c_float,        // lutDomainMax
+    *const c_char,         // metering
+    c_float,               // evOffset
+    c_int,                 // jpegQuality
+    c_int,                 // maxWidth
+    c_int,                 // maxHeight
+    *mut *mut u8,          // outBuffer
+    *mut c_int,            // outLen
 ) -> c_int;
 
 type RaEndPreviewSessionFn = unsafe extern "C" fn(
@@ -188,6 +191,10 @@ type RaToggleLensCorrectionFn = unsafe extern "C" fn(
     *const c_char,         // customLensfunDb (nullable)
 ) -> c_int;
 
+type RaFreePreviewBufferFn = unsafe extern "C" fn(
+    *mut u8, // buffer
+);
+
 pub struct RawAlchemyLib {
     _lib: Library,
     process_file_with_lut: RaProcessFileWithLUTFn,
@@ -197,6 +204,7 @@ pub struct RawAlchemyLib {
     apply_preview_grading: RaApplyPreviewGradingFn,
     end_preview_session: RaEndPreviewSessionFn,
     toggle_lens_correction: RaToggleLensCorrectionFn,
+    free_preview_buffer: RaFreePreviewBufferFn,
 }
 
 fn ra_result_from_code(code: c_int) -> RaResult {
@@ -284,6 +292,13 @@ impl RawAlchemyLib {
                 })?
         };
 
+        let free_preview_buffer = unsafe {
+            *lib.get::<RaFreePreviewBufferFn>(b"raFreePreviewBuffer\0")
+                .map_err(|e| {
+                    AppError::ColorGradingError(format!("Symbol raFreePreviewBuffer not found: {}", e))
+                })?
+        };
+
         Ok(Self {
             _lib: lib,
             process_file_with_lut,
@@ -293,6 +308,7 @@ impl RawAlchemyLib {
             apply_preview_grading,
             end_preview_session,
             toggle_lens_correction,
+            free_preview_buffer,
         })
     }
 
@@ -442,16 +458,18 @@ impl RawAlchemyLib {
         ev_offset: f32,
         metering_mode: &str,
         jpeg_quality: i32,
-        output_path: &Path,
-    ) -> Result<(), AppError> {
+        max_width: u32,
+        max_height: u32,
+    ) -> Result<Vec<u8>, AppError> {
         let log_c = log_space
             .map(|s| std::ffi::CString::new(s).map_err(|e| AppError::ColorGradingError(format!("Invalid log space: {}", e))))
             .transpose()?
             .unwrap_or_else(|| std::ffi::CString::new("").expect("empty string is valid CString"));
         let metering_c = std::ffi::CString::new(metering_mode)
             .map_err(|e| AppError::ColorGradingError(format!("Invalid metering mode: {}", e)))?;
-        let output_c = std::ffi::CString::new(output_path.to_string_lossy().into_owned())
-            .map_err(|e| AppError::ColorGradingError(format!("Invalid output path: {}", e)))?;
+
+        let mut out_buf: *mut u8 = std::ptr::null_mut();
+        let mut out_len: c_int = 0;
 
         let result = unsafe {
             (self.apply_preview_grading)(
@@ -464,16 +482,29 @@ impl RawAlchemyLib {
                 metering_c.as_ptr(),
                 ev_offset,
                 jpeg_quality as c_int,
-                output_c.as_ptr(),
+                max_width as c_int,
+                max_height as c_int,
+                &mut out_buf,
+                &mut out_len,
             )
         };
 
         let ra_result = ra_result_from_code(result);
-        if ra_result.is_ok() {
-            Ok(())
-        } else {
-            Err(self.format_last_error(ra_result, result))
+        if !ra_result.is_ok() {
+            return Err(self.format_last_error(ra_result, result));
         }
+
+        if out_buf.is_null() || out_len <= 0 {
+            return Err(AppError::ColorGradingError("Buffer is empty".into()));
+        }
+
+        let jpeg_bytes = unsafe {
+            std::slice::from_raw_parts(out_buf, out_len as usize).to_vec()
+        };
+
+        unsafe { (self.free_preview_buffer)(out_buf); }
+
+        Ok(jpeg_bytes)
     }
 
     pub(crate) fn toggle_lens_correction(
