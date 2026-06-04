@@ -331,6 +331,11 @@
     applyPending = false;
     console.warn('Preview apply error: ' + message);
 
+    if (state === 'SAVING') {
+      state = 'READY';
+      setDisabled(false);
+    }
+
     if (hasPendingApply) {
       hasPendingApply = false;
       applyPending = true;
