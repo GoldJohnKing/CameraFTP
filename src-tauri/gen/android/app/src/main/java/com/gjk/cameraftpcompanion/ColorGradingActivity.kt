@@ -183,8 +183,8 @@ internal class NativeColorGradingPreviewBridge(
         activity.previewJpegBytes = null
 
         Thread {
-            // Generate output filename
-            val outputPath = generateSavePath()
+            // Generate output filename matching batch processing path convention
+            val outputPath = generateSavePath(lutId)
             if (outputPath == null) {
                 Log.e(TAG, "save: failed to generate save path")
                 activity.runOnUiThread {
@@ -260,10 +260,10 @@ internal class NativeColorGradingPreviewBridge(
     }
 
     /**
-     * Generate a save path based on the original file path.
-     * Creates a "<original_name>_graded.jpg" in the same directory.
+     * Generate a save path matching the batch processing convention:
+     * <parent>/ColorGrading/<stem>_<presetId>_<timestamp>.jpg
      */
-    private fun generateSavePath(): String? {
+    private fun generateSavePath(lutId: String): String? {
         val activity = activityRef.get() ?: return null
         val original = java.io.File(filePath)
         if (!original.exists()) {
@@ -271,8 +271,14 @@ internal class NativeColorGradingPreviewBridge(
             return null
         }
         val parent = original.parentFile ?: return null
-        val baseName = original.nameWithoutExtension
-        val output = java.io.File(parent, "${baseName}_graded.jpg")
+        val stem = original.nameWithoutExtension
+        val outputDir = java.io.File(parent, "ColorGrading")
+        if (!outputDir.exists() && !outputDir.mkdirs()) {
+            Log.e(TAG, "generateSavePath: failed to create ${outputDir.absolutePath}")
+            return null
+        }
+        val timestamp = java.text.SimpleDateFormat("yyyyMMdd_HHmmss", java.util.Locale.US).format(java.util.Date())
+        val output = java.io.File(outputDir, "${stem}_${lutId}_${timestamp}.jpg")
         return output.absolutePath
     }
 
