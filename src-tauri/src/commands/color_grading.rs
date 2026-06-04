@@ -33,6 +33,15 @@ pub async fn enqueue_color_grading(
 }
 
 #[command]
+pub async fn notify_color_grading_done(
+    color_grading: State<'_, ColorGradingService>,
+    output_paths: Vec<String>,
+) -> Result<(), AppError> {
+    color_grading.notify_done(output_paths);
+    Ok(())
+}
+
+#[command]
 pub async fn cancel_color_grading(
     color_grading: State<'_, ColorGradingService>,
 ) -> Result<(), AppError> {
@@ -56,6 +65,25 @@ pub async fn begin_color_grading_preview(
         .map(|r| r.lensfun_db_dir.to_string_lossy().into_owned());
     ColorGradingPreviewState::get_global()
         .begin(&image_path, lensfun_db_path.as_deref()).await
+}
+
+#[command]
+pub async fn commit_color_grading_preview(
+    lut_id: String,
+    enable_lens_correction: bool,
+    metering_mode: String,
+    ev_offset: f32,
+    output_path: String,
+) -> Result<(), AppError> {
+    ColorGradingPreviewState::get_global()
+        .commit_and_end(
+            &lut_id,
+            enable_lens_correction,
+            &metering_mode,
+            ev_offset,
+            std::path::Path::new(&output_path),
+        )
+        .await
 }
 
 #[command]

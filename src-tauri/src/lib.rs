@@ -33,6 +33,7 @@ use file_index::FileIndexService;
 use commands::{
     begin_color_grading_preview,
     apply_color_grading_preview,
+    commit_color_grading_preview,
     end_color_grading_preview,
     check_permission_status,
     check_port_available,
@@ -58,6 +59,7 @@ use commands::{
     is_raw_file,
     load_config,
     navigate_to_file,
+    notify_color_grading_done,
     open_external_link,
     open_folder_select_file,
     open_preview_window,
@@ -285,8 +287,10 @@ pub fn run() {
             get_metering_modes,
             enqueue_color_grading,
             cancel_color_grading,
+            notify_color_grading_done,
             begin_color_grading_preview,
             apply_color_grading_preview,
+            commit_color_grading_preview,
             end_color_grading_preview,
             is_raw_file,
         ]);

@@ -87,6 +87,18 @@ impl ColorGradingService {
         *guard = CancellationToken::new();
     }
 
+    /// Notify the frontend that grading is done for pre-graded files.
+    /// Used when commitPreview (Android JNI) has already written the output JPEGs.
+    pub fn notify_done(&self, output_paths: Vec<String>) {
+        let _ = self.app_handle.emit("color-grading-progress", &ColorGradingEvent::Done {
+            total: output_paths.len() as u32,
+            failed_count: 0,
+            failed_files: vec![],
+            output_files: output_paths,
+            cancelled: false,
+        });
+    }
+
     /// Auto-trigger: check config + RAW extension, then enqueue.
     pub async fn on_file_uploaded(&self, file_path: PathBuf) {
         let config = self.config_service.get().ok();

@@ -55,7 +55,7 @@ pub use server::{
 
 pub use ai_edit::{cancel_ai_edit, enqueue_ai_edit, trigger_ai_edit};
 
-pub use color_grading::{get_color_grading_presets, get_metering_modes, enqueue_color_grading, cancel_color_grading, is_raw_file, begin_color_grading_preview, apply_color_grading_preview, end_color_grading_preview};
+pub use color_grading::{get_color_grading_presets, get_metering_modes, enqueue_color_grading, cancel_color_grading, notify_color_grading_done, is_raw_file, begin_color_grading_preview, apply_color_grading_preview, commit_color_grading_preview, end_color_grading_preview};
 
 pub use storage::{
     check_permission_status,
