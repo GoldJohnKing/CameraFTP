@@ -184,6 +184,7 @@
   var selectedMetering = 'highlight-safe';
   var currentEv = 0.0;
   var applyPending = false;
+  var hasPendingApply = false;
 
   var METERING_NAMES = {
     'highlight-safe': '高光保护', 'matrix': '矩阵测光',
@@ -273,22 +274,15 @@
     document.getElementById('evValue').textContent = (v > 0 ? '+' : '') + v.toFixed(1) + ' EV';
   }
 
-  var applyTimer = null;
-
   function requestApply() {
     if (state === 'LOADING' || state === 'SAVING' || state === 'ERROR') return;
     state = 'ADJUSTING';
-
-    if (applyTimer !== null) {
-      clearTimeout(applyTimer);
-      applyTimer = null;
-    }
 
     if (!applyPending) {
       applyPending = true;
       NativeBridge.applyPreview(selectedLut, selectedMetering, currentEv);
     } else {
-      scheduleTrailingApply();
+      hasPendingApply = true;
     }
   }
 
@@ -297,6 +291,7 @@
     document.getElementById('loadingOverlay').classList.add('hidden');
     document.getElementById('errorOverlay').classList.add('hidden');
     document.getElementById('controls').classList.remove('disabled');
+    applyPending = true;
     NativeBridge.applyPreview(selectedLut, selectedMetering, currentEv);
   };
   window.onPreviewError = function(message) {
@@ -306,23 +301,28 @@
     document.getElementById('errorOverlay').classList.remove('hidden');
   };
   window.refreshPreview = function() {
-    if (applyTimer !== null) {
-      clearTimeout(applyTimer);
-      applyTimer = null;
-    }
     applyPending = false;
     var img = document.getElementById('previewImg');
     img.style.display = 'block';
     img.src = 'preview://latest?t=' + Date.now();
     if (state === 'ADJUSTING') state = 'READY';
+
+    if (hasPendingApply) {
+      hasPendingApply = false;
+      applyPending = true;
+      state = 'ADJUSTING';
+      NativeBridge.applyPreview(selectedLut, selectedMetering, currentEv);
+    }
   };
   window.notifyPreviewError = function(message) {
-    if (applyTimer !== null) {
-      clearTimeout(applyTimer);
-      applyTimer = null;
-    }
     applyPending = false;
     console.warn('Preview apply error: ' + message);
+
+    if (hasPendingApply) {
+      hasPendingApply = false;
+      applyPending = true;
+      NativeBridge.applyPreview(selectedLut, selectedMetering, currentEv);
+    }
   };
 
   function onReset() {
@@ -361,29 +361,6 @@
   }
 
   window.addEventListener('load', function() { setTimeout(init, 100); });
-
-  function scheduleTrailingApply() {
-    applyTimer = setTimeout(function() {
-      applyTimer = null;
-      applyPending = true;
-      NativeBridge.applyPreview(selectedLut, selectedMetering, currentEv);
-    }, 50);
-  }
-
-  document.getElementById('evSlider').addEventListener('change', function() {
-    if (state === 'LOADING' || state === 'SAVING' || state === 'ERROR') return;
-    state = 'ADJUSTING';
-    if (applyTimer !== null) {
-      clearTimeout(applyTimer);
-      applyTimer = null;
-    }
-    if (!applyPending) {
-      applyPending = true;
-      NativeBridge.applyPreview(selectedLut, selectedMetering, currentEv);
-    } else {
-      scheduleTrailingApply();
-    }
-  });
 </script>
 </body>
 </html>
