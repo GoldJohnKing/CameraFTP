@@ -301,11 +301,7 @@
     } else {
       // Throttle: schedule an apply after 50ms — if no new input arrives,
       // fire the trailing edge
-      applyTimer = setTimeout(function() {
-        applyTimer = null;
-        applyPending = true;
-        NativeBridge.applyPreview(selectedLut, selectedMetering, currentEv);
-      }, 50);
+      scheduleTrailingApply();
     }
   }
 
@@ -323,6 +319,10 @@
     document.getElementById('errorOverlay').classList.remove('hidden');
   };
   window.refreshPreview = function() {
+    if (applyTimer !== null) {
+      clearTimeout(applyTimer);
+      applyTimer = null;
+    }
     applyPending = false;
     var img = document.getElementById('previewImg');
     img.style.display = 'block';
@@ -330,6 +330,10 @@
     if (state === 'ADJUSTING') state = 'READY';
   };
   window.notifyPreviewError = function(message) {
+    if (applyTimer !== null) {
+      clearTimeout(applyTimer);
+      applyTimer = null;
+    }
     applyPending = false;
     console.warn('Preview apply error: ' + message);
   };
@@ -375,7 +379,17 @@
 
   window.addEventListener('load', function() { setTimeout(init, 100); });
 
+  function scheduleTrailingApply() {
+    applyTimer = setTimeout(function() {
+      applyTimer = null;
+      applyPending = true;
+      NativeBridge.applyPreview(selectedLut, selectedMetering, currentEv);
+    }, 50);
+  }
+
   document.getElementById('evSlider').addEventListener('change', function() {
+    if (state === 'LOADING' || state === 'SAVING' || state === 'ERROR') return;
+    state = 'ADJUSTING';
     // Trailing edge: fire immediately when user releases slider
     if (applyTimer !== null) {
       clearTimeout(applyTimer);
@@ -386,11 +400,7 @@
       NativeBridge.applyPreview(selectedLut, selectedMetering, currentEv);
     } else {
       // Busy — schedule a retry shortly after current apply finishes
-      applyTimer = setTimeout(function() {
-        applyTimer = null;
-        applyPending = true;
-        NativeBridge.applyPreview(selectedLut, selectedMetering, currentEv);
-      }, 50);
+      scheduleTrailingApply();
     }
   });
 </script>
