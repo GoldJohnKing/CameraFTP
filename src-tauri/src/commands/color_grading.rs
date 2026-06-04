@@ -48,30 +48,27 @@ use crate::color_grading::preview::ColorGradingPreviewState;
 
 #[command]
 pub async fn begin_color_grading_preview(
-    preview: State<'_, ColorGradingPreviewState>,
     image_path: String,
 ) -> Result<(), AppError> {
     let lensfun_db_path = crate::color_grading::resources::get_resources()
         .ok()
         .map(|r| r.lensfun_db_dir.to_string_lossy().into_owned());
-    let path: Option<&str> = lensfun_db_path.as_deref();
-    preview.begin(&image_path, path).await
+    ColorGradingPreviewState::get_global()
+        .begin(&image_path, lensfun_db_path.as_deref()).await
 }
 
 #[command]
 pub async fn apply_color_grading_preview(
-    preview: State<'_, ColorGradingPreviewState>,
     lut_id: String,
     enable_lens_correction: bool,
     metering_mode: String,
     ev_offset: f32,
 ) -> Result<String, AppError> {
-    preview.apply(&lut_id, enable_lens_correction, &metering_mode, ev_offset).await
+    ColorGradingPreviewState::get_global()
+        .apply(&lut_id, enable_lens_correction, &metering_mode, ev_offset).await
 }
 
 #[command]
-pub async fn end_color_grading_preview(
-    preview: State<'_, ColorGradingPreviewState>,
-) -> Result<(), AppError> {
-    preview.end().await
+pub async fn end_color_grading_preview() -> Result<(), AppError> {
+    ColorGradingPreviewState::get_global().end().await
 }

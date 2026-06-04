@@ -197,7 +197,7 @@ pub fn run() {
                 }
 
                 app.manage(color_grading::ColorGradingService::new(app.handle().clone(), Arc::clone(&config_service)));
-                app.manage(color_grading::preview::ColorGradingPreviewState::new());
+                color_grading::preview::ColorGradingPreviewState::ensure_init();
             }
 
             // 开机自启模式：隐藏窗口

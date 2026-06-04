@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use tokio::sync::Mutex;
 
 use crate::error::AppError;
@@ -12,6 +12,8 @@ use super::lut_data;
 use super::presets::find_preset;
 
 const PREVIEW_JPEG_QUALITY: i32 = 80;
+
+static GLOBAL_PREVIEW_STATE: OnceLock<ColorGradingPreviewState> = OnceLock::new();
 
 struct ActiveSession {
     session: RaPreviewSession,
@@ -25,7 +27,15 @@ pub struct ColorGradingPreviewState {
 }
 
 impl ColorGradingPreviewState {
-    pub fn new() -> Self {
+    pub fn get_global() -> &'static Self {
+        GLOBAL_PREVIEW_STATE.get().expect("ColorGradingPreviewState not initialized")
+    }
+
+    pub fn ensure_init() -> &'static Self {
+        GLOBAL_PREVIEW_STATE.get_or_init(Self::new)
+    }
+
+    fn new() -> Self {
         Self {
             inner: Mutex::new(None),
         }
