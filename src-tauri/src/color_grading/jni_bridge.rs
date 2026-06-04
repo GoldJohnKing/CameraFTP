@@ -18,12 +18,13 @@ use std::sync::OnceLock;
 #[cfg(target_os = "android")]
 static JNI_RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
 
-/// Run an async future on a JNI thread using a cached single-threaded Tokio runtime.
+/// Run an async future on a JNI thread using a cached multi-threaded Tokio runtime.
 /// This is needed because JNI threads are not part of the main Tokio runtime,
 /// so `Handle::current()` would panic.
 ///
-/// `tokio::sync::Mutex` works correctly across runtimes: the lock acquisition
-/// uses atomic operations and the waker from whichever runtime polls the future.
+/// A multi-threaded runtime is used because multiple JNI threads may call
+/// `block_on()` concurrently — `current_thread::Runtime::block_on` is not safe
+/// for concurrent use from multiple OS threads.
 #[cfg(target_os = "android")]
 fn run_blocking<F, T>(fut: F) -> T
 where
@@ -31,7 +32,8 @@ where
 {
     JNI_RUNTIME
         .get_or_init(|| {
-            tokio::runtime::Builder::new_current_thread()
+            tokio::runtime::Builder::new_multi_thread()
+                .worker_threads(1)
                 .enable_all()
                 .build()
                 .expect("Failed to create JNI tokio runtime")

@@ -14,7 +14,6 @@ import android.webkit.WebView
 import android.widget.FrameLayout
 import com.gjk.cameraftpcompanion.ImageViewerActivity
 import com.gjk.cameraftpcompanion.MainActivity
-import com.gjk.cameraftpcompanion.R
 import java.lang.ref.WeakReference
 
 private class NativeAiEditBridge(
@@ -62,7 +61,6 @@ class WebViewOverlayController(private val activity: ImageViewerActivity) {
         private const val TAG = "WebViewOverlayController"
     }
 
-    private var colorGradingWebView: WebView? = null
     private var promptWebView: WebView? = null
     private var savedOrientation: Int? = null
 
@@ -74,15 +72,6 @@ class WebViewOverlayController(private val activity: ImageViewerActivity) {
     private fun restoreOrientation() {
         savedOrientation?.let { activity.requestedOrientation = it }
         savedOrientation = null
-    }
-
-    fun dismissColorGrading() {
-        colorGradingWebView?.let {
-            (it.parent as? FrameLayout)?.removeView(it)
-            it.destroy()
-        }
-        colorGradingWebView = null
-        restoreOrientation()
     }
 
     fun showAiEditPrompt(
@@ -173,7 +162,6 @@ class WebViewOverlayController(private val activity: ImageViewerActivity) {
     }
 
     fun dismissAll() {
-        dismissColorGrading()
         dismissAiEditPrompt()
     }
 }
