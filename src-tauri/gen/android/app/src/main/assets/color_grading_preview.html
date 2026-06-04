@@ -7,20 +7,6 @@
   * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #111; color: #e0e0e0; height: 100vh; overflow: hidden; display: flex; flex-direction: column; }
 
-  .top-bar {
-    display: flex; align-items: center; padding: 12px 16px;
-    border-bottom: 1px solid #333; flex-shrink: 0; min-height: 48px;
-  }
-  .back-btn {
-    color: #fff; font-size: 16px; cursor: pointer; display: flex;
-    align-items: center; gap: 4px; background: none; border: none;
-    padding: 4px 8px; border-radius: 8px; -webkit-user-select: none;
-  }
-  .back-btn:active { background: rgba(255,255,255,0.1); }
-  .back-btn.disabled { color: #555; pointer-events: none; }
-  .top-bar-title { flex: 1; text-align: center; font-weight: 600; font-size: 17px; }
-  .top-bar-spacer { width: 60px; }
-
   .preview-area {
     flex: 1; display: flex; align-items: center; justify-content: center;
     overflow: hidden; position: relative; min-height: 0;
@@ -37,7 +23,7 @@
   .loading-overlay.hidden { display: none; }
   .spinner {
     width: 48px; height: 48px; border: 3px solid #333;
-    border-top-color: #a78bfa; border-radius: 50%;
+    border-top-color: #3b82f6; border-radius: 50%;
     animation: spin 1s linear infinite;
   }
   @keyframes spin { to { transform: rotate(360deg); } }
@@ -56,16 +42,19 @@
     padding: 10px 20px; border-radius: 8px; border: none; font-size: 14px;
     font-weight: 500; cursor: pointer;
   }
-  .btn-error-retry { background: #a78bfa; color: #fff; }
+  .btn-error-retry { background: #3b82f6; color: #fff; }
   .btn-error-back { background: #333; color: #ccc; }
 
   .controls {
-    padding: 16px; background: #1a1a1a; border-top: 1px solid #333;
+    padding: 12px 16px 0; background: #1a1a1a; border-top: 1px solid #333;
     flex-shrink: 0;
   }
   .controls.disabled { opacity: 0.3; pointer-events: none; }
-  .controls-row { display: flex; gap: 8px; margin-bottom: 12px; }
-  .dropdown { position: relative; flex: 1; }
+  .section { margin-bottom: 12px; }
+  .section-label {
+    font-size: 12px; color: #666; margin-bottom: 6px; font-weight: 500;
+  }
+  .dropdown { position: relative; }
   .dropdown-btn {
     width: 100%; padding: 10px 12px; border: 1px solid #333;
     border-radius: 8px; font-size: 13px; color: #e0e0e0;
@@ -96,9 +85,9 @@
     color: #ccc; cursor: pointer;
   }
   .dropdown-opt:active { background: #333; }
-  .dropdown-opt.selected { color: #a78bfa; font-weight: 500; }
+  .dropdown-opt.selected { color: #3b82f6; font-weight: 500; }
 
-  .slider-group { margin-bottom: 12px; }
+  .slider-group { margin-bottom: 0; }
   .slider-header {
     display: flex; align-items: center; justify-content: space-between;
     margin-bottom: 8px;
@@ -111,28 +100,22 @@
   }
   input[type="range"]::-webkit-slider-thumb {
     -webkit-appearance: none; width: 20px; height: 20px;
-    background: #a78bfa; border-radius: 50%; cursor: pointer;
+    background: #3b82f6; border-radius: 50%; cursor: pointer;
   }
 
-  .actions { display: flex; gap: 8px; }
+  .actions { display: flex; }
   .btn-action {
-    padding: 10px 0; border-radius: 8px; border: none; font-size: 14px;
+    flex: 1; padding: 14px 0; border: none; font-size: 15px;
     font-weight: 600; cursor: pointer; -webkit-user-select: none;
   }
-  .btn-reset { flex: 1; background: #252525; color: #999; }
+  .btn-reset { background: #252525; color: #999; }
   .btn-reset:active { background: #333; }
-  .btn-save { flex: 2; background: #a78bfa; color: #fff; }
-  .btn-save:active { background: #8b5cf6; }
+  .btn-save { background: #3b82f6; color: #fff; }
+  .btn-save:active { background: #2563eb; }
   .btn-save.saving { background: #555; pointer-events: none; }
 </style>
 </head>
 <body>
-
-<div class="top-bar">
-  <button class="back-btn" id="backBtn" onclick="onBack()">← 返回</button>
-  <div class="top-bar-title">调色</div>
-  <div class="top-bar-spacer"></div>
-</div>
 
 <div class="preview-area">
   <img id="previewImg" style="display:none" src="" alt="Preview">
@@ -151,15 +134,19 @@
 </div>
 
 <div class="controls disabled" id="controls">
-  <div class="controls-row">
+  <div class="section">
     <div class="dropdown" id="lutDropdown">
+      <div class="section-label">调色预设</div>
       <button class="dropdown-btn" type="button" onclick="toggleDropdown('lut')">
         <span id="lutLabel">Provia</span>
         <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg>
       </button>
       <div class="dropdown-panel" id="lutPanel"></div>
     </div>
+  </div>
+  <div class="section">
     <div class="dropdown" id="meteringDropdown">
+      <div class="section-label">测光模式</div>
       <button class="dropdown-btn" type="button" onclick="toggleDropdown('metering')">
         <span id="meteringLabel">高光保护</span>
         <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg>
@@ -173,17 +160,20 @@
       </div>
     </div>
   </div>
-  <div class="slider-group">
-    <div class="slider-header">
-      <span class="slider-label">曝光偏移</span>
-      <span class="slider-value" id="evValue">0.0 EV</span>
+  <div class="section">
+    <div class="slider-group">
+      <div class="slider-header">
+        <span class="slider-label">曝光偏移</span>
+        <span class="slider-value" id="evValue">0.0 EV</span>
+      </div>
+      <input type="range" id="evSlider" min="-5.0" max="5.0" step="0.1" value="0" oninput="onEvChange()">
     </div>
-    <input type="range" id="evSlider" min="-5.0" max="5.0" step="0.1" value="0" oninput="onEvChange()">
   </div>
-  <div class="actions">
-    <button class="btn-action btn-reset" onclick="onReset()">重置</button>
-    <button class="btn-action btn-save" id="saveBtn" onclick="onSave()">保存</button>
-  </div>
+</div>
+
+<div class="actions">
+  <button class="btn-action btn-reset" id="resetBtn" onclick="onReset()">重置</button>
+  <button class="btn-action btn-save" id="saveBtn" onclick="onSave()">保存</button>
 </div>
 
 <script>
@@ -239,7 +229,7 @@
 
   function toggleDropdown(name) {
     var panel = document.getElementById(name === 'lut' ? 'lutPanel' : 'meteringPanel');
-    var btn = panel.previousElementSibling;
+    var btn = panel.parentElement.querySelector('.dropdown-btn');
     var isOpen = panel.classList.contains('open');
     closeAllDropdowns();
     if (!isOpen) { panel.classList.add('open'); btn.classList.add('open'); }
@@ -289,7 +279,6 @@
     if (state === 'LOADING' || state === 'SAVING' || state === 'ERROR') return;
     state = 'ADJUSTING';
 
-    // Clear any pending timer — restart the throttle window
     if (applyTimer !== null) {
       clearTimeout(applyTimer);
       applyTimer = null;
@@ -299,8 +288,6 @@
       applyPending = true;
       NativeBridge.applyPreview(selectedLut, selectedMetering, currentEv);
     } else {
-      // Throttle: schedule an apply after 50ms — if no new input arrives,
-      // fire the trailing edge
       scheduleTrailingApply();
     }
   }
@@ -338,10 +325,6 @@
     console.warn('Preview apply error: ' + message);
   };
 
-  function onBack() {
-    if (state === 'SAVING') return;
-    NativeBridge.cancelPreview();
-  }
   function onReset() {
     var defaultLut = presets.length > 0 ? presets[0][0] : '';
     var defaultLutName = presets.length > 0 ? presets[0][1] : '';
@@ -366,8 +349,8 @@
     if (state === 'SAVING') return;
     state = 'SAVING';
     document.getElementById('saveBtn').classList.add('saving');
+    document.getElementById('resetBtn').style.pointerEvents = 'none';
     document.getElementById('controls').classList.add('disabled');
-    document.getElementById('backBtn').classList.add('disabled');
     NativeBridge.save(selectedLut, selectedMetering, currentEv);
   }
   function retryBegin() {
@@ -390,7 +373,6 @@
   document.getElementById('evSlider').addEventListener('change', function() {
     if (state === 'LOADING' || state === 'SAVING' || state === 'ERROR') return;
     state = 'ADJUSTING';
-    // Trailing edge: fire immediately when user releases slider
     if (applyTimer !== null) {
       clearTimeout(applyTimer);
       applyTimer = null;
@@ -399,7 +381,6 @@
       applyPending = true;
       NativeBridge.applyPreview(selectedLut, selectedMetering, currentEv);
     } else {
-      // Busy — schedule a retry shortly after current apply finishes
       scheduleTrailingApply();
     }
   });
