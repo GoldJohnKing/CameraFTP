@@ -283,12 +283,29 @@
     document.getElementById('evValue').textContent = (v > 0 ? '+' : '') + v.toFixed(1) + ' EV';
   }
 
+  var applyTimer = null;
+
   function requestApply() {
     if (state === 'LOADING' || state === 'SAVING' || state === 'ERROR') return;
     state = 'ADJUSTING';
+
+    // Clear any pending timer — restart the throttle window
+    if (applyTimer !== null) {
+      clearTimeout(applyTimer);
+      applyTimer = null;
+    }
+
     if (!applyPending) {
       applyPending = true;
       NativeBridge.applyPreview(selectedLut, selectedMetering, currentEv);
+    } else {
+      // Throttle: schedule an apply after 50ms — if no new input arrives,
+      // fire the trailing edge
+      applyTimer = setTimeout(function() {
+        applyTimer = null;
+        applyPending = true;
+        NativeBridge.applyPreview(selectedLut, selectedMetering, currentEv);
+      }, 50);
     }
   }
 
@@ -357,6 +374,18 @@
   }
 
   window.addEventListener('load', function() { setTimeout(init, 100); });
+
+  document.getElementById('evSlider').addEventListener('change', function() {
+    // Trailing edge: fire immediately when user releases slider
+    if (applyTimer !== null) {
+      clearTimeout(applyTimer);
+      applyTimer = null;
+    }
+    if (!applyPending) {
+      applyPending = true;
+      NativeBridge.applyPreview(selectedLut, selectedMetering, currentEv);
+    }
+  });
 </script>
 </body>
 </html>
