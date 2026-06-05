@@ -2,6 +2,7 @@
 // Copyright (C) 2026 GoldJohnKing <GoldJohnKing@Live.cn>
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+use std::sync::Arc;
 use std::path::PathBuf;
 use tauri::{command, State};
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
@@ -22,7 +23,7 @@ pub fn get_metering_modes() -> Vec<(&'static str, &'static str)> {
 
 #[command]
 pub async fn enqueue_color_grading(
-    color_grading: State<'_, ColorGradingService>,
+    color_grading: State<'_, Arc<ColorGradingService>>,
     file_paths: Vec<String>,
     lut_id: String,
     metering_mode: String,
@@ -34,7 +35,7 @@ pub async fn enqueue_color_grading(
 
 #[command]
 pub async fn notify_color_grading_done(
-    color_grading: State<'_, ColorGradingService>,
+    color_grading: State<'_, Arc<ColorGradingService>>,
     output_paths: Vec<String>,
 ) -> Result<(), AppError> {
     color_grading.notify_done(output_paths);
@@ -43,7 +44,7 @@ pub async fn notify_color_grading_done(
 
 #[command]
 pub async fn cancel_color_grading(
-    color_grading: State<'_, ColorGradingService>,
+    color_grading: State<'_, Arc<ColorGradingService>>,
 ) -> Result<(), AppError> {
     color_grading.cancel();
     Ok(())

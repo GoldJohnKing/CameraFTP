@@ -76,7 +76,7 @@ impl DataListener for FtpDataListener {
 
                                 // Auto color grading (RAW files only)
                                 if is_raw {
-                                    let color_grading: tauri::State<'_, crate::color_grading::ColorGradingService> = handle_clone.state();
+                                    let color_grading: tauri::State<'_, std::sync::Arc<crate::color_grading::ColorGradingService>> = handle_clone.state();
                                     color_grading.on_file_uploaded(full_path.clone()).await;
                                 }
 
