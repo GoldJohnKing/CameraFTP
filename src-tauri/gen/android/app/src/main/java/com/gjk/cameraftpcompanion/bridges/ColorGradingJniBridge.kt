@@ -9,6 +9,41 @@ package com.gjk.cameraftpcompanion.bridges
 import android.util.Log
 import org.json.JSONObject
 
+/** Pure-Kotlin JSON result parser for JNI bridge responses. No native dependency. */
+object JniResultParser {
+    fun parseResult(json: String): Result<Unit> {
+        val obj = JSONObject(json)
+        if (obj.optBoolean("ok", false)) {
+            return Result.success(Unit)
+        }
+        return Result.failure(Exception(obj.optString("error", "Unknown error")))
+    }
+
+    fun parseResultWithOutputPath(json: String): Result<String> {
+        val obj = JSONObject(json)
+        if (obj.optBoolean("ok", false)) {
+            val path = obj.optString("outputPath", "")
+            if (path.isEmpty()) return Result.failure(Exception("Empty outputPath"))
+            return Result.success(path)
+        }
+        return Result.failure(Exception(obj.optString("error", "Unknown error")))
+    }
+
+    fun parseResultWithBuffer(json: String): Result<ByteArray> {
+        val obj = JSONObject(json)
+        if (obj.optBoolean("ok", false)) {
+            val b64 = obj.optString("buffer", "")
+            if (b64.isEmpty()) return Result.failure(Exception("Empty buffer"))
+            return try {
+                Result.success(android.util.Base64.decode(b64, android.util.Base64.DEFAULT))
+            } catch (e: Exception) {
+                Result.failure(Exception("Base64 decode failed: ${e.message}"))
+            }
+        }
+        return Result.failure(Exception(obj.optString("error", "Unknown error")))
+    }
+}
+
 class ColorGradingJniBridge {
     companion object {
         private const val TAG = "ColorGradingJni"
@@ -20,7 +55,7 @@ class ColorGradingJniBridge {
         fun beginPreview(filePath: String): Result<Unit> {
             return try {
                 val json = nativeBeginPreview(filePath)
-                parseResult(json)
+                JniResultParser.parseResult(json)
             } catch (e: Exception) {
                 Log.e(TAG, "beginPreview failed", e)
                 Result.failure(e)
@@ -37,7 +72,7 @@ class ColorGradingJniBridge {
         ): Result<ByteArray> {
             return try {
                 val json = nativeApplyPreview(lutId, enableLensCorrection, meteringMode, evOffset, maxWidth, maxHeight)
-                parseResultWithBuffer(json)
+                JniResultParser.parseResultWithBuffer(json)
             } catch (e: Exception) {
                 Log.e(TAG, "applyPreview failed", e)
                 Result.failure(e)
@@ -47,7 +82,7 @@ class ColorGradingJniBridge {
         fun endPreview(): Result<Unit> {
             return try {
                 val json = nativeEndPreview()
-                parseResult(json)
+                JniResultParser.parseResult(json)
             } catch (e: Exception) {
                 Log.e(TAG, "endPreview failed", e)
                 Result.failure(e)
@@ -62,7 +97,7 @@ class ColorGradingJniBridge {
         ): Result<String> {
             return try {
                 val json = nativeCommitPreview(lutId, enableLensCorrection, meteringMode, evOffset)
-                parseResultWithOutputPath(json)
+                JniResultParser.parseResultWithOutputPath(json)
             } catch (e: Exception) {
                 Log.e(TAG, "commitPreview failed", e)
                 Result.failure(e)
@@ -88,36 +123,24 @@ class ColorGradingJniBridge {
             }
         }
 
-        private fun parseResult(json: String): Result<Unit> {
-            val obj = JSONObject(json)
-            if (obj.optBoolean("ok", false)) {
-                return Result.success(Unit)
+        fun notifyDone(outputPath: String): Result<Unit> {
+            return try {
+                val json = nativeNotifyDone(outputPath)
+                JniResultParser.parseResult(json)
+            } catch (e: Exception) {
+                Log.e(TAG, "notifyDone failed", e)
+                Result.failure(e)
             }
-            return Result.failure(Exception(obj.optString("error", "Unknown error")))
         }
 
-        private fun parseResultWithOutputPath(json: String): Result<String> {
-            val obj = JSONObject(json)
-            if (obj.optBoolean("ok", false)) {
-                val path = obj.optString("outputPath", "")
-                if (path.isEmpty()) return Result.failure(Exception("Empty outputPath"))
-                return Result.success(path)
+        fun saveLastUsed(presetId: String, meteringMode: String, evOffset: Float): Result<Unit> {
+            return try {
+                val json = nativeSaveLastUsed(presetId, meteringMode, evOffset)
+                JniResultParser.parseResult(json)
+            } catch (e: Exception) {
+                Log.e(TAG, "saveLastUsed failed", e)
+                Result.failure(e)
             }
-            return Result.failure(Exception(obj.optString("error", "Unknown error")))
-        }
-
-        private fun parseResultWithBuffer(json: String): Result<ByteArray> {
-            val obj = JSONObject(json)
-            if (obj.optBoolean("ok", false)) {
-                val b64 = obj.optString("buffer", "")
-                if (b64.isEmpty()) return Result.failure(Exception("Empty buffer"))
-                return try {
-                    Result.success(android.util.Base64.decode(b64, android.util.Base64.DEFAULT))
-                } catch (e: Exception) {
-                    Result.failure(Exception("Base64 decode failed: ${e.message}"))
-                }
-            }
-            return Result.failure(Exception(obj.optString("error", "Unknown error")))
         }
 
         @JvmStatic
@@ -132,5 +155,9 @@ class ColorGradingJniBridge {
         private external fun nativeGetPresets(): String
         @JvmStatic
         private external fun nativeGetLastUsed(): String
+        @JvmStatic
+        private external fun nativeNotifyDone(outputPath: String): String
+        @JvmStatic
+        private external fun nativeSaveLastUsed(presetId: String, meteringMode: String, evOffset: Float): String
     }
 }

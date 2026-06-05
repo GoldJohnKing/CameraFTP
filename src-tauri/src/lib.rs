@@ -200,7 +200,12 @@ pub fn run() {
                     tracing::error!("Failed to load RawAlchemyCpp: {}", e);
                 }
 
-                app.manage(color_grading::ColorGradingService::new(app.handle().clone(), Arc::clone(&config_service)));
+                let cg_service = std::sync::Arc::new(color_grading::ColorGradingService::new(
+                    app.handle().clone(),
+                    Arc::clone(&config_service),
+                ));
+                cg_service.set_global();
+                app.manage(cg_service);
                 color_grading::preview::ColorGradingPreviewState::ensure_init();
             }
 

@@ -133,6 +133,10 @@ class ColorGradingActivity : AppCompatActivity() {
         Thread { ColorGradingJniBridge.endPreview() }.start()
     }
 
+    internal fun scanOutputFile(path: String) {
+        android.media.MediaScannerConnection.scanFile(this, arrayOf(path), null, null)
+    }
+
 }
 
 internal class NativeColorGradingPreviewBridge(
@@ -190,24 +194,9 @@ internal class NativeColorGradingPreviewBridge(
         val activity = activityRef.get() ?: return
         Log.d(TAG, "save: lut=$lutId metering=$meteringMode ev=$evOffset")
 
-        Thread {
-            // Wait for any in-flight applyPreview to finish before calling commitPreview
-            var waitMs = 0L
-            while (activity.isApplyInFlight && waitMs < 3000) {
-                Thread.sleep(50)
-                waitMs += 50
-            }
-            if (activity.isApplyInFlight) {
-                activity.runOnUiThread {
-                    val msg = "保存超时：预览正在处理中"
-                    activity.webView?.evaluateJavascript(
-                        "window.notifyPreviewError?.(${JSONObject.quote(msg)});", null
-                    )
-                }
-                return@Thread
-            }
+        activity.previewJpegBytes = null
 
-            activity.previewJpegBytes = null
+        Thread {
             Log.d(TAG, "save: calling commitPreview (JNI)")
             val result = ColorGradingJniBridge.commitPreview(lutId, true, meteringMode, evOffset)
 
@@ -215,6 +204,10 @@ internal class NativeColorGradingPreviewBridge(
                 if (result.isSuccess) {
                     val outputPath = result.getOrDefault("")
                     Log.d(TAG, "save: committed successfully to $outputPath")
+
+                    // Save last-used config via JNI — no WebView dependency
+                    ColorGradingJniBridge.saveLastUsed(lutId, meteringMode, evOffset)
+                    Log.d(TAG, "save: saved last-used config via JNI")
 
                     // Insert into ImageViewerActivity directly — it may be paused (isViewerVisible=false)
                     // because ColorGradingActivity is in the foreground, but the instance is still alive.
@@ -230,46 +223,43 @@ internal class NativeColorGradingPreviewBridge(
                         }
                     }
 
-                    val mainActivity = MainActivity.instance
-                    if (mainActivity != null) {
-                        // Notify Tauri backend (emits color-grading-progress Done event)
-                        mainActivity.getWebView()?.evaluateJavascript(
-                            "(async function(){ try { await window.__TAURI__.invoke('notify_color_grading_done',{outputPaths:[${JSONObject.quote(outputPath)}]}); } catch(e) { console.warn('notify_color_grading_done error:',e); } })();",
-                            null
-                        )
-                        mainActivity.getWebView()?.evaluateJavascript(
-                            "try { window.__tauriSaveColorGradingLastUsed?.(${JSONObject.quote(lutId)},${JSONObject.quote(meteringMode)},${evOffset}); } catch(e) {}",
-                            null
-                        )
-                        // Trigger MediaStore scan + gallery refresh for the web gallery grid.
-                        // scanNewFile's viewer insertion will be a no-op (duplicate detected via file:// URI),
-                        // but the MediaStore scan and gallery-refresh-requested events are still needed.
-                        mainActivity.getWebView()?.evaluateJavascript(
-                            """(function(){
-                                window.ImageViewerAndroid?.scanNewFile?.(${JSONObject.quote(outputPath)});
-                                setTimeout(function(){
-                                    window.dispatchEvent(new CustomEvent('gallery-refresh-requested',{detail:{reason:'color-grading'}}));
-                                    window.dispatchEvent(new CustomEvent('latest-photo-refresh-requested',{detail:{reason:'color-grading'}}));
-                                },500);
-                            })();""",
-                            null
-                        )
-                    } else {
-                        Log.w(TAG, "save: MainActivity not available — notification skipped")
-                    }
+                    // MediaStore scan directly — no JS round-trip
+                    activity.scanOutputFile(outputPath)
 
-                    // Finish only after commitPreview succeeds and notifications are dispatched
+                    // Gallery refresh via WebView (best-effort — DOM events only)
+                    val mainActivity = MainActivity.instance
+                    mainActivity?.getWebView()?.evaluateJavascript(
+                        """(function(){
+                            setTimeout(function(){
+                                window.dispatchEvent(new CustomEvent('gallery-refresh-requested',{detail:{reason:'color-grading'}}));
+                                window.dispatchEvent(new CustomEvent('latest-photo-refresh-requested',{detail:{reason:'color-grading'}}));
+                            },500);
+                        })();""",
+                        null
+                    )
+
+                    // Finish after all operations complete
                     android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
                         activity.finish()
                     }, 500)
                 } else {
                     val msg = result.exceptionOrNull()?.message ?: "保存失败"
                     Log.e(TAG, "save: failed - $msg")
-                    // notifyPreviewError restores SAVING → READY on JS side and re-triggers preview
                     activity.webView?.evaluateJavascript(
                         "window.notifyPreviewError?.(${JSONObject.quote(msg)});", null
                     )
-                    // No Kotlin-side retry — JS notifyPreviewError handles recovery via hasPendingApply
+                    // Re-apply preview so the user sees the image again
+                    val maxWidth = activity.resources.displayMetrics.widthPixels
+                    val maxHeight = activity.resources.displayMetrics.heightPixels
+                    Thread {
+                        val retryResult = ColorGradingJniBridge.applyPreview(lutId, true, meteringMode, evOffset, maxWidth, maxHeight)
+                        activity.runOnUiThread {
+                            if (retryResult.isSuccess) {
+                                activity.previewJpegBytes = retryResult.getOrDefault(ByteArray(0))
+                                activity.webView?.evaluateJavascript("window.refreshPreview?.();", null)
+                            }
+                        }
+                    }.start()
                 }
             }
         }.start()

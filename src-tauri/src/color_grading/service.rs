@@ -4,6 +4,7 @@
 
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::OnceLock;
 use std::sync::atomic::{AtomicU32, Ordering};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
@@ -16,6 +17,8 @@ use crate::image_utils;
 use crate::utils::batch_state::BatchState;
 use super::progress::ColorGradingEvent;
 use super::presets::find_preset;
+
+static GLOBAL_SERVICE: OnceLock<Arc<ColorGradingService>> = OnceLock::new();
 
 struct ColorGradingTask {
     input_path: PathBuf,
@@ -47,6 +50,16 @@ impl ColorGradingService {
         });
 
         Self { config_service, app_handle, sender, queue_depth, cancel_token }
+    }
+
+    /// Store this instance as the global singleton for JNI access.
+    pub fn set_global(self: &Arc<Self>) {
+        let _ = GLOBAL_SERVICE.set(Arc::clone(self));
+    }
+
+    /// Get the global service instance (set during app setup).
+    pub fn get_global() -> &'static Arc<Self> {
+        GLOBAL_SERVICE.get().expect("ColorGradingService global not initialized")
     }
 
     pub async fn enqueue(&self, file_paths: Vec<PathBuf>, lut_id: String, metering_mode: String, ev_offset: f32) -> Result<(), AppError> {
