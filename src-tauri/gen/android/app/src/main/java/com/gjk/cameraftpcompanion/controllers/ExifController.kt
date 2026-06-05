@@ -86,12 +86,52 @@ class ExifController(activity: ImageViewerActivity) {
                 }
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to query MediaStore for $uri", e)
+            Log.d(TAG, "MediaStore query failed for $uri, falling back to direct EXIF read")
         }
 
-        activity.filenameView.text = uri.lastPathSegment ?: ""
-        activity.exifParams.visibility = View.GONE
-        activity.exifDatetime.visibility = View.GONE
+        // Fallback for file:// URIs or unindexed files: read EXIF directly from the file.
+        val file = if (uri.scheme == "file") java.io.File(uri.path ?: "") else null
+        val displayName = file?.name ?: uri.lastPathSegment ?: ""
+        activity.currentDisplayName = displayName
+        activity.filenameView.text = displayName
+
+        // Try to read date_taken from EXIF directly
+        exifExecutor.execute {
+            try {
+                val dateTaken = readDateTakenDirect(activity, uri)
+                activity.runOnUiThread {
+                    if (activity.isFinishing || activity.isDestroyed) return@runOnUiThread
+                    if (dateTaken != null) {
+                        val sdf = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
+                        activity.exifDatetime.text = sdf.format(dateTaken)
+                        activity.exifDatetime.visibility = View.VISIBLE
+                    } else {
+                        activity.exifDatetime.visibility = View.GONE
+                    }
+                }
+            } catch (e: Exception) {
+                Log.d(TAG, "No date EXIF for $uri")
+                activity.runOnUiThread {
+                    if (!activity.isFinishing && !activity.isDestroyed) {
+                        activity.exifDatetime.visibility = View.GONE
+                    }
+                }
+            }
+        }
+
+        readExifParams(activity, uri)
+    }
+
+    private fun readDateTakenDirect(activity: ImageViewerActivity, uri: Uri): Date? {
+        activity.contentResolver.openInputStream(uri)?.use { stream ->
+            val exif = androidx.exifinterface.media.ExifInterface(stream)
+            val dateStr = exif.getAttribute(androidx.exifinterface.media.ExifInterface.TAG_DATETIME)
+            if (dateStr != null) {
+                val sdf = SimpleDateFormat("yyyy:MM:dd HH:mm:ss", Locale.getDefault())
+                return sdf.parse(dateStr)
+            }
+        }
+        return null
     }
 
     private fun readExifParams(activity: ImageViewerActivity, uri: Uri) {
