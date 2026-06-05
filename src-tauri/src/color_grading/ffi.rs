@@ -682,5 +682,31 @@ mod tests {
         assert_eq!(RaResult::ErrUnknown as i32, -1);
         assert_eq!(RaResult::ErrFileNotFound as i32, -2);
         assert_eq!(RaResult::ErrDecodeFailed as i32, -3);
+        assert_eq!(RaResult::ErrInvalidParam as i32, -4);
+        assert_eq!(RaResult::ErrLogUnsupported as i32, -5);
+        assert_eq!(RaResult::ErrLutLoadFailed as i32, -6);
+        assert_eq!(RaResult::ErrWriteFailed as i32, -7);
+        assert_eq!(RaResult::ErrNoLensProfile as i32, -8);
+        assert_eq!(RaResult::ErrOutOfMemory as i32, -9);
+    }
+
+    #[test]
+    fn ra_result_from_code_maps_all_known_values() {
+        assert_eq!(ra_result_from_code(0), RaResult::Ok);
+        assert_eq!(ra_result_from_code(-1), RaResult::ErrUnknown);
+        assert_eq!(ra_result_from_code(-2), RaResult::ErrFileNotFound);
+        assert_eq!(ra_result_from_code(-3), RaResult::ErrDecodeFailed);
+        assert_eq!(ra_result_from_code(-4), RaResult::ErrInvalidParam);
+        assert_eq!(ra_result_from_code(-5), RaResult::ErrLogUnsupported);
+        assert_eq!(ra_result_from_code(-6), RaResult::ErrLutLoadFailed);
+        assert_eq!(ra_result_from_code(-7), RaResult::ErrWriteFailed);
+        assert_eq!(ra_result_from_code(-8), RaResult::ErrNoLensProfile);
+        assert_eq!(ra_result_from_code(-9), RaResult::ErrOutOfMemory);
+    }
+
+    #[test]
+    fn ra_result_from_code_unknown_value_falls_back() {
+        assert_eq!(ra_result_from_code(-99), RaResult::ErrUnknown);
+        assert_eq!(ra_result_from_code(42), RaResult::ErrUnknown);
     }
 }

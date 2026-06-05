@@ -195,6 +195,21 @@ internal class NativeColorGradingPreviewBridge(
                 if (result.isSuccess) {
                     val outputPath = result.getOrDefault("")
                     Log.d(TAG, "save: committed successfully to $outputPath")
+
+                    // Insert into ImageViewerActivity directly — it may be paused (isViewerVisible=false)
+                    // because ColorGradingActivity is in the foreground, but the instance is still alive.
+                    // insertImage() posts to the viewer's UI thread via runOnUiThread, which will execute
+                    // after ColorGradingActivity finishes and the viewer resumes.
+                    val viewer = ImageViewerActivity.instance
+                    if (viewer != null && !viewer.isFinishing && !viewer.isDestroyed) {
+                        val file = java.io.File(outputPath)
+                        if (file.exists()) {
+                            val fileUri = android.net.Uri.fromFile(file).toString()
+                            viewer.insertImage(fileUri, 0)
+                            Log.d(TAG, "save: inserted $fileUri into ImageViewerActivity")
+                        }
+                    }
+
                     val mainActivity = MainActivity.instance
                     if (mainActivity != null) {
                         // Notify Tauri backend (emits color-grading-progress Done event)
@@ -206,8 +221,9 @@ internal class NativeColorGradingPreviewBridge(
                             "try { window.__tauriSaveColorGradingLastUsed?.(${JSONObject.quote(lutId)},${JSONObject.quote(meteringMode)},${evOffset}); } catch(e) {}",
                             null
                         )
-                        // Direct gallery refresh — mirrors createTaskProgressHook chain
-                        // so refresh works even if Tauri event delivery is delayed
+                        // Trigger MediaStore scan + gallery refresh for the web gallery grid.
+                        // scanNewFile's viewer insertion will be a no-op (duplicate detected via file:// URI),
+                        // but the MediaStore scan and gallery-refresh-requested events are still needed.
                         mainActivity.getWebView()?.evaluateJavascript(
                             """(function(){
                                 window.ImageViewerAndroid?.scanNewFile?.(${JSONObject.quote(outputPath)});
@@ -221,21 +237,33 @@ internal class NativeColorGradingPreviewBridge(
                     } else {
                         Log.w(TAG, "save: MainActivity not available — notification skipped")
                     }
+
+                    // Finish only after commitPreview succeeds and notifications are dispatched
+                    android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                        activity.finish()
+                    }, 500)
                 } else {
                     val msg = result.exceptionOrNull()?.message ?: "保存失败"
                     Log.e(TAG, "save: failed - $msg")
+                    // notifyPreviewError restores SAVING → READY on JS side and re-triggers preview
                     activity.webView?.evaluateJavascript(
                         "window.notifyPreviewError?.(${JSONObject.quote(msg)});", null
                     )
+                    // Re-apply preview so the user sees the image again instead of a blank screen
+                    val maxWidth = activity.resources.displayMetrics.widthPixels
+                    val maxHeight = activity.resources.displayMetrics.heightPixels
+                    Thread {
+                        val retryResult = ColorGradingJniBridge.applyPreview(lutId, true, meteringMode, evOffset, maxWidth, maxHeight)
+                        activity.runOnUiThread {
+                            if (retryResult.isSuccess) {
+                                activity.previewJpegBytes = retryResult.getOrDefault(ByteArray(0))
+                                activity.webView?.evaluateJavascript("window.refreshPreview?.();", null)
+                            }
+                        }
+                    }.start()
                 }
             }
         }.start()
-
-        activity.runOnUiThread {
-            android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
-                activity.finish()
-            }, 1000)
-        }
     }
 
     @JavascriptInterface

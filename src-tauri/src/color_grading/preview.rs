@@ -11,6 +11,29 @@ use super::ffi::{RaPreviewSession, RawAlchemyLib};
 use super::lut_data;
 use super::presets::find_preset;
 
+/// Guard that ends the preview session on drop, preventing session leaks on error paths.
+struct SessionGuard {
+    session: Option<ActiveSession>,
+    lib: Arc<RawAlchemyLib>,
+}
+
+impl Drop for SessionGuard {
+    fn drop(&mut self) {
+        if let Some(active) = self.session.take() {
+            tracing::info!(image = %active.image_path, "SessionGuard: ending preview session");
+            end_session_internal(&self.lib, active);
+        }
+    }
+}
+
+impl SessionGuard {
+    /// Take the ActiveSession out, deferring cleanup to the caller.
+    /// Returns None if already consumed.
+    fn take(&mut self) -> Option<ActiveSession> {
+        self.session.take()
+    }
+}
+
 const PREVIEW_JPEG_QUALITY: i32 = 50;
 
 static GLOBAL_PREVIEW_STATE: OnceLock<ColorGradingPreviewState> = OnceLock::new();
@@ -162,16 +185,27 @@ impl ColorGradingPreviewState {
         let active = guard.take()
             .ok_or_else(|| AppError::ColorGradingError("No active preview session".into()))?;
 
-        let input_path = Path::new(&active.image_path);
+        // SessionGuard ensures the session is ended even if an error occurs below.
+        // The guard holds the session until we explicitly take it for spawn_blocking.
+        let mut sg = SessionGuard { session: Some(active), lib: lib.clone() };
+
+        let input_path = Path::new(&sg.session.as_ref().unwrap().image_path);
         let output_path = super::output::color_grading_output_path(input_path, &preset.id)?;
 
         const SAVE_JPEG_QUALITY: i32 = 95;
 
-        if enable_lens_correction != active.enable_lens_correction {
-            let session = RaPreviewSession { ptr: active.session.ptr };
-            lib.toggle_lens_correction(&session, enable_lens_correction, lensfun_db_path.as_deref())?;
+        {
+            let active = sg.session.as_ref().unwrap();
+            if enable_lens_correction != active.enable_lens_correction {
+                let session = RaPreviewSession { ptr: active.session.ptr };
+                lib.toggle_lens_correction(&session, enable_lens_correction, lensfun_db_path.as_deref())?;
+            }
         }
 
+        // Take the session out of the guard for spawn_blocking ownership transfer.
+        // On the success path, end_session_internal is called after spawn_blocking.
+        // On any error path above this line, sg.drop() will clean up the session.
+        let active = sg.take().unwrap();
         let session_addr = active.session.ptr as usize;
         let log_space = preset.log_space.clone();
         let metering = metering_mode.to_string();
@@ -193,6 +227,7 @@ impl ColorGradingPreviewState {
         .map_err(|e| AppError::ColorGradingError(format!("Blocking task failed: {}", e)))??;
 
         end_session_internal(&lib, active);
+        // sg.session is None — drop is a no-op
 
         Ok(output_path.to_string_lossy().into_owned())
     }

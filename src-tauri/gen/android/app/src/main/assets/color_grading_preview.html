@@ -376,7 +376,7 @@
     requestApply();
   }
   function onSave() {
-    if (state === 'SAVING') return;
+    if (state !== 'READY' && state !== 'ADJUSTING') return;
     state = 'SAVING';
     document.getElementById('saveBtn').classList.add('saving');
     document.getElementById('savingOverlay').classList.remove('hidden');
