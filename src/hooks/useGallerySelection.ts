@@ -26,7 +26,7 @@ type UseGallerySelectionResult = {
   deletingIds: Set<string>;
   showAiEditPrompt: boolean;
   menuRef: RefObject<HTMLDivElement>;
-  handleTouchStart: (imagePath: string, event: React.TouchEvent, isScrolling: boolean) => void;
+  handleTouchStart: (imagePath: string, event: React.TouchEvent, isScrolling: boolean, gridIndex: number) => void;
   handleTouchMove: (event: React.TouchEvent) => void;
   handleTouchEnd: () => void;
   handleSelectionClick: (imagePath: string) => boolean;
@@ -39,7 +39,8 @@ type UseGallerySelectionResult = {
   handleCancelSelection: () => void;
   toggleMenu: () => void;
   isDragSelectingRef: RefObject<boolean>;
-  handleDragSelect: (mediaId: string) => void;
+  dragAnchorIndexRef: RefObject<number>;
+  handleDragSelect: (mediaIds: Set<string>) => void;
 };
 
 export function useGallerySelection({ activeTab, onDeleteApplied, getUriForId }: UseGallerySelectionOptions): UseGallerySelectionResult {
@@ -54,7 +55,7 @@ export function useGallerySelection({ activeTab, onDeleteApplied, getUriForId }:
   const touchStartPosRef = useRef<{ x: number; y: number } | null>(null);
   const wasScrollingAtTouchStartRef = useRef(false);
   const isDragSelectingRef = useRef(false);
-  const lastDragSelectIdRef = useRef<string | null>(null);
+  const dragAnchorIndexRef = useRef(-1);
 
   const clearTransientSelectionUiState = useCallback(() => {
     setShowMenu(false);
@@ -86,7 +87,7 @@ export function useGallerySelection({ activeTab, onDeleteApplied, getUriForId }:
     return true;
   }, [clearTransientSelectionUiState, isSelectionMode]);
 
-  const handleTouchStart = useCallback((imagePath: string, event: React.TouchEvent, isScrolling: boolean) => {
+  const handleTouchStart = useCallback((imagePath: string, event: React.TouchEvent, isScrolling: boolean, gridIndex: number) => {
     // Ignore multi-finger touches (e.g., three-finger screenshot gesture)
     if (event.touches.length > 1) {
       return;
@@ -111,6 +112,7 @@ export function useGallerySelection({ activeTab, onDeleteApplied, getUriForId }:
         setIsSelectionMode(true);
         isSelectionModeRef.current = true;
         isDragSelectingRef.current = true;
+        dragAnchorIndexRef.current = gridIndex;
         setSelectedIds(new Set([imagePath]));
       }
     }, LONG_PRESS_DURATION);
@@ -143,19 +145,23 @@ export function useGallerySelection({ activeTab, onDeleteApplied, getUriForId }:
       longPressTimerRef.current = null;
     }
     isDragSelectingRef.current = false;
-    lastDragSelectIdRef.current = null;
+    dragAnchorIndexRef.current = -1;
     touchStartPosRef.current = null;
     wasScrollingAtTouchStartRef.current = false;
   }, []);
 
-  const handleDragSelect = useCallback((mediaId: string) => {
-    if (lastDragSelectIdRef.current === mediaId) return;
-    lastDragSelectIdRef.current = mediaId;
+  const handleDragSelect = useCallback((mediaIds: Set<string>) => {
+    if (mediaIds.size === 0) return;
     setSelectedIds((prev) => {
-      if (prev.has(mediaId)) return prev;
+      let changed = false;
       const next = new Set(prev);
-      next.add(mediaId);
-      return next;
+      for (const id of mediaIds) {
+        if (!next.has(id)) {
+          next.add(id);
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
     });
   }, []);
 
@@ -364,6 +370,7 @@ export function useGallerySelection({ activeTab, onDeleteApplied, getUriForId }:
     handleCancelSelection,
     toggleMenu,
     isDragSelectingRef,
+    dragAnchorIndexRef,
     handleDragSelect,
   };
 }

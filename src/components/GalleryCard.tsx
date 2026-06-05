@@ -64,6 +64,7 @@ export const GalleryCard = memo(function GalleryCard() {
     handleCancelSelection,
     toggleMenu,
     isDragSelectingRef,
+    dragAnchorIndexRef,
     handleDragSelect,
   } = useGallerySelection({
     activeTab,
@@ -277,6 +278,7 @@ export const GalleryCard = memo(function GalleryCard() {
           onTouchEnd={handleTouchEnd}
           onDragSelect={handleDragSelect}
           isDragSelectingRef={isDragSelectingRef}
+          dragAnchorIndexRef={dragAnchorIndexRef}
         />
       </div>
 

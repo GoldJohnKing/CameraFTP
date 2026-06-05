@@ -72,7 +72,7 @@ function GallerySelectionHarness({
       <span data-testid="deleting-count">{deletingIds.size}</span>
       <button
         data-testid="start-selection"
-        onClick={() => handleTouchStart('content://1', createTouchStartEvent(touchCount), isScrollingOnStart)}
+        onClick={() => handleTouchStart('content://1', createTouchStartEvent(touchCount), isScrollingOnStart, 0)}
       >
         start-selection
       </button>

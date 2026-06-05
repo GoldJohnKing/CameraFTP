@@ -24,13 +24,15 @@ export interface VirtualGalleryGridProps {
   isSelectionMode?: boolean;
   selectedIds?: Set<string>;
   deletingIds?: Set<string>;
-  onTouchStart?: (mediaId: string, event: TouchEvent, isScrolling: boolean) => void;
+  onTouchStart?: (mediaId: string, event: TouchEvent, isScrolling: boolean, gridIndex: number) => void;
   onTouchMove?: (event: TouchEvent) => void;
   onTouchEnd?: () => void;
-  /** Drag-select: called with the mediaId under the finger during drag */
-  onDragSelect?: (mediaId: string) => void;
+  /** Drag-select: called with the set of mediaIds in the range from anchor to finger position */
+  onDragSelect?: (mediaIds: Set<string>) => void;
   /** Ref to check if drag-select is active (from useGallerySelection) */
   isDragSelectingRef?: React.RefObject<boolean>;
+  /** Ref for the anchor index where drag-select started */
+  dragAnchorIndexRef?: React.RefObject<number>;
   /** Called when scrolling near the end to trigger infinite scroll */
   onNearEnd?: () => void;
 }
@@ -49,6 +51,7 @@ export function VirtualGalleryGrid({
   onTouchEnd,
   onDragSelect,
   isDragSelectingRef,
+  dragAnchorIndexRef,
   onNearEnd,
 }: VirtualGalleryGridProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -96,9 +99,22 @@ export function VirtualGalleryGrid({
       if (!cell) return;
 
       const mediaId = cell.dataset.mediaId;
-      if (mediaId) {
-        onDragSelect(mediaId);
+      if (!mediaId) return;
+
+      const gridIndex = Number(cell.dataset.gridIndex);
+      if (isNaN(gridIndex)) return;
+
+      const anchorIndex = dragAnchorIndexRef?.current ?? -1;
+      if (anchorIndex < 0) return;
+
+      const startIdx = Math.min(anchorIndex, gridIndex);
+      const endIdx = Math.max(anchorIndex, gridIndex);
+      const rangeIds = new Set<string>();
+      for (let i = startIdx; i <= endIdx; i++) {
+        const item = items[i];
+        if (item) rangeIds.add(item.mediaId);
       }
+      onDragSelect(rangeIds);
     };
 
     el.addEventListener('touchmove', handleNativeTouchMove, { passive: false });
@@ -106,7 +122,7 @@ export function VirtualGalleryGrid({
     return () => {
       el.removeEventListener('touchmove', handleNativeTouchMove);
     };
-  }, [onDragSelect, isDragSelectingRef]);
+  }, [onDragSelect, isDragSelectingRef, dragAnchorIndexRef, items]);
 
   // Cleanup scroll timer on unmount
   useEffect(() => {
@@ -220,7 +236,7 @@ export function VirtualGalleryGrid({
                 data-media-id={item.mediaId}
                 data-grid-index={globalIdx}
                 onClick={() => onItemClick(item)}
-                onTouchStart={onTouchStart ? (e) => onTouchStart(item.mediaId, e, isScrolling) : undefined}
+                onTouchStart={onTouchStart ? (e) => onTouchStart(item.mediaId, e, isScrolling, globalIdx) : undefined}
                 onTouchMove={onTouchMove}
                 onTouchEnd={onTouchEnd}
                 onTouchCancel={onTouchEnd}
