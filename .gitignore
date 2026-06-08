@@ -12,6 +12,9 @@ target/
 # Build cache
 .build-cache/
 
+# rawalchemy CMake build caches
+src-tauri/lib/rawalchemy/build-*/
+
 # ts-rs generated bindings (regenerated on each build)
 src-tauri/bindings/
 
