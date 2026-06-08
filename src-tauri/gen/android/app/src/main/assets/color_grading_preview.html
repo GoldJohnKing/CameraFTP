@@ -384,9 +384,9 @@
     if (state !== 'READY' && state !== 'ADJUSTING') return;
     state = 'SAVING';
     document.getElementById('saveBtn').classList.add('saving');
-    document.getElementById('savingOverlay').classList.remove('hidden');
     setDisabled(true);
     NativeBridge.save(selectedLut, selectedMetering, currentEv);
+    // Activity will finish() immediately after enqueue succeeds
   }
   function retryBegin() {
     state = 'LOADING';

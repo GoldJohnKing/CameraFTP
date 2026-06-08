@@ -66,6 +66,9 @@ impl ColorGradingPreviewState {
         &self,
         image_path: &str,
         lensfun_db_path: Option<&str>,
+        half_size: bool,
+        max_preview_width: u32,
+        max_preview_height: u32,
     ) -> Result<(), AppError> {
         let lib = RawAlchemyLib::get()?;
         let input_path = Path::new(image_path);
@@ -77,7 +80,7 @@ impl ColorGradingPreviewState {
             end_session_internal(&lib, active);
         }
 
-        tracing::info!(image = image_path, "Beginning preview session (decoding RAW)...");
+        tracing::info!(image = image_path, half_size, max_w = max_preview_width, max_h = max_preview_height, "Beginning preview session (decoding RAW)...");
 
         let session = tokio::task::spawn_blocking({
             let input_path = input_path.to_path_buf();
@@ -87,6 +90,9 @@ impl ColorGradingPreviewState {
                     &input_path,
                     true,
                     lensfun.as_deref(),
+                    half_size,
+                    max_preview_width,
+                    max_preview_height,
                 )
             }
         })

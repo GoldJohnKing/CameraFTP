@@ -45,9 +45,9 @@ class ColorGradingJniBridge {
             System.loadLibrary("camera_ftp_companion_lib")
         }
 
-        fun beginPreview(filePath: String): Result<Unit> {
+        fun beginPreview(filePath: String, halfSize: Boolean, maxWidth: Int, maxHeight: Int): Result<Unit> {
             return try {
-                val json = nativeBeginPreview(filePath)
+                val json = nativeBeginPreview(filePath, if (halfSize) 1 else 0, maxWidth, maxHeight)
                 JniResultParser.parseResult(json)
             } catch (e: Exception) {
                 Log.e(TAG, "beginPreview failed", e)
@@ -124,8 +124,18 @@ class ColorGradingJniBridge {
             }
         }
 
+        fun enqueueBatch(filePath: String, lutId: String, meteringMode: String, evOffset: Float): Result<Unit> {
+            return try {
+                val json = nativeEnqueueBatch(filePath, lutId, meteringMode, evOffset)
+                JniResultParser.parseResult(json)
+            } catch (e: Exception) {
+                Log.e(TAG, "enqueueBatch failed", e)
+                Result.failure(e)
+            }
+        }
+
         @JvmStatic
-        private external fun nativeBeginPreview(filePath: String): String
+        private external fun nativeBeginPreview(filePath: String, halfSize: Int, maxWidth: Int, maxHeight: Int): String
         @JvmStatic
         private external fun nativeApplyPreview(lutId: String, meteringMode: String, evOffset: Float, maxWidth: Int, maxHeight: Int): ByteArray?
         @JvmStatic
@@ -138,5 +148,7 @@ class ColorGradingJniBridge {
         private external fun nativeGetLastUsed(): String
         @JvmStatic
         private external fun nativeSaveLastUsed(presetId: String, meteringMode: String, evOffset: Float): String
+        @JvmStatic
+        private external fun nativeEnqueueBatch(filePath: String, lutId: String, meteringMode: String, evOffset: Float): String
     }
 }

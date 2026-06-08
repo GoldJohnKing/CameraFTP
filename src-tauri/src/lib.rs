@@ -203,7 +203,8 @@ pub fn run() {
                     app.handle().clone(),
                     Arc::clone(&config_service),
                 ));
-                app.manage(cg_service);
+                app.manage(cg_service.clone());
+                cg_service.set_global();
                 color_grading::preview::ColorGradingPreviewState::ensure_init();
             }
 

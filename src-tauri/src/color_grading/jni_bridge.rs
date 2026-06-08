@@ -71,6 +71,9 @@ pub unsafe extern "C" fn Java_com_gjk_cameraftpcompanion_bridges_ColorGradingJni
     mut env: JNIEnv,
     _class: JClass,
     file_path: JString,
+    half_size: jint,
+    max_width: jint,
+    max_height: jint,
 ) -> jstring {
     let path_str = match env.get_string(&file_path) {
         Ok(s) => s.to_string_lossy().into_owned(),
@@ -85,7 +88,13 @@ pub unsafe extern "C" fn Java_com_gjk_cameraftpcompanion_bridges_ColorGradingJni
         .map(|r| r.lensfun_db_dir.to_string_lossy().into_owned());
 
     let state = crate::color_grading::preview::ColorGradingPreviewState::get_global();
-    let result = run_blocking(state.begin(&path_str, lensfun_db_path.as_deref()));
+    let result = run_blocking(state.begin(
+        &path_str,
+        lensfun_db_path.as_deref(),
+        half_size != 0,
+        max_width as u32,
+        max_height as u32,
+    ));
 
     match result {
         Ok(()) => new_json_string(&mut env, r#"{"ok":true}"#),
@@ -282,6 +291,48 @@ pub unsafe extern "C" fn Java_com_gjk_cameraftpcompanion_bridges_ColorGradingJni
         });
     }) {
         Ok(()) => new_json_ok(&mut env),
+        Err(e) => json_error(&mut env, &e.to_string()),
+    }
+}
+
+/// JNI: Enqueue a single file for batch color grading via the existing worker.
+/// Returns JSON: `{"ok":true}` or `{"ok":false,"error":"message"}`
+#[cfg(target_os = "android")]
+#[no_mangle]
+pub unsafe extern "C" fn Java_com_gjk_cameraftpcompanion_bridges_ColorGradingJniBridge_nativeEnqueueBatch(
+    mut env: JNIEnv,
+    _class: JClass,
+    file_path: JString,
+    lut_id: JString,
+    metering_mode: JString,
+    ev_offset: jfloat,
+) -> jstring {
+    let path_str = match env.get_string(&file_path) {
+        Ok(s) => s.to_string_lossy().into_owned(),
+        Err(e) => {
+            tracing::error!("JNI enqueueBatch: failed to read filePath: {e}");
+            return json_error(&mut env, "Invalid file path");
+        }
+    };
+    let lut_id_str = match env.get_string(&lut_id) {
+        Ok(s) => s.to_string_lossy().into_owned(),
+        Err(_) => return json_error(&mut env, "Invalid lutId"),
+    };
+    let metering_str = match env.get_string(&metering_mode) {
+        Ok(s) => s.to_string_lossy().into_owned(),
+        Err(_) => return json_error(&mut env, "Invalid meteringMode"),
+    };
+
+    let service = crate::color_grading::service::ColorGradingService::get_global();
+    let result = run_blocking(service.enqueue(
+        vec![std::path::PathBuf::from(path_str)],
+        lut_id_str,
+        metering_str,
+        ev_offset,
+    ));
+
+    match result {
+        Ok(()) => new_json_string(&mut env, r#"{"ok":true}"#),
         Err(e) => json_error(&mut env, &e.to_string()),
     }
 }

@@ -162,6 +162,9 @@ type RaBeginPreviewSessionFn = unsafe extern "C" fn(
     *const c_char,   // inputPath
     c_int,           // enableLensCorrection
     *const c_char,   // customLensfunDb
+    c_int,           // halfSize
+    c_int,           // maxPreviewWidth
+    c_int,           // maxPreviewHeight
     *mut RaPreviewSession, // outSession
 ) -> c_int;
 
@@ -440,11 +443,14 @@ impl RawAlchemyLib {
         input_path: &Path,
         enable_lens_correction: bool,
         lensfun_db_path: Option<&str>,
+        half_size: bool,
+        max_preview_width: u32,
+        max_preview_height: u32,
     ) -> Result<RaPreviewSession, AppError> {
         let input_c = std::ffi::CString::new(input_path.to_string_lossy().into_owned())
             .map_err(|e| AppError::ColorGradingError(format!("Invalid input path: {}", e)))?;
         let lensfun_c = lensfun_db_path
-            .map(|s| std::ffi::CString::new(s).map_err(|e| AppError::ColorGradingError(format!("Invalid lensfun path: {}", e))))
+            .map(|s| std::ffi::CString::new(s).map_err(|e| AppError::ColorGradingError(format!("Invalid lensfun path string: {}", e))))
             .transpose()?;
 
         let mut session = RaPreviewSession { ptr: std::ptr::null_mut() };
@@ -457,6 +463,9 @@ impl RawAlchemyLib {
                     .as_ref()
                     .map(|c| c.as_ptr())
                     .unwrap_or(std::ptr::null()),
+                if half_size { 1 } else { 0 },
+                max_preview_width as c_int,
+                max_preview_height as c_int,
                 &mut session,
             )
         };

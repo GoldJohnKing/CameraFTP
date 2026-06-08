@@ -51,12 +51,22 @@ use crate::color_grading::preview::ColorGradingPreviewState;
 #[command]
 pub async fn begin_color_grading_preview(
     image_path: String,
+    half_size: Option<bool>,
+    max_preview_width: Option<u32>,
+    max_preview_height: Option<u32>,
 ) -> Result<(), AppError> {
     let lensfun_db_path = crate::color_grading::resources::get_resources()
         .ok()
         .map(|r| r.lensfun_db_dir.to_string_lossy().into_owned());
     ColorGradingPreviewState::get_global()
-        .begin(&image_path, lensfun_db_path.as_deref()).await
+        .begin(
+            &image_path,
+            lensfun_db_path.as_deref(),
+            half_size.unwrap_or(false),
+            max_preview_width.unwrap_or(0),
+            max_preview_height.unwrap_or(0),
+        )
+        .await
 }
 
 #[command]

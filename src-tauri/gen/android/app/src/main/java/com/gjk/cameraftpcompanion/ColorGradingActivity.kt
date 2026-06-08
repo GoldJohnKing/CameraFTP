@@ -119,11 +119,9 @@ class ColorGradingActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         if (isSaving) {
-            // save thread is running — commit_and_end cleans up the session internally.
-            // Do NOT call endPreview here to avoid racing with commitPreview.
+            // save() has already called endPreview() + enqueueBatch().
+            // Do nothing — the batch worker handles the rest.
         } else if (isDecoding) {
-            // beginPreview thread is still decoding RAW. Set a flag so the decode
-            // callback can clean up the session immediately after it completes.
             cancelDecoding = true
         } else if (isSessionActive) {
             endPreviewSession()
@@ -159,15 +157,16 @@ internal class NativeColorGradingPreviewBridge(
     @JavascriptInterface
     fun beginPreview(filePath: String) {
         val activity = activityRef.get() ?: return
-        Log.d(TAG, "beginPreview: $filePath (JNI)")
+        val maxWidth = activity.resources.displayMetrics.widthPixels
+        val maxHeight = activity.resources.displayMetrics.heightPixels
+        Log.d(TAG, "beginPreview: $filePath halfSize=true ${maxWidth}x${maxHeight} (JNI)")
         activity.isDecoding = true
         Thread {
-            val result = ColorGradingJniBridge.beginPreview(filePath)
+            val result = ColorGradingJniBridge.beginPreview(filePath, true, maxWidth, maxHeight)
             activity.runOnUiThread {
                 activity.isDecoding = false
                 if (result.isSuccess) {
                     if (activity.cancelDecoding) {
-                        // onDestroy was called during decode — clean up now
                         Thread { ColorGradingJniBridge.endPreview() }.start()
                     } else {
                         activity.isSessionActive = true
@@ -212,70 +211,47 @@ internal class NativeColorGradingPreviewBridge(
     @JavascriptInterface
     fun save(lutId: String, meteringMode: String, evOffset: Float) {
         val activity = activityRef.get() ?: return
-        Log.d(TAG, "save: lut=$lutId metering=$meteringMode ev=$evOffset")
+        Log.d(TAG, "save: lut=$lutId metering=$meteringMode ev=$evOffset — enqueuing batch job")
 
+        // Mark as saving to prevent onDestroy from racing with endPreview
         activity.isSaving = true
-        activity.previewJpegBytes = null
 
-        Thread {
-            Log.d(TAG, "save: calling commitPreview (JNI)")
-            val result = ColorGradingJniBridge.commitPreview(lutId, meteringMode, evOffset)
-            activity.isSaving = false
+        // Save last-used config via JNI
+        ColorGradingJniBridge.saveLastUsed(lutId, meteringMode, evOffset)
 
-            activity.runOnUiThread {
-                if (result.isSuccess) {
-                    val outputPath = result.getOrDefault("")
-                    Log.d(TAG, "save: committed successfully to $outputPath")
+        // End preview session in background (non-blocking)
+        Thread { ColorGradingJniBridge.endPreview() }.start()
+        activity.isSessionActive = false
 
-                    // Save last-used config via JNI — no WebView dependency
-                    ColorGradingJniBridge.saveLastUsed(lutId, meteringMode, evOffset)
-                    Log.d(TAG, "save: saved last-used config via JNI")
+        // Enqueue full-resolution processing via ColorGradingService worker.
+        // enqueue() only sends to mpsc channel — returns in ~1ms.
+        val result = ColorGradingJniBridge.enqueueBatch(filePath, lutId, meteringMode, evOffset)
 
-                    // Insert into ImageViewerActivity directly — it may be paused (isViewerVisible=false)
-                    // because ColorGradingActivity is in the foreground, but the instance is still alive.
-                    // insertImage() posts to the viewer's UI thread via runOnUiThread, which will execute
-                    // after ColorGradingActivity finishes and the viewer resumes.
-                    val viewer = ImageViewerActivity.instance
-                    if (viewer != null && !viewer.isFinishing && !viewer.isDestroyed) {
-                        val file = java.io.File(outputPath)
-                        if (file.exists()) {
-                            val fileUri = android.net.Uri.fromFile(file).toString()
-                            viewer.insertImage(fileUri, 0)
-                            Log.d(TAG, "save: inserted $fileUri into ImageViewerActivity")
-                        }
-                    }
+        activity.runOnUiThread {
+            if (result.isSuccess) {
+                // Gallery refresh via WebView (best-effort)
+                val mainActivity = MainActivity.instance
+                mainActivity?.getWebView()?.evaluateJavascript(
+                    """(function(){
+                        setTimeout(function(){
+                            window.dispatchEvent(new CustomEvent('gallery-refresh-requested',{detail:{reason:'color-grading'}}));
+                            window.dispatchEvent(new CustomEvent('latest-photo-refresh-requested',{detail:{reason:'color-grading'}}));
+                        },500);
+                    })();""",
+                    null
+                )
 
-                    // MediaStore scan directly — no JS round-trip
-                    activity.scanOutputFile(outputPath)
-
-                    // Gallery refresh via WebView (best-effort — DOM events only)
-                    val mainActivity = MainActivity.instance
-                    mainActivity?.getWebView()?.evaluateJavascript(
-                        """(function(){
-                            setTimeout(function(){
-                                window.dispatchEvent(new CustomEvent('gallery-refresh-requested',{detail:{reason:'color-grading'}}));
-                                window.dispatchEvent(new CustomEvent('latest-photo-refresh-requested',{detail:{reason:'color-grading'}}));
-                            },500);
-                        })();""",
-                        null
-                    )
-
-                    // Finish after all operations complete
-                    android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
-                        activity.finish()
-                    }, 500)
-                } else {
-                    val msg = result.exceptionOrNull()?.message ?: "保存失败"
-                    Log.e(TAG, "save: failed - $msg")
-                    // commit_and_end has already consumed the session, so re-applying preview
-                    // would fail ("No active preview session"). Finish the activity instead.
-                    android.widget.Toast.makeText(activity, msg, android.widget.Toast.LENGTH_LONG).show()
-                    android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
-                        activity.finish()
-                    }, 1500)
-                }
+                // Close immediately — batch processing continues in background.
+                // Progress shown via TaskProgressPanel in ImageViewerActivity.
+                // On completion: scanNewFile → insertImage + MediaStore scan.
+                activity.finish()
+            } else {
+                activity.isSaving = false
+                val msg = result.exceptionOrNull()?.message ?: "入队失败"
+                Log.e(TAG, "save: enqueueBatch failed - $msg")
+                android.widget.Toast.makeText(activity, msg, android.widget.Toast.LENGTH_LONG).show()
             }
-        }.start()
+        }
     }
 
     @JavascriptInterface

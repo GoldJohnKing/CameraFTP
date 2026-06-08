@@ -4,6 +4,7 @@
 
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::OnceLock;
 use std::sync::atomic::{AtomicU32, Ordering};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
@@ -16,6 +17,8 @@ use crate::image_utils;
 use crate::utils::batch_state::BatchState;
 use super::progress::ColorGradingEvent;
 use super::presets::find_preset;
+
+static GLOBAL_CG_SERVICE: OnceLock<Arc<ColorGradingService>> = OnceLock::new();
 
 struct ColorGradingTask {
     input_path: PathBuf,
@@ -33,6 +36,14 @@ pub struct ColorGradingService {
 }
 
 impl ColorGradingService {
+    pub fn set_global(self: &Arc<Self>) {
+        let _ = GLOBAL_CG_SERVICE.set(Arc::clone(self));
+    }
+
+    pub fn get_global() -> &'static Arc<Self> {
+        GLOBAL_CG_SERVICE.get().expect("ColorGradingService global not initialized")
+    }
+
     pub fn new(app_handle: AppHandle, config_service: Arc<ConfigService>) -> Self {
         let (sender, receiver) = mpsc::channel::<ColorGradingTask>(16);
         let queue_depth = Arc::new(AtomicU32::new(0));
