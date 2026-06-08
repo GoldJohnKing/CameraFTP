@@ -29,18 +29,11 @@ object JniResultParser {
         return Result.failure(Exception(obj.optString("error", "Unknown error")))
     }
 
-    fun parseResultWithBuffer(json: String): Result<ByteArray> {
-        val obj = JSONObject(json)
-        if (obj.optBoolean("ok", false)) {
-            val b64 = obj.optString("buffer", "")
-            if (b64.isEmpty()) return Result.failure(Exception("Empty buffer"))
-            return try {
-                Result.success(android.util.Base64.decode(b64, android.util.Base64.DEFAULT))
-            } catch (e: Exception) {
-                Result.failure(Exception("Base64 decode failed: ${e.message}"))
-            }
+    fun parseResultWithBuffer(bytes: ByteArray?): Result<ByteArray> {
+        if (bytes != null && bytes.isNotEmpty()) {
+            return Result.success(bytes)
         }
-        return Result.failure(Exception(obj.optString("error", "Unknown error")))
+        return Result.failure(Exception("Empty buffer"))
     }
 }
 
@@ -70,8 +63,8 @@ class ColorGradingJniBridge {
             maxHeight: Int
         ): Result<ByteArray> {
             return try {
-                val json = nativeApplyPreview(lutId, meteringMode, evOffset, maxWidth, maxHeight)
-                JniResultParser.parseResultWithBuffer(json)
+                val bytes = nativeApplyPreview(lutId, meteringMode, evOffset, maxWidth, maxHeight)
+                JniResultParser.parseResultWithBuffer(bytes)
             } catch (e: Exception) {
                 Log.e(TAG, "applyPreview failed", e)
                 Result.failure(e)
@@ -134,7 +127,7 @@ class ColorGradingJniBridge {
         @JvmStatic
         private external fun nativeBeginPreview(filePath: String): String
         @JvmStatic
-        private external fun nativeApplyPreview(lutId: String, meteringMode: String, evOffset: Float, maxWidth: Int, maxHeight: Int): String
+        private external fun nativeApplyPreview(lutId: String, meteringMode: String, evOffset: Float, maxWidth: Int, maxHeight: Int): ByteArray?
         @JvmStatic
         private external fun nativeEndPreview(): String
         @JvmStatic

@@ -8,7 +8,7 @@
 #[cfg(target_os = "android")]
 use jni::objects::{JClass, JString};
 #[cfg(target_os = "android")]
-use jni::sys::{jfloat, jint, jstring};
+use jni::sys::{jbyteArray, jfloat, jint, jstring};
 #[cfg(target_os = "android")]
 use jni::JNIEnv;
 
@@ -94,7 +94,7 @@ pub unsafe extern "C" fn Java_com_gjk_cameraftpcompanion_bridges_ColorGradingJni
 }
 
 /// JNI: Apply grading to current preview session.
-/// Returns JSON: `{"ok":true,"buffer":"<base64>"}` or `{"ok":false,"error":"message"}`
+/// Returns JPEG bytes directly as `jbyteArray`, or `null` + throws `RuntimeException` on error.
 #[cfg(target_os = "android")]
 #[no_mangle]
 pub unsafe extern "C" fn Java_com_gjk_cameraftpcompanion_bridges_ColorGradingJniBridge_nativeApplyPreview(
@@ -105,14 +105,20 @@ pub unsafe extern "C" fn Java_com_gjk_cameraftpcompanion_bridges_ColorGradingJni
     ev_offset: jfloat,
     max_width: jint,
     max_height: jint,
-) -> jstring {
+) -> jbyteArray {
     let lut_id_str = match env.get_string(&lut_id) {
         Ok(s) => s.to_string_lossy().into_owned(),
-        Err(_) => return json_error(&mut env, "Invalid lutId"),
+        Err(_) => {
+            let _ = env.throw_new("java/lang/IllegalArgumentException", "Invalid lutId");
+            return std::ptr::null_mut();
+        }
     };
     let metering_str = match env.get_string(&metering_mode) {
         Ok(s) => s.to_string_lossy().into_owned(),
-        Err(_) => return json_error(&mut env, "Invalid meteringMode"),
+        Err(_) => {
+            let _ = env.throw_new("java/lang/IllegalArgumentException", "Invalid meteringMode");
+            return std::ptr::null_mut();
+        }
     };
 
     let state = crate::color_grading::preview::ColorGradingPreviewState::get_global();
@@ -126,16 +132,30 @@ pub unsafe extern "C" fn Java_com_gjk_cameraftpcompanion_bridges_ColorGradingJni
 
     match result {
         Ok(jpeg_bytes) => {
-            use base64::Engine;
-            let b64 = base64::engine::general_purpose::STANDARD.encode(&jpeg_bytes);
-            let json = serde_json::json!({
-                "ok": true,
-                "buffer": b64,
-            })
-            .to_string();
-            new_json_string(&mut env, &json)
+            let len = jpeg_bytes.len();
+            let arr = match env.new_byte_array(len as i32) {
+                Ok(a) => a,
+                Err(e) => {
+                    tracing::error!("JNI applyPreview: failed to create byte array: {e}");
+                    let _ = env.throw_new("java/lang/RuntimeException", "Failed to allocate byte array");
+                    return std::ptr::null_mut();
+                }
+            };
+            let signed: &[i8] = unsafe {
+                std::slice::from_raw_parts(jpeg_bytes.as_ptr() as *const i8, len)
+            };
+            if let Err(e) = env.set_byte_array_region(&arr, 0, signed) {
+                tracing::error!("JNI applyPreview: failed to set byte array: {e}");
+                let _ = env.throw_new("java/lang/RuntimeException", "Failed to copy byte array");
+                return std::ptr::null_mut();
+            }
+            arr.into_raw()
         }
-        Err(e) => json_error(&mut env, &e.to_string()),
+        Err(e) => {
+            let msg = e.to_string();
+            let _ = env.throw_new("java/lang/RuntimeException", &msg);
+            std::ptr::null_mut()
+        }
     }
 }
 
