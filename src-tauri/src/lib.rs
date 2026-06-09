@@ -33,7 +33,6 @@ use file_index::FileIndexService;
 use commands::{
     begin_color_grading_preview,
     apply_color_grading_preview,
-    commit_color_grading_preview,
     end_color_grading_preview,
     check_permission_status,
     check_port_available,
@@ -295,7 +294,6 @@ pub fn run() {
             cancel_color_grading,
             begin_color_grading_preview,
             apply_color_grading_preview,
-            commit_color_grading_preview,
             end_color_grading_preview,
             is_raw_file,
         ]);

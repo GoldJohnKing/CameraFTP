@@ -70,21 +70,6 @@ pub async fn begin_color_grading_preview(
 }
 
 #[command]
-pub async fn commit_color_grading_preview(
-    lut_id: String,
-    metering_mode: String,
-    ev_offset: f32,
-) -> Result<String, AppError> {
-    ColorGradingPreviewState::get_global()
-        .commit_and_end(
-            &lut_id,
-            &metering_mode,
-            ev_offset,
-        )
-        .await
-}
-
-#[command]
 pub async fn apply_color_grading_preview(
     lut_id: String,
     metering_mode: String,

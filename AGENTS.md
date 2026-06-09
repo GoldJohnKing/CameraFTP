@@ -20,7 +20,7 @@ NEVER use `npm` or `cargo.exe build` directly. Use `./build.sh windows android` 
 
 This command builds Android and Windows in parallel, making it much faster than building them one by one.
 
-### 2. LSP Tools
+### 3. LSP Tools
 
 Do not use LSP tools in this environment. They hang or timeout.
 
@@ -29,7 +29,7 @@ Do not use LSP tools in this environment. They hang or timeout.
 - `lsp_find_references`
 - `lsp_rename`
 
-### 3. Verify Code Changes
+### 4. Verify Code Changes
 
 ALWAYS build both platforms to verify code changes: run `./build.sh windows android`.
 
