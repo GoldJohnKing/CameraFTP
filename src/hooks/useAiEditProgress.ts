@@ -32,6 +32,8 @@ const aiEdit = createTaskProgressHook<AiEditProgressEvent>({
     switch (event.type) {
       case 'progress':
         return { type: 'progress', current: event.current, total: event.total, fileName: event.fileName, failedCount: event.failedCount };
+      case 'completed':
+        return { type: 'completed', current: event.current, total: event.total, fileName: event.fileName, failedCount: event.failedCount, outputPath: event.outputPath ?? undefined };
       case 'done':
         return { type: 'done', total: event.total, failedCount: event.failedCount, failedFiles: event.failedFiles, outputFiles: event.outputFiles, cancelled: event.cancelled };
       case 'queued':

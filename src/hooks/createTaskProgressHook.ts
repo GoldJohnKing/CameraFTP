@@ -33,6 +33,7 @@ const GALLERY_REFRESH_DELAY_MS = 500;
 /** Discriminated union for type-safe event switching inside the factory. */
 export type StandardTaskEvent =
   | { type: 'progress'; current: number; total: number; fileName: string; failedCount: number }
+  | { type: 'completed'; current: number; total: number; fileName: string; failedCount: number; outputPath?: string }
   | { type: 'done'; total: number; failedCount: number; failedFiles: string[]; outputFiles: string[]; cancelled: boolean };
 
 /** Shape of the `done` event — used in `onDone` callback. */
@@ -84,6 +85,25 @@ export function createTaskProgressHook<TEvent extends { type: string }>(
         });
         config.onAfterUpdate?.(mapped, store);
         break;
+      case 'completed': {
+        // Per-file completion: immediately scan and refresh so the gallery
+        // updates as each image is produced, not only when the batch ends.
+        const completedOutputPath = mapped.outputPath;
+        if (completedOutputPath) {
+          scanOutputFiles([completedOutputPath]);
+          setTimeout(() => {
+            requestMediaLibraryRefresh({ reason: config.refreshReason });
+          }, GALLERY_REFRESH_DELAY_MS);
+        }
+        store.setState({
+          current: mapped.current,
+          total: mapped.total,
+          currentFileName: mapped.fileName,
+          failedCount: mapped.failedCount,
+        });
+        config.onAfterUpdate?.(mapped, store);
+        break;
+      }
       case 'done': {
         const outputFiles = mapped.outputFiles ?? [];
 
@@ -108,8 +128,9 @@ export function createTaskProgressHook<TEvent extends { type: string }>(
 
         config.onAfterUpdate?.(mapped, store);
 
+        // Final batch-level scan for any files not yet scanned (edge cases),
+        // plus a concluding refresh to ensure the gallery is fully up-to-date.
         scanOutputFiles(outputFiles);
-
         setTimeout(() => {
           requestMediaLibraryRefresh({ reason: config.refreshReason });
         }, GALLERY_REFRESH_DELAY_MS);
