@@ -14,10 +14,8 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
-import android.net.wifi.WifiManager
 import android.os.IBinder
 import android.os.Build
-import android.os.PowerManager
 import android.util.Log
 import androidx.annotation.StringRes
 import androidx.annotation.RequiresApi
@@ -53,10 +51,6 @@ class FtpForegroundService : Service() {
     private var connectedClients = 0
     private val stateLock = Any()
 
-    // Locks
-    private var wakeLock: PowerManager.WakeLock? = null
-    private var wifiLock: WifiManager.WifiLock? = null
-
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onCreate() {
@@ -65,7 +59,6 @@ class FtpForegroundService : Service() {
         instance = this
         refreshFromCoordinator()
         createNotificationChannel()
-        acquireLocks()
 
         // Note: startForeground() is called in onStartCommand() to satisfy Android's
         // 5-second requirement after startForegroundService().
@@ -101,7 +94,6 @@ class FtpForegroundService : Service() {
         Log.d(TAG, "onDestroy: cleaning up service")
         instance = null
         isInForeground = false
-        releaseLocks()
         super.onDestroy()
     }
 
@@ -163,72 +155,6 @@ class FtpForegroundService : Service() {
         val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         notificationManager.createNotificationChannel(channel)
         Log.d(TAG, "createNotificationChannel: created notification channel")
-    }
-
-    /**
-     * Acquire WakeLock and WifiLock to keep device running
-     */
-    private fun acquireLocks() {
-        Log.d(TAG, "acquireLocks: acquiring wake lock and wifi lock")
-
-        // Acquire partial wake lock to keep CPU running
-        // No timeout - service lifecycle manages release via onDestroy()
-        runCatching {
-            val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
-            val nextWakeLock = powerManager.newWakeLock(
-                PowerManager.PARTIAL_WAKE_LOCK,
-                "FtpForegroundService::WakeLock"
-            )
-            wakeLock = nextWakeLock
-            nextWakeLock.acquire() // Indefinite - released when service stops
-        }.onFailure { error ->
-            Log.e(TAG, "Failed to acquire wake lock", error)
-            wakeLock = null
-        }
-
-        // Acquire WiFi lock to keep WiFi connection alive
-        runCatching {
-            val wifiManager = applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
-            @Suppress("DEPRECATION")
-            val nextWifiLock = wifiManager.createWifiLock(
-                WifiManager.WIFI_MODE_FULL_HIGH_PERF,
-                "FtpForegroundService::WifiLock"
-            )
-            wifiLock = nextWifiLock
-            nextWifiLock.acquire()
-        }.onFailure { error ->
-            Log.e(TAG, "Failed to acquire wifi lock", error)
-            wifiLock = null
-        }
-    }
-
-    /**
-     * Release all locks
-     */
-    private fun releaseLocks() {
-        Log.d(TAG, "releaseLocks: releasing wake lock and wifi lock")
-
-        wakeLock?.let {
-            runCatching {
-                if (it.isHeld) {
-                    it.release()
-                }
-            }.onFailure { error ->
-                Log.e(TAG, "Failed to release wake lock", error)
-            }
-        }
-        wakeLock = null
-
-        wifiLock?.let {
-            runCatching {
-                if (it.isHeld) {
-                    it.release()
-                }
-            }.onFailure { error ->
-                Log.e(TAG, "Failed to release wifi lock", error)
-            }
-        }
-        wifiLock = null
     }
 
     /**
@@ -320,11 +246,11 @@ class FtpForegroundService : Service() {
         }
 
         val statsChanged = applyServerState(snapshot.statsJson, snapshot.connectedClients)
+
         if (!statsChanged) {
             return
         }
 
-        // Update notification with new stats
         updateNotification()
     }
 
@@ -369,8 +295,6 @@ class FtpForegroundService : Service() {
      * Update notification with current stats
      */
     private fun updateNotification() {
-        Log.d(TAG, "updateNotification: updating notification")
-
         try {
             val notification = buildNotification()
             val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager

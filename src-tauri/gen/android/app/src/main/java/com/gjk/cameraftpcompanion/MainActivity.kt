@@ -14,6 +14,7 @@ import android.util.Log
 import android.webkit.WebView
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.OnBackPressedCallback
 import androidx.activity.enableEdgeToEdge
 import com.gjk.cameraftpcompanion.bridges.GalleryBridge
 import com.gjk.cameraftpcompanion.bridges.GalleryBridgeV2
@@ -119,6 +120,25 @@ class MainActivity : TauriActivity() {
         // Cleanup stale pending entries (older than 24 hours)
         val cutoffMillis = System.currentTimeMillis() - 24 * 60 * 60 * 1000L
         MediaStoreBridge.cleanupStalePendingEntries(contentResolver, cutoffMillis)
+
+        // Handle back press: intercept in selection mode, default otherwise
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                if (isInSelectionMode) {
+                    try {
+                        getWebView()?.evaluateJavascript(
+                            "if (window.__galleryOnBackPressed) { window.__galleryOnBackPressed(); }",
+                            null
+                        )
+                    } catch (e: Exception) {
+                        Log.e(TAG, "onBackPressed: error calling evaluateJavascript", e)
+                    }
+                } else {
+                    isEnabled = false
+                    onBackPressedDispatcher.onBackPressed()
+                }
+            }
+        })
     }
 
     /**
@@ -281,10 +301,10 @@ class MainActivity : TauriActivity() {
         return completed && approvedRef.get()
     }
     
-  /**
-   * Flag to track if we're in selection mode (for back button handling)
-   */
-  private var isInSelectionMode = false
+   /**
+    * Flag to track if we're in selection mode (for back button handling)
+    */
+   private var isInSelectionMode = false
 
     /**
      * Register back press callback to intercept back button
@@ -304,30 +324,5 @@ class MainActivity : TauriActivity() {
         Log.d(TAG, "unregisterBackPressCallback: exiting selection mode")
         isInSelectionMode = false
         return true
-    }
-
-    /**
-     * Handle back button press
-     * Override to intercept back button when in selection mode
-     */
-    @Deprecated("Deprecated in Java")
-    override fun onBackPressed() {
-        if (isInSelectionMode) {
-            // Notify JS to cancel selection
-            try {
-                getWebView()?.evaluateJavascript(
-                    "if (window.__galleryOnBackPressed) { window.__galleryOnBackPressed(); }",
-                    null
-                )
-            } catch (e: Exception) {
-                Log.e(TAG, "onBackPressed: error calling evaluateJavascript", e)
-            }
-            // Don't call super to prevent default back behavior
-            return
-        }
-
-        // Normal back behavior
-        @Suppress("DEPRECATION")
-        super.onBackPressed()
     }
 }

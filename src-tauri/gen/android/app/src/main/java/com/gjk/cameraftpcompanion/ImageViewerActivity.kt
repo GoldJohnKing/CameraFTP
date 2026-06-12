@@ -21,6 +21,7 @@ import android.widget.FrameLayout
 import android.widget.ImageButton
 import android.widget.LinearLayout
 import android.widget.TextView
+import androidx.activity.OnBackPressedCallback
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -245,6 +246,10 @@ class ImageViewerActivity : AppCompatActivity() {
         setupViewPager()
         setupButtons()
         updateUI()
+
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() { finish() }
+        })
     }
 
     private fun bindViews() {
@@ -673,11 +678,6 @@ class ImageViewerActivity : AppCompatActivity() {
     override fun onStop() {
         MainActivity.markActivityHidden()
         super.onStop()
-    }
-
-    @Deprecated("Deprecated in Java")
-    override fun onBackPressed() {
-        finish()
     }
 
     override fun onDestroy() {
