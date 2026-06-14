@@ -44,7 +44,7 @@ pub const SERVER_SHUTDOWN_TIMEOUT_SECS: u64 = 5;
 pub const CHECK_INTERVAL_MS: u64 = 50;
 
 /// FTP 连接空闲超时时间（秒）
-pub const IDLE_TIMEOUT_SECONDS: u64 = 600;
+pub const IDLE_TIMEOUT_SECONDS: u64 = 60;
 
 // ============================================================================
 // 文件操作常量

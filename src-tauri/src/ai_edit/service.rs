@@ -31,39 +31,64 @@ struct AiEditTask {
     result_tx: Option<oneshot::Sender<Result<PathBuf, AppError>>>,
 }
 
+/// Holds channel senders and task handle for a lazily-spawned worker.
+/// The worker spawns on first task and stays alive for the app's lifetime —
+/// blocking on `recv().await` costs ~0 CPU/battery, so idle destruction would
+/// only waste the cached provider (HTTP client + TLS session).
+struct AiEditWorkerHandle {
+    manual_sender: mpsc::Sender<AiEditTask>,
+    auto_sender: mpsc::Sender<AiEditTask>,
+    _join: tauri::async_runtime::JoinHandle<()>,
+}
+
 pub struct AiEditService {
     config_service: Arc<ConfigService>,
     /// Used only by `emit_queued()` for broadcasting queue events from public API methods.
     /// The worker_loop uses its own cloned AppHandle for all other event emissions.
     app_handle: AppHandle,
-    manual_sender: mpsc::Sender<AiEditTask>,
-    auto_sender: mpsc::Sender<AiEditTask>,
+    worker: tokio::sync::Mutex<Option<AiEditWorkerHandle>>,
     queue_depth: Arc<AtomicU32>,
     cancel_token: Arc<Mutex<CancellationToken>>,
 }
 
 impl AiEditService {
     pub fn new(app_handle: AppHandle, config_service: Arc<ConfigService>) -> Self {
-        let (manual_sender, manual_receiver) = mpsc::channel::<AiEditTask>(MANUAL_QUEUE_CAPACITY);
-        let (auto_sender, auto_receiver) = mpsc::channel::<AiEditTask>(AUTO_QUEUE_CAPACITY);
-        let config_service_clone = config_service.clone();
-        let queue_depth = Arc::new(AtomicU32::new(0));
-        let queue_depth_clone = queue_depth.clone();
-        let cancel_token = Arc::new(Mutex::new(CancellationToken::new()));
-        let cancel_token_clone = cancel_token.clone();
-        let app_handle_clone = app_handle.clone();
-
-        tauri::async_runtime::spawn(async move {
-            worker_loop(manual_receiver, auto_receiver, app_handle_clone, config_service_clone, queue_depth_clone, cancel_token_clone).await;
-        });
-
         Self {
             config_service,
             app_handle,
-            manual_sender,
-            auto_sender,
-            queue_depth,
-            cancel_token,
+            worker: tokio::sync::Mutex::new(None),
+            queue_depth: Arc::new(AtomicU32::new(0)),
+            cancel_token: Arc::new(Mutex::new(CancellationToken::new())),
+        }
+    }
+
+    /// Lazily spawn the worker on first use, or respawn after idle-timeout exit.
+    /// Returns cloned senders for the caller to enqueue tasks.
+    async fn ensure_worker(&self) -> (mpsc::Sender<AiEditTask>, mpsc::Sender<AiEditTask>) {
+        let mut guard = self.worker.lock().await;
+        let needs_spawn = match guard.as_ref() {
+            None => true,
+            Some(h) => h.manual_sender.is_closed(),
+        };
+        if needs_spawn {
+            let (manual_sender, manual_receiver) = mpsc::channel::<AiEditTask>(MANUAL_QUEUE_CAPACITY);
+            let (auto_sender, auto_receiver) = mpsc::channel::<AiEditTask>(AUTO_QUEUE_CAPACITY);
+            let config_service_clone = Arc::clone(&self.config_service);
+            let queue_depth_clone = Arc::clone(&self.queue_depth);
+            let cancel_token_clone = Arc::clone(&self.cancel_token);
+            let app_handle_clone = self.app_handle.clone();
+            let join = tauri::async_runtime::spawn(async move {
+                worker_loop(manual_receiver, auto_receiver, app_handle_clone, config_service_clone, queue_depth_clone, cancel_token_clone).await;
+            });
+            *guard = Some(AiEditWorkerHandle {
+                manual_sender: manual_sender.clone(),
+                auto_sender: auto_sender.clone(),
+                _join: join,
+            });
+            (manual_sender, auto_sender)
+        } else {
+            let h = guard.as_ref().unwrap();
+            (h.manual_sender.clone(), h.auto_sender.clone())
         }
     }
 
@@ -78,6 +103,7 @@ impl AiEditService {
             return;
         }
 
+        let (_, auto_sender) = self.ensure_worker().await;
         self.queue_depth.fetch_add(1, Ordering::Relaxed);
         let task = AiEditTask {
             file_path,
@@ -85,7 +111,7 @@ impl AiEditService {
             override_model: None,
             result_tx: None,
         };
-        if let Err(e) = self.auto_sender.try_send(task) {
+        if let Err(e) = auto_sender.try_send(task) {
             self.queue_depth.fetch_sub(1, Ordering::Relaxed);
             let dropped_task = e.into_inner();
             warn!("AI edit queue full, dropping task: {}", dropped_task.file_path.display());
@@ -108,10 +134,11 @@ impl AiEditService {
 
     /// Manual trigger: enqueue and wait for result.
     pub async fn edit_single(&self, file_path: PathBuf, override_prompt: Option<String>, override_model: Option<String>) -> Result<PathBuf, AppError> {
+        let (manual_sender, _) = self.ensure_worker().await;
         self.queue_depth.fetch_add(1, Ordering::Relaxed);
         let (tx, rx) = oneshot::channel();
 
-        if self.manual_sender
+        if manual_sender
             .send(AiEditTask {
                 file_path,
                 override_prompt,
@@ -133,8 +160,9 @@ impl AiEditService {
 
     /// Manual batch enqueue (non-blocking, no result callback).
     pub async fn enqueue_manual(&self, file_path: PathBuf, override_prompt: Option<String>, override_model: Option<String>) -> Result<(), AppError> {
+        let (manual_sender, _) = self.ensure_worker().await;
         self.queue_depth.fetch_add(1, Ordering::Relaxed);
-        if let Err(e) = self.manual_sender
+        if let Err(e) = manual_sender
             .send(AiEditTask {
                 file_path,
                 override_prompt,

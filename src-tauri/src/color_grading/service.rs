@@ -27,10 +27,19 @@ struct ColorGradingTask {
     ev_offset: f32,
 }
 
+/// Holds the channel sender and task handle for a lazily-spawned worker.
+/// The worker spawns on first task and stays alive for the app's lifetime —
+/// blocking on `recv().await` costs ~0 CPU/battery, so idle destruction would
+/// only waste the cached state (and risk TLS re-handshake overhead on respawn).
+struct ColorGradingWorkerHandle {
+    sender: mpsc::Sender<ColorGradingTask>,
+    _join: tauri::async_runtime::JoinHandle<()>,
+}
+
 pub struct ColorGradingService {
     config_service: Arc<ConfigService>,
     app_handle: AppHandle,
-    sender: mpsc::Sender<ColorGradingTask>,
+    worker: tokio::sync::Mutex<Option<ColorGradingWorkerHandle>>,
     queue_depth: Arc<AtomicU32>,
     cancel_token: Arc<std::sync::Mutex<CancellationToken>>,
 }
@@ -45,34 +54,55 @@ impl ColorGradingService {
     }
 
     pub fn new(app_handle: AppHandle, config_service: Arc<ConfigService>) -> Self {
-        let (sender, receiver) = mpsc::channel::<ColorGradingTask>(16);
-        let queue_depth = Arc::new(AtomicU32::new(0));
-        let cancel_token = Arc::new(std::sync::Mutex::new(CancellationToken::new()));
+        Self {
+            config_service,
+            app_handle,
+            worker: tokio::sync::Mutex::new(None),
+            queue_depth: Arc::new(AtomicU32::new(0)),
+            cancel_token: Arc::new(std::sync::Mutex::new(CancellationToken::new())),
+        }
+    }
 
-        let app_handle_clone = app_handle.clone();
-        let queue_depth_clone = queue_depth.clone();
-        let cancel_token_clone = cancel_token.clone();
-
-        tauri::async_runtime::spawn(async move {
-            worker_loop(receiver, app_handle_clone, queue_depth_clone, cancel_token_clone).await;
-        });
-
-        Self { config_service, app_handle, sender, queue_depth, cancel_token }
+    /// Lazily spawn the worker on first use, or respawn after idle-timeout exit.
+    /// Returns a cloned sender for the caller to enqueue tasks.
+    async fn ensure_worker(&self) -> mpsc::Sender<ColorGradingTask> {
+        let mut guard = self.worker.lock().await;
+        let needs_spawn = match guard.as_ref() {
+            None => true,
+            Some(h) => h.sender.is_closed(),
+        };
+        if needs_spawn {
+            let (sender, receiver) = mpsc::channel::<ColorGradingTask>(16);
+            let app_handle_clone = self.app_handle.clone();
+            let queue_depth_clone = Arc::clone(&self.queue_depth);
+            let cancel_token_clone = Arc::clone(&self.cancel_token);
+            let join = tauri::async_runtime::spawn(async move {
+                worker_loop(receiver, app_handle_clone, queue_depth_clone, cancel_token_clone).await;
+            });
+            *guard = Some(ColorGradingWorkerHandle {
+                sender: sender.clone(),
+                _join: join,
+            });
+            sender
+        } else {
+            guard.as_ref().unwrap().sender.clone()
+        }
     }
 
     pub async fn enqueue(&self, file_paths: Vec<PathBuf>, lut_id: String, metering_mode: String, ev_offset: f32) -> Result<(), AppError> {
         let preset = find_preset(&lut_id)
             .ok_or_else(|| AppError::ColorGradingError(format!("Unknown LUT preset: {}", lut_id)))?;
 
+        let sender = self.ensure_worker().await;
         let total = file_paths.len() as u32;
-        if self.sender.is_closed() {
+        if sender.is_closed() {
             return Err(AppError::ColorGradingError("Color grading queue is closed".to_string()));
         }
         self.queue_depth.fetch_add(total, Ordering::Relaxed);
 
         let mut sent = 0u32;
         for path in file_paths {
-            match self.sender.send(ColorGradingTask {
+            match sender.send(ColorGradingTask {
                 input_path: path,
                 lut_id: preset.id.clone(),
                 metering_mode: metering_mode.clone(),
@@ -178,6 +208,15 @@ async fn worker_loop(
         }
 
         let task = tokio::select! {
+            biased;
+
+            _ = cancel_token.cancelled() => {
+                drain_pending_tasks(&mut receiver, &queue_depth);
+                if state.processed_count() > 0 {
+                    emit_done(&mut state, &app_handle, true);
+                }
+                continue;
+            }
             t = receiver.recv() => match t {
                 Some(t) => t,
                 None => {
@@ -187,13 +226,6 @@ async fn worker_loop(
                     }
                     break;
                 }
-            },
-            _ = cancel_token.cancelled() => {
-                drain_pending_tasks(&mut receiver, &queue_depth);
-                if state.processed_count() > 0 {
-                    emit_done(&mut state, &app_handle, true);
-                }
-                continue;
             }
         };
 

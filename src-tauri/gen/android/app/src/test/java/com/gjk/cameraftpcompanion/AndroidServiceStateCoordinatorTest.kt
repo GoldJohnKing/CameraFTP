@@ -51,8 +51,6 @@ class AndroidServiceStateCoordinatorTest {
         }
 
         assertTrue(manifest.contains("android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE"))
-        assertTrue(manifest.contains("android.permission.CHANGE_WIFI_STATE"))
-        assertTrue(manifest.contains("android.permission.CHANGE_NETWORK_STATE"))
         assertFalse(manifest.contains("android.permission.FOREGROUND_SERVICE_DATA_SYNC"))
         assertNotNull(ftpServiceNode)
         assertEquals(

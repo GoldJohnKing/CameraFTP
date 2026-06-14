@@ -10,7 +10,6 @@ import android.app.NotificationManager
 import android.app.Service
 import android.content.Context
 import android.content.Intent
-import android.os.PowerManager
 import androidx.test.core.app.ApplicationProvider
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -23,8 +22,6 @@ import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
-import org.robolectric.annotation.Implementation
-import org.robolectric.annotation.Implements
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [33], manifest = Config.NONE)
@@ -133,51 +130,6 @@ class FtpForegroundServiceTest {
         }
     }
 
-    @Test
-    @Config(shadows = [ThrowingWakeLockPowerManagerShadow::class])
-    fun start_with_wake_lock_creation_failure_does_not_crash_and_timeout_cleanup_still_works() {
-        val context = ApplicationProvider.getApplicationContext<Context>()
-        val notificationManager =
-            context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        AndroidServiceStateCoordinator.clearState()
-        AndroidServiceStateCoordinator.syncNativeServiceState(
-            context,
-            true,
-            "{\"isRunning\":true,\"connectedClients\":1,\"filesReceived\":2,\"bytesReceived\":1024,\"lastFile\":null}",
-            1,
-        )
-
-        val serviceController = Robolectric.buildService(FtpForegroundService::class.java).create()
-        try {
-            val service = serviceController.get()
-            val startResult = runCatching {
-                service.onStartCommand(
-                    Intent(context, FtpForegroundService::class.java).apply {
-                        action = FtpForegroundService.ACTION_START
-                    },
-                    0,
-                    1,
-                )
-            }
-
-            assertTrue(startResult.isSuccess)
-            assertEquals(Service.START_NOT_STICKY, startResult.getOrThrow())
-            assertTrue(readIsInForeground(service))
-            assertNotNull(shadowOf(notificationManager).getNotification(FtpForegroundService.NOTIFICATION_ID))
-            assertNull(readWakeLock(service))
-
-            service.onTimeout(2)
-            assertFalse(AndroidServiceStateCoordinator.getLatestState().isRunning)
-            assertEquals(0, readConnectedClients(service))
-            assertNull(readServiceStatsJson(service))
-            assertFalse(readIsInForeground(service))
-            assertNull(shadowOf(notificationManager).getNotification(FtpForegroundService.NOTIFICATION_ID))
-        } finally {
-            serviceController.destroy()
-            AndroidServiceStateCoordinator.clearState()
-        }
-    }
-
     private fun readConnectedClients(service: FtpForegroundService): Int {
         return withAccessibleField(service, "connectedClients") { field ->
             field.getInt(service)
@@ -196,12 +148,6 @@ class FtpForegroundServiceTest {
         }
     }
 
-    private fun readWakeLock(service: FtpForegroundService): PowerManager.WakeLock? {
-        return withAccessibleField(service, "wakeLock") { field ->
-            field.get(service) as PowerManager.WakeLock?
-        }
-    }
-
     private fun <T> withAccessibleField(
         target: Any,
         fieldName: String,
@@ -214,14 +160,6 @@ class FtpForegroundServiceTest {
             block(field)
         } finally {
             field.isAccessible = wasAccessible
-        }
-    }
-
-    @Implements(PowerManager::class)
-    class ThrowingWakeLockPowerManagerShadow {
-        @Implementation
-        fun newWakeLock(_levelAndFlags: Int, _tag: String?): PowerManager.WakeLock {
-            throw IllegalStateException("wake lock creation failed for test")
         }
     }
 

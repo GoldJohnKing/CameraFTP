@@ -4,7 +4,6 @@
 
     <!-- Network permissions -->
     <uses-permission android:name="android.permission.INTERNET" />
-    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     
     <!-- Storage permissions -->
     <!-- READ_MEDIA_IMAGES for Android 13+ (API 33+) -->
@@ -15,8 +14,6 @@
     <!-- Foreground service permissions -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
-    <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
-    <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE" />
     
     <!-- Notification permission -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
