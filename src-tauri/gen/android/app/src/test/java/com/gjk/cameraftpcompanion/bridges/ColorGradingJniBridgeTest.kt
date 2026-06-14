@@ -50,37 +50,22 @@ class ColorGradingJniBridgeTest {
     }
 
     @Test
-    fun parseResultWithOutputPath_okWithOutputPath_returnsPath() {
-        val result = JniResultParser.parseResultWithOutputPath(
-            """{"ok":true,"outputPath":"/photos/out.jpg"}"""
-        )
+    fun parseResultWithBuffer_validBytes_returnsSameBytes() {
+        val bytes = byteArrayOf(0x01, 0x02, 0x03)
+        val result = JniResultParser.parseResultWithBuffer(bytes)
         assertTrue(result.isSuccess)
-        assertEquals("/photos/out.jpg", result.getOrNull())
+        assertArrayEquals(bytes, result.getOrNull())
     }
 
     @Test
-    fun parseResultWithOutputPath_emptyOutputPath_returnsFailure() {
-        val result = JniResultParser.parseResultWithOutputPath(
-            """{"ok":true,"outputPath":""}"""
-        )
+    fun parseResultWithBuffer_emptyBytes_returnsFailure() {
+        val result = JniResultParser.parseResultWithBuffer(byteArrayOf())
         assertTrue(result.isFailure)
     }
 
     @Test
-    fun parseResultWithBuffer_okWithValidBase64_returnsDecodedBytes() {
-        // "AQID" = Base64 of [0x01, 0x02, 0x03]
-        val result = JniResultParser.parseResultWithBuffer(
-            """{"ok":true,"buffer":"AQID"}"""
-        )
-        assertTrue(result.isSuccess)
-        assertArrayEquals(byteArrayOf(0x01, 0x02, 0x03), result.getOrNull())
-    }
-
-    @Test
-    fun parseResultWithBuffer_emptyBuffer_returnsFailure() {
-        val result = JniResultParser.parseResultWithBuffer(
-            """{"ok":true,"buffer":""}"""
-        )
+    fun parseResultWithBuffer_nullBytes_returnsFailure() {
+        val result = JniResultParser.parseResultWithBuffer(null)
         assertTrue(result.isFailure)
     }
 }

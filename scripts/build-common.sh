@@ -402,7 +402,6 @@ clean_build_cache() {
 
 # Run Rust and frontend tests. Fails the build if any test fails.
 run_tests() {
-    set -o pipefail
     local cargo_cmd
     cargo_cmd=$(get_tool_cmd "cargo")
     if [ -z "$cargo_cmd" ]; then
@@ -411,23 +410,38 @@ run_tests() {
     fi
 
     task "正在运行 Rust 测试..."
-    cd src-tauri
-    $cargo_cmd test --lib 2>&1 | tail -5
-    cd ..
+    local rust_output
+    rust_output=$(cd src-tauri && $cargo_cmd test --lib 2>&1) || {
+        error "Rust 测试失败"
+        echo "$rust_output" | tail -60
+        return 1
+    }
+    echo "$rust_output" | tail -5
     success "Rust 测试通过"
 
     task "正在运行前端测试..."
-    npx vitest run 2>&1 | tail -5
+    local fe_output
+    fe_output=$(npx vitest run 2>&1) || {
+        error "前端测试失败"
+        echo "$fe_output" | tail -60
+        return 1
+    }
+    echo "$fe_output" | tail -5
     success "前端测试通过"
 }
 
 # Run Android (Kotlin/Robolectric) unit tests. Fails the build if any test fails.
+# NOTE: This function is called via `&&` chain in build-android.sh, which disables
+# `set -e` inside the function body. Therefore we MUST use explicit exit-code checks.
 run_android_tests() {
-    set -o pipefail
     task "正在运行 Android (Kotlin) 测试..."
-    cd src-tauri/gen/android
-    ./gradlew test 2>&1 | tail -10
-    cd ../../..
+    local output
+    output=$(cd src-tauri/gen/android && ./gradlew test 2>&1) || {
+        error "Android (Kotlin) 测试失败"
+        echo "$output" | tail -60
+        return 1
+    }
+    echo "$output" | tail -5
     success "Android (Kotlin) 测试通过"
 }
 
