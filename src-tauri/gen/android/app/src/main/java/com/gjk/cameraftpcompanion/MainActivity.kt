@@ -121,24 +121,23 @@ class MainActivity : TauriActivity() {
         val cutoffMillis = System.currentTimeMillis() - 24 * 60 * 60 * 1000L
         MediaStoreBridge.cleanupStalePendingEntries(contentResolver, cutoffMillis)
 
-        // Handle back press: intercept in selection mode, default otherwise
-        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+        // Back-press callback for gallery selection mode.
+        // Starts disabled; registerBackPressCallback() enables it when JS enters
+        // selection mode. When disabled, OnBackPressedDispatcher naturally falls
+        // through to the system default — no manual re-dispatch needed.
+        selectionBackCallback = object : OnBackPressedCallback(false) {
             override fun handleOnBackPressed() {
-                if (isInSelectionMode) {
-                    try {
-                        getWebView()?.evaluateJavascript(
-                            "if (window.__galleryOnBackPressed) { window.__galleryOnBackPressed(); }",
-                            null
-                        )
-                    } catch (e: Exception) {
-                        Log.e(TAG, "onBackPressed: error calling evaluateJavascript", e)
-                    }
-                } else {
-                    isEnabled = false
-                    onBackPressedDispatcher.onBackPressed()
+                try {
+                    getWebView()?.evaluateJavascript(
+                        "if (window.__galleryOnBackPressed) { window.__galleryOnBackPressed(); }",
+                        null
+                    )
+                } catch (e: Exception) {
+                    Log.e(TAG, "onBackPressed: error calling evaluateJavascript", e)
                 }
             }
-        })
+        }
+        onBackPressedDispatcher.addCallback(this, selectionBackCallback!!)
     }
 
     /**
@@ -301,28 +300,29 @@ class MainActivity : TauriActivity() {
         return completed && approvedRef.get()
     }
     
-   /**
-    * Flag to track if we're in selection mode (for back button handling)
-    */
-   private var isInSelectionMode = false
+    /**
+     * Back-press callback toggled by gallery selection mode.
+     * Its `isEnabled` state IS the selection-mode state — no separate flag needed.
+     */
+    private var selectionBackCallback: OnBackPressedCallback? = null
 
     /**
-     * Register back press callback to intercept back button
-     * Called from JS when entering selection mode
+     * Enable back-press interception for selection mode.
+     * Called from JS when entering selection mode.
      */
     fun registerBackPressCallback(): Boolean {
         Log.d(TAG, "registerBackPressCallback: entering selection mode")
-        isInSelectionMode = true
+        selectionBackCallback?.isEnabled = true
         return true
     }
 
     /**
-     * Unregister back press callback
-     * Called from JS when exiting selection mode
+     * Disable back-press interception.
+     * Called from JS when exiting selection mode.
      */
     fun unregisterBackPressCallback(): Boolean {
         Log.d(TAG, "unregisterBackPressCallback: exiting selection mode")
-        isInSelectionMode = false
+        selectionBackCallback?.isEnabled = false
         return true
     }
 }

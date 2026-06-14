@@ -73,6 +73,7 @@ impl AiEditService {
             Some(h) => h.manual_sender.is_closed(),
         };
         if needs_spawn {
+            self.queue_depth.store(0, Ordering::Relaxed);
             let (manual_sender, manual_receiver) = mpsc::channel::<AiEditTask>(MANUAL_QUEUE_CAPACITY);
             let (auto_sender, auto_receiver) = mpsc::channel::<AiEditTask>(AUTO_QUEUE_CAPACITY);
             let config_service_clone = Arc::clone(&self.config_service);
@@ -181,6 +182,12 @@ impl AiEditService {
         Ok(())
     }
 
+    /// Cancel the current batch and arm a fresh token for future tasks.
+    ///
+    /// Aborts in-flight and queued work via the active token, then replaces it
+    /// with a new uncancelled token. Safe to call repeatedly — redundant calls
+    /// are silently absorbed because the worker only reacts to the first active
+    /// cancellation. Tasks enqueued after this call use the fresh token.
     pub fn cancel(&self) {
         let mut guard = self.cancel_token.lock().unwrap_or_else(|e| e.into_inner());
         guard.cancel();

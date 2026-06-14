@@ -74,6 +74,7 @@ impl ColorGradingService {
             Some(h) => h.sender.is_closed(),
         };
         if needs_spawn {
+            self.queue_depth.store(0, Ordering::Relaxed);
             let (sender, receiver) = mpsc::channel::<ColorGradingTask>(16);
             let app_handle_clone = self.app_handle.clone();
             let queue_depth_clone = Arc::clone(&self.queue_depth);
@@ -97,9 +98,6 @@ impl ColorGradingService {
 
         let sender = self.ensure_worker().await;
         let total = file_paths.len() as u32;
-        if sender.is_closed() {
-            return Err(AppError::ColorGradingError("Color grading queue is closed".to_string()));
-        }
         self.queue_depth.fetch_add(total, Ordering::Relaxed);
 
         let mut sent = 0u32;
@@ -124,6 +122,12 @@ impl ColorGradingService {
         Ok(())
     }
 
+    /// Cancel the current batch and arm a fresh token for future tasks.
+    ///
+    /// Aborts in-flight and queued work via the active token, then replaces it
+    /// with a new uncancelled token. Safe to call repeatedly — redundant calls
+    /// are silently absorbed because the worker only reacts to the first active
+    /// cancellation. Tasks enqueued after this call use the fresh token.
     pub fn cancel(&self) {
         let mut guard = self.cancel_token.lock().unwrap_or_else(|e| e.into_inner());
         guard.cancel();
@@ -200,14 +204,6 @@ async fn worker_loop(
 
     loop {
         let cancel_token = cancel_token_arc.lock().unwrap_or_else(|e| e.into_inner()).clone();
-
-        if cancel_token.is_cancelled() {
-            drain_pending_tasks(&mut receiver, &queue_depth);
-            if state.processed_count() > 0 {
-                emit_done(&mut state, &app_handle, true);
-            }
-            continue;
-        }
 
         let task = tokio::select! {
             biased;
