@@ -63,7 +63,9 @@ impl ColorGradingService {
         }
     }
 
-    /// Lazily spawn the worker on first use, or respawn after idle-timeout exit.
+    /// Lazily spawn the worker on first use, or respawn after the worker exits
+    /// (panic or shutdown — detected via `sender.is_closed()`). Workers do not
+    /// have an idle-timeout; they run for the app's lifetime once spawned.
     /// Returns a cloned sender for the caller to enqueue tasks.
     async fn ensure_worker(&self) -> mpsc::Sender<ColorGradingTask> {
         let mut guard = self.worker.lock().await;

@@ -62,7 +62,9 @@ impl AiEditService {
         }
     }
 
-    /// Lazily spawn the worker on first use, or respawn after idle-timeout exit.
+    /// Lazily spawn the worker on first use, or respawn after the worker exits
+    /// (panic or shutdown — detected via `sender.is_closed()`). Workers do not
+    /// have an idle-timeout; they run for the app's lifetime once spawned.
     /// Returns cloned senders for the caller to enqueue tasks.
     async fn ensure_worker(&self) -> (mpsc::Sender<AiEditTask>, mpsc::Sender<AiEditTask>) {
         let mut guard = self.worker.lock().await;
