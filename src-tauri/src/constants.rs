@@ -43,8 +43,9 @@ pub const SERVER_SHUTDOWN_TIMEOUT_SECS: u64 = 5;
 /// 端口检查间隔（毫秒）
 pub const CHECK_INTERVAL_MS: u64 = 50;
 
-/// FTP 连接空闲超时时间（秒）
-pub const IDLE_TIMEOUT_SECONDS: u64 = 60;
+/// FTP 控制通道空闲超时（秒）：客户端 N 秒内未发命令（含 NOOP）即被踢下线。
+/// 正在传输的文件不受影响（libunftp 的 data_busy 豁免），不会切断上传中的照片。
+pub const IDLE_TIMEOUT_SECONDS: u64 = 900;
 
 // ============================================================================
 // 文件操作常量
