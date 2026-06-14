@@ -63,10 +63,18 @@ impl Authenticator for CustomAuthenticator {
                     return Err(AuthenticationError::BadPassword);
                 }
 
-                // 使用 Argon2id 验证密码
+                // spawn_blocking: Argon2id (m=64MB, t=3, p=4) is CPU-intensive and spawns
+                // 4 OS threads internally; running it inline blocks the async worker for
+                // 0.5–2s on mobile and stalls other connections during auth.
                 let password = creds.password.clone().unwrap_or_default();
-                
-                if crate::crypto::verify_password(password, password_hash) {
+                let hash = password_hash.clone();
+                let verified = tokio::task::spawn_blocking(
+                    move || crate::crypto::verify_password(password, &hash),
+                )
+                .await
+                .unwrap_or(false);
+
+                if verified {
                     Ok(Principal {
                         username: username.to_string(),
                     })
