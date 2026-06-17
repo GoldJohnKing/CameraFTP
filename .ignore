@@ -1,0 +1,4 @@
+
+# Make deepwork dir readable to OpenCode despite .gitignore
+!.slim/deepwork/
+!.slim/deepwork/**
