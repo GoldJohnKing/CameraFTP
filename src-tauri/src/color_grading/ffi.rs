@@ -40,7 +40,7 @@ pub mod embedded_dll {
 
         if dll_path.exists() {
             tracing::debug!("Embedded DLL already extracted: {}", dll_path.display());
-            cleanup_old_dlls(&temp_dir, &dll_name);
+            cleanup_old_dlls(&temp_dir, "raw_alchemy_core_", &dll_name);
             return Ok(dll_path);
         }
 
@@ -67,18 +67,20 @@ pub mod embedded_dll {
             AppError::ColorGradingError(format!("Failed to rename DLL: {}", e))
         })?;
 
-        cleanup_old_dlls(&temp_dir, &dll_name);
+        cleanup_old_dlls(&temp_dir, "raw_alchemy_core_", &dll_name);
 
         Ok(dll_path)
     }
 
-    /// Remove old versions of the extracted DLL from the temp directory.
-    fn cleanup_old_dlls(temp_dir: &Path, current_name: &str) {
+    /// Remove old versions of an extracted DLL from the temp directory.
+    /// Matches files named `<prefix>*.dll` other than `current_name`. Used to GC
+    /// both `raw_alchemy_core_<hash>.dll` and `libomp_<hash>.dll` across updates.
+    fn cleanup_old_dlls(temp_dir: &Path, prefix: &str, current_name: &str) {
         if let Ok(entries) = std::fs::read_dir(temp_dir) {
             for entry in entries.flatten() {
                 let name = entry.file_name();
                 let name_str = name.to_string_lossy();
-                if name_str.starts_with("raw_alchemy_core_")
+                if name_str.starts_with(prefix)
                     && name_str.ends_with(".dll")
                     && name_str != current_name
                 {
@@ -110,7 +112,16 @@ pub mod embedded_dll {
     /// while raw_alchemy_core.dll still references it. libomp is needed for the
     /// whole process lifetime anyway.
     pub fn preload_libomp() -> Result<(), AppError> {
+        use std::hash::{Hash, Hasher};
         use std::io::Read;
+
+        // Content-hash the embedded libomp so the on-disk filename changes when
+        // the bundled LLVM version changes. Without this, a fixed `libomp.dll`
+        // name + the exists() short-circuit below would silently reuse a stale
+        // libomp from a previous app version across updates (ABI mismatch).
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        LIBOMP_DLL_GZ.hash(&mut hasher);
+        let content_hash = format!("{:016x}", hasher.finish());
 
         let temp_dir = std::env::temp_dir().join("CameraFTP");
         std::fs::create_dir_all(&temp_dir).map_err(|e| {
@@ -121,13 +132,26 @@ pub mod embedded_dll {
             ))
         })?;
 
-        let libomp_path = temp_dir.join("libomp.dll");
+        let libomp_name = format!("libomp_{}.dll", content_hash);
+        let libomp_path = temp_dir.join(&libomp_name);
+
         if !libomp_path.exists() {
             let mut decoder = flate2::read::GzDecoder::new(LIBOMP_DLL_GZ);
             let mut bytes = Vec::new();
             decoder.read_to_end(&mut bytes).map_err(|e| {
                 AppError::ColorGradingError(format!("Failed to decompress embedded libomp: {}", e))
             })?;
+
+            // Empty payload means the DLL wasn't built for this profile (e.g. a
+            // Debug cargo build without a matching `build_windows.bat Debug`).
+            // Fail with an actionable message instead of writing a 0-byte DLL.
+            if bytes.is_empty() {
+                return Err(AppError::ColorGradingError(
+                    "Embedded libomp.dll is empty — RawAlchemyCpp was not built for this profile \
+                     (run scripts/build_windows.bat with the matching Debug/Release first)."
+                        .into(),
+                ));
+            }
 
             // Atomic write: temp file + rename
             let tmp_path = libomp_path.with_extension("tmp");
@@ -142,6 +166,8 @@ pub mod embedded_dll {
                 AppError::ColorGradingError(format!("Failed to rename libomp: {}", e))
             })?;
         }
+
+        cleanup_old_dlls(&temp_dir, "libomp_", &libomp_name);
 
         let lib = unsafe { Library::new(&libomp_path) }.map_err(|e| {
             AppError::ColorGradingError(format!(

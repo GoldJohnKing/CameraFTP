@@ -201,6 +201,11 @@ fn compress_raw_alchemy_dll() {
         return;
     }
 
+    // Re-run build.rs when the CMake definition changes (so an edited CMakeLists
+    // or .def triggers re-embedding even if the built DLL timestamp is unchanged).
+    println!("cargo:rerun-if-changed=lib/rawalchemy/CMakeLists.txt");
+    println!("cargo:rerun-if-changed=lib/rawalchemy/raw_alchemy_exports.def");
+
     let build_type = if std::env::var("PROFILE").as_deref() == Ok("debug") {
         "Debug"
     } else {
