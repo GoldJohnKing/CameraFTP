@@ -413,7 +413,12 @@ main() {
     if [ "$CHECK_ONLY" = true ]; then
         check_toolchain
     else
-        check_toolchain && run_android_tests && build_android "$BUILD_TYPE"
+        # Build first, then test: `npx tauri android build` runs cargo build
+        # for the android target, which generates tauri.settings.gradle and
+        # app/tauri.build.gradle.kts via tauri-build's build.rs. These files
+        # are gitignored and required by `./gradlew test` — running tests
+        # before the build fails on the missing settings file.
+        check_toolchain && build_android "$BUILD_TYPE" && run_android_tests
     fi
 }
 
