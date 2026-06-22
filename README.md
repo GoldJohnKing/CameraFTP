@@ -2,7 +2,7 @@
 
 一款跨平台的相机FTP伴侣应用，让相机照片直接传输到电脑或手机。
 
-![版本](https://img.shields.io/badge/version-1.7.0-blue)
+![版本](https://img.shields.io/badge/version-1.8.0-blue)
 ![平台](https://img.shields.io/badge/platform-Windows%20%7C%20Android-brightgreen)
 ![技术栈](https://img.shields.io/badge/tech-Tauri%20v2%20%2B%20React%2018%20%2B%20Rust%202021-orange)
 [![QQ群](https://img.shields.io/badge/QQ%E7%BE%A4-936189868-12B7F5?logo=tencentqq&logoColor=white)](https://qm.qq.com/q/IUGLEM5V28)
@@ -219,6 +219,9 @@ cameraftp/
 ├── 📁 src/                       # React前端源码
 │   ├── main.tsx                  # React入口
 │   ├── App.tsx                   # 主应用组件（三Tab布局）
+│   ├── index.css                 # 全局样式
+│   ├── vite-env.d.ts             # Vite环境类型声明
+│   ├── assets/                   # 图片资源（赞赏二维码/Logo）
 │   ├── bootstrap/                # 应用启动逻辑
 │   │   └── useAppBootstrap.ts    # 启动引导Hook
 │   ├── components/               # UI组件
@@ -232,7 +235,8 @@ cameraftp/
 │   │   │   ├── MaskedInput.tsx   # 密码输入框
 │   │   │   ├── RefreshButton.tsx # 刷新按钮
 │   │   │   ├── Select.tsx        # 下拉选择器
-│   │   │   └── ToggleSwitch.tsx  # 开关组件
+│   │   │   ├── ToggleSwitch.tsx  # 开关组件
+│   │   │   └── index.ts          # 组件统一导出（barrel）
 │   │   ├── ServerCard.tsx        # 服务器控制卡片
 │   │   ├── InfoCard.tsx          # 连接信息卡片
 │   │   ├── StatsCard.tsx         # 统计信息卡片
@@ -320,6 +324,7 @@ cameraftp/
 │   │   │   ├── ai_edit.rs        # AI修图命令
 │   │   │   └── color_grading.rs  # 调色命令
 │   │   ├── ftp/                  # FTP服务器实现
+│   │   │   ├── mod.rs            # 模块入口
 │   │   │   ├── server.rs         # FtpServerActor（生命周期管理）
 │   │   │   ├── server_factory.rs # 启动流水线
 │   │   │   ├── events.rs         # EventBus + 事件处理器
@@ -327,6 +332,7 @@ cameraftp/
 │   │   │   ├── stats.rs          # StatsActor（统计聚合）
 │   │   │   ├── types.rs          # 类型定义
 │   │   │   └── android_mediastore/ # Android MediaStore后端
+│   │   │       ├── mod.rs        # 模块入口
 │   │   │       ├── backend.rs    # StorageBackend实现
 │   │   │       ├── bridge.rs     # JNI桥接
 │   │   │       ├── types.rs      # 数据类型
@@ -360,13 +366,16 @@ cameraftp/
 │   │   │   ├── mod.rs            # 预览缓存服务
 │   │   │   └── extract.rs        # RAW内嵌JPEG预览提取
 │   │   ├── file_index/           # 文件索引服务
+│   │   │   ├── mod.rs            # 模块入口
 │   │   │   ├── service.rs        # 索引服务（EXIF排序）
 │   │   │   ├── types.rs          # 索引类型
 │   │   │   └── watcher.rs        # 文件监听（Windows）
 │   │   ├── auto_open/            # 自动预览服务
+│   │   │   ├── mod.rs            # 模块入口
 │   │   │   ├── service.rs        # 预览路由
 │   │   │   └── windows.rs        # Windows预览实现
 │   │   ├── platform/             # 平台适配层
+│   │   │   ├── mod.rs            # 模块入口
 │   │   │   ├── traits.rs         # PlatformService接口
 │   │   │   ├── types.rs          # 平台类型
 │   │   │   ├── windows.rs        # Windows实现（托盘/自启）
@@ -374,6 +383,7 @@ cameraftp/
 │   │   ├── crypto/               # 加密模块
 │   │   │   └── tls.rs            # TLS证书生成/轮换
 │   │   ├── utils/                # 工具模块
+│   │   │   ├── mod.rs            # 模块入口
 │   │   │   ├── fs.rs             # 文件系统工具
 │   │   │   └── batch_state.rs    # 批量任务进度追踪
 │   │   ├── config.rs             # 配置类型定义
@@ -382,7 +392,9 @@ cameraftp/
 │   │   ├── network.rs            # 网络接口检测
 │   │   ├── constants.rs          # 应用常量
 │   │   ├── error.rs              # 错误处理
-│   │   └── image_utils.rs        # 图片工具函数
+│   │   ├── image_utils.rs        # 图片工具函数
+│   │   └── bin/                  # 独立可执行文件
+│   │       └── export-bindings.rs # ts-rs绑定导出工具
 │   │
 │   └── 📁 gen/android/           # Android原生代码 (Kotlin)
 │       └── app/src/main/java/com/gjk/cameraftpcompanion/

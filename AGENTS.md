@@ -133,10 +133,10 @@ The project is licensed under AGPL-3.0. Use the appropriate comment syntax for e
 
 ### Add Tauri Command
 
-1. Add the function to `src-tauri/src/commands.rs`
+1. Add the function to the appropriate file in `src-tauri/src/commands/` (e.g. `server.rs`, `config.rs`, `storage.rs`, `file_index.rs`, `exif.rs`, `ai_edit.rs`, `color_grading.rs`); if creating a new file, declare it in `commands/mod.rs`
 2. Register it in `src-tauri/src/lib.rs`
 3. Call it from the frontend via `invoke()`
-4. Verify: `./build.sh windows && ./build.sh android`
+4. Verify: `./build.sh windows android`
 
 ### Add React Component
 
@@ -169,13 +169,14 @@ Classes referenced from Rust by string class name (e.g. `JniClass::call_static_m
 
 ### Update Version Number
 
-When updating the application version, **ALL THREE** of the following files must be updated:
+When updating the application version, **ALL FOUR** of the following files must be updated:
 
 | File | Field | Purpose |
 |------|-------|---------|
 | `package.json` | `version` | Frontend package version |
 | `src-tauri/Cargo.toml` | `version` | Rust crate version |
 | `src-tauri/tauri.conf.json` | `version` | Tauri application version (displayed in About dialog) |
+| `README.md` | version badge | Documentation version display (`![版本](...version-X.Y.Z-blue)`) |
 
 **Example**: Updating from v1.0.0 to v1.1.0:
 
@@ -183,6 +184,7 @@ When updating the application version, **ALL THREE** of the following files must
 # 1. Update package.json
 # 2. Update src-tauri/Cargo.toml
 # 3. Update src-tauri/tauri.conf.json
+# 4. Update README.md version badge
 ```
 
 **IMPORTANT**: If `tauri.conf.json` is not updated, the About dialog will display the old version even though the build shows the new version in logs.
