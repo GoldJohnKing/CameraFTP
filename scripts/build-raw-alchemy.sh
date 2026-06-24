@@ -27,15 +27,45 @@ build_raw_alchemy_windows() {
 
     cd "$abs_dir"
 
-    # WSL2 workaround: file edits from WSL don't reliably update the Windows-visible
-    # modification timestamp on /mnt/ mounted drives. CMake/Ninja uses mtime to decide
-    # whether to recompile, so it silently skips changed sources. Force-update
-    # LastWriteTime on all source files via PowerShell to propagate the timestamp.
+    # WSL2 has two issues that break Windows CMake/Ninja builds:
+    #
+    # 1. Timestamp propagation: file edits from WSL don't reliably update
+    #    the Windows-visible mtime on /mnt/ drives (9P protocol limitation).
+    #    Ninja uses mtime to decide whether to recompile, so it silently
+    #    skips changed sources. Fix: force-update LastWriteTime via PowerShell.
+    #
+    # 2. Stale process locks: previous ninja/cmake processes may leave
+    #    .ninja_log locked, causing "failed recompaction: Permission denied".
+    #    Fix: kill stale processes before building; retry with clean state
+    #    if the first attempt fails.
+    #
     if grep -qi microsoft /proc/version 2>/dev/null; then
-        powershell.exe -NoProfile -Command "Get-ChildItem -Path '$win_path\src','$win_path\include' -Recurse -Include '*.cpp','*.h','*.c' | ForEach-Object { \$_.LastWriteTime = Get-Date }" > /dev/null 2>&1
+        # Kill stale build processes that may lock ninja state files
+        cmd.exe /C "taskkill /f /im ninja.exe" > /dev/null 2>&1 || true
+        cmd.exe /C "taskkill /f /im clang-cl.exe" > /dev/null 2>&1 || true
+
+        # Force-update Windows-visible timestamps on all source files
+        powershell.exe -NoProfile -Command \
+            "Get-ChildItem -Path '$win_path\src','$win_path\include' -Recurse -Include '*.cpp','*.h','*.c' | ForEach-Object { \$_.LastWriteTime = Get-Date }" \
+            > /dev/null 2>&1
     fi
 
-    cmd.exe /C "scripts\\build_windows.bat $build_type"
+    # Build with escalating retry: fast incremental → state clean → full clean
+    local build_ok=false
+    if cmd.exe /C "scripts\\build_windows.bat $build_type" 2>&1; then
+        build_ok=true
+    elif rm -f build-windows-dll/.ninja_log build-windows-dll/.ninja_deps && \
+         cmd.exe /C "scripts\\build_windows.bat $build_type" 2>&1; then
+        warn "Succeeded after clearing ninja state"
+        build_ok=true
+    else
+        warn "Build failed, attempting full clean rebuild..."
+        rm -rf build-windows-dll
+        if cmd.exe /C "scripts\\build_windows.bat $build_type" 2>&1; then
+            warn "Succeeded after full clean rebuild"
+            build_ok=true
+        fi
+    fi
     cd - > /dev/null
 
     local dll_path="$abs_dir/build-windows-dll/bin/$build_type/raw_alchemy_core.dll"
