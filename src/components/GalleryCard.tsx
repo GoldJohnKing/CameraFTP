@@ -162,7 +162,8 @@ export const GalleryCard = memo(function GalleryCard() {
     if (filePaths.length > 0) {
       await enqueueColorGrading(filePaths, lutId, meteringMode, evOffset);
     }
-  }, [selectedIds, pager.items]);
+    handleCancelSelection();
+  }, [selectedIds, pager.items, handleCancelSelection]);
 
   const hasRawSelected = Array.from(selectedIds).some(id => {
     const item = pager.items.find(i => i.mediaId === id);

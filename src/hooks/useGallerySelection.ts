@@ -245,11 +245,11 @@ export function useGallerySelection({ activeTab, onDeleteApplied, getUriForId }:
       }
 
       await window.GalleryAndroid?.shareImages(JSON.stringify(urisToShare));
-      setShowMenu(false);
+      handleCancelSelection();
     } catch (err) {
       console.error('Share failed:', err);
     }
-  }, [selectedIds, getUriForId]);
+  }, [selectedIds, getUriForId, handleCancelSelection]);
 
   const handleAiEdit = useCallback(() => {
     if (selectedIds.size === 0) {
@@ -274,7 +274,8 @@ export function useGallerySelection({ activeTab, onDeleteApplied, getUriForId }:
       .map((uri) => window.ImageViewerAndroid?.resolveFilePath?.(uri) ?? uri);
 
     await applyAndEnqueueAiEdit({ filePaths, prompt, model, saveAsAutoEdit, apiKey });
-  }, [selectedIds, getUriForId]);
+    handleCancelSelection();
+  }, [selectedIds, getUriForId, handleCancelSelection]);
 
   const handleCancelAiEditPrompt = useCallback(() => {
     setShowAiEditPrompt(false);

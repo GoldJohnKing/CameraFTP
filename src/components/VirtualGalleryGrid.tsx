@@ -243,7 +243,7 @@ export function VirtualGalleryGrid({
                 onTouchEnd={onTouchEnd}
                 onTouchCancel={onTouchEnd}
                 onContextMenu={(e) => e.preventDefault()}
-                className={`aspect-square bg-gray-100 rounded-lg overflow-hidden cursor-pointer hover:opacity-90 transition-opacity duration-200 relative select-none ${
+                className={`aspect-square bg-gray-100 rounded-lg overflow-hidden cursor-pointer [@media(hover:hover)]:hover:opacity-90 active:opacity-90 transition-opacity duration-200 relative select-none ${
                   isSelectionMode && isSelected ? 'ring-2 ring-blue-500' : ''
                 } ${isDeleting ? 'scale-[0.88] opacity-0' : 'scale-100 opacity-100'}`}
                 style={{
