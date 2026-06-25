@@ -35,6 +35,13 @@ if [[ ! -f "$CACHE_DIR/DirectML.dll" ]]; then
     unzip -qo -j "$CACHE_DIR/directml.nupkg.zip" "bin/x64-win/DirectML.dll" -d "$CACHE_DIR"
 fi
 
+# --- Linux ORT (x64) — dev-loop compilation only (CPU EP, no GPU EP wired) ---
+if [[ ! -d "$CACHE_DIR/onnxruntime-linux-x64-$ORT_VERSION" ]]; then
+    curl -fL "https://github.com/microsoft/onnxruntime/releases/download/v$ORT_VERSION/onnxruntime-linux-x64-$ORT_VERSION.tgz" \
+        -o "$CACHE_DIR/onnxruntime-linux-x64-$ORT_VERSION.tgz"
+    tar -xzf "$CACHE_DIR/onnxruntime-linux-x64-$ORT_VERSION.tgz" -C "$CACHE_DIR"
+fi
+
 # --- Android ORT (arm64) + QNN runtime ---
 if [[ ! -d "$CACHE_DIR/onnxruntime-android-$ORT_VERSION" ]]; then
     curl -fL "https://repo1.maven.org/maven2/com/microsoft/onnxruntime/onnxruntime-android/$ORT_VERSION/onnxruntime-android-$ORT_VERSION.aar" \
