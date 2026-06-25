@@ -1,9 +1,20 @@
 #!/bin/bash
+# CameraFTP - A Cross-platform FTP companion for camera photo transfer
+# Copyright (C) 2026 GoldJohnKing <GoldJohnKing@Live.cn>
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 # Fetches ONNX Runtime + DirectML (Windows) or ORT-android + QNN runtime (Android)
 # into a vendored cache dir. Idempotent. Called by build.sh or manually.
 set -euo pipefail
 
-CACHE_DIR="${1:-third_party/nn-cache}"
+# Default cache dir is resolved script-relative so it matches where CMake looks:
+# rawalchemy's CMakeLists.txt uses ${CMAKE_SOURCE_DIR}/third_party/nn-cache,
+# where CMAKE_SOURCE_DIR is the rawalchemy submodule root. A CWD-relative default
+# (the old behavior) would diverge from CMake when this script is run from the
+# parent repo root rather than the submodule dir.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+RA_ROOT="$(cd "${SCRIPT_DIR}/../src-tauri/lib/rawalchemy" && pwd)"
+CACHE_DIR="${1:-${RA_ROOT}/third_party/nn-cache}"
 mkdir -p "$CACHE_DIR"
 
 # Pin versions — update here, run script, commit the cache (or gitignore + refetch).
