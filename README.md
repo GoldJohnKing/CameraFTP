@@ -2,7 +2,7 @@
 
 一款跨平台的相机FTP伴侣应用，让相机照片直接传输到电脑或手机。
 
-![版本](https://img.shields.io/badge/version-1.8.0-blue)
+![版本](https://img.shields.io/badge/version-1.8.1-blue)
 ![平台](https://img.shields.io/badge/platform-Windows%20%7C%20Android-brightgreen)
 ![技术栈](https://img.shields.io/badge/tech-Tauri%20v2%20%2B%20React%2018%20%2B%20Rust%202021-orange)
 [![QQ群](https://img.shields.io/badge/QQ%E7%BE%A4-936189868-12B7F5?logo=tencentqq&logoColor=white)](https://qm.qq.com/q/IUGLEM5V28)
