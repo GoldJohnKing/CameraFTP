@@ -19,7 +19,7 @@ mkdir -p "$CACHE_DIR"
 
 # Pin versions — update here, run script, commit the cache (or gitignore + refetch).
 ORT_VERSION="1.24.1"          # latest stable at plan time; verify at onnxruntime.ai
-QNN_RUNTIME_VERSION="2.34.0"  # com.qualcomm.qti:qnn-runtime Maven
+QNN_RUNTIME_VERSION="2.42.0"  # com.qualcomm.qti:qnn-runtime Maven (matches ORT 1.24.1 POM)
 DIRECTML_VERSION="1.15.4"     # Microsoft.AI.DirectML NuGet
 
 # --- Windows ORT (DirectML-capable) + DirectML.dll ---
@@ -67,12 +67,18 @@ if [[ ! -d "$CACHE_DIR/onnxruntime-linux-x64-$ORT_VERSION" ]]; then
     tar -xzf "$CACHE_DIR/onnxruntime-linux-x64-$ORT_VERSION.tgz" -C "$CACHE_DIR"
 fi
 
-# --- Android ORT (arm64) + QNN runtime ---
-if [[ ! -d "$CACHE_DIR/onnxruntime-android-$ORT_VERSION" ]]; then
-    curl -fL "https://repo1.maven.org/maven2/com/microsoft/onnxruntime/onnxruntime-android/$ORT_VERSION/onnxruntime-android-$ORT_VERSION.aar" \
-        -o "$CACHE_DIR/ort-android.aar"
-    mkdir -p "$CACHE_DIR/onnxruntime-android-$ORT_VERSION"
-    unzip -qo "$CACHE_DIR/ort-android.aar" -d "$CACHE_DIR/onnxruntime-android-$ORT_VERSION"
+# --- Android ORT (arm64, QNN EP compiled in) + QNN runtime ---
+#
+# The generic onnxruntime-android AAR has NO QNN execution provider compiled
+# in: AppendExecutionProvider("QNN", opts) fails because the QNN provider
+# factory doesn't exist in the build (Android requires QNN statically linked,
+# no plugin). We instead pull onnxruntime-android-qnn — the same ORT version
+# built with the QNN EP statically linked in.
+if [[ ! -d "$CACHE_DIR/onnxruntime-android-qnn-$ORT_VERSION" ]]; then
+    curl -fL "https://repo1.maven.org/maven2/com/microsoft/onnxruntime/onnxruntime-android-qnn/$ORT_VERSION/onnxruntime-android-qnn-$ORT_VERSION.aar" \
+        -o "$CACHE_DIR/ort-android-qnn.aar"
+    mkdir -p "$CACHE_DIR/onnxruntime-android-qnn-$ORT_VERSION"
+    unzip -qo "$CACHE_DIR/ort-android-qnn.aar" -d "$CACHE_DIR/onnxruntime-android-qnn-$ORT_VERSION"
 fi
 if [[ ! -d "$CACHE_DIR/qnn-runtime-$QNN_RUNTIME_VERSION" ]]; then
     curl -fL "https://repo1.maven.org/maven2/com/qualcomm/qti/qnn-runtime/$QNN_RUNTIME_VERSION/qnn-runtime-$QNN_RUNTIME_VERSION.aar" \

@@ -351,8 +351,8 @@ build_android() {
     # demosaic path degrades gracefully to the classical algorithm.
     package_nn_android() {
         local nn_cache="src-tauri/lib/rawalchemy/third_party/nn-cache"
-        local ort_dir="$nn_cache/onnxruntime-android-1.24.1/jni/arm64-v8a"
-        local qnn_dir="$nn_cache/qnn-runtime-2.34.0/jni/arm64-v8a"
+        local ort_dir="$nn_cache/onnxruntime-android-qnn-1.24.1/jni/arm64-v8a"
+        local qnn_dir="$nn_cache/qnn-runtime-2.42.0/jni/arm64-v8a"
         local nn_jni_dir="src-tauri/gen/android/app/extra-jniLibs/arm64-v8a"
 
         if [ ! -d "$ort_dir" ] || [ ! -d "$qnn_dir" ]; then
