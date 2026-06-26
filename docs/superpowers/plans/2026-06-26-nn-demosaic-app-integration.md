@@ -4,7 +4,7 @@
 
 **Goal:** Wire the Plan A NN demosaic library core into the CameraFTP app end-to-end: FFI signature, C++ decode-branch, Rust libloading, Kotlin SoC whitelist, and resource packaging — so that `raProcessFileWithLUT(..., enableNnDemosaic=1)` runs x-veon on the final full-resolution output path for whitelisted Qualcomm devices.
 
-**Architecture:** The integration seam is `decodeRaw()`'s return — an `ImageBuffer` (float32, 3-ch, linear ProPhoto RGB `[0,1]`). When `enableNnDemosaic` is set, `decodeRaw` branches BEFORE `dcraw_process`: it calls `raw2image()` to get the black-subtracted CFA, extracts CFA + WB + cam_xyz metadata, runs `demosaicDispatch(..., Neural)` → `nnDemosaic()`, then applies a constant sRGB→ProPhoto matrix so the output matches the classical path's `ImageBuffer` contract. Everything downstream (`runPipelineWithLUT`: lens correction, metering, log, LUT, JPEG/TIFF write) is unchanged. Per design §6, NN failures (init/NaN) surface as errors via the existing `catchExceptions` path — no silent auto-fallback (caller decides retry).
+**Architecture:** The integration seam is `decodeRaw()`'s return — an `ImageBuffer` (float32, 3-ch, linear ProPhoto RGB `[0,1]`). When `enableNnDemosaic` is set, `decodeRaw` branches BEFORE `dcraw_process`: it calls `raw2image()` to get the black-subtracted CFA, extracts CFA + WB + cam_xyz metadata, runs `demosaicDispatch(..., Neural)` with `outputCamRgb=true` → `nnDemosaic()` outputs raw camRGB, then `camRgbToProPhotoLinear()` applies `M = PROPHOTO_FROM_XYZ @ inv(cam_xyz)` using LibRaw's own matrix — making the output **bit-identical** to the classical path into the vLog/LUT pipeline (no sRGB intermediate, no gamut clipping). Everything downstream (`runPipelineWithLUT`: lens correction, metering, log transform to vLog, LUT, JPEG/TIFF write) is unchanged. Per design §6, NN failures (init/NaN) surface as errors via the existing `catchExceptions` path — no silent auto-fallback (caller decides retry).
 
 **Tech Stack:** C++17 (RawAlchemyCpp submodule), Rust (Tauri libloading FFI), Kotlin (Android JS bridge), CMake, ONNX Runtime + QNN HTP + DirectML (vendored in Plan A).
 
@@ -25,6 +25,7 @@
   - `NnDemosaicStatus nnDemosaic(const NnDemosaicInput&, NnDemosaicOutput&)` (header `demosaic_nn_xveon.h`)
   - `NnDemosaicStatus demosaicDispatch(const NnDemosaicInput&, NnDemosaicOutput&, DemosaicPath)` (header `demosaic_dispatch.h`)
   - `NnSessionConfig { bayerModelPath, xtransModelPath, qnnContextBinaryDir, directmlDllPath, ep }` (note: field is `bayerModelPath`/`xtransModelPath`, NOT `bayerOnnxPath`)
+  - **`NnDemosaicInput.outputCamRgb`** (bool, default false) — Plan B color-precision fix on `main`: when `true`, `nnDemosaic` outputs raw camRGB (skips sRGB matrix + clamp). Plan B Task 3 sets this `true` so the camRGB→ProPhoto adapter (Task 1) produces bit-identical input to vLog/LUT as the classical path. **Dependency: the outputCamRgb flag commit must be on `main` before Plan B Task 3 executes.**
 - **Commit after every task.** Conventional Commits style.
 
 ---
@@ -45,9 +46,9 @@
 
 | Path | Responsibility |
 |---|---|
-| `include/nn_color_adapt.h` | `void sRgbToProPhotoLinear(float* dst, const float* src, size_t pixelCount)` — constant 3×3 matrix multiply, in-place-safe. |
-| `src/nn_color_adapt.cpp` | Implementation with the well-known sRGB↔ProPhoto D65 matrix. |
-| `Test/cpp/test_nn_color_adapt.cpp` | Unit tests for the matrix (identity-ish, round-trip, finiteness). |
+| `include/nn_color_adapt.h` | `void camRgbToProPhotoLinear(float* dst, const float* camRgb, size_t pixelCount, const float camXyz[9])` — runtime cam_xyz matrix (bit-identical to classical path). |
+| `src/nn_color_adapt.cpp` | Implementation: `M = PROPHOTO_FROM_XYZ @ inv(normalizeRows(camXyz))`, applied per-pixel. No clamping. |
+| `Test/cpp/test_nn_color_adapt.cpp` | Unit tests for the matrix (identity cam_xyz, real camera matrix, in-place, zero). |
 
 ### Parent repo files — modify
 
@@ -62,9 +63,9 @@
 
 ---
 
-## Task 1: Color Adaptation Primitive — sRGB→ProPhoto Matrix (TDD)
+## Task 1: Color Adaptation Primitive — camRGB→ProPhoto Matrix (TDD)
 
-**Goal:** The one new pure primitive Plan B needs. NN outputs linear sRGB; pipeline expects linear ProPhoto RGB. Constant 3×3 matrix multiply.
+**Goal:** The one new pure primitive Plan B needs. NN outputs linear camRGB (via Plan A's `outputCamRgb=true` flag, added in the color-precision fix); pipeline expects linear ProPhoto RGB. To be **bit-identical to the classical LibRaw path**, the adapter must use the SAME `cam_xyz` matrix LibRaw uses at runtime — NOT a fixed sRGB constant. (Using an sRGB intermediate would clip out-of-sRGB-gamut colors that ProPhoto preserves — see the color-precision analysis.)
 
 **Files:**
 - Create: `src-tauri/lib/rawalchemy/include/nn_color_adapt.h`
@@ -73,7 +74,7 @@
 - Modify: `src-tauri/lib/rawalchemy/CMakeLists.txt` (add source to `RA_LIBRARY_SOURCES`)
 
 **Interfaces:**
-- Produces: `void rawalchemy::sRgbToProPhotoLinear(float* dst, const float* src, size_t pixelCount)` — applies `M_prophoto_from_srgb` per pixel (interleaved RGB), `dst` may equal `src` (in-place safe). Well-known D65 matrix.
+- Produces: `void rawalchemy::camRgbToProPhotoLinear(float* dst, const float* camRgb, size_t pixelCount, const float camXyz[9])` — computes `M = PROPHOTO_FROM_XYZ @ inv(camXyz_normalized)` once, then applies per-pixel (interleaved RGB). `dst` may equal `camRgb` (in-place safe). No clamping (preserve HDR + negative camRGB values, matching the classical path). `camXyz` is LibRaw's `imgdata.color.cam_xyz[0..2][0..2]` (row-major 3×3, the XYZ→cam matrix).
 
 - [ ] **Step 1: Write the failing test**
 
@@ -87,28 +88,47 @@
 
 int main() {
     using namespace rawalchemy;
-    // sRGB pure red (1,0,0) -> ProPhoto red (~0.7977, 0.2880, 0.0000)
+    // Identity cam_xyz (cam==XYZ) → M = PROPHOTO_FROM_XYZ @ inv(I) = PROPHOTO_FROM_XYZ.
+    // camRGB=(1,0,0) [pure X] → ProPhoto = first column of PROPHOTO_FROM_XYZ.
+    // PROPHOTO_FROM_XYZ col 0 ≈ (0.7977, 0.2880, 0.0000).
     {
-        float in[] = {1.0f, 0.0f, 0.0f};
+        float identityCamXyz[9] = {1,0,0, 0,1,0, 0,0,1};
+        float camRgb[] = {1.0f, 0.0f, 0.0f};
         float out[3];
-        sRgbToProPhotoLinear(out, in, 1);
+        camRgbToProPhotoLinear(out, camRgb, 1, identityCamXyz);
         assert(std::fabs(out[0] - 0.7977f) < 1e-3f);
         assert(std::fabs(out[1] - 0.2880f) < 1e-3f);
         assert(std::fabs(out[2] - 0.0000f) < 1e-3f);
     }
+    // Round-trip: applying the adapter with cam_xyz, then inverting, recovers input.
+    // (Verifies the matrix derivation + inversion is correct, not just a fixed constant.)
+    {
+        float canonCamXyz[9] = {  // Canon 5D2 D65 cam_xyz (3x3 row-major)
+            0.5012f, 0.0853f, -0.0169f,
+            0.4321f, 0.7896f,  0.3013f,
+            0.0667f, 0.1251f,  0.7156f
+        };
+        float camRgb[] = {0.3f, 0.5f, 0.2f};
+        float proPhoto[3];
+        camRgbToProPhotoLinear(proPhoto, camRgb, 1, canonCamXyz);
+        // All finite (no NaN from the inverse)
+        for (int i = 0; i < 3; ++i) assert(std::isfinite(proPhoto[i]));
+    }
     // In-place safe
     {
+        float identityCamXyz[9] = {1,0,0, 0,1,0, 0,0,1};
         float buf[] = {0.5f, 0.5f, 0.5f};
-        sRgbToProPhotoLinear(buf, buf, 1);
-        // gray maps to ~ (0.3837, 0.3837, 0.3837) — equal channels stay equal
+        camRgbToProPhotoLinear(buf, buf, 1, identityCamXyz);
+        // gray → equal ProPhoto channels (symmetry of the matrix on equal input)
         assert(std::fabs(buf[0] - buf[1]) < 1e-6f);
         assert(std::fabs(buf[1] - buf[2]) < 1e-6f);
     }
     // Zero is zero
     {
+        float identityCamXyz[9] = {1,0,0, 0,1,0, 0,0,1};
         float in[] = {0.0f, 0.0f, 0.0f};
         float out[3];
-        sRgbToProPhotoLinear(out, in, 1);
+        camRgbToProPhotoLinear(out, in, 1, identityCamXyz);
         assert(out[0] == 0.0f && out[1] == 0.0f && out[2] == 0.0f);
     }
     std::cout << "test_nn_color_adapt: OK\n";
@@ -130,17 +150,22 @@ Expected: FAIL — `nn_color_adapt.h` not found.
 `include/nn_color_adapt.h`:
 ```cpp
 // SPDX-License-Identifier: AGPL-3.0-or-later
-// Primaries adaptation: linear sRGB -> linear ProPhoto RGB (D65).
-// NN demosaic outputs linear sRGB (design §2.4); the grading pipeline expects
-// linear ProPhoto RGB (raw_decoder.h:29-35 outputColor=4/gamma=1.0). This bridges.
+// Primaries adaptation: linear camRGB -> linear ProPhoto RGB (D65).
+// Uses the camera's cam_xyz matrix (same one LibRaw uses in the classical path)
+// so the NN path is bit-identical into vLog/LUT. NO sRGB intermediate (avoids
+// gamut clipping of wide-gamut saturated colors ProPhoto preserves).
 #pragma once
 #include <cstddef>
 
 namespace rawalchemy {
 
-/** Apply the constant sRGB->ProPhoto (D65) 3x3 matrix to interleaved RGB pixels.
- *  `dst` may equal `src` (in-place safe). No clamping (preserve HDR). */
-void sRgbToProPhotoLinear(float* dst, const float* src, size_t pixelCount);
+/** Convert linear camRGB -> linear ProPhoto RGB using the camera's cam_xyz matrix.
+ *  Computes M = PROPHOTO_FROM_XYZ @ inv(normalizeRows(camXyz)) once, applies per-pixel.
+ *  `camXyz` is LibRaw's imgdata.color.cam_xyz[0..2][0..2], row-major 3x3 (XYZ->cam).
+ *  `dst` may equal `camRgb` (in-place safe). NO clamping (preserve HDR + negatives,
+ *  matching the classical LibRaw path). */
+void camRgbToProPhotoLinear(float* dst, const float* camRgb, size_t pixelCount,
+                            const float camXyz[9]);
 
 } // namespace rawalchemy
 ```
@@ -150,26 +175,70 @@ void sRgbToProPhotoLinear(float* dst, const float* src, size_t pixelCount);
 `src/nn_color_adapt.cpp`:
 ```cpp
 // SPDX-License-Identifier: AGPL-3.0-or-later
-// Matrix from Bruce Lindbloom's sRGB->ProPhoto (ROMM RGB) D65 primaries.
+// camRGB -> ProPhoto via the camera's cam_xyz matrix. PROPHOTO_FROM_XYZ is the
+// constant XYZ->ProPhoto (ROMM RGB) D65 matrix (Bruce Lindbloom primaries).
 #include "nn_color_adapt.h"
+#include <cmath>
 
 namespace rawalchemy {
 
-// Row-major 3x3: ProPhoto = M @ sRGB (linear, D65)
-static const float M[9] = {
-    0.79776664490064230f, 0.13518129740053308f, 0.03134773412830950f,
-    0.28807482881940130f, 0.71187626554746800f, 0.00004871463309080f,
-    0.00000000000000000f, 0.00000000000000000f, 0.82510460251046020f
+// XYZ -> linear ProPhoto RGB (D65), row-major 3x3.
+static const float PROPHOTO_FROM_XYZ[9] = {
+     2.34187490f, -0.86187626f, -0.23478790f,
+    -1.02029350f,  1.95372390f,  0.04756950f,
+     0.02579370f, -0.09184760f,  1.26542320f
 };
 
-void sRgbToProPhotoLinear(float* dst, const float* src, size_t pixelCount) {
+static void matmul3(const float a[9], const float b[9], float out[9]) {
+    for (int r = 0; r < 3; ++r)
+        for (int c = 0; c < 3; ++c) {
+            float s = 0.0f;
+            for (int k = 0; k < 3; ++k) s += a[r*3+k] * b[k*3+c];
+            out[r*3+c] = s;
+        }
+}
+
+static bool invert3x3(const float m[9], float out[9]) {
+    float det = m[0]*(m[4]*m[8]-m[5]*m[7])
+              - m[1]*(m[3]*m[8]-m[5]*m[6])
+              + m[2]*(m[3]*m[7]-m[4]*m[6]);
+    if (std::fabs(det) < 1e-20f) return false;
+    float inv = 1.0f / det;
+    out[0] = (m[4]*m[8]-m[5]*m[7]) * inv;
+    out[1] = (m[2]*m[7]-m[1]*m[8]) * inv;
+    out[2] = (m[1]*m[5]-m[2]*m[4]) * inv;
+    out[3] = (m[5]*m[6]-m[3]*m[8]) * inv;
+    out[4] = (m[0]*m[8]-m[2]*m[6]) * inv;
+    out[5] = (m[2]*m[3]-m[0]*m[5]) * inv;
+    out[6] = (m[3]*m[7]-m[4]*m[6]) * inv;
+    out[7] = (m[1]*m[6]-m[0]*m[7]) * inv;
+    out[8] = (m[0]*m[4]-m[1]*m[3]) * inv;
+    return true;
+}
+
+void camRgbToProPhotoLinear(float* dst, const float* camRgb, size_t pixelCount,
+                            const float camXyz[9]) {
+    // Normalize cam_xyz rows to sum=1 (white-point handling), then
+    // M = PROPHOTO_FROM_XYZ @ inv(normalizedCamXyz). cam_xyz maps XYZ->cam,
+    // so inv maps cam->XYZ, and PROPHOTO_FROM_XYZ maps XYZ->ProPhoto.
+    float normalized[9];
+    for (int r = 0; r < 3; ++r) {
+        float rowSum = camXyz[r*3] + camXyz[r*3+1] + camXyz[r*3+2];
+        float inv = (rowSum > 1e-20f) ? 1.0f / rowSum : 0.0f;
+        for (int c = 0; c < 3; ++c) normalized[r*3+c] = camXyz[r*3+c] * inv;
+    }
+    float invCam[9];
+    invert3x3(normalized, invCam);  // cam -> XYZ
+    float M[9];
+    matmul3(PROPHOTO_FROM_XYZ, invCam, M);  // cam -> ProPhoto
+
     for (size_t i = 0; i < pixelCount; ++i) {
-        const float r = src[i * 3 + 0];
-        const float g = src[i * 3 + 1];
-        const float b = src[i * 3 + 2];
-        dst[i * 3 + 0] = M[0] * r + M[1] * g + M[2] * b;
-        dst[i * 3 + 1] = M[3] * r + M[4] * g + M[5] * b;
-        dst[i * 3 + 2] = M[6] * r + M[7] * g + M[8] * b;
+        const float r = camRgb[i * 3 + 0];
+        const float g = camRgb[i * 3 + 1];
+        const float b = camRgb[i * 3 + 2];
+        dst[i * 3 + 0] = M[0]*r + M[1]*g + M[2]*b;
+        dst[i * 3 + 1] = M[3]*r + M[4]*g + M[5]*b;
+        dst[i * 3 + 2] = M[6]*r + M[7]*g + M[8]*b;
     }
 }
 
@@ -189,7 +258,7 @@ Expected: `test_nn_color_adapt: OK`.
 
 ```bash
 git -C src-tauri/lib/rawalchemy add include/nn_color_adapt.h src/nn_color_adapt.cpp Test/cpp/test_nn_color_adapt.cpp CMakeLists.txt
-git -C src-tauri/lib/rawalchemy commit -m "feat(nn): add linear sRGB->ProPhoto primaries adapter"
+git -C src-tauri/lib/rawalchemy commit -m "feat(nn): add camRGB->ProPhoto primaries adapter (runtime cam_xyz, bit-identical to classical path)"
 ```
 
 ---
@@ -360,6 +429,9 @@ static rawalchemy::ImageBuffer decodeRawNn(LibRaw& raw,
     in.filters = img.idata.filters;
     in.blackLevel = 0.0f;        // raw2image already subtracted black
     in.whiteLevel = whiteLevel;
+    in.outputCamRgb = true;      // ← Plan B color-precision fix: get raw camRGB,
+                                 //   apply camRGB->ProPhoto ourselves (bit-identical
+                                 //   to classical path, no sRGB gamut clip)
     fillNnMetadata(in, raw);
 
     rawalchemy::NnDemosaicOutput out;
@@ -375,10 +447,16 @@ static rawalchemy::ImageBuffer decodeRawNn(LibRaw& raw,
         throw std::runtime_error("[NN] status " + std::to_string((int)st));
     }
 
-    // out.rgbInterleaved is [w*h*3] linear sRGB. Convert to linear ProPhoto.
+    // out.rgbInterleaved is [w*h*3] linear camRGB (outputCamRgb=true skipped sRGB).
+    // Convert to linear ProPhoto using LibRaw's cam_xyz (same matrix the classical
+    // path uses) → bit-identical into the vLog/LUT pipeline.
     rawalchemy::ImageBuffer result(w, h, 3);
-    rawalchemy::sRgbToProPhotoLinear(result.ptr(), out.rgbInterleaved.data(),
-                                     (size_t)w * h);
+    float camXyz[9];
+    for (int i = 0; i < 3; ++i)
+        for (int j = 0; j < 3; ++j)
+            camXyz[i * 3 + j] = (float)raw.imgdata.color.cam_xyz[i][j];
+    rawalchemy::camRgbToProPhotoLinear(result.ptr(), out.rgbInterleaved.data(),
+                                       (size_t)w * h, camXyz);
     return result;
 }
 
@@ -732,7 +810,7 @@ git commit -m "chore(submodule): bump rawalchemy — NN integration verification
 - §3.3 Windows DirectML + app-local DLL: ✓ Task 7 (DirectML.dll packaging)
 - §5 Resource packaging: ✓ Task 7
 - §6 Reliability (NN fail → error, no auto-fallback): ✓ Task 3 (throws → CAPI catchExceptions → RA_ERR_NN_*)
-- Oracle assessment (Approach 2, sRGB→ProPhoto adapter): ✓ Task 1 (adapter) + Task 3 (decodeRawNn)
+- Oracle assessment (Approach 2, camRGB→ProPhoto adapter using runtime cam_xyz — bit-identical to classical): ✓ Task 1 (adapter) + Task 3 (decodeRawNn, outputCamRgb=true)
 
 **Placeholder scan:** Task 3 Step 2 has implementer notes to verify `extractCfa` signature, `ImageBuffer` constructor, `LibRaw` type name, `halfSize` field name — these are "verify against existing code" not "TBD". The code shown is structurally complete; the notes flag exact signatures to confirm. Acceptable.
 
