@@ -193,11 +193,15 @@ pub fn run() {
                     tracing::warn!("Color grading resource extraction failed: {}", e);
                 }
 
+                // Extract embedded NN models so configure_nn_model_env can find them
+                if let Err(e) = color_grading::resources::extract_nn_models(&app_data_dir) {
+                    tracing::warn!("NN model extraction failed: {}", e);
+                }
+
                 let lib_path = resolve_raw_alchemy_lib_path();
                 match color_grading::ffi::RawAlchemyLib::load_global(&lib_path) {
                     Ok(lib) => {
-                        // Supply NN model paths to the C++ core via env vars
-                        // before init (no-op until Task 7 packages the models).
+                        // Point the C++ NN core at the extracted model paths before init.
                         color_grading::resources::configure_nn_model_env(&app_data_dir);
                         // NN init is non-fatal: on failure (symbol absent in this
                         // build, models not packaged, or GPU unsupported) we fall

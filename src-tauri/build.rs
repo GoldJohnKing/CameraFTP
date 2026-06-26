@@ -5,6 +5,7 @@ fn main() {
     compress_libomp_dll();
     compress_onnxruntime_dll();
     compress_directml_dll();
+    compress_nn_models();
 
     let mut attributes = tauri_build::Attributes::new();
 
@@ -460,4 +461,96 @@ fn compress_directml_dll() {
         "DirectML.dll",
         "lib/rawalchemy/third_party/nn-cache/DirectML.dll",
     );
+}
+
+/// Gzip the NN demosaic ONNX models (bayer + xtrans) into
+/// `OUT_DIR/nn_models/` for embedding via `include_bytes!()`. At runtime the
+/// host extracts them to `{app_data_dir}/models/` so the C++ NN core can load
+/// real filesystem paths — Tauri resources aren't auto-extracted to the data
+/// dir on Windows and aren't accessible as paths at all on Android (APK
+/// assets), so we embed+extract exactly like the Lensfun DB and the DLLs.
+fn compress_nn_models() {
+    use flate2::write::GzEncoder;
+    use flate2::Compression;
+    use std::fs;
+    use std::io::{Read, Write};
+
+    let out_dir = std::path::PathBuf::from(std::env::var("OUT_DIR").expect("OUT_DIR env var not set — this should be provided by Cargo; are you running outside of 'cargo build'?"));
+    let models_out = out_dir.join("nn_models");
+    fs::create_dir_all(&models_out).expect("Failed to create nn_models output directory in OUT_DIR — check disk space and write permissions");
+
+    let models_src = std::path::Path::new("resources/models/xveon");
+
+    // (source filename, output filename)
+    let targets: &[(&str, &str)] = &[
+        ("bayer.onnx", "bayer.onnx.gz"),
+        ("xtrans.onnx", "xtrans.onnx.gz"),
+    ];
+
+    for &(src_name, out_name) in targets {
+        let src_path = models_src.join(src_name);
+        let out_path = models_out.join(out_name);
+
+        if !src_path.exists() {
+            println!(
+                "cargo:warning=NN model {} not found at {}, skipping model embed (NN demosaic will be unavailable)",
+                src_name,
+                src_path.display()
+            );
+            write_empty_model_placeholder(&out_path);
+            continue;
+        }
+
+        println!("cargo:rerun-if-changed={}", src_path.display());
+
+        let mut input = fs::File::open(&src_path)
+            .unwrap_or_else(|e| panic!("Failed to open NN model '{}': {}", src_path.display(), e));
+        let mut data = Vec::new();
+        input
+            .read_to_end(&mut data)
+            .unwrap_or_else(|e| panic!("Failed to read NN model '{}': {}", src_path.display(), e));
+
+        let output = fs::File::create(&out_path).unwrap_or_else(|e| {
+            panic!(
+                "Failed to create compressed NN model in OUT_DIR ({}): {}",
+                out_path.display(),
+                e
+            )
+        });
+        let mut encoder = GzEncoder::new(output, Compression::best());
+        encoder
+            .write_all(&data)
+            .unwrap_or_else(|e| panic!("Failed to compress NN model '{}' to gzip: {}", src_name, e));
+        encoder.finish().unwrap_or_else(|e| {
+            panic!("Failed to finish NN model '{}' gzip compression: {}", src_name, e)
+        });
+
+        let compressed_size = fs::metadata(&out_path).map(|m| m.len()).unwrap_or(0);
+        println!(
+            "cargo:warning=Embedded NN model {}: {} KB → {} KB (gzip)",
+            src_name,
+            data.len() / 1024,
+            compressed_size / 1024
+        );
+    }
+}
+
+/// Write a minimal (empty-payload) gzip file so `include_bytes!()` still
+/// compiles when an ONNX model source is missing from the repo.
+fn write_empty_model_placeholder(out_path: &std::path::Path) {
+    use std::io::Write;
+    let mut f = std::fs::File::create(out_path).unwrap_or_else(|e| {
+        panic!(
+            "Failed to create NN model placeholder ({}): {}",
+            out_path.display(),
+            e
+        )
+    });
+    // Minimal gzip: 10-byte header + 8-byte footer for empty content.
+    let empty_gz: &[u8] = &[
+        0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03, 0x03, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00,
+    ];
+    f.write_all(empty_gz)
+        .unwrap_or_else(|e| panic!("Failed to write NN model placeholder content: {}", e));
 }

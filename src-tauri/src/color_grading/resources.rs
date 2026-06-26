@@ -50,10 +50,11 @@ pub fn get_resources() -> Result<&'static ResourcePaths, AppError> {
 /// Point the C++ NN demosaic core at the on-disk model files via env vars.
 ///
 /// The C++ side (`raDemosaicNnInit` / `decodeRawNn`) reads
-/// `RA_NN_BAYER_MODEL` and `RA_NN_XTRANS_MODEL` at init time. We set them only
-/// when the files actually exist in `{app_data_dir}/models/` so that, until
-/// Task 7 packages the models, init degrades cleanly to classical demosaic
-/// rather than pointing at nonexistent paths. Safe to call before the NN init.
+/// `RA_NN_BAYER_MODEL` and `RA_NN_XTRANS_MODEL` at init time. The models are
+/// extracted to `{app_data_dir}/models/` by `extract_nn_models()` at startup;
+/// the `exists()` guard makes a failed extraction degrade cleanly to classical
+/// demosaic rather than pointing at nonexistent paths. Safe to call before the
+/// NN init.
 pub fn configure_nn_model_env(app_data_dir: &std::path::Path) {
     let models_dir = app_data_dir.join("models");
     let bayer = models_dir.join("bayer.onnx");
@@ -67,4 +68,64 @@ pub fn configure_nn_model_env(app_data_dir: &std::path::Path) {
         std::env::set_var("RA_NN_XTRANS_MODEL", &xtrans);
         tracing::info!(path = %xtrans.display(), "NN xtrans model path configured");
     }
+}
+
+/// Extract the embedded, gzip-compressed NN demosaic ONNX models to
+/// `{app_data_dir}/models/` so the C++ NN core can load them via real
+/// filesystem paths.
+///
+/// Tauri resources aren't auto-extracted to the data dir on Windows and aren't
+/// accessible as paths at all on Android (APK assets), so we embed at compile
+/// time (build.rs gzips the models into `OUT_DIR/nn_models/`) and extract
+/// here — the same pattern as `lensfun_db::ensure_db()`. Idempotent: skips
+/// files that already exist to avoid the multi-MB decompress+write on every
+/// startup.
+pub fn extract_nn_models(app_data_dir: &std::path::Path) -> Result<(), AppError> {
+    let models_dir = app_data_dir.join("models");
+    std::fs::create_dir_all(&models_dir)
+        .map_err(|e| AppError::ColorGradingError(format!("Failed to create models dir: {}", e)))?;
+
+    extract_one_nn_model(
+        &models_dir,
+        "bayer.onnx",
+        include_bytes!(concat!(env!("OUT_DIR"), "/nn_models/bayer.onnx.gz")),
+    )?;
+    extract_one_nn_model(
+        &models_dir,
+        "xtrans.onnx",
+        include_bytes!(concat!(env!("OUT_DIR"), "/nn_models/xtrans.onnx.gz")),
+    )?;
+
+    Ok(())
+}
+
+/// Decompress one embedded model to `models_dir/name`, skipping if it already
+/// exists. `compressed` is the gzip payload written by build.rs.
+fn extract_one_nn_model(
+    models_dir: &std::path::Path,
+    name: &str,
+    compressed: &[u8],
+) -> Result<(), AppError> {
+    use flate2::read::GzDecoder;
+    use std::io::Read;
+
+    let out_path = models_dir.join(name);
+    if out_path.exists() {
+        return Ok(());
+    }
+
+    let mut decoder = GzDecoder::new(compressed);
+    let mut data = Vec::new();
+    decoder.read_to_end(&mut data).map_err(|e| {
+        AppError::ColorGradingError(format!("Failed to decompress NN model '{}': {}", name, e))
+    })?;
+    std::fs::write(&out_path, &data).map_err(|e| {
+        AppError::ColorGradingError(format!("Failed to write NN model '{}': {}", name, e))
+    })?;
+    tracing::info!(
+        "NN model extracted: {} ({} KB)",
+        out_path.display(),
+        data.len() / 1024
+    );
+    Ok(())
 }
