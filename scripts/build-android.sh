@@ -343,6 +343,59 @@ build_android() {
         warn "Set RAWALCHEMY_DIR to enable it."
     fi
 
+    # Package the NN runtime (ONNX Runtime + Qualcomm QNN HTP backend) into the
+    # APK via extra-jniLibs. Only arm64-v8a is targeted, and only when the
+    # nn-cache is populated (./scripts/fetch-nn-deps.sh). libonnxruntime.so
+    # comes from the ORT AAR; libQnnSystem.so / libQnnHtp.so / the per-Hexagon
+    # libQnnHtpV*Skel.so come from the qnn-runtime AAR. Without these, the NN
+    # demosaic path degrades gracefully to the classical algorithm.
+    package_nn_android() {
+        local nn_cache="src-tauri/lib/rawalchemy/third_party/nn-cache"
+        local ort_dir="$nn_cache/onnxruntime-android-1.24.1/jni/arm64-v8a"
+        local qnn_dir="$nn_cache/qnn-runtime-2.34.0/jni/arm64-v8a"
+        local nn_jni_dir="src-tauri/gen/android/app/extra-jniLibs/arm64-v8a"
+
+        if [ ! -d "$ort_dir" ] || [ ! -d "$qnn_dir" ]; then
+            warn "nn-cache not populated (ORT/QNN). Run ./scripts/fetch-nn-deps.sh. NN demosaic will be unavailable."
+            return 0
+        fi
+
+        mkdir -p "$nn_jni_dir"
+        local copied=0
+
+        # ORT runtime — required by the QNN execution provider.
+        if [ -f "$ort_dir/libonnxruntime.so" ]; then
+            cp "$ort_dir/libonnxruntime.so" "$nn_jni_dir/"
+            copied=$((copied + 1))
+        else
+            warn "libonnxruntime.so missing in $ort_dir/ — NN demosaic will be unavailable"
+        fi
+
+        # QNN HTP backend essentials.
+        for lib in libQnnSystem.so libQnnHtp.so; do
+            if [ -f "$qnn_dir/$lib" ]; then
+                cp "$qnn_dir/$lib" "$nn_jni_dir/"
+                copied=$((copied + 1))
+            fi
+        done
+
+        # All per-Hexagon-version Htp Skels (V68, V69, V73, V75, V79, …).
+        # Globbed so future Skel versions are picked up without a script edit.
+        local skel_count
+        skel_count=$(find "$qnn_dir" -maxdepth 1 -name 'libQnnHtpV*Skel.so' 2>/dev/null | wc -l)
+        if [ "$skel_count" -gt 0 ]; then
+            cp "$qnn_dir"/libQnnHtpV*Skel.so "$nn_jni_dir/"
+            copied=$((copied + skel_count))
+        fi
+
+        if [ "$copied" -gt 0 ]; then
+            success "NN runtime packaged: $copied .so(s) → extra-jniLibs/arm64-v8a/ (ORT + QNN HTP)"
+        else
+            warn "nn-cache present but no NN .so copied — NN demosaic will be unavailable"
+        fi
+    }
+    package_nn_android
+
     local VERSION
     VERSION=$(get_version)
 

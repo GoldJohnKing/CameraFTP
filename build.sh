@@ -158,8 +158,40 @@ prepare_lut_resources() {
     fi
 }
 
+# Prepare NN demosaic resources. x-veon models are committed in-tree, so this
+# only verifies their presence and reports nn-cache availability consumed by the
+# platform scripts. The large, target-specific artifacts (QNN .so on Android,
+# DirectML.dll on Windows) are packaged by scripts/build-{android,windows}.sh,
+# not here — staging them per-platform keeps the shared build lean.
+prepare_nn_resources() {
+    local resources_dir="src-tauri/resources"
+    local models_dir="$resources_dir/models/xveon"
+
+    if [ -d "$models_dir" ]; then
+        local model_count
+        model_count=$(find "$models_dir" -maxdepth 1 -name "*.onnx" 2>/dev/null | wc -l)
+        if [ "$model_count" -gt 0 ]; then
+            info "NN models ready: $model_count x-veon .onnx file(s) in $models_dir/"
+        else
+            warn "No .onnx models in $models_dir/ — NN demosaic will be unavailable"
+        fi
+    else
+        warn "NN models directory missing: $models_dir/ — NN demosaic will be unavailable"
+    fi
+
+    # Surface nn-cache status for the platform builds (no copy performed here).
+    local nn_cache="src-tauri/lib/rawalchemy/third_party/nn-cache"
+    if [ -d "$nn_cache/qnn-runtime-2.34.0" ]; then
+        info "nn-cache: QNN runtime available for Android packaging"
+    fi
+    if [ -f "$nn_cache/DirectML.dll" ]; then
+        info "nn-cache: DirectML.dll available for Windows packaging"
+    fi
+}
+
 if [ "$CHECK_ONLY" = false ]; then
     prepare_lut_resources
+    prepare_nn_resources
 fi
 
 NEED_BUILD_FRONTEND=false

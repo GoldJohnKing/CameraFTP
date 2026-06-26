@@ -52,6 +52,16 @@ build_windows() {
         warn "Set RAWALCHEMY_DIR to enable it."
     fi
 
+    # NOTE: Windows NN runtime packaging (onnxruntime.dll + DirectML.dll) is
+    # deferred to a focused follow-up. Unlike Android (QNN HTP, packaged above),
+    # Windows NN requires embedding BOTH DLLs through build.rs's gzip pipeline
+    # (mirroring raw_alchemy_core.dll/libomp.dll) and preloading them in
+    # color_grading/ffi.rs before the ORT DirectML EP initializes. The
+    # DirectML.dll source is already cached at
+    #   src-tauri/lib/rawalchemy/third_party/nn-cache/DirectML.dll
+    # Until the embed lands, the Windows path gracefully falls back to the
+    # classical demosaic algorithm when DirectML is not found at runtime.
+
     local cargo_cmd
     cargo_cmd=$(get_tool_cmd "cargo")
     local target="$TARGET_WINDOWS_TRIPLE"
