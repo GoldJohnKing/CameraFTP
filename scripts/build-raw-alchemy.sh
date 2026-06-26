@@ -120,15 +120,29 @@ build_raw_alchemy_android() {
         -DENABLE_LENS_CORRECTION=ON \
 
     cmake --build "build-android-arm64" -j"$(nproc 2>/dev/null || echo 4)"
+    local cmake_status=$?
+    if [ $cmake_status -ne 0 ]; then
+        error "RawAlchemyCpp CMake build FAILED (exit code $cmake_status). Aborting — check compile errors above."
+        return 1
+    fi
     cd - > /dev/null
 
     local so_path="$abs_dir/build-android-arm64/libraw_alchemy.so"
-    if [ -f "$so_path" ]; then
-        success "RawAlchemyCpp .so built: $so_path"
-    else
-        error "RawAlchemyCpp .so not found at expected path"
+    if [ ! -f "$so_path" ]; then
+        error "RawAlchemyCpp .so not found at expected path after successful cmake build"
         return 1
     fi
+    # Verify the .so was actually rebuilt (modified within the last 60 seconds)
+    local so_mtime
+    so_mtime=$(stat -c %Y "$so_path" 2>/dev/null || stat -f %m "$so_path" 2>/dev/null || echo 0)
+    local now
+    now=$(date +%s)
+    local age=$((now - so_mtime))
+    if [ $age -gt 60 ]; then
+        error "RawAlchemyCpp .so is STALE (modified ${age}s ago) — build may have used cache. Aborting."
+        return 1
+    fi
+    success "RawAlchemyCpp .so built: $so_path"
 }
 
 # Entry point

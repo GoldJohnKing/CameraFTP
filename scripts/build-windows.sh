@@ -45,7 +45,8 @@ build_windows() {
             bt_upper="Release"
         fi
         "$SCRIPT_DIR/build-raw-alchemy.sh" windows "$bt_upper" || {
-            warn "RawAlchemyCpp build failed. Color grading will be unavailable."
+            error "RawAlchemyCpp Windows build FAILED. Aborting — cannot produce valid exe without core library."
+            exit 1
         }
     else
         warn "RawAlchemyCpp not found. Color grading will be unavailable."

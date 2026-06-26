@@ -316,7 +316,8 @@ build_android() {
             bt_upper="Release"
         fi
         "$SCRIPT_DIR/build-raw-alchemy.sh" android "$bt_upper" || {
-            warn "RawAlchemyCpp Android build failed. LUT filter will be unavailable."
+            error "RawAlchemyCpp Android build FAILED. Aborting — cannot produce valid APK without core library."
+            exit 1
         }
 
         local abs_dir
