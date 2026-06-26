@@ -42,17 +42,16 @@ pub struct ColorGradingService {
     worker: tokio::sync::Mutex<Option<ColorGradingWorkerHandle>>,
     queue_depth: Arc<AtomicU32>,
     cancel_token: Arc<std::sync::Mutex<CancellationToken>>,
-    /// NN demosaic gate. Android starts false until the Kotlin SoC whitelist
-    /// bridge (Task 6) populates it at runtime; non-Android starts true since
-    /// DirectML covers all DX12 GPUs. Read by the worker on every file.
+    /// NN demosaic gate. Defaults to true on all platforms — NN is always
+    /// attempted, with classical demosaic as the fallback on decode failure.
+    /// Retained as a runtime knob for future per-device gating/telemetry.
     nn_enabled: Arc<AtomicBool>,
 }
 
-/// Platform default for the NN demosaic gate.
-/// Android: false — Kotlin `Build.SOC_MODEL` whitelist (Task 6) must confirm a
-/// Qualcomm SD 8 Gen 2+ before NN is enabled. Other platforms: true.
+/// Platform default for the NN demosaic gate. NN is always attempted; a
+/// decode failure falls back to classical demosaic in the C++ decodeRaw layer.
 fn nn_enabled_default() -> bool {
-    !cfg!(target_os = "android")
+    true
 }
 
 impl ColorGradingService {
@@ -75,14 +74,14 @@ impl ColorGradingService {
         }
     }
 
-    /// Whether NN demosaic is currently enabled. Android starts disabled and is
-    /// flipped on by the Kotlin SoC-whitelist bridge once a supported chipset is
-    /// detected; non-Android is always enabled.
+    /// Whether NN demosaic is currently enabled. Defaults to true on all
+    /// platforms; may be flipped at runtime via `set_nn_enabled` for future
+    /// per-device gating/telemetry.
     pub fn is_nn_enabled(&self) -> bool {
         self.nn_enabled.load(Ordering::Relaxed)
     }
 
-    /// Update the NN demosaic gate at runtime (Android Kotlin bridge, Task 6).
+    /// Update the NN demosaic gate at runtime (e.g. per-device gating/telemetry).
     /// The worker reads the current value on each file, so a flip takes effect
     /// for the next enqueued task without restarting the worker.
     pub fn set_nn_enabled(&self, enabled: bool) {
