@@ -46,3 +46,25 @@ pub fn get_resources() -> Result<&'static ResourcePaths, AppError> {
         )
     })
 }
+
+/// Point the C++ NN demosaic core at the on-disk model files via env vars.
+///
+/// The C++ side (`raDemosaicNnInit` / `decodeRawNn`) reads
+/// `RA_NN_BAYER_MODEL` and `RA_NN_XTRANS_MODEL` at init time. We set them only
+/// when the files actually exist in `{app_data_dir}/models/` so that, until
+/// Task 7 packages the models, init degrades cleanly to classical demosaic
+/// rather than pointing at nonexistent paths. Safe to call before the NN init.
+pub fn configure_nn_model_env(app_data_dir: &std::path::Path) {
+    let models_dir = app_data_dir.join("models");
+    let bayer = models_dir.join("bayer.onnx");
+    let xtrans = models_dir.join("xtrans.onnx");
+
+    if bayer.exists() {
+        std::env::set_var("RA_NN_BAYER_MODEL", &bayer);
+        tracing::info!(path = %bayer.display(), "NN bayer model path configured");
+    }
+    if xtrans.exists() {
+        std::env::set_var("RA_NN_XTRANS_MODEL", &xtrans);
+        tracing::info!(path = %xtrans.display(), "NN xtrans model path configured");
+    }
+}

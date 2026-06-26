@@ -194,8 +194,19 @@ pub fn run() {
                 }
 
                 let lib_path = resolve_raw_alchemy_lib_path();
-                if let Err(e) = color_grading::ffi::RawAlchemyLib::load_global(&lib_path) {
-                    tracing::error!("Failed to load RawAlchemyCpp: {}", e);
+                match color_grading::ffi::RawAlchemyLib::load_global(&lib_path) {
+                    Ok(lib) => {
+                        // Supply NN model paths to the C++ core via env vars
+                        // before init (no-op until Task 7 packages the models).
+                        color_grading::resources::configure_nn_model_env(&app_data_dir);
+                        // NN init is non-fatal: on failure (symbol absent in this
+                        // build, models not packaged, or GPU unsupported) we fall
+                        // back to classical demosaic for the whole session.
+                        if let Err(e) = lib.demosaic_nn_init() {
+                            tracing::warn!("NN demosaic init skipped, using classical: {}", e);
+                        }
+                    }
+                    Err(e) => tracing::error!("Failed to load RawAlchemyCpp: {}", e),
                 }
 
                 let cg_service = std::sync::Arc::new(color_grading::ColorGradingService::new(

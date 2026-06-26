@@ -5,7 +5,7 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::OnceLock;
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use tauri::{AppHandle, Emitter};
@@ -42,6 +42,17 @@ pub struct ColorGradingService {
     worker: tokio::sync::Mutex<Option<ColorGradingWorkerHandle>>,
     queue_depth: Arc<AtomicU32>,
     cancel_token: Arc<std::sync::Mutex<CancellationToken>>,
+    /// NN demosaic gate. Android starts false until the Kotlin SoC whitelist
+    /// bridge (Task 6) populates it at runtime; non-Android starts true since
+    /// DirectML covers all DX12 GPUs. Read by the worker on every file.
+    nn_enabled: Arc<AtomicBool>,
+}
+
+/// Platform default for the NN demosaic gate.
+/// Android: false — Kotlin `Build.SOC_MODEL` whitelist (Task 6) must confirm a
+/// Qualcomm SD 8 Gen 2+ before NN is enabled. Other platforms: true.
+fn nn_enabled_default() -> bool {
+    !cfg!(target_os = "android")
 }
 
 impl ColorGradingService {
@@ -60,7 +71,22 @@ impl ColorGradingService {
             worker: tokio::sync::Mutex::new(None),
             queue_depth: Arc::new(AtomicU32::new(0)),
             cancel_token: Arc::new(std::sync::Mutex::new(CancellationToken::new())),
+            nn_enabled: Arc::new(AtomicBool::new(nn_enabled_default())),
         }
+    }
+
+    /// Whether NN demosaic is currently enabled. Android starts disabled and is
+    /// flipped on by the Kotlin SoC-whitelist bridge once a supported chipset is
+    /// detected; non-Android is always enabled.
+    pub fn is_nn_enabled(&self) -> bool {
+        self.nn_enabled.load(Ordering::Relaxed)
+    }
+
+    /// Update the NN demosaic gate at runtime (Android Kotlin bridge, Task 6).
+    /// The worker reads the current value on each file, so a flip takes effect
+    /// for the next enqueued task without restarting the worker.
+    pub fn set_nn_enabled(&self, enabled: bool) {
+        self.nn_enabled.store(enabled, Ordering::Relaxed);
     }
 
     /// Lazily spawn the worker on first use, or respawn after the worker exits
@@ -79,8 +105,9 @@ impl ColorGradingService {
             let app_handle_clone = self.app_handle.clone();
             let queue_depth_clone = Arc::clone(&self.queue_depth);
             let cancel_token_clone = Arc::clone(&self.cancel_token);
+            let nn_enabled_clone = Arc::clone(&self.nn_enabled);
             let join = tauri::async_runtime::spawn(async move {
-                worker_loop(receiver, app_handle_clone, queue_depth_clone, cancel_token_clone).await;
+                worker_loop(receiver, app_handle_clone, queue_depth_clone, cancel_token_clone, nn_enabled_clone).await;
             });
             *guard = Some(ColorGradingWorkerHandle {
                 sender: sender.clone(),
@@ -173,6 +200,7 @@ async fn worker_loop(
     app_handle: AppHandle,
     queue_depth: Arc<AtomicU32>,
     cancel_token_arc: Arc<std::sync::Mutex<CancellationToken>>,
+    nn_enabled: Arc<AtomicBool>,
 ) {
     tracing::info!("Color grading worker started");
 
@@ -245,7 +273,7 @@ async fn worker_loop(
         });
 
         let result = tokio::select! {
-            r = process_single_file(&task) => Some(r),
+            r = process_single_file(&task, nn_enabled.load(Ordering::Relaxed)) => Some(r),
             _ = cancel_token.cancelled() => {
                 tracing::info!("Color grading cancelled before/during task processing");
                 None
@@ -296,7 +324,7 @@ async fn worker_loop(
     tracing::info!("Color grading worker stopped");
 }
 
-async fn process_single_file(task: &ColorGradingTask) -> Result<String, AppError> {
+async fn process_single_file(task: &ColorGradingTask, enable_nn: bool) -> Result<String, AppError> {
     let preset = find_preset(&task.lut_id)
         .ok_or_else(|| AppError::ColorGradingError(format!("Unknown LUT: {}", task.lut_id)))?;
 
@@ -324,6 +352,7 @@ async fn process_single_file(task: &ColorGradingTask) -> Result<String, AppError
             lensfun_path.as_deref(),
             ev_offset,
             &metering_mode,
+            enable_nn,
         )
     }).await.map_err(|e| AppError::ColorGradingError(format!("Blocking task failed: {}", e)))??;
 

@@ -291,6 +291,14 @@ type RaFreePreviewBufferFn = unsafe extern "C" fn(
     *mut u8, // buffer
 );
 
+// Optional symbol: only present when the C++ core is built with NN demosaic
+// enabled (RA_ENABLE_NN_DEMOSAIC). Resolved lazily/optionally so library
+// loading stays robust on builds that don't export it — the NN init call site
+// then degrades to a non-fatal warning with classical-demosaic fallback.
+// No args: the C++ side reads RA_NN_BAYER_MODEL / RA_NN_XTRANS_MODEL env vars
+// for model paths (set by the Rust startup before this runs).
+type RaDemosaicNnInitFn = unsafe extern "C" fn() -> c_int;
+
 pub struct RawAlchemyLib {
     _lib: Library,
     process_file_with_lut: RaProcessFileWithLUTFn,
@@ -300,6 +308,7 @@ pub struct RawAlchemyLib {
     apply_preview_grading: RaApplyPreviewGradingFn,
     end_preview_session: RaEndPreviewSessionFn,
     free_preview_buffer: RaFreePreviewBufferFn,
+    demosaic_nn_init: Option<RaDemosaicNnInitFn>,
 }
 
 fn ra_result_from_code(code: c_int) -> RaResult {
@@ -402,6 +411,20 @@ impl RawAlchemyLib {
                 })?
         };
 
+        // NN init is optional: builds without RA_ENABLE_NN_DEMOSAIC don't export
+        // it. A failed lookup here is expected and non-fatal — demosaic_nn_init()
+        // returns an error and callers fall back to classical demosaic.
+        let demosaic_nn_init = unsafe {
+            lib.get::<RaDemosaicNnInitFn>(b"raDemosaicNnInit\0")
+                .ok()
+                .map(|f| *f)
+        };
+        if demosaic_nn_init.is_some() {
+            tracing::debug!("raDemosaicNnInit symbol resolved");
+        } else {
+            tracing::debug!("raDemosaicNnInit symbol not present — NN demosaic disabled in this build");
+        }
+
         Ok(Self {
             _lib: lib,
             process_file_with_lut,
@@ -411,6 +434,7 @@ impl RawAlchemyLib {
             apply_preview_grading,
             end_preview_session,
             free_preview_buffer,
+            demosaic_nn_init,
         })
     }
 
@@ -520,6 +544,30 @@ impl RawAlchemyLib {
             Err(self.format_last_error(ra_result, result))
         }
     }
+
+    /// Initialize the NN demosaic session once at startup.
+    ///
+    /// Non-fatal by design: callers wrap the `Result` in a warning and fall
+    /// back to classical demosaic. Model paths are supplied to the C++ side via
+    /// the `RA_NN_BAYER_MODEL` / `RA_NN_XTRANS_MODEL` env vars (see
+    /// `resources::configure_nn_model_env`), which must be set before this call.
+    /// Returns an error if the build does not export `raDemosaicNnInit`.
+    pub fn demosaic_nn_init(&self) -> Result<(), AppError> {
+        let init = self.demosaic_nn_init.ok_or_else(|| {
+            AppError::ColorGradingError(
+                "NN demosaic init unavailable in this build — classical path will be used".into(),
+            )
+        })?;
+        let result = unsafe { (init)() };
+        let ra_result = ra_result_from_code(result);
+        if ra_result.is_ok() {
+            tracing::info!("NN demosaic session initialized");
+            Ok(())
+        } else {
+            Err(self.format_last_error(ra_result, result))
+        }
+    }
+
     pub(crate) fn begin_preview_session(
         &self,
         input_path: &Path,
