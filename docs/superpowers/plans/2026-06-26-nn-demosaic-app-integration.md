@@ -25,7 +25,7 @@
   - `NnDemosaicStatus nnDemosaic(const NnDemosaicInput&, NnDemosaicOutput&)` (header `demosaic_nn_xveon.h`)
   - `NnDemosaicStatus demosaicDispatch(const NnDemosaicInput&, NnDemosaicOutput&, DemosaicPath)` (header `demosaic_dispatch.h`)
   - `NnSessionConfig { bayerModelPath, xtransModelPath, qnnContextBinaryDir, directmlDllPath, ep }` (note: field is `bayerModelPath`/`xtransModelPath`, NOT `bayerOnnxPath`)
-  - **`NnDemosaicInput.outputCamRgb`** (bool, default false) — Plan B color-precision fix on `main`: when `true`, `nnDemosaic` outputs raw camRGB (skips sRGB matrix + clamp). Plan B Task 3 sets this `true` so the camRGB→ProPhoto adapter (Task 1) produces bit-identical input to vLog/LUT as the classical path. **Dependency: the outputCamRgb flag commit must be on `main` before Plan B Task 3 executes.**
+  - **`nnDemosaic` always outputs raw camRGB** (single output contract; the sRGB color-matrix postprocessing was removed). Plan B Task 3's `decodeRawNn` applies `camRgbToProPhotoLinear` (Task 1) to merge into the classical camRGB→ProPhoto→vLog→LUT→sRGB pipeline — bit-identical input to vLog/LUT as the classical path.
 - **Commit after every task.** Conventional Commits style.
 
 ---
@@ -429,9 +429,8 @@ static rawalchemy::ImageBuffer decodeRawNn(LibRaw& raw,
     in.filters = img.idata.filters;
     in.blackLevel = 0.0f;        // raw2image already subtracted black
     in.whiteLevel = whiteLevel;
-    in.outputCamRgb = true;      // ← Plan B color-precision fix: get raw camRGB,
-                                 //   apply camRGB->ProPhoto ourselves (bit-identical
-                                 //   to classical path, no sRGB gamut clip)
+    // nnDemosaic always outputs raw camRGB (outputCamRgb flag removed; single output contract).
+    // decodeRawNn applies camRGB->ProPhoto below to merge into the classical pipeline.
     fillNnMetadata(in, raw);
 
     rawalchemy::NnDemosaicOutput out;
@@ -447,7 +446,7 @@ static rawalchemy::ImageBuffer decodeRawNn(LibRaw& raw,
         throw std::runtime_error("[NN] status " + std::to_string((int)st));
     }
 
-    // out.rgbInterleaved is [w*h*3] linear camRGB (outputCamRgb=true skipped sRGB).
+    // out.rgbInterleaved is [w*h*3] linear camRGB (nnDemosaic always outputs camRGB).
     // Convert to linear ProPhoto using LibRaw's cam_xyz (same matrix the classical
     // path uses) → bit-identical into the vLog/LUT pipeline.
     rawalchemy::ImageBuffer result(w, h, 3);
