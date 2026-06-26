@@ -196,6 +196,9 @@ pub enum RaResult {
     ErrWriteFailed = -7,
     ErrNoLensProfile = -8,
     ErrOutOfMemory = -9,
+    ErrNnNotInitialized = -10,
+    ErrNnNanOutput = -11,
+    ErrNnInferenceFailed = -12,
 }
 
 impl RaResult {
@@ -215,6 +218,9 @@ impl RaResult {
             Self::ErrWriteFailed => "Write failed",
             Self::ErrNoLensProfile => "No lens profile found",
             Self::ErrOutOfMemory => "Out of memory",
+            Self::ErrNnNotInitialized => "NN demosaic session not initialized",
+            Self::ErrNnNanOutput => "NN demosaic produced NaN/Inf output",
+            Self::ErrNnInferenceFailed => "NN demosaic inference failed",
         }
     }
 }
@@ -232,6 +238,7 @@ type RaProcessFileWithLUTFn = unsafe extern "C" fn(
     c_int,           // jpegQuality
     c_int,           // enableLensCorrection
     *const c_char,   // customLensfunDb
+    c_int,           // enableNnDemosaic
 ) -> c_int;
 
 type RaGetLastErrorFn = unsafe extern "C" fn() -> *const c_char;
@@ -307,6 +314,9 @@ fn ra_result_from_code(code: c_int) -> RaResult {
         -7 => RaResult::ErrWriteFailed,
         -8 => RaResult::ErrNoLensProfile,
         -9 => RaResult::ErrOutOfMemory,
+        -10 => RaResult::ErrNnNotInitialized,
+        -11 => RaResult::ErrNnNanOutput,
+        -12 => RaResult::ErrNnInferenceFailed,
         _ => RaResult::ErrUnknown,
     }
 }
@@ -458,6 +468,7 @@ impl RawAlchemyLib {
         lensfun_db_path: Option<&str>,
         ev_offset: f32,
         metering_mode: &str,
+        enable_nn_demosaic: bool,
     ) -> Result<(), AppError> {
         let input_c = std::ffi::CString::new(input_path.to_string_lossy().into_owned())
             .map_err(|e| AppError::ColorGradingError(format!("Invalid input path: {}", e)))?;
@@ -497,6 +508,7 @@ impl RawAlchemyLib {
                     .as_ref()
                     .map(|c| c.as_ptr())
                     .unwrap_or(std::ptr::null()),
+                if enable_nn_demosaic { 1 } else { 0 },
             )
         };
 
@@ -630,6 +642,9 @@ mod tests {
         assert!(!RaResult::ErrWriteFailed.is_ok());
         assert!(!RaResult::ErrNoLensProfile.is_ok());
         assert!(!RaResult::ErrOutOfMemory.is_ok());
+        assert!(!RaResult::ErrNnNotInitialized.is_ok());
+        assert!(!RaResult::ErrNnNanOutput.is_ok());
+        assert!(!RaResult::ErrNnInferenceFailed.is_ok());
     }
 
     #[test]
@@ -645,6 +660,9 @@ mod tests {
             RaResult::ErrWriteFailed,
             RaResult::ErrNoLensProfile,
             RaResult::ErrOutOfMemory,
+            RaResult::ErrNnNotInitialized,
+            RaResult::ErrNnNanOutput,
+            RaResult::ErrNnInferenceFailed,
         ];
 
         let descriptions: Vec<&str> = variants.iter().map(|v| v.description()).collect();
@@ -677,6 +695,9 @@ mod tests {
         assert_eq!(RaResult::ErrWriteFailed as i32, -7);
         assert_eq!(RaResult::ErrNoLensProfile as i32, -8);
         assert_eq!(RaResult::ErrOutOfMemory as i32, -9);
+        assert_eq!(RaResult::ErrNnNotInitialized as i32, -10);
+        assert_eq!(RaResult::ErrNnNanOutput as i32, -11);
+        assert_eq!(RaResult::ErrNnInferenceFailed as i32, -12);
     }
 
     #[test]
@@ -691,6 +712,9 @@ mod tests {
         assert_eq!(ra_result_from_code(-7), RaResult::ErrWriteFailed);
         assert_eq!(ra_result_from_code(-8), RaResult::ErrNoLensProfile);
         assert_eq!(ra_result_from_code(-9), RaResult::ErrOutOfMemory);
+        assert_eq!(ra_result_from_code(-10), RaResult::ErrNnNotInitialized);
+        assert_eq!(ra_result_from_code(-11), RaResult::ErrNnNanOutput);
+        assert_eq!(ra_result_from_code(-12), RaResult::ErrNnInferenceFailed);
     }
 
     #[test]
