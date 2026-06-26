@@ -376,15 +376,17 @@ fn resolve_raw_alchemy_lib_path() -> std::path::PathBuf {
         // DLL is embedded in the exe via include_bytes! and extracted to temp at startup.
         match color_grading::ffi::embedded_dll::extract_to_temp() {
             Ok(path) => {
-                // raw_alchemy_core.dll imports libomp.dll at load time; preload the
-                // OpenMP runtime (extracted to the same temp dir) before returning the
-                // core path so the subsequent LoadLibrary resolves the dependency.
-                if let Err(e) = color_grading::ffi::embedded_dll::preload_libomp() {
-                    tracing::error!(
-                        "Failed to preload libomp: {}. raw_alchemy_core.dll may fail to load.",
-                        e
-                    );
-                }
+                // Preload raw_alchemy_core.dll's name-resolved dependencies BEFORE
+                // the caller LoadLibrary's the core DLL. Order matters:
+                //   1. libomp.dll      — raw_alchemy_core imports it at load time
+                //   2. DirectML.dll    — onnxruntime's DirectML EP loads it at runtime
+                //   3. onnxruntime.dll — raw_alchemy_core imports it at load time
+                // Each is extracted under its exact base name + leaked resident so
+                // the core DLL's import-table resolution binds to these copies
+                // (LoadLibraryEx flags=0 does not search the DLL's own directory).
+                preload_or_log(color_grading::ffi::embedded_dll::preload_libomp, "libomp");
+                preload_or_log(color_grading::ffi::embedded_dll::preload_directml, "DirectML");
+                preload_or_log(color_grading::ffi::embedded_dll::preload_onnxruntime, "onnxruntime");
                 path
             }
             Err(e) => {
@@ -396,6 +398,20 @@ fn resolve_raw_alchemy_lib_path() -> std::path::PathBuf {
                 exe_dir.join("raw_alchemy_core.dll")
             }
         }
+    }
+}
+
+/// Run a DLL preload step, logging (not propagating) failures so one missing
+/// dependency doesn't abort the whole preload sequence — the subsequent
+/// raw_alchemy_core.dll load surfaces the real failure if a dependency is absent.
+#[cfg(target_os = "windows")]
+fn preload_or_log(preload: fn() -> Result<(), error::AppError>, label: &str) {
+    if let Err(e) = preload() {
+        tracing::error!(
+            "Failed to preload {}: {}. raw_alchemy_core.dll may fail to load.",
+            label,
+            e
+        );
     }
 }
 

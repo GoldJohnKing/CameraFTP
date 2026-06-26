@@ -92,35 +92,41 @@ pub mod embedded_dll {
         }
     }
 
-    // OpenMP runtime shipped next to raw_alchemy_core.dll by the CMake POST_BUILD
-    // step. raw_alchemy_core.dll has a load-time import dependency on libomp.dll;
-    // see preload_libomp() for why it must be loaded before the core DLL.
+    // --- Embedded dependency DLLs (libomp, onnxruntime, DirectML) ---
+    //
+    // These three are load-time/runtime DEPENDENCIES of raw_alchemy_core.dll and
+    // the ORT DirectML EP — they are resolved by NAME, not by the explicit path
+    // the host uses for raw_alchemy_core.dll itself. libloading 0.8 loads with
+    // LoadLibraryExW(flags=0), which does NOT search the loaded DLL's own
+    // directory, so the dependencies must be findable as already-loaded modules
+    // keyed by their EXACT base name (libomp.dll, onnxruntime.dll, DirectML.dll).
+    //
+    // They are therefore extracted under those exact names (NOT content-hashed
+    // filenames — a `<name>_<hash>.dll` preload would NOT match a `<name>.dll`
+    // import). Freshness across app updates is handled by a sidecar `<name>.hash`
+    // file: when the embedded content hash changes, the DLL is overwritten in
+    // place and the sidecar updated, giving the same staleness guarantee the
+    // hashed-filename approach gives raw_alchemy_core.dll.
     const LIBOMP_DLL_GZ: &[u8] =
         include_bytes!(concat!(env!("OUT_DIR"), "/libomp.dll.gz"));
+    const ONNXRUNTIME_DLL_GZ: &[u8] =
+        include_bytes!(concat!(env!("OUT_DIR"), "/onnxruntime.dll.gz"));
+    const DIRECTML_DLL_GZ: &[u8] =
+        include_bytes!(concat!(env!("OUT_DIR"), "/directml.dll.gz"));
 
-    /// Extract the embedded libomp.dll to the CameraFTP temp dir and preload it
-    /// into the process.
-    ///
-    /// `raw_alchemy_core.dll` imports `libomp.dll` at load time. Windows resolves
-    /// such dependencies against already-loaded modules by name FIRST, so loading
-    /// libomp here — before the caller does `Library::new(raw_alchemy_core.dll)` —
-    /// makes that resolution succeed without libomp being on the system PATH, in
-    /// System32, or even in the DLL's own directory (which LoadLibraryW(flags=0)
-    /// does not search).
-    ///
-    /// The handle is intentionally leaked: dropping it could FreeLibrary libomp
-    /// while raw_alchemy_core.dll still references it. libomp is needed for the
-    /// whole process lifetime anyway.
-    pub fn preload_libomp() -> Result<(), AppError> {
+    /// Extract an embedded gzip DLL to the CameraFTP temp dir under `exact_name`,
+    /// skipping the write when the sidecar content hash matches the embedded
+    /// payload (so a 17 MB ORT DLL is not rewritten on every launch). Returns the
+    /// extracted path. Atomic: writes to a `.tmp` sibling then renames.
+    fn extract_dll_by_name(
+        dll_gz: &[u8],
+        exact_name: &str,
+    ) -> Result<std::path::PathBuf, AppError> {
         use std::hash::{Hash, Hasher};
         use std::io::Read;
 
-        // Content-hash the embedded libomp so the on-disk filename changes when
-        // the bundled LLVM version changes. Without this, a fixed `libomp.dll`
-        // name + the exists() short-circuit below would silently reuse a stale
-        // libomp from a previous app version across updates (ABI mismatch).
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
-        LIBOMP_DLL_GZ.hash(&mut hasher);
+        dll_gz.hash(&mut hasher);
         let content_hash = format!("{:016x}", hasher.finish());
 
         let temp_dir = std::env::temp_dir().join("CameraFTP");
@@ -132,53 +138,115 @@ pub mod embedded_dll {
             ))
         })?;
 
-        let libomp_name = format!("libomp_{}.dll", content_hash);
-        let libomp_path = temp_dir.join(&libomp_name);
+        let dll_path = temp_dir.join(exact_name);
+        let hash_path = temp_dir.join(format!("{}.hash", exact_name));
 
-        if !libomp_path.exists() {
-            let mut decoder = flate2::read::GzDecoder::new(LIBOMP_DLL_GZ);
-            let mut bytes = Vec::new();
-            decoder.read_to_end(&mut bytes).map_err(|e| {
-                AppError::ColorGradingError(format!("Failed to decompress embedded libomp: {}", e))
-            })?;
-
-            // Empty payload means the DLL wasn't built for this profile (e.g. a
-            // Debug cargo build without a matching `build_windows.bat Debug`).
-            // Fail with an actionable message instead of writing a 0-byte DLL.
-            if bytes.is_empty() {
-                return Err(AppError::ColorGradingError(
-                    "Embedded libomp.dll is empty — RawAlchemyCpp was not built for this profile \
-                     (run scripts/build_windows.bat with the matching Debug/Release first)."
-                        .into(),
-                ));
-            }
-
-            // Atomic write: temp file + rename
-            let tmp_path = libomp_path.with_extension("tmp");
-            std::fs::write(&tmp_path, &bytes).map_err(|e| {
-                AppError::ColorGradingError(format!(
-                    "Failed to write libomp to {}: {}",
-                    tmp_path.display(),
-                    e
-                ))
-            })?;
-            std::fs::rename(&tmp_path, &libomp_path).map_err(|e| {
-                AppError::ColorGradingError(format!("Failed to rename libomp: {}", e))
-            })?;
+        // Freshness short-circuit: same hash sidecar + file present ⇒ on-disk copy
+        // matches the embedded payload, skip the decompress+write.
+        let up_to_date = dll_path.exists()
+            && std::fs::read_to_string(&hash_path)
+                .map(|h| h.trim() == content_hash)
+                .unwrap_or(false);
+        if up_to_date {
+            return Ok(dll_path);
         }
 
-        cleanup_old_dlls(&temp_dir, "libomp_", &libomp_name);
+        let mut decoder = flate2::read::GzDecoder::new(dll_gz);
+        let mut bytes = Vec::new();
+        decoder.read_to_end(&mut bytes).map_err(|e| {
+            AppError::ColorGradingError(format!("Failed to decompress embedded {}: {}", exact_name, e))
+        })?;
 
-        let lib = unsafe { Library::new(&libomp_path) }.map_err(|e| {
+        // Empty payload means the DLL wasn't fetched/built for this profile
+        // (e.g. a Debug cargo build without a matching RawAlchemyCpp build, or
+        // the nn-cache wasn't populated). Fail with an actionable message
+        // instead of writing a 0-byte DLL.
+        if bytes.is_empty() {
+            return Err(AppError::ColorGradingError(format!(
+                "Embedded {} is empty — the dependency was not built/fetched for this profile",
+                exact_name
+            )));
+        }
+
+        // Atomic write: temp file + rename, then persist the hash sidecar.
+        let tmp_path = dll_path.with_extension("tmp");
+        std::fs::write(&tmp_path, &bytes).map_err(|e| {
             AppError::ColorGradingError(format!(
-                "Failed to preload libomp from {}: {}",
-                libomp_path.display(),
+                "Failed to write {} to {}: {}",
+                exact_name,
+                tmp_path.display(),
                 e
             ))
         })?;
-        // Keep libomp resident for the process lifetime — see fn doc.
+        std::fs::rename(&tmp_path, &dll_path).map_err(|e| {
+            AppError::ColorGradingError(format!("Failed to rename {}: {}", exact_name, e))
+        })?;
+        std::fs::write(&hash_path, &content_hash).map_err(|e| {
+            AppError::ColorGradingError(format!("Failed to write {} hash sidecar: {}", exact_name, e))
+        })?;
+
+        Ok(dll_path)
+    }
+
+    /// Extract + LoadLibrary + leak the handle so the module stays resident for
+    /// the process lifetime, registered under its exact base name. That makes a
+    /// later name-based resolution (a `raw_alchemy_core.dll` import of
+    /// `onnxruntime.dll`, or ORT's internal `LoadLibrary("DirectML.dll")`) bind
+    /// to this already-loaded module — the only resolution path that works under
+    /// LoadLibraryEx(flags=0) without the DLL being on PATH/in System32.
+    fn preload_dll_by_name(
+        dll_gz: &[u8],
+        exact_name: &str,
+    ) -> Result<std::path::PathBuf, AppError> {
+        let dll_path = extract_dll_by_name(dll_gz, exact_name)?;
+        let lib = unsafe { Library::new(&dll_path) }.map_err(|e| {
+            AppError::ColorGradingError(format!(
+                "Failed to preload {} from {}: {}",
+                exact_name,
+                dll_path.display(),
+                e
+            ))
+        })?;
+        // Leak: dropping could FreeLibrary the module while a dependent DLL still
+        // references it. These runtimes are needed for the whole process lifetime.
         std::mem::forget(lib);
-        tracing::debug!("Preloaded libomp from {}", libomp_path.display());
+        tracing::debug!("Preloaded {} from {}", exact_name, dll_path.display());
+        Ok(dll_path)
+    }
+
+    /// Preload libomp.dll (OpenMP runtime). `raw_alchemy_core.dll` imports it at
+    /// load time, so it must be resident — by exact name — before the core DLL
+    /// is LoadLibrary'd. Also sweeps legacy `libomp_<hash>.dll` files left by the
+    /// previous content-hashed extraction scheme.
+    pub fn preload_libomp() -> Result<(), AppError> {
+        let temp_dir = std::env::temp_dir().join("CameraFTP");
+        preload_dll_by_name(LIBOMP_DLL_GZ, "libomp.dll")?;
+        // One-time sweep of legacy hashed filenames so they don't accumulate.
+        cleanup_old_dlls(&temp_dir, "libomp_", "libomp.dll");
+        Ok(())
+    }
+
+    /// Preload onnxruntime.dll (the DirectML-capable ORT build).
+    /// `raw_alchemy_core.dll` links the ORT import lib, so it has a load-time
+    /// dependency on onnxruntime.dll that must resolve to our embedded copy.
+    pub fn preload_onnxruntime() -> Result<(), AppError> {
+        preload_dll_by_name(ONNXRUNTIME_DLL_GZ, "onnxruntime.dll")?;
+        Ok(())
+    }
+
+    /// Preload DirectML.dll and publish its path via the `RA_NN_DIRECTML_DLL`
+    /// env var. ORT's DirectML EP loads DirectML.dll at runtime (DMLCreateDevice);
+    /// the exact-name preload makes that bind to our copy, and the env var lets
+    /// the C++ core (nn_session.cpp) call `SetDllDirectoryA` on the same dir as
+    /// defense-in-depth against a stale System32 DirectML.dll (ORT issue #18831).
+    pub fn preload_directml() -> Result<(), AppError> {
+        let dll_path = preload_dll_by_name(DIRECTML_DLL_GZ, "DirectML.dll")?;
+        // Read by the C++ core (raw_alchemy_capi.cpp) into DecodeParams
+        // .nnDirectmlDllPath, then used by nn_session.cpp's SetDllDirectoryA.
+        // Set unconditionally so the C++ side always points at our extraction dir.
+        let path_str = dll_path.to_string_lossy().into_owned();
+        std::env::set_var("RA_NN_DIRECTML_DLL", &path_str);
+        tracing::debug!("Set RA_NN_DIRECTML_DLL={}", path_str);
         Ok(())
     }
 }

@@ -3,6 +3,8 @@ fn main() {
     compress_lensfun_db();
     compress_raw_alchemy_dll();
     compress_libomp_dll();
+    compress_onnxruntime_dll();
+    compress_directml_dll();
 
     let mut attributes = tauri_build::Attributes::new();
 
@@ -330,5 +332,132 @@ fn compress_libomp_dll() {
         "cargo:warning=Embedded libomp.dll: {} KB → {} KB (gzip)",
         data.len() / 1024,
         compressed_size / 1024
+    );
+}
+
+/// Gzip a source DLL into `<OUT_DIR>/<out_name>` for embedding via include_bytes!.
+/// Shared by the ORT/DirectML embeds (both pulled from the nn-cache, not built
+/// locally). Emits a placeholder on Windows when the source is absent so the
+/// downstream include_bytes! still compiles.
+fn compress_nn_cache_dll(
+    src_path: std::path::PathBuf,
+    out_name: &str,
+    label: &str,
+    rerun_if: &str,
+) {
+    use flate2::write::GzEncoder;
+    use flate2::Compression;
+    use std::fs;
+    use std::io::{Read, Write};
+
+    if !is_windows_msvc_target() {
+        return;
+    }
+
+    println!("cargo:rerun-if-changed={}", rerun_if);
+
+    if !src_path.exists() {
+        println!(
+            "cargo:warning={} not found at {}, skipping embed (NN runtime will be unavailable)",
+            label,
+            src_path.display()
+        );
+        write_empty_dll_placeholder(out_name);
+        return;
+    }
+
+    let mut input = match fs::File::open(&src_path) {
+        Ok(f) => f,
+        Err(e) => {
+            println!(
+                "cargo:warning=Failed to open {} at {}: {} — skipping embed",
+                label,
+                src_path.display(),
+                e
+            );
+            write_empty_dll_placeholder(out_name);
+            return;
+        }
+    };
+    let mut data = Vec::new();
+    if let Err(e) = input.read_to_end(&mut data) {
+        println!(
+            "cargo:warning=Failed to read {} ({}): {} — skipping embed",
+            label,
+            src_path.display(),
+            e
+        );
+        write_empty_dll_placeholder(out_name);
+        return;
+    }
+
+    let out_dir = std::path::PathBuf::from(
+        std::env::var("OUT_DIR").expect("OUT_DIR env var not set — this should be provided by Cargo; are you running outside of 'cargo build'?"),
+    );
+    let output_path = out_dir.join(out_name);
+    let output = fs::File::create(&output_path).unwrap_or_else(|e| {
+        panic!(
+            "Failed to create compressed {} file in OUT_DIR ({}): {}",
+            label, out_dir.display(), e
+        )
+    });
+    let mut encoder = GzEncoder::new(output, Compression::best());
+    encoder
+        .write_all(&data)
+        .unwrap_or_else(|e| panic!("Failed to compress {} to gzip: {}", label, e));
+    encoder
+        .finish()
+        .unwrap_or_else(|e| panic!("Failed to finish {} gzip compression: {}", label, e));
+
+    let compressed_size = fs::metadata(&output_path).map(|m| m.len()).unwrap_or(0);
+    println!(
+        "cargo:warning=Embedded {}: {} KB → {} KB (gzip)",
+        label,
+        data.len() / 1024,
+        compressed_size / 1024
+    );
+}
+
+/// Gzip the DirectML-capable onnxruntime.dll (from the nn-cache after
+/// fetch-nn-deps.sh) into OUT_DIR for embedding. This is the ORT build with the
+/// DirectML EP compiled in — without it, GetExecutionProviderApi("DML") returns
+/// null and NN init always fails. raw_alchemy_core.dll imports onnxruntime.dll,
+/// so the host preloads it before loading the core DLL.
+fn compress_onnxruntime_dll() {
+    if !is_windows_msvc_target() {
+        return;
+    }
+    // Re-run when the fetch script changes so a version bump re-embeds.
+    println!("cargo:rerun-if-changed=../scripts/fetch-nn-deps.sh");
+
+    let src = std::path::Path::new("lib/rawalchemy")
+        .join("third_party/nn-cache")
+        .join("onnxruntime-win-x64-1.24.1")
+        .join("lib/onnxruntime.dll");
+    compress_nn_cache_dll(
+        src,
+        "onnxruntime.dll.gz",
+        "onnxruntime.dll (DirectML)",
+        "lib/rawalchemy/third_party/nn-cache/onnxruntime-win-x64-1.24.1/lib/onnxruntime.dll",
+    );
+}
+
+/// Gzip DirectML.dll (from the Microsoft.AI.DirectML NuGet via fetch-nn-deps.sh)
+/// into OUT_DIR for embedding. ORT's DirectML EP loads DirectML.dll at runtime
+/// (DMLCreateDevice); the host preloads it so the EP resolves our copy rather
+/// than a stale System32 version.
+fn compress_directml_dll() {
+    if !is_windows_msvc_target() {
+        return;
+    }
+    println!("cargo:rerun-if-changed=../scripts/fetch-nn-deps.sh");
+
+    let src = std::path::Path::new("lib/rawalchemy")
+        .join("third_party/nn-cache/DirectML.dll");
+    compress_nn_cache_dll(
+        src,
+        "directml.dll.gz",
+        "DirectML.dll",
+        "lib/rawalchemy/third_party/nn-cache/DirectML.dll",
     );
 }

@@ -22,11 +22,36 @@ ORT_VERSION="1.24.1"          # latest stable at plan time; verify at onnxruntim
 QNN_RUNTIME_VERSION="2.34.0"  # com.qualcomm.qti:qnn-runtime Maven
 DIRECTML_VERSION="1.15.4"     # Microsoft.AI.DirectML NuGet
 
-# --- Windows ORT + DirectML ---
-if [[ ! -f "$CACHE_DIR/onnxruntime-win-x64-$ORT_VERSION.zip" ]]; then
-    curl -fL "https://github.com/microsoft/onnxruntime/releases/download/v$ORT_VERSION/onnxruntime-win-x64-$ORT_VERSION.zip" \
-        -o "$CACHE_DIR/onnxruntime-win-x64-$ORT_VERSION.zip"
-    unzip -qo -d "$CACHE_DIR" "$CACHE_DIR/onnxruntime-win-x64-$ORT_VERSION.zip"
+# --- Windows ORT (DirectML-capable) + DirectML.dll ---
+#
+# The generic ORT GitHub release (onnxruntime-win-x64-<ver>.zip) has NO DirectML
+# EP compiled in: GetExecutionProviderApi("DML",...) derefs null at runtime and NN
+# init always fails. We instead pull Microsoft.ML.OnnxRuntime.DirectML — the same
+# ORT version built with the DML EP. It is a .nupkg (zip) laid out as:
+#   runtimes/win-x64/native/onnxruntime.dll   (DirectML-capable, ~17 MB)
+#   runtimes/win-x64/native/onnxruntime.lib   (import lib, resolves OrtGetApiBase)
+#   build/native/include/*.h                  (incl. dml_provider_factory.h)
+# DirectML.dll itself is NOT bundled here — it ships in the separate
+# Microsoft.AI.DirectML NuGet fetched below (the DML ORT loads it at runtime).
+ORT_WIN_DIR="$CACHE_DIR/onnxruntime-win-x64-$ORT_VERSION"
+# A stamp distinguishes the DirectML build from a previously-extracted generic
+# ORT at the same path, forcing a re-extract when switching sources.
+ORT_DIRECTML_VERSION="$ORT_VERSION"
+if [[ ! -f "$ORT_WIN_DIR/.directml-stamp" ]]; then
+    curl -fL "https://www.nuget.org/api/v2/package/Microsoft.ML.OnnxRuntime.DirectML/$ORT_DIRECTML_VERSION" \
+        -o "$CACHE_DIR/onnxruntime-directml.nupkg.zip"
+    mkdir -p "$ORT_WIN_DIR/lib" "$ORT_WIN_DIR/include"
+    # Extract the native DLL + import lib into lib/ (matches the layout CMake's
+    # ${RA_ORT_ROOT}/lib expects, identical to the generic GitHub release).
+    unzip -j -o "$CACHE_DIR/onnxruntime-directml.nupkg.zip" \
+        "runtimes/win-x64/native/onnxruntime.dll" \
+        "runtimes/win-x64/native/onnxruntime.lib" \
+        -d "$ORT_WIN_DIR/lib"
+    # Headers (onnxruntime_cxx_api.h etc. + dml_provider_factory.h) into include/.
+    unzip -j -o "$CACHE_DIR/onnxruntime-directml.nupkg.zip" \
+        "build/native/include/*" \
+        -d "$ORT_WIN_DIR/include" 2>/dev/null || true
+    touch "$ORT_WIN_DIR/.directml-stamp"
 fi
 if [[ ! -f "$CACHE_DIR/DirectML.dll" ]]; then
     # Pull DirectML.dll from the Microsoft.AI.DirectML NuGet package
