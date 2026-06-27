@@ -80,8 +80,7 @@ use commands::{
 fn setup_logging() {
     use tracing_subscriber::EnvFilter;
 
-    // Debug: log to file
-    #[cfg(debug_assertions)]
+    // Log to file (always — needed for diagnostics in release builds on Android/Windows)
     {
         use std::fs;
         #[cfg(target_os = "android")]
@@ -89,9 +88,9 @@ fn setup_logging() {
         use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
         #[cfg(target_os = "android")]
-        let log_dir = PathBuf::from(platform::android::DEFAULT_STORAGE_PATH).join("logs");
+        let log_dir = PathBuf::from("/storage/emulated/0/Android/data/com.gjk.cameraftpcompanion/files/logs");
 
-        #[cfg(target_os = "windows")]
+        #[cfg(not(target_os = "android"))]
         let log_dir = config::app_config_dir().join("logs");
 
         let log_file = log_dir.join("app.log");
@@ -117,7 +116,10 @@ fn setup_logging() {
             .with_thread_names(true)
             .with_target(true);
 
+        #[cfg(debug_assertions)]
         let env_filter = EnvFilter::new("debug");
+        #[cfg(not(debug_assertions))]
+        let env_filter = EnvFilter::new("info");
 
         tracing_subscriber::registry()
             .with(env_filter)
@@ -125,18 +127,9 @@ fn setup_logging() {
             .init();
 
         tracing::info!(log_file = ?log_file, "Logging initialized");
-    }
 
-    // Release: stderr only, no log files
-    #[cfg(not(debug_assertions))]
-    {
-        tracing_subscriber::fmt()
-            .with_env_filter(EnvFilter::new("info"))
-            .with_ansi(false)
-            .with_thread_ids(true)
-            .with_thread_names(true)
-            .with_target(true)
-            .init();
+        // Expose log file path to C++ NN diagnostics (so they write to the same file)
+        std::env::set_var("RA_NN_LOG_FILE", &log_file);
     }
 }
 
@@ -195,7 +188,15 @@ pub fn run() {
 
                 // Extract embedded NN models so configure_nn_model_env can find them
                 if let Err(e) = color_grading::resources::extract_nn_models(&app_data_dir) {
-                    tracing::warn!("NN model extraction failed: {}", e);
+                    let msg = format!("NN model extraction failed: {}", e);
+                    tracing::warn!("{}", msg);
+                    #[cfg(target_os = "android")]
+                    {
+                        extern "C" { fn __android_log_write(prio: i32, tag: *const u8, text: *const u8) -> i32; }
+                        let tag = std::ffi::CString::new("CameraFTP").unwrap();
+                        let cmsg = std::ffi::CString::new(msg.as_str()).unwrap();
+                        unsafe { __android_log_write(5, tag.as_ptr(), cmsg.as_ptr()); }
+                    }
                 }
 
                 let lib_path = resolve_raw_alchemy_lib_path();
@@ -203,11 +204,31 @@ pub fn run() {
                     Ok(lib) => {
                         // Point the C++ NN core at the extracted model paths before init.
                         color_grading::resources::configure_nn_model_env(&app_data_dir);
+                        // Log whether models were found
+                        let bayer = app_data_dir.join("models").join("bayer.onnx");
+                        let xtrans = app_data_dir.join("models").join("xtrans.onnx");
+                        let model_status = format!("NN models: bayer={} xtrans={}", bayer.exists(), xtrans.exists());
+                        tracing::info!("{}", model_status);
+                        #[cfg(target_os = "android")]
+                        {
+                            extern "C" { fn __android_log_write(prio: i32, tag: *const u8, text: *const u8) -> i32; }
+                            let tag = std::ffi::CString::new("CameraFTP").unwrap();
+                            let cmsg = std::ffi::CString::new(model_status.as_str()).unwrap();
+                            unsafe { __android_log_write(4, tag.as_ptr(), cmsg.as_ptr()); } // 4 = ANDROID_LOG_INFO
+                        }
                         // NN init is non-fatal: on failure (symbol absent in this
                         // build, models not packaged, or GPU unsupported) we fall
                         // back to classical demosaic for the whole session.
                         if let Err(e) = lib.demosaic_nn_init() {
-                            tracing::warn!("NN demosaic init skipped, using classical: {}", e);
+                            let msg = format!("NN demosaic init skipped, using classical: {}", e);
+                            tracing::warn!("{}", msg);
+                            #[cfg(target_os = "android")]
+                            {
+                                extern "C" { fn __android_log_write(prio: i32, tag: *const u8, text: *const u8) -> i32; }
+                                let tag = std::ffi::CString::new("CameraFTP").unwrap();
+                                let cmsg = std::ffi::CString::new(msg.as_str()).unwrap();
+                                unsafe { __android_log_write(5, tag.as_ptr(), cmsg.as_ptr()); } // 5 = ANDROID_LOG_WARN
+                            }
                         }
                     }
                     Err(e) => tracing::error!("Failed to load RawAlchemyCpp: {}", e),
