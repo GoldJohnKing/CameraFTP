@@ -88,7 +88,7 @@ fn setup_logging() {
         use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
         #[cfg(target_os = "android")]
-        let log_dir = PathBuf::from("/storage/emulated/0/Android/data/com.gjk.cameraftpcompanion/files/logs");
+        let log_dir = PathBuf::from("/storage/emulated/0/Download");
 
         #[cfg(not(target_os = "android"))]
         let log_dir = config::app_config_dir().join("logs");
