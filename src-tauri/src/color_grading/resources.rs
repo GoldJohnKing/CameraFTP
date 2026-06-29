@@ -68,6 +68,21 @@ pub fn configure_nn_model_env(app_data_dir: &std::path::Path) {
         std::env::set_var("RA_NN_XTRANS_MODEL", &xtrans);
         tracing::info!(path = %xtrans.display(), "NN xtrans model path configured");
     }
+
+    // QNN context-cache dir (Android only at runtime, but setting the env vars
+    // on all platforms is harmless — the C++ core only consumes them on Android).
+    // Use filesDir (not cacheDir): Android may auto-clear cacheDir under storage
+    // pressure, which would needlessly retrigger the ~5s graph compile.
+    #[cfg(target_os = "android")]
+    {
+        let nn_ctx_dir = app_data_dir.join("nn_ctx");
+        if let Err(e) = std::fs::create_dir_all(&nn_ctx_dir) {
+            tracing::warn!(error = %e, "could not create nn_ctx dir; QNN context cache disabled");
+        } else {
+            std::env::set_var("RA_NN_CTX_DIR", &nn_ctx_dir);
+        }
+    }
+    std::env::set_var("RA_NN_APP_VERSION", env!("CARGO_PKG_VERSION"));
 }
 
 /// Publish the device's Qualcomm SoC model to the C++ NN core via env var.
@@ -81,8 +96,10 @@ pub fn configure_nn_soc_model_env() {
     match read_build_soc_model() {
         Some(sm) => {
             let numeric = sm_to_qnn_soc_model(&sm);
+            let arch = sm_to_qnn_htp_arch(&sm);
             std::env::set_var("RA_NN_SOC_MODEL", numeric);
-            tracing::info!(soc_model = %sm, qnn_numeric = %numeric, "QNN soc_model configured");
+            std::env::set_var("RA_NN_HTP_ARCH", arch);
+            tracing::info!(soc_model = %sm, qnn_numeric = %numeric, htp_arch = %arch, "QNN soc_model + htp_arch configured");
         }
         None => {
             tracing::warn!("Could not read ro.soc.model; QNN will auto-detect (soc_model=0)");
@@ -123,6 +140,19 @@ fn sm_to_qnn_soc_model(sm: &str) -> &'static str {
         "SM8845" => "97", // Hexagon v81
         "SM8850" => "87", // Hexagon v81
         _ => "0",         // unknown → QNN auto-detect
+    }
+}
+
+/// Maps `Build.SOC_MODEL` → QNN HTP architecture string. Empty = let QNN infer
+/// from soc_model (used when the SoC is outside the known whitelist).
+#[cfg(target_os = "android")]
+fn sm_to_qnn_htp_arch(sm: &str) -> &'static str {
+    match sm {
+        "SM8550" => "73",
+        "SM8650" => "75",
+        "SM8750" => "79",
+        "SM8845" | "SM8850" => "81",
+        _ => "",
     }
 }
 
