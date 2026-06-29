@@ -90,20 +90,6 @@ tempfile = "3.12"
 filetime = "0.2"
 
 [profile.release]
-# Strip both DWARF debug info AND the symbol table from the release binary.
-#
-# "debuginfo" alone is a no-op here: Rust's release profile does not emit
-# DWARF by default, and the measured saving on libcamera_ftp_companion_lib.so
-# was ~2 KB (46,017,856 → 46,015,688 bytes). The real bulk is the .symtab /
-# .strtab pair (~5 MB uncompressed on this binary), which only "symbols"
-# removes. Measured with "symbols": 46.0 MB → 38.8 MB (saves ~7 MB
-# uncompressed, ~2-3 MB inside the compressed APK).
-#
-# Trade-off: panic backtraces lose function names (file:line is still printed
-# via the panic handler's location macro). Acceptable for release — users
-# never read Rust backtraces, and the Android native crash handler captures
-# its own tombstones independently.
-#
-# The CMake-built libraw_alchemy_core.so is stripped separately in
-# scripts/build-raw-alchemy.sh (Cargo has no control over it).
+# "symbols" not "debuginfo": Rust release emits no DWARF, so debuginfo-only
+# stripping saves nothing (~2 KB measured). This removes the ~5 MB symtab.
 strip = "symbols"

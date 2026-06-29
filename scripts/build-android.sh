@@ -362,8 +362,7 @@ build_android() {
         fi
 
         mkdir -p "$nn_jni_dir"
-        # Clear stale Htp Skels from previous builds so newly-skipped versions
-        # (e.g. V68/V69) don't linger in extra-jniLibs and slip into the APK.
+        # Clear stale Skels so pruned versions (V68/V69) don't linger.
         rm -f "$nn_jni_dir"/libQnnHtpV*Skel.so
         local copied=0
 
@@ -383,12 +382,8 @@ build_android() {
             fi
         done
 
-        # Per-Hexagon-version Htp Skels, EXCLUDING V68 (SD 865) and V69
-        # (SD 888). Those 2019–2020 chips cannot reach minSdk=35 (Android 15+),
-        # so shipping their Skels wastes ~19 MB. V73+ cover Snapdragon 8 Gen 1
-        # and later (the actual target tier). Iterating the glob in a loop
-        # (instead of passing it straight to cp) lets us skip individual files
-        # while still picking up future Skel versions automatically.
+        # Skip V68 (SD 865) and V69 (SD 888) Skels — those chips predate
+        # minSdk=35 (Android 15+) hardware. V73+ covers the target tier.
         local skel_count=0
         local skipped_skels=0
         for skel in "$qnn_dir"/libQnnHtpV*Skel.so; do

@@ -143,15 +143,8 @@ build_raw_alchemy_android() {
         return 1
     fi
 
-    # Strip DWARF debug info (.debug_info/.debug_line/.debug_str etc.) using
-    # the NDK's llvm-strip. The Android NDK toolchain adds -g by default even
-    # in Release builds (for ndk-stack symbolication), so the freshly-linked
-    # .so carries ~13 MB of debug sections. Neither CMake's Release profile
-    # nor AGP strips the final artifact placed in extra-jniLibs (observed:
-    # debug info reaches the APK unchanged without this step).
-    # Measured: 18.1 MB → 4.9 MB. --strip-debug keeps the symbol table for
-    # crash stack traces; use --strip-all if more aggressive trimming is
-    # needed later.
+    # NDK adds -g even in Release (for ndk-stack), leaving ~13 MB of debug
+    # sections that neither CMake nor AGP strips from extra-jniLibs.
     local strip_bin
     strip_bin="$(find "$ndk_path/toolchains/llvm/prebuilt" -name llvm-strip -path "*/bin/*" 2>/dev/null | head -1)"
     if [ -n "$strip_bin" ] && [ -x "$strip_bin" ]; then
