@@ -362,6 +362,9 @@ build_android() {
         fi
 
         mkdir -p "$nn_jni_dir"
+        # Clear stale Htp Skels from previous builds so newly-skipped versions
+        # (e.g. V68/V69) don't linger in extra-jniLibs and slip into the APK.
+        rm -f "$nn_jni_dir"/libQnnHtpV*Skel.so
         local copied=0
 
         # ORT runtime — required by the QNN execution provider.
@@ -380,13 +383,29 @@ build_android() {
             fi
         done
 
-        # All per-Hexagon-version Htp Skels (V68, V69, V73, V75, V79, …).
-        # Globbed so future Skel versions are picked up without a script edit.
-        local skel_count
-        skel_count=$(find "$qnn_dir" -maxdepth 1 -name 'libQnnHtpV*Skel.so' 2>/dev/null | wc -l)
-        if [ "$skel_count" -gt 0 ]; then
-            cp "$qnn_dir"/libQnnHtpV*Skel.so "$nn_jni_dir/"
-            copied=$((copied + skel_count))
+        # Per-Hexagon-version Htp Skels, EXCLUDING V68 (SD 865) and V69
+        # (SD 888). Those 2019–2020 chips cannot reach minSdk=35 (Android 15+),
+        # so shipping their Skels wastes ~19 MB. V73+ cover Snapdragon 8 Gen 1
+        # and later (the actual target tier). Iterating the glob in a loop
+        # (instead of passing it straight to cp) lets us skip individual files
+        # while still picking up future Skel versions automatically.
+        local skel_count=0
+        local skipped_skels=0
+        for skel in "$qnn_dir"/libQnnHtpV*Skel.so; do
+            [ -f "$skel" ] || continue
+            case "$(basename "$skel")" in
+                libQnnHtpV68Skel.so|libQnnHtpV69Skel.so)
+                    skipped_skels=$((skipped_skels + 1))
+                    continue
+                    ;;
+            esac
+            cp "$skel" "$nn_jni_dir/"
+            skel_count=$((skel_count + 1))
+        done
+        copied=$((copied + skel_count))
+
+        if [ "$skipped_skels" -gt 0 ]; then
+            info "Skipped V68/V69 Htp Skels ($skipped_skels file(s)) — targets below minSdk=35 hardware"
         fi
 
         if [ "$copied" -gt 0 ]; then
