@@ -348,7 +348,8 @@ build_android() {
     # APK via extra-jniLibs. Only arm64-v8a is targeted, and only when the
     # nn-cache is populated (./scripts/fetch-nn-deps.sh). libonnxruntime.so
     # comes from the ORT AAR; libQnnSystem.so / libQnnHtp.so / the per-Hexagon
-    # libQnnHtpV*Skel.so come from the qnn-runtime AAR. Without these, the NN
+    # libQnnHtpV*Skel.so (DSP-side) + libQnnHtpV*Stub.so (CPU-side transport)
+    # come from the qnn-runtime AAR. Without these, the NN
     # demosaic path degrades gracefully to the classical algorithm.
     package_nn_android() {
         local nn_cache="src-tauri/lib/rawalchemy/third_party/nn-cache"
@@ -362,8 +363,9 @@ build_android() {
         fi
 
         mkdir -p "$nn_jni_dir"
-        # Clear stale Skels so pruned versions (V68/V69) don't linger.
+        # Clear stale Skels/Stubs so pruned versions (V68/V69) don't linger.
         rm -f "$nn_jni_dir"/libQnnHtpV*Skel.so
+        rm -f "$nn_jni_dir"/libQnnHtpV*Stub.so
         local copied=0
 
         # ORT runtime — required by the QNN execution provider.
@@ -374,8 +376,13 @@ build_android() {
             warn "libonnxruntime.so missing in $ort_dir/ — NN demosaic will be unavailable"
         fi
 
-        # QNN HTP backend essentials.
-        for lib in libQnnSystem.so libQnnHtp.so; do
+        # QNN HTP backend essentials: libQnnHtp.so (backend) + libQnnSystem.so
+        # (system) + libQnnHtpPrepare.so (~80MB, CPU-side graph compile / op
+        # validation for the online workflow). Without Prepare, QNN aborts at
+        # graph-build: "Failed loading libQnnHtpPrepare.so" → op validate error
+        # 0xfa0/4000 → "HTP Prepare backend loading failed". Arch-agnostic
+        # (single copy; no V68/V69 variant). Deps: libc/m/dl/log only.
+        for lib in libQnnSystem.so libQnnHtp.so libQnnHtpPrepare.so; do
             if [ -f "$qnn_dir/$lib" ]; then
                 cp "$qnn_dir/$lib" "$nn_jni_dir/"
                 copied=$((copied + 1))
@@ -398,6 +405,21 @@ build_android() {
             skel_count=$((skel_count + 1))
         done
         copied=$((copied + skel_count))
+
+        # HTP transport also dlopens the matching CPU-side Stub (libQnnHtpV*Stub.so)
+        # per arch to create the FastRPC transport instance. Without it QNN fails:
+        # "Failed in loading stub: ... libQnnHtpV73Stub.so not found" → 4000 →
+        # INVALID_CONFIG. Same skip set as Skels (V73+ only for minSdk=35 tier).
+        local stub_count=0
+        for stub in "$qnn_dir"/libQnnHtpV*Stub.so; do
+            [ -f "$stub" ] || continue
+            case "$(basename "$stub")" in
+                libQnnHtpV68Stub.so|libQnnHtpV69Stub.so) continue ;;
+            esac
+            cp "$stub" "$nn_jni_dir/"
+            stub_count=$((stub_count + 1))
+        done
+        copied=$((copied + stub_count))
 
         if [ "$skipped_skels" -gt 0 ]; then
             info "Skipped V68/V69 Htp Skels ($skipped_skels file(s)) — targets below minSdk=35 hardware"

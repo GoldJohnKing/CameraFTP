@@ -204,6 +204,9 @@ pub fn run() {
                     Ok(lib) => {
                         // Point the C++ NN core at the extracted model paths before init.
                         color_grading::resources::configure_nn_model_env(&app_data_dir);
+                        // Publish the device SoC model to the QNN EP (Android only).
+                        #[cfg(target_os = "android")]
+                        color_grading::resources::configure_nn_soc_model_env();
                         // Log whether models were found
                         let bayer = app_data_dir.join("models").join("bayer.onnx");
                         let xtrans = app_data_dir.join("models").join("xtrans.onnx");

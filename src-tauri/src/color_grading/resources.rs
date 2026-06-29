@@ -70,6 +70,62 @@ pub fn configure_nn_model_env(app_data_dir: &std::path::Path) {
     }
 }
 
+/// Publish the device's Qualcomm SoC model to the C++ NN core via env var.
+///
+/// Reads Android system property `ro.soc.model` (= `Build.SOC_MODEL`), maps it
+/// to the numeric value QNN EP's `soc_model` option expects, and sets
+/// `RA_NN_SOC_MODEL`. Read by `raw_alchemy_capi.cpp` into `DecodeParams.nnSocModel`,
+/// then consumed by `nn_session.cpp` QNN EP options. "0" (unknown) lets QNN auto-detect.
+#[cfg(target_os = "android")]
+pub fn configure_nn_soc_model_env() {
+    match read_build_soc_model() {
+        Some(sm) => {
+            let numeric = sm_to_qnn_soc_model(&sm);
+            std::env::set_var("RA_NN_SOC_MODEL", numeric);
+            tracing::info!(soc_model = %sm, qnn_numeric = %numeric, "QNN soc_model configured");
+        }
+        None => {
+            tracing::warn!("Could not read ro.soc.model; QNN will auto-detect (soc_model=0)");
+        }
+    }
+}
+
+#[cfg(target_os = "android")]
+fn read_build_soc_model() -> Option<String> {
+    extern "C" {
+        fn __system_property_get(
+            name: *const std::os::raw::c_char,
+            value: *mut std::os::raw::c_char,
+        ) -> i32;
+    }
+    let mut buf = [0u8; 92]; // PROP_VALUE_MAX
+    let n = unsafe {
+        __system_property_get(
+            b"ro.soc.model\0".as_ptr() as *const _,
+            buf.as_mut_ptr() as *mut _,
+        )
+    };
+    if n > 0 {
+        Some(String::from_utf8_lossy(&buf[..n as usize]).into_owned())
+    } else {
+        None
+    }
+}
+
+/// Maps `Build.SOC_MODEL` → QNN `soc_model` numeric string (from QNN SDK's Qnn_SocModel_t).
+/// Verified against ORT 1.24.1 + ExecuTorch qc_schema.py + LiteRT supported_soc.csv.
+#[cfg(target_os = "android")]
+fn sm_to_qnn_soc_model(sm: &str) -> &'static str {
+    match sm {
+        "SM8550" => "43", // Hexagon v73
+        "SM8650" => "57", // Hexagon v75
+        "SM8750" => "69", // Hexagon v79
+        "SM8845" => "97", // Hexagon v81
+        "SM8850" => "87", // Hexagon v81
+        _ => "0",         // unknown → QNN auto-detect
+    }
+}
+
 /// Extract the embedded, gzip-compressed NN demosaic ONNX models to
 /// `{app_data_dir}/models/` so the C++ NN core can load them via real
 /// filesystem paths.
