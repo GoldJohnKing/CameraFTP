@@ -372,7 +372,8 @@ async fn process_single_file(
                 match classify_nn_failure(super::ffi::is_nn_ready()) {
                     FallbackDecision::UseClassicalAndLatch => {
                         tracing::warn!(
-                            "NN unavailable (NPU not engaged); latching classical demosaic for this session"
+                            "NN unavailable (NPU not engaged); latching classical demosaic for this session: {}",
+                            nn_err
                         );
                         nn_enabled.store(false, Ordering::Relaxed);
                     }
