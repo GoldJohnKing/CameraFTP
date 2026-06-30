@@ -48,8 +48,11 @@ pub struct ColorGradingService {
     nn_enabled: Arc<AtomicBool>,
 }
 
-/// Platform default for the NN demosaic gate. NN is always attempted; a
-/// decode failure falls back to classical demosaic in the C++ decodeRaw layer.
+/// Platform default for the NN demosaic gate. NN is always attempted; on NN
+/// failure the Rust worker (`process_single_file`) retries the file via the
+/// classical demosaic path, and latches this gate to false for the session if
+/// the NPU is structurally unavailable (so later files skip the NN attempt).
+/// The C++ `decodeRaw` layer does NOT fall back — it throws on NN failure.
 fn nn_enabled_default() -> bool {
     true
 }
