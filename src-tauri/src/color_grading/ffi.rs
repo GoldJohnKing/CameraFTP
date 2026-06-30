@@ -367,6 +367,11 @@ type RaFreePreviewBufferFn = unsafe extern "C" fn(
 // for model paths (set by the Rust startup before this runs).
 type RaDemosaicNnInitFn = unsafe extern "C" fn() -> c_int;
 
+// No args; reads RA_NN_* env vars itself and drives NnDemosaicSession::init().
+// Always present in NN-enabled builds; resolved optionally so a build without
+// the symbol still loads (warmup just no-ops with a debug log).
+type RaWarmupNnSessionFn = unsafe extern "C" fn();
+
 pub struct RawAlchemyLib {
     _lib: Library,
     process_file_with_lut: RaProcessFileWithLUTFn,
@@ -377,6 +382,7 @@ pub struct RawAlchemyLib {
     end_preview_session: RaEndPreviewSessionFn,
     free_preview_buffer: RaFreePreviewBufferFn,
     demosaic_nn_init: Option<RaDemosaicNnInitFn>,
+    warmup_nn_session: Option<RaWarmupNnSessionFn>,
 }
 
 fn ra_result_from_code(code: c_int) -> RaResult {
@@ -493,6 +499,20 @@ impl RawAlchemyLib {
             tracing::debug!("raDemosaicNnInit symbol not present — NN demosaic disabled in this build");
         }
 
+        // raWarmupNnSession is the background-warmup entry added alongside the
+        // init() thread-safety fix. Optional for the same robustness reason as
+        // demosaic_nn_init; when absent, warmup_nn_session() no-ops with a log.
+        let warmup_nn_session = unsafe {
+            lib.get::<RaWarmupNnSessionFn>(b"raWarmupNnSession\0")
+                .ok()
+                .map(|f| *f)
+        };
+        if warmup_nn_session.is_some() {
+            tracing::debug!("raWarmupNnSession symbol resolved");
+        } else {
+            tracing::debug!("raWarmupNnSession symbol not present — background NN warmup disabled");
+        }
+
         Ok(Self {
             _lib: lib,
             process_file_with_lut,
@@ -503,6 +523,7 @@ impl RawAlchemyLib {
             end_preview_session,
             free_preview_buffer,
             demosaic_nn_init,
+            warmup_nn_session,
         })
     }
 
@@ -636,6 +657,17 @@ impl RawAlchemyLib {
         }
     }
 
+    /// Eagerly initialize the NN demosaic session. Intended to be called from a
+    /// background thread at app launch so the QNN graph compile overlaps with
+    /// browsing. Best-effort; failures are logged in C++ and swallowed. No-op
+    /// (debug log) if the build does not export `raWarmupNnSession`.
+    pub fn warmup_nn_session(&self) {
+        match self.warmup_nn_session {
+            Some(f) => unsafe { f() },
+            None => tracing::debug!("raWarmupNnSession unavailable — skipping background warmup"),
+        }
+    }
+
     pub(crate) fn begin_preview_session(
         &self,
         input_path: &Path,
@@ -738,6 +770,18 @@ impl RawAlchemyLib {
                 (self.end_preview_session)(session.ptr);
             }
         }
+    }
+}
+
+/// Eagerly initialize the NN demosaic session from a background thread at app
+/// launch so the ~2s QNN graph compile overlaps with browsing. Fire-and-forget
+/// best-effort: any failure is logged and swallowed in C++; the edit path
+/// re-attempts via decodeRawNn if this didn't succeed. Thread-safe by the
+/// singleton's init() mutex, so a concurrent first edit just observes ready.
+pub fn warmup_nn_session() {
+    match RawAlchemyLib::get() {
+        Ok(lib) => lib.warmup_nn_session(),
+        Err(e) => tracing::warn!("NN warmup skipped (lib not loaded): {}", e),
     }
 }
 

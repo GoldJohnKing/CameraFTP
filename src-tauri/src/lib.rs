@@ -207,6 +207,18 @@ pub fn run() {
                         // Publish the device SoC model to the QNN EP (Android only).
                         #[cfg(target_os = "android")]
                         color_grading::resources::configure_nn_soc_model_env();
+
+                        // Eagerly compile/warm the NN demosaic session in the
+                        // background so the first edit doesn't pay the ~2s QNN
+                        // graph compile. Fire-and-forget: the session singleton's
+                        // init() is thread-safe (mutex + atomic ready), so a
+                        // concurrent edit path just observes ready and skips the
+                        // re-compile. Android-only: Windows/Linux pay the compile
+                        // at first edit (no NPU, smaller cost).
+                        #[cfg(target_os = "android")]
+                        tauri::async_runtime::spawn_blocking(|| {
+                            color_grading::ffi::warmup_nn_session();
+                        });
                         // Log whether models were found
                         let bayer = app_data_dir.join("models").join("bayer.onnx");
                         let xtrans = app_data_dir.join("models").join("xtrans.onnx");
