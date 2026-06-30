@@ -7,7 +7,8 @@
     "beforeDevCommand": "npm run dev",
     "beforeBuildCommand": "./scripts/build-frontend.sh",
     "frontendDist": "../dist",
-    "devUrl": null
+    "devUrl": null,
+    "removeUnusedCommands": true
   },
   "app": {
     "windows": [

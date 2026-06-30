@@ -17,13 +17,13 @@ flate2 = "1"
 zip = "2"
 
 [dependencies]
-tauri = { version = "2", features = ["tray-icon", "protocol-asset"] }
+tauri = { version = "2", features = ["protocol-asset"] }
 tauri-plugin-dialog = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "fs", "io-util", "time", "net"] }
 tokio-util = { version = "0.7", features = ["rt"] }
-tracing = "0.1"
+tracing = { version = "0.1", features = ["release_max_level_info"] }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 dirs = "5.0"
 flate2 = "1"
@@ -44,6 +44,9 @@ image = { version = "0.25", default-features = false, features = ["png", "jpeg"]
 # HEIC/HEIF 解码（纯 Rust，无 C 依赖）
 heic = "=0.1.0"
 # HTTP client for AI Edit API calls
+# (tried 0.13 to dedupe with tauri's transitive reqwest on Android, but cargo
+#  fails to resolve — another dep in the tree constrains reqwest to 0.12. Kept
+#  at 0.12; the duplicate (~0.5-1MB) is accepted until tauri/that dep moves.)
 reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
 # Base64 encoding for AI Edit image upload
 base64 = "0.22"
@@ -68,6 +71,8 @@ rcgen = "0.13"
 [target.'cfg(target_os = "windows")'.dependencies]
 # 文件系统监听（仅 Windows 使用）
 notify = { version = "8.0", default-features = false, features = [] }
+# 系统托盘（仅 Windows；Android/移动端无托盘，全局开 tray-icon 会把 tray-icon/muda 编进 .so）
+tauri = { version = "2", features = ["tray-icon"] }
 
 [target.'cfg(target_os = "android")'.dependencies]
 jni = "0.21"
