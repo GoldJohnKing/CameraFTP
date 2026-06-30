@@ -372,6 +372,11 @@ type RaDemosaicNnInitFn = unsafe extern "C" fn() -> c_int;
 // the symbol still loads (warmup just no-ops with a debug log).
 type RaWarmupNnSessionFn = unsafe extern "C" fn();
 
+// True iff the NN demosaic session successfully initialized (NPU engaged).
+// Optional: resolved like the other NN symbols so a build without it still
+// loads — `is_nn_ready()` then returns false, steering the router to classical.
+type RaIsNnReadyFn = unsafe extern "C" fn() -> bool;
+
 pub struct RawAlchemyLib {
     _lib: Library,
     process_file_with_lut: RaProcessFileWithLUTFn,
@@ -383,6 +388,7 @@ pub struct RawAlchemyLib {
     free_preview_buffer: RaFreePreviewBufferFn,
     demosaic_nn_init: Option<RaDemosaicNnInitFn>,
     warmup_nn_session: Option<RaWarmupNnSessionFn>,
+    is_nn_ready: Option<RaIsNnReadyFn>,
 }
 
 fn ra_result_from_code(code: c_int) -> RaResult {
@@ -513,6 +519,22 @@ impl RawAlchemyLib {
             tracing::debug!("raWarmupNnSession symbol not present — background NN warmup disabled");
         }
 
+        // raIsNnReady lets the router tell structural NN unavailability (NPU
+        // not engaged → latch classical for the session) from a per-file NN
+        // error on a ready session (→ retry this file classically, no latch).
+        // Optional for the same robustness reason as the other NN symbols;
+        // when absent, is_nn_ready() returns false → classical fallback.
+        let is_nn_ready = unsafe {
+            lib.get::<RaIsNnReadyFn>(b"raIsNnReady\0")
+                .ok()
+                .map(|f| *f)
+        };
+        if is_nn_ready.is_some() {
+            tracing::debug!("raIsNnReady symbol resolved");
+        } else {
+            tracing::debug!("raIsNnReady symbol not present — router will treat NN as never ready");
+        }
+
         Ok(Self {
             _lib: lib,
             process_file_with_lut,
@@ -524,6 +546,7 @@ impl RawAlchemyLib {
             free_preview_buffer,
             demosaic_nn_init,
             warmup_nn_session,
+            is_nn_ready,
         })
     }
 
@@ -668,6 +691,16 @@ impl RawAlchemyLib {
         }
     }
 
+    /// True iff the NN session successfully initialized (NPU engaged). Used by
+    /// the color-grading router to tell structural NN unavailability from a
+    /// per-file NN error on a ready session.
+    pub fn is_nn_ready(&self) -> bool {
+        match self.is_nn_ready {
+            Some(f) => unsafe { f() },
+            None => false, // symbol absent → treat as "not ready" → classical
+        }
+    }
+
     pub(crate) fn begin_preview_session(
         &self,
         input_path: &Path,
@@ -782,6 +815,16 @@ pub fn warmup_nn_session() {
     match RawAlchemyLib::get() {
         Ok(lib) => lib.warmup_nn_session(),
         Err(e) => tracing::warn!("NN warmup skipped (lib not loaded): {}", e),
+    }
+}
+
+/// Whether the NN demosaic session is ready (NPU engaged). Returns false if the
+/// native lib isn't loaded or the symbol is absent. Used by the service router
+/// for fallback decisions (structural unavailability vs. per-file error).
+pub fn is_nn_ready() -> bool {
+    match RawAlchemyLib::get() {
+        Ok(lib) => lib.is_nn_ready(),
+        Err(_) => false,
     }
 }
 

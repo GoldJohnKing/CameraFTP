@@ -272,7 +272,7 @@ async fn worker_loop(
         });
 
         let result = tokio::select! {
-            r = process_single_file(&task, nn_enabled.load(Ordering::Relaxed)) => Some(r),
+            r = process_single_file(&task, &nn_enabled) => Some(r),
             _ = cancel_token.cancelled() => {
                 tracing::info!("Color grading cancelled before/during task processing");
                 None
@@ -323,7 +323,31 @@ async fn worker_loop(
     tracing::info!("Color grading worker stopped");
 }
 
-async fn process_single_file(task: &ColorGradingTask, enable_nn: bool) -> Result<String, AppError> {
+/// Result of an NN-path attempt that errored, telling the router how to fall back.
+enum FallbackDecision {
+    /// NN session was ready but this file failed (likely transient/file-specific):
+    /// retry this file via classical, but keep NN enabled for the next file.
+    UseClassicalNoLatch,
+    /// NN session is not ready (structural NPU unavailability): retry this file
+    /// via classical AND disable NN for the rest of the session.
+    UseClassicalAndLatch,
+}
+
+/// Classify an NN-path failure by whether the NN session is ready.
+/// NN unavailability is stable for the process, so we latch it; per-file
+/// transient errors don't latch.
+fn classify_nn_failure(nn_ready: bool) -> FallbackDecision {
+    if nn_ready {
+        FallbackDecision::UseClassicalNoLatch
+    } else {
+        FallbackDecision::UseClassicalAndLatch
+    }
+}
+
+async fn process_single_file(
+    task: &ColorGradingTask,
+    nn_enabled: &Arc<AtomicBool>,
+) -> Result<String, AppError> {
     let preset = find_preset(&task.lut_id)
         .ok_or_else(|| AppError::ColorGradingError(format!("Unknown LUT: {}", task.lut_id)))?;
 
@@ -337,11 +361,55 @@ async fn process_single_file(task: &ColorGradingTask, enable_nn: bool) -> Result
         .ok()
         .map(|r| r.lensfun_db_dir.to_string_lossy().into_owned());
 
+    // First attempt: NN if enabled, else skip straight to classical.
+    if nn_enabled.load(Ordering::Relaxed) {
+        match decode_once(lib, task, &output_path, &preset, &lut_data, lensfun_path.as_deref(), true).await {
+            Ok(()) => return Ok(result_path),
+            Err(nn_err) => {
+                match classify_nn_failure(super::ffi::is_nn_ready()) {
+                    FallbackDecision::UseClassicalAndLatch => {
+                        tracing::warn!(
+                            "NN unavailable (NPU not engaged); latching classical demosaic for this session"
+                        );
+                        nn_enabled.store(false, Ordering::Relaxed);
+                    }
+                    FallbackDecision::UseClassicalNoLatch => {
+                        tracing::warn!(
+                            "NN decode failed on ready session; retrying this file via classical: {}",
+                            nn_err
+                        );
+                    }
+                }
+                // fall through to classical attempt below
+            }
+        }
+    }
+
+    // Classical attempt (always last resort). An error here is a real failure.
+    decode_once(lib, task, &output_path, &preset, &lut_data, lensfun_path.as_deref(), false)
+        .await
+        .map(|_| result_path)
+}
+
+/// One decode+grade attempt with a fixed NN flag. Extracted so the fallback
+/// router can call it twice (NN then classical) without duplicating the
+/// argument plumbing.
+async fn decode_once(
+    lib: &'static Arc<super::ffi::RawAlchemyLib>,
+    task: &ColorGradingTask,
+    output_path: &std::path::Path,
+    preset: &super::presets::ColorGradingPreset,
+    lut_data: &Arc<super::lut_data::LutData>,
+    lensfun_path: Option<&str>,
+    enable_nn: bool,
+) -> Result<(), AppError> {
     let input_path = task.input_path.clone();
     let log_space = preset.log_space.clone();
     let metering_mode = task.metering_mode.clone();
     let ev_offset = task.ev_offset;
-
+    let output_path = output_path.to_path_buf();
+    let lensfun_path = lensfun_path.map(|s| s.to_owned());
+    let lut_data = Arc::clone(lut_data);
     tokio::task::spawn_blocking(move || {
         lib.process_file_with_lut(
             &input_path,
@@ -353,9 +421,10 @@ async fn process_single_file(task: &ColorGradingTask, enable_nn: bool) -> Result
             &metering_mode,
             enable_nn,
         )
-    }).await.map_err(|e| AppError::ColorGradingError(format!("Blocking task failed: {}", e)))??;
-
-    Ok(result_path)
+    })
+    .await
+    .map_err(|e| AppError::ColorGradingError(format!("Blocking task failed: {}", e)))??;
+    Ok(())
 }
 
 #[cfg(test)]
@@ -394,6 +463,16 @@ mod tests {
     #[test]
     fn should_auto_color_grade_returns_false_when_no_config() {
         assert!(!should_auto_color_grade(None, Path::new("photo.nef")));
+    }
+
+    #[test]
+    fn fallback_latches_only_when_nn_structurally_unavailable() {
+        // NN was up (ready) but this file errored → fall back, do NOT latch.
+        let d = classify_nn_failure(true);
+        assert!(matches!(d, FallbackDecision::UseClassicalNoLatch));
+        // NN structurally unavailable (not ready) → fall back AND latch.
+        let d = classify_nn_failure(false);
+        assert!(matches!(d, FallbackDecision::UseClassicalAndLatch));
     }
 }
 
