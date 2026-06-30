@@ -1,0 +1,4 @@
+# Keep deepwork session state readable by OpenCode tooling despite .gitignore
+!.slim/
+!.slim/deepwork/
+!.slim/deepwork/**

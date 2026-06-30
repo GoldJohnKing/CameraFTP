@@ -95,3 +95,6 @@ __pycache__/
 # OpenCode
 config.json
 .worktrees/
+
+# Deepwork session state (local only, kept readable for OpenCode)
+.slim/deepwork/
