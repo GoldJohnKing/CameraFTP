@@ -293,11 +293,102 @@ find_ndk_libomp() {
     return 1
 }
 
-# 构建
+# Package the NN runtime (ONNX Runtime + Qualcomm QNN HTP backend) into the
+# APK via extra-jniLibs. Only arm64-v8a is targeted, and only when the
+# nn-cache is populated (./scripts/fetch-nn-deps.sh). libonnxruntime.so
+# comes from the ORT AAR; libQnnSystem.so / libQnnHtp.so / the per-Hexagon
+# libQnnHtpV*Skel.so (DSP-side) + libQnnHtpV*Stub.so (CPU-side transport)
+# come from the qnn-runtime AAR. Without these, the NN
+# demosaic path degrades gracefully to the classical algorithm.
+package_nn_android() {
+    local nn_cache="src-tauri/lib/rawalchemy/third_party/nn-cache"
+    local ort_dir="$nn_cache/onnxruntime-android-qnn-1.24.1/jni/arm64-v8a"
+    local qnn_dir="$nn_cache/qnn-runtime-2.42.0/jni/arm64-v8a"
+    local nn_jni_dir="src-tauri/gen/android/app/extra-jniLibs/arm64-v8a"
+
+    if [ ! -d "$ort_dir" ] || [ ! -d "$qnn_dir" ]; then
+        warn "nn-cache not populated (ORT/QNN). Run ./scripts/fetch-nn-deps.sh. NN demosaic will be unavailable."
+        return 0
+    fi
+
+    mkdir -p "$nn_jni_dir"
+    # Clear stale Skels/Stubs so pruned versions (V68/V69) don't linger.
+    rm -f "$nn_jni_dir"/libQnnHtpV*Skel.so
+    rm -f "$nn_jni_dir"/libQnnHtpV*Stub.so
+    local copied=0
+
+    # ORT runtime — required by the QNN execution provider.
+    if [ -f "$ort_dir/libonnxruntime.so" ]; then
+        cp "$ort_dir/libonnxruntime.so" "$nn_jni_dir/"
+        copied=$((copied + 1))
+    else
+        warn "libonnxruntime.so missing in $ort_dir/ — NN demosaic will be unavailable"
+    fi
+
+    # QNN HTP backend essentials: libQnnHtp.so (backend) + libQnnSystem.so
+    # (system) + libQnnHtpPrepare.so (~80MB, CPU-side graph compile / op
+    # validation for the online workflow). Without Prepare, QNN aborts at
+    # graph-build: "Failed loading libQnnHtpPrepare.so" → op validate error
+    # 0xfa0/4000 → "HTP Prepare backend loading failed". Arch-agnostic
+    # (single copy; no V68/V69 variant). Deps: libc/m/dl/log only.
+    for lib in libQnnSystem.so libQnnHtp.so libQnnHtpPrepare.so; do
+        if [ -f "$qnn_dir/$lib" ]; then
+            cp "$qnn_dir/$lib" "$nn_jni_dir/"
+            copied=$((copied + 1))
+        fi
+    done
+
+    # Skip V68 (SD 865) and V69 (SD 888) Skels — those chips predate
+    # minSdk=35 (Android 15+) hardware. V73+ covers the target tier.
+    local skel_count=0
+    local skipped_skels=0
+    for skel in "$qnn_dir"/libQnnHtpV*Skel.so; do
+        [ -f "$skel" ] || continue
+        case "$(basename "$skel")" in
+            libQnnHtpV68Skel.so|libQnnHtpV69Skel.so)
+                skipped_skels=$((skipped_skels + 1))
+                continue
+                ;;
+        esac
+        cp "$skel" "$nn_jni_dir/"
+        skel_count=$((skel_count + 1))
+    done
+    copied=$((copied + skel_count))
+
+    # HTP transport also dlopens the matching CPU-side Stub (libQnnHtpV*Stub.so)
+    # per arch to create the FastRPC transport instance. Without it QNN fails:
+    # "Failed in loading stub: ... libQnnHtpV73Stub.so not found" → 4000 →
+    # INVALID_CONFIG. Same skip set as Skels (V73+ only for minSdk=35 tier).
+    local stub_count=0
+    for stub in "$qnn_dir"/libQnnHtpV*Stub.so; do
+        [ -f "$stub" ] || continue
+        case "$(basename "$stub")" in
+            libQnnHtpV68Stub.so|libQnnHtpV69Stub.so) continue ;;
+        esac
+        cp "$stub" "$nn_jni_dir/"
+        stub_count=$((stub_count + 1))
+    done
+    copied=$((copied + stub_count))
+
+    if [ "$skipped_skels" -gt 0 ]; then
+        info "Skipped V68/V69 Htp Skels ($skipped_skels file(s)) — targets below minSdk=35 hardware"
+    fi
+
+    if [ "$copied" -gt 0 ]; then
+        success "NN runtime packaged: $copied .so(s) → extra-jniLibs/arm64-v8a/ (ORT + QNN HTP)"
+    else
+        warn "nn-cache present but no NN .so copied — NN demosaic will be unavailable"
+    fi
+}
+
+# 构建单个 variant:
+#   neural — 含 NN 推理库 (ORT/QNN) + 模型，体积大，面向骁龙8 Gen2+ 设备
+#   legacy — 仅传统算法，不含 NN 库/模型，体积约小 150MB，面向其它设备
 build_android() {
     local BUILD_TYPE="${1:-release}"
+    local variant="${2:-neural}"
 
-    info "开始构建 Android 应用 ($BUILD_TYPE) - 仅 arm64-v8a 架构"
+    info "开始构建 Android 应用 ($BUILD_TYPE, $variant) - 仅 arm64-v8a 架构"
 
     if ! setup_android_env; then
         error "环境变量设置失败，无法继续构建"
@@ -305,9 +396,21 @@ build_android() {
     fi
     check_or_create_keystore
 
-    # Build RawAlchemyCpp .so if available
+    # NN demosaic 总开关：导出给 Rust build.rs。
+    # neural=1 启用并打包模型；legacy=0 关闭且 build.rs 跳过模型压缩。
+    # 未设置时 Rust 默认启用，故 Windows/单元测试不受影响。
+    local nn_flag
+    if [ "$variant" = "neural" ]; then
+        nn_flag="1"
+        export CAMERAFTP_NN_DEMOSAIC=1
+    else
+        nn_flag="0"
+        export CAMERAFTP_NN_DEMOSAIC=0
+    fi
+    info "Variant=$variant  CAMERAFTP_NN_DEMOSAIC=$nn_flag"
+
+    # Build RawAlchemyCpp .so if available (variant 透传给 CMake 与 build 子目录)
     local rawalchemy_dir="${RAWALCHEMY_DIR:-$SCRIPT_DIR/../src-tauri/lib/rawalchemy}"
-    local rawalchemy_so=""
     if [ -d "$rawalchemy_dir" ]; then
         local bt_upper
         if [ "$BUILD_TYPE" = "debug" ]; then
@@ -315,151 +418,88 @@ build_android() {
         else
             bt_upper="Release"
         fi
-        "$SCRIPT_DIR/build-raw-alchemy.sh" android "$bt_upper" || {
+        "$SCRIPT_DIR/build-raw-alchemy.sh" android "$bt_upper" "$variant" || {
             error "RawAlchemyCpp Android build FAILED. Aborting — cannot produce valid APK without core library."
             exit 1
         }
 
+        # variant 对应的 build 子目录（与 build-raw-alchemy.sh 保持一致）
+        local build_subdir="build-android-arm64"
+        [ "$variant" = "legacy" ] && build_subdir="build-android-arm64-legacy"
         local abs_dir
         abs_dir="$(cd "$rawalchemy_dir" && pwd)"
-        if [ -f "$abs_dir/build-android-arm64/libraw_alchemy.so" ]; then
-            rawalchemy_so="$abs_dir/build-android-arm64/libraw_alchemy.so"
-            # Copy to extra-jniLibs (included in APK via build.gradle.kts)
+        local rawalchemy_so="$abs_dir/$build_subdir/libraw_alchemy.so"
+        if [ -f "$rawalchemy_so" ]; then
+            # Copy to extra-jniLibs (included in APK via build.gradle.kts).
+            # 关键：清空所有旧 .so，避免上一个 variant 的 QNN/ORT .so 残留污染本 variant。
             local jni_dir="src-tauri/gen/android/app/extra-jniLibs/arm64-v8a"
             mkdir -p "$jni_dir"
+            rm -f "$jni_dir"/*.so
             cp "$rawalchemy_so" "$jni_dir/libraw_alchemy_core.so"
             # Also copy libomp.so (OpenMP runtime required by libraw_alchemy_core.so)
             local omp_so
             omp_so="$(find_ndk_libomp "$NDK_HOME")" || true
             if [ -n "$omp_so" ]; then
                 cp "$omp_so" "$jni_dir/libomp.so"
-                success "RawAlchemyCpp .so + libomp.so ready"
+                success "RawAlchemyCpp .so + libomp.so ready ($variant)"
             else
                 warn "libomp.so not found in NDK — OpenMP may fail at runtime"
-                success "RawAlchemyCpp .so ready (without libomp.so): $rawalchemy_so"
+                success "RawAlchemyCpp .so ready ($variant): $rawalchemy_so"
             fi
+        else
+            error "RawAlchemyCpp .so not found at $rawalchemy_so"
+            exit 1
         fi
     else
         warn "RawAlchemyCpp not found. LUT filter feature will be unavailable."
         warn "Set RAWALCHEMY_DIR to enable it."
     fi
 
-    # Package the NN runtime (ONNX Runtime + Qualcomm QNN HTP backend) into the
-    # APK via extra-jniLibs. Only arm64-v8a is targeted, and only when the
-    # nn-cache is populated (./scripts/fetch-nn-deps.sh). libonnxruntime.so
-    # comes from the ORT AAR; libQnnSystem.so / libQnnHtp.so / the per-Hexagon
-    # libQnnHtpV*Skel.so (DSP-side) + libQnnHtpV*Stub.so (CPU-side transport)
-    # come from the qnn-runtime AAR. Without these, the NN
-    # demosaic path degrades gracefully to the classical algorithm.
-    package_nn_android() {
-        local nn_cache="src-tauri/lib/rawalchemy/third_party/nn-cache"
-        local ort_dir="$nn_cache/onnxruntime-android-qnn-1.24.1/jni/arm64-v8a"
-        local qnn_dir="$nn_cache/qnn-runtime-2.42.0/jni/arm64-v8a"
-        local nn_jni_dir="src-tauri/gen/android/app/extra-jniLibs/arm64-v8a"
-
-        if [ ! -d "$ort_dir" ] || [ ! -d "$qnn_dir" ]; then
-            warn "nn-cache not populated (ORT/QNN). Run ./scripts/fetch-nn-deps.sh. NN demosaic will be unavailable."
-            return 0
-        fi
-
-        mkdir -p "$nn_jni_dir"
-        # Clear stale Skels/Stubs so pruned versions (V68/V69) don't linger.
-        rm -f "$nn_jni_dir"/libQnnHtpV*Skel.so
-        rm -f "$nn_jni_dir"/libQnnHtpV*Stub.so
-        local copied=0
-
-        # ORT runtime — required by the QNN execution provider.
-        if [ -f "$ort_dir/libonnxruntime.so" ]; then
-            cp "$ort_dir/libonnxruntime.so" "$nn_jni_dir/"
-            copied=$((copied + 1))
-        else
-            warn "libonnxruntime.so missing in $ort_dir/ — NN demosaic will be unavailable"
-        fi
-
-        # QNN HTP backend essentials: libQnnHtp.so (backend) + libQnnSystem.so
-        # (system) + libQnnHtpPrepare.so (~80MB, CPU-side graph compile / op
-        # validation for the online workflow). Without Prepare, QNN aborts at
-        # graph-build: "Failed loading libQnnHtpPrepare.so" → op validate error
-        # 0xfa0/4000 → "HTP Prepare backend loading failed". Arch-agnostic
-        # (single copy; no V68/V69 variant). Deps: libc/m/dl/log only.
-        for lib in libQnnSystem.so libQnnHtp.so libQnnHtpPrepare.so; do
-            if [ -f "$qnn_dir/$lib" ]; then
-                cp "$qnn_dir/$lib" "$nn_jni_dir/"
-                copied=$((copied + 1))
-            fi
-        done
-
-        # Skip V68 (SD 865) and V69 (SD 888) Skels — those chips predate
-        # minSdk=35 (Android 15+) hardware. V73+ covers the target tier.
-        local skel_count=0
-        local skipped_skels=0
-        for skel in "$qnn_dir"/libQnnHtpV*Skel.so; do
-            [ -f "$skel" ] || continue
-            case "$(basename "$skel")" in
-                libQnnHtpV68Skel.so|libQnnHtpV69Skel.so)
-                    skipped_skels=$((skipped_skels + 1))
-                    continue
-                    ;;
-            esac
-            cp "$skel" "$nn_jni_dir/"
-            skel_count=$((skel_count + 1))
-        done
-        copied=$((copied + skel_count))
-
-        # HTP transport also dlopens the matching CPU-side Stub (libQnnHtpV*Stub.so)
-        # per arch to create the FastRPC transport instance. Without it QNN fails:
-        # "Failed in loading stub: ... libQnnHtpV73Stub.so not found" → 4000 →
-        # INVALID_CONFIG. Same skip set as Skels (V73+ only for minSdk=35 tier).
-        local stub_count=0
-        for stub in "$qnn_dir"/libQnnHtpV*Stub.so; do
-            [ -f "$stub" ] || continue
-            case "$(basename "$stub")" in
-                libQnnHtpV68Stub.so|libQnnHtpV69Stub.so) continue ;;
-            esac
-            cp "$stub" "$nn_jni_dir/"
-            stub_count=$((stub_count + 1))
-        done
-        copied=$((copied + stub_count))
-
-        if [ "$skipped_skels" -gt 0 ]; then
-            info "Skipped V68/V69 Htp Skels ($skipped_skels file(s)) — targets below minSdk=35 hardware"
-        fi
-
-        if [ "$copied" -gt 0 ]; then
-            success "NN runtime packaged: $copied .so(s) → extra-jniLibs/arm64-v8a/ (ORT + QNN HTP)"
-        else
-            warn "nn-cache present but no NN .so copied — NN demosaic will be unavailable"
-        fi
-    }
-    package_nn_android
+    # NN runtime (ORT + QNN HTP) 仅 neural variant 打包
+    if [ "$variant" = "neural" ]; then
+        package_nn_android
+    fi
 
     local VERSION
     VERSION=$(get_version)
 
+    # neural variant 通过 --config 覆盖 productName 以区分启动器；legacy 用基础配置
+    local config_arg=""
+    if [ "$variant" = "neural" ]; then
+        config_arg="--config src-tauri/tauri.neural.conf.json"
+    fi
+
     case $BUILD_TYPE in
         "debug")
-            npx tauri android build --debug --apk --target aarch64 || {
-                error "Android debug 构建失败"
+            npx tauri android build --debug --apk --target aarch64 $config_arg || {
+                error "Android debug ($variant) 构建失败"
                 exit 1
             }
             move_to_out \
                 "src-tauri/gen/android/app/build/outputs/apk/universal/debug/*.apk" \
-                "CameraFTP_v${VERSION}-debug.apk" \
-                "Debug APK" \
-                "${DEPLOY_PATH:+$DEPLOY_PATH/CameraFTP_v${VERSION}-debug.apk}"
+                "CameraFTP_v${VERSION}-${variant}-debug.apk" \
+                "Debug APK ($variant)" \
+                "${DEPLOY_PATH:+$DEPLOY_PATH/CameraFTP_v${VERSION}-${variant}-debug.apk}"
             ;;
         "release")
-            npx tauri android build --apk --target aarch64 || {
-                error "Android release 构建失败"
+            npx tauri android build --apk --target aarch64 $config_arg || {
+                error "Android release ($variant) 构建失败"
                 exit 1
             }
             move_to_out \
                 "src-tauri/gen/android/app/build/outputs/apk/universal/release/*.apk" \
-                "CameraFTP_v${VERSION}.apk" \
-                "Release APK" \
-                "${DEPLOY_PATH:+$DEPLOY_PATH/CameraFTP_v${VERSION}.apk}"
+                "CameraFTP_v${VERSION}-${variant}.apk" \
+                "Release APK ($variant)" \
+                "${DEPLOY_PATH:+$DEPLOY_PATH/CameraFTP_v${VERSION}-${variant}.apk}"
             ;;
     esac
+}
+
+# 依次构建 neural 与 legacy 两个 variant，各产出一个 APK
+build_all_variants() {
+    local build_type="${1:-release}"
+    build_android "$build_type" neural
+    build_android "$build_type" legacy
 }
 
 # 帮助信息
@@ -479,9 +519,9 @@ show_help() {
     echo ""
     local VERSION
     VERSION=$(get_version)
-    echo "输出位置:"
-    echo "  Release: out/CameraFTP_v${VERSION}.apk"
-    echo "  Debug:   out/CameraFTP_v${VERSION}-debug.apk"
+    echo "输出位置 (每个 variant 一份 APK):"
+    echo "  Release: out/CameraFTP_v${VERSION}-neural.apk / out/CameraFTP_v${VERSION}-legacy.apk"
+    echo "  Debug:   out/CameraFTP_v${VERSION}-neural-debug.apk / out/CameraFTP_v${VERSION}-legacy-debug.apk"
     echo ""
     echo "注意: 推荐使用 ./build.sh android 进行构建，会自动生成类型绑定"
 }
@@ -508,7 +548,7 @@ main() {
         # app/tauri.build.gradle.kts via tauri-build's build.rs. These files
         # are gitignored and required by `./gradlew test` — running tests
         # before the build fails on the missing settings file.
-        check_toolchain && build_android "$BUILD_TYPE" && run_android_tests
+        check_toolchain && build_all_variants "$BUILD_TYPE" && run_android_tests
     fi
 }
 

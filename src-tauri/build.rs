@@ -1,11 +1,27 @@
 fn main() {
+    // NN demosaic can be compiled out for the Android "legacy" APK variant
+    // (smaller package for devices without a Qualcomm NPU). Driven by
+    // CAMERAFTP_NN_DEMOSAIC (exported by scripts/build-android.sh): "0"
+    // disables it; any other value (including unset) keeps the default
+    // NN-enabled build so Windows/Linux/tests are unaffected. When disabled,
+    // the ONNX model bytes are not embedded and #[cfg(not(nn_demosaic))]
+    // stubs out the extraction code in color_grading::resources.
+    println!("cargo:rustc-check-cfg=cfg(nn_demosaic)");
+    println!("cargo:rerun-if-env-changed=CAMERAFTP_NN_DEMOSAIC");
+    let nn_enabled = std::env::var("CAMERAFTP_NN_DEMOSAIC").as_deref() != Ok("0");
+    if nn_enabled {
+        println!("cargo:rustc-cfg=nn_demosaic");
+    }
+
     pack_lut_zip();
     compress_lensfun_db();
     compress_raw_alchemy_dll();
     compress_libomp_dll();
     compress_onnxruntime_dll();
     compress_directml_dll();
-    compress_nn_models();
+    if nn_enabled {
+        compress_nn_models();
+    }
 
     let mut attributes = tauri_build::Attributes::new();
 

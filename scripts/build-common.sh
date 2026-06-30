@@ -493,6 +493,7 @@ show_build_help() {
 
 输出位置:
   Windows: out/CameraFTP_v${VERSION}.exe
-  Android: out/CameraFTP_v${VERSION}.apk
+  Android: out/CameraFTP_v${VERSION}-neural.apk  (骁龙8 Gen2+, 含 NN 解马赛克)
+           out/CameraFTP_v${VERSION}-legacy.apk  (其它设备, 传统算法)
 EOF
 }

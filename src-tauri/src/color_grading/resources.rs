@@ -166,6 +166,7 @@ fn sm_to_qnn_htp_arch(sm: &str) -> &'static str {
 /// here — the same pattern as `lensfun_db::ensure_db()`. Idempotent: skips
 /// files that already exist to avoid the multi-MB decompress+write on every
 /// startup.
+#[cfg(nn_demosaic)]
 pub fn extract_nn_models(app_data_dir: &std::path::Path) -> Result<(), AppError> {
     let models_dir = app_data_dir.join("models");
     std::fs::create_dir_all(&models_dir)
@@ -185,8 +186,18 @@ pub fn extract_nn_models(app_data_dir: &std::path::Path) -> Result<(), AppError>
     Ok(())
 }
 
+/// NN demosaic compiled out (`CAMERAFTP_NN_DEMOSAIC=0` → the Android "legacy"
+/// variant): no models are embedded by build.rs, so extraction is a no-op.
+/// The C++ core is built without `RA_ENABLE_NN_DEMOSAIC` (no NN symbols, no
+/// ORT/QNN linkage), and the runtime path falls back to classical demosaic.
+#[cfg(not(nn_demosaic))]
+pub fn extract_nn_models(_app_data_dir: &std::path::Path) -> Result<(), AppError> {
+    Ok(())
+}
+
 /// Decompress one embedded model to `models_dir/name`, skipping if it already
 /// exists. `compressed` is the gzip payload written by build.rs.
+#[cfg(nn_demosaic)]
 fn extract_one_nn_model(
     models_dir: &std::path::Path,
     name: &str,

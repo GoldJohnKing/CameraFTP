@@ -79,6 +79,7 @@ build_raw_alchemy_windows() {
 
 build_raw_alchemy_android() {
     local build_type="${1:-Release}"
+    local variant="${2:-neural}"
 
     if [ ! -d "$RAWALCHEMY_DIR" ]; then
         warn "RawAlchemyCpp not found at $RAWALCHEMY_DIR"
@@ -103,13 +104,21 @@ build_raw_alchemy_android() {
         return 0
     fi
 
-    task "[RawAlchemyCpp] Building Android arm64 .so ($build_type)..."
+    # Per-variant build subdirectory and NN demosaic toggle.
+    # neural: full NN pipeline (ORT/QNN symbols linked, model packaged).
+    # legacy: C++ omits NN linkage → smaller .so, no ORT/QNN deps.
+    local build_subdir="build-android-arm64"
+    [ "$variant" = "legacy" ] && build_subdir="build-android-arm64-legacy"
+    local nn_flag="ON"
+    [ "$variant" = "legacy" ] && nn_flag="OFF"
+
+    task "[RawAlchemyCpp] Building Android arm64 .so ($build_type, $variant)..."
 
     local abs_dir
     abs_dir="$(cd "$RAWALCHEMY_DIR" && pwd)"
 
     cd "$abs_dir"
-    ANDROID_NDK="$ndk_path" cmake -B "build-android-arm64" \
+    ANDROID_NDK="$ndk_path" cmake -B "$build_subdir" \
         -DCMAKE_TOOLCHAIN_FILE="$ndk_path/build/cmake/android.toolchain.cmake" \
         -DANDROID_ABI=arm64-v8a \
         -DANDROID_PLATFORM=android-33 \
@@ -118,8 +127,9 @@ build_raw_alchemy_android() {
         -DBUILD_CAPI=ON \
         -DBUILD_CLI=OFF \
         -DENABLE_LENS_CORRECTION=ON \
+        -DRA_ENABLE_NN_DEMOSAIC="$nn_flag"
 
-    cmake --build "build-android-arm64" -j"$(nproc 2>/dev/null || echo 4)"
+    cmake --build "$build_subdir" -j"$(nproc 2>/dev/null || echo 4)"
     local cmake_status=$?
     if [ $cmake_status -ne 0 ]; then
         error "RawAlchemyCpp CMake build FAILED (exit code $cmake_status). Aborting — check compile errors above."
@@ -127,7 +137,7 @@ build_raw_alchemy_android() {
     fi
     cd - > /dev/null
 
-    local so_path="$abs_dir/build-android-arm64/libraw_alchemy.so"
+    local so_path="$abs_dir/$build_subdir/libraw_alchemy.so"
     if [ ! -f "$so_path" ]; then
         error "RawAlchemyCpp .so not found at expected path after successful cmake build"
         return 1
@@ -168,10 +178,10 @@ case "${1:-}" in
         ;;
     android)
         shift
-        build_raw_alchemy_android "${1:-Release}"
+        build_raw_alchemy_android "${1:-Release}" "${2:-neural}"
         ;;
     *)
-        echo "Usage: $0 windows|android [Release|Debug]"
+        echo "Usage: $0 windows|android [Release|Debug] [neural|legacy]"
         exit 1
         ;;
 esac
