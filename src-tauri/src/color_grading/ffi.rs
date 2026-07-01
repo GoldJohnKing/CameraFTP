@@ -109,8 +109,10 @@ pub mod embedded_dll {
     // hashed-filename approach gives raw_alchemy_core.dll.
     const LIBOMP_DLL_GZ: &[u8] =
         include_bytes!(concat!(env!("OUT_DIR"), "/libomp.dll.gz"));
+    #[cfg(nn_demosaic)]
     const ONNXRUNTIME_DLL_GZ: &[u8] =
         include_bytes!(concat!(env!("OUT_DIR"), "/onnxruntime.dll.gz"));
+    #[cfg(nn_demosaic)]
     const DIRECTML_DLL_GZ: &[u8] =
         include_bytes!(concat!(env!("OUT_DIR"), "/directml.dll.gz"));
 
@@ -229,6 +231,7 @@ pub mod embedded_dll {
     /// Preload onnxruntime.dll (the DirectML-capable ORT build).
     /// `raw_alchemy_core.dll` links the ORT import lib, so it has a load-time
     /// dependency on onnxruntime.dll that must resolve to our embedded copy.
+    #[cfg(nn_demosaic)]
     pub fn preload_onnxruntime() -> Result<(), AppError> {
         preload_dll_by_name(ONNXRUNTIME_DLL_GZ, "onnxruntime.dll")?;
         Ok(())
@@ -240,10 +243,43 @@ pub mod embedded_dll {
     /// `ra_set_nn_config` (directml_dll_path) so nn_session.cpp can call
     /// `SetDllDirectoryA` on its parent dir as defense-in-depth against a stale
     /// System32 DirectML.dll (ORT issue #18831).
+    #[cfg(nn_demosaic)]
     pub fn preload_directml() -> Result<std::path::PathBuf, AppError> {
         let dll_path = preload_dll_by_name(DIRECTML_DLL_GZ, "DirectML.dll")?;
         tracing::debug!(path = %dll_path.display(), "DirectML preloaded");
         Ok(dll_path)
+    }
+
+    /// Preload the NN runtime DLLs (DirectML + onnxruntime). Only the neural
+    /// variant embeds them and has a C++ core that imports onnxruntime.dll; the
+    /// legacy variant's C++ core is built without `RA_ENABLE_NN_DEMOSAIC`, so it
+    /// has no ORT import dependency and build.rs embeds nothing to preload.
+    /// Returns the DirectML path (handed to the C++ core via ra_set_nn_config)
+    /// when present; None for the legacy variant or when preload failed.
+    #[cfg(nn_demosaic)]
+    pub fn preload_nn_runtime() -> Option<std::path::PathBuf> {
+        let directml_path = match preload_directml() {
+            Ok(p) => Some(p),
+            Err(e) => {
+                tracing::error!(
+                    "Failed to preload DirectML: {}. raw_alchemy_core.dll may fail to load.",
+                    e
+                );
+                None
+            }
+        };
+        if let Err(e) = preload_onnxruntime() {
+            tracing::error!(
+                "Failed to preload onnxruntime: {}. raw_alchemy_core.dll may fail to load.",
+                e
+            );
+        }
+        directml_path
+    }
+
+    #[cfg(not(nn_demosaic))]
+    pub fn preload_nn_runtime() -> Option<std::path::PathBuf> {
+        None
     }
 }
 

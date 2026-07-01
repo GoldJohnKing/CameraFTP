@@ -13,13 +13,19 @@ fn main() {
         println!("cargo:rustc-cfg=nn_demosaic");
     }
 
+    // Neural and legacy variants build the C++ core into separate subdirs so the
+    // NN-linked and NN-stripped DLLs don't clobber each other (mirrors Android's
+    // build-android-arm64{-legacy} split). build.rs embeds the DLL from whichever
+    // subdir matches the active variant.
+    let nn_build_subdir = if nn_enabled { "build-windows-dll" } else { "build-windows-dll-legacy" };
+
     pack_lut_zip();
     compress_lensfun_db();
-    compress_raw_alchemy_dll();
-    compress_libomp_dll();
-    compress_onnxruntime_dll();
-    compress_directml_dll();
+    compress_raw_alchemy_dll(nn_build_subdir);
+    compress_libomp_dll(nn_build_subdir);
     if nn_enabled {
+        compress_onnxruntime_dll();
+        compress_directml_dll();
         compress_nn_models();
     }
 
@@ -203,7 +209,7 @@ fn write_empty_manifest(out_dir: &std::path::Path) {
 
 /// Gzip-compress raw_alchemy_core.dll into OUT_DIR for embedding via include_bytes!.
 /// The DLL is built by CMake before cargo builds, so it should already exist on disk.
-fn compress_raw_alchemy_dll() {
+fn compress_raw_alchemy_dll(build_subdir: &str) {
     use flate2::write::GzEncoder;
     use flate2::Compression;
     use std::fs;
@@ -232,7 +238,7 @@ fn compress_raw_alchemy_dll() {
     };
 
     let dll_path = rawalchemy_dir
-        .join("build-windows-dll")
+        .join(build_subdir)
         .join("bin")
         .join(build_type)
         .join("raw_alchemy_core.dll");
@@ -286,7 +292,7 @@ fn write_empty_dll_placeholder(filename: &str) {
 /// raw_alchemy_core.dll has a load-time dependency on libomp.dll; the host
 /// preloads it before LoadLibrary-ing the core DLL so the dependency resolves
 /// without libomp needing to be on the system PATH or in System32.
-fn compress_libomp_dll() {
+fn compress_libomp_dll(build_subdir: &str) {
     use flate2::write::GzEncoder;
     use flate2::Compression;
     use std::fs;
@@ -309,7 +315,7 @@ fn compress_libomp_dll() {
     };
 
     let libomp_path = rawalchemy_dir
-        .join("build-windows-dll")
+        .join(build_subdir)
         .join("bin")
         .join(build_type)
         .join("libomp.dll");

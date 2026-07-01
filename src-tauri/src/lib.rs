@@ -509,19 +509,9 @@ fn resolve_raw_alchemy_lib_path() -> ResolvedLibPath {
                 // the core DLL's import-table resolution binds to these copies
                 // (LoadLibraryEx flags=0 does not search the DLL's own directory).
                 preload_or_log(color_grading::ffi::embedded_dll::preload_libomp, "libomp");
-                // DirectML is preloaded directly (not via preload_or_log) so its
-                // extracted path can be captured and pushed to the C++ core.
-                let directml_path = match color_grading::ffi::embedded_dll::preload_directml() {
-                    Ok(p) => Some(p),
-                    Err(e) => {
-                        tracing::error!(
-                            "Failed to preload DirectML: {}. raw_alchemy_core.dll may fail to load.",
-                            e
-                        );
-                        None
-                    }
-                };
-                preload_or_log(color_grading::ffi::embedded_dll::preload_onnxruntime, "onnxruntime");
+                // NN runtime DLLs (DirectML + onnxruntime) are only embedded by
+                // the neural variant; preload_nn_runtime is a no-op for legacy.
+                let directml_path = color_grading::ffi::embedded_dll::preload_nn_runtime();
                 ResolvedLibPath { lib_path: path, directml_path }
             }
             Err(e) => {

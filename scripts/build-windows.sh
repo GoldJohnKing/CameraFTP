@@ -27,15 +27,42 @@ terminate_running_process() {
     fi
 }
 
+# 构建单个 variant:
+#   neural — 含 NN 推理库 (ORT/DirectML) + 模型，由 build.rs gzip 内嵌
+#   legacy — 仅传统算法，不含 NN 库/模型，体积更小
 build_windows() {
     local BUILD_TYPE="${1:-release}"
+    local variant="${2:-neural}"
     local OUTPUT_NAME="cameraftp.exe"
 
-    info "开始构建 Windows 应用程序 ($BUILD_TYPE 模式)..."
+    info "开始构建 Windows 应用程序 ($BUILD_TYPE, $variant)..."
 
     terminate_running_process "$OUTPUT_NAME"
 
-    # Build RawAlchemyCpp DLL if available
+    # NN demosaic 总开关：导出给 Rust build.rs。
+    # neural=1 启用并嵌入模型 (ORT/DirectML via build.rs gzip pipeline)；
+    # legacy=0 关闭且 build.rs 跳过模型压缩。
+    local nn_flag
+    if [ "$variant" = "neural" ]; then
+        nn_flag="1"
+        export CAMERAFTP_NN_DEMOSAIC=1
+    else
+        nn_flag="0"
+        export CAMERAFTP_NN_DEMOSAIC=0
+    fi
+    # WSL→Win32 bridge: cargo.exe is a Windows process and WSL does NOT
+    # auto-forward arbitrary env vars across the interop boundary. Without
+    # listing the var in WSLENV, build.rs sees CAMERAFTP_NN_DEMOSAIC as unset
+    # → always defaults to neural, silently defeating the legacy variant.
+    # (The Android build is unaffected: `npx tauri android build` resolves to
+    # the Linux cargo, where the env var is visible natively.) Idempotent.
+    case ":${WSLENV:-}:" in
+        *:CAMERAFTP_NN_DEMOSAIC:*) ;;
+        *) export WSLENV="CAMERAFTP_NN_DEMOSAIC:${WSLENV:-}" ;;
+    esac
+    info "Variant=$variant  CAMERAFTP_NN_DEMOSAIC=$nn_flag"
+
+    # Build RawAlchemyCpp DLL if available (variant 透传给 CMake 与 build 子目录)
     local rawalchemy_dir="${RAWALCHEMY_DIR:-$SCRIPT_DIR/../src-tauri/lib/rawalchemy}"
     if [ -d "$rawalchemy_dir" ]; then
         local bt_upper
@@ -44,7 +71,7 @@ build_windows() {
         else
             bt_upper="Release"
         fi
-        "$SCRIPT_DIR/build-raw-alchemy.sh" windows "$bt_upper" || {
+        "$SCRIPT_DIR/build-raw-alchemy.sh" windows "$bt_upper" "$variant" || {
             error "RawAlchemyCpp Windows build FAILED. Aborting — cannot produce valid exe without core library."
             exit 1
         }
@@ -52,16 +79,6 @@ build_windows() {
         warn "RawAlchemyCpp not found. Color grading will be unavailable."
         warn "Set RAWALCHEMY_DIR to enable it."
     fi
-
-    # NOTE: Windows NN runtime packaging (onnxruntime.dll + DirectML.dll) is
-    # deferred to a focused follow-up. Unlike Android (QNN HTP, packaged above),
-    # Windows NN requires embedding BOTH DLLs through build.rs's gzip pipeline
-    # (mirroring raw_alchemy_core.dll/libomp.dll) and preloading them in
-    # color_grading/ffi.rs before the ORT DirectML EP initializes. The
-    # DirectML.dll source is already cached at
-    #   src-tauri/lib/rawalchemy/third_party/nn-cache/DirectML.dll
-    # Until the embed lands, the Windows path gracefully falls back to the
-    # classical demosaic algorithm when DirectML is not found at runtime.
 
     local cargo_cmd
     cargo_cmd=$(get_tool_cmd "cargo")
@@ -84,15 +101,22 @@ build_windows() {
 
     if [ "$BUILD_TYPE" = "debug" ]; then
         SRC_PATH="src-tauri/target/$TARGET_WINDOWS_TRIPLE/debug/$OUTPUT_NAME"
-        DEST_NAME="CameraFTP_v${VERSION}-debug.exe"
+        DEST_NAME="CameraFTP_v${VERSION}-${variant}-debug.exe"
     else
         SRC_PATH="src-tauri/target/$TARGET_WINDOWS_TRIPLE/release/$OUTPUT_NAME"
-        DEST_NAME="CameraFTP_v${VERSION}.exe"
+        DEST_NAME="CameraFTP_v${VERSION}-${variant}.exe"
     fi
 
     terminate_running_process "$DEST_NAME"
 
-    move_to_out "$SRC_PATH" "$DEST_NAME" "Windows $BUILD_TYPE"
+    move_to_out "$SRC_PATH" "$DEST_NAME" "Windows $BUILD_TYPE ($variant)"
+}
+
+# 依次构建 neural 与 legacy 两个 variant，各产出一个 exe
+build_all_variants() {
+    local build_type="${1:-release}"
+    build_windows "$build_type" neural
+    build_windows "$build_type" legacy
 }
 
 # 显示帮助信息
@@ -112,9 +136,10 @@ show_help() {
     echo ""
     local VERSION
     VERSION=$(get_version)
-    echo "输出位置:"
-    echo "  Release: out/CameraFTP_v${VERSION}.exe (单文件，DLL 已内嵌)"
-    echo "  Debug:   out/CameraFTP_v${VERSION}-debug.exe (单文件，DLL 已内嵌)"
+    echo "输出位置 (每个 variant 一份 exe):"
+    echo "  Release: out/CameraFTP_v${VERSION}-neural.exe  (神经网络解马赛克)"
+    echo "           out/CameraFTP_v${VERSION}-legacy.exe   (传统算法)"
+    echo "  Debug:   out/CameraFTP_v${VERSION}-neural-debug.exe / out/CameraFTP_v${VERSION}-legacy-debug.exe"
     echo ""
     echo "注意: 推荐使用 ./build.sh windows 进行构建，会自动生成类型绑定"
 }
@@ -136,7 +161,7 @@ main() {
     if [ "$CHECK_ONLY" = true ]; then
         check_windows_env
     else
-        check_windows_env && build_windows "$BUILD_TYPE"
+        check_windows_env && build_all_variants "$BUILD_TYPE"
     fi
 }
 

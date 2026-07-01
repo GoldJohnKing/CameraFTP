@@ -9,6 +9,7 @@ RAWALCHEMY_DIR="${RAWALCHEMY_DIR:-$SCRIPT_DIR/../src-tauri/lib/rawalchemy}"
 
 build_raw_alchemy_windows() {
     local build_type="${1:-Release}"
+    local variant="${2:-neural}"
 
     if [ ! -d "$RAWALCHEMY_DIR" ]; then
         warn "RawAlchemyCpp not found at $RAWALCHEMY_DIR"
@@ -17,7 +18,13 @@ build_raw_alchemy_windows() {
         return 0
     fi
 
-    task "[RawAlchemyCpp] Building Windows DLL ($build_type)..."
+    # Per-variant build subdirectory.
+    # neural: full NN pipeline (NN-linked DLL).
+    # legacy: C++ omits NN linkage → separate build dir, no ORT/DirectML deps.
+    local build_subdir="build-windows-dll"
+    [ "$variant" = "legacy" ] && build_subdir="build-windows-dll-legacy"
+
+    task "[RawAlchemyCpp] Building Windows DLL ($build_type, $variant)..."
 
     local abs_dir
     abs_dir="$(cd "$RAWALCHEMY_DIR" && pwd)"
@@ -52,23 +59,23 @@ build_raw_alchemy_windows() {
 
     # Build with escalating retry: fast incremental → state clean → full clean
     local build_ok=false
-    if cmd.exe /C "scripts\\build_windows.bat $build_type" 2>&1; then
+    if cmd.exe /C "scripts\\build_windows.bat $build_type $variant" 2>&1; then
         build_ok=true
-    elif rm -f build-windows-dll/.ninja_log build-windows-dll/.ninja_deps && \
-         cmd.exe /C "scripts\\build_windows.bat $build_type" 2>&1; then
+    elif rm -f "$build_subdir/.ninja_log" "$build_subdir/.ninja_deps" && \
+         cmd.exe /C "scripts\\build_windows.bat $build_type $variant" 2>&1; then
         warn "Succeeded after clearing ninja state"
         build_ok=true
     else
         warn "Build failed, attempting full clean rebuild..."
-        rm -rf build-windows-dll
-        if cmd.exe /C "scripts\\build_windows.bat $build_type" 2>&1; then
+        rm -rf "$build_subdir"
+        if cmd.exe /C "scripts\\build_windows.bat $build_type $variant" 2>&1; then
             warn "Succeeded after full clean rebuild"
             build_ok=true
         fi
     fi
     cd - > /dev/null
 
-    local dll_path="$abs_dir/build-windows-dll/bin/$build_type/raw_alchemy_core.dll"
+    local dll_path="$abs_dir/$build_subdir/bin/$build_type/raw_alchemy_core.dll"
     if [ -f "$dll_path" ]; then
         success "RawAlchemyCpp DLL built: $dll_path"
     else
@@ -174,7 +181,7 @@ build_raw_alchemy_android() {
 case "${1:-}" in
     windows)
         shift
-        build_raw_alchemy_windows "${1:-Release}"
+        build_raw_alchemy_windows "${1:-Release}" "${2:-neural}"
         ;;
     android)
         shift

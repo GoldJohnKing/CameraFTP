@@ -492,7 +492,8 @@ show_build_help() {
   ./$script_name gen-types                    # 仅生成类型绑定
 
 输出位置:
-  Windows: out/CameraFTP_v${VERSION}.exe
+  Windows: out/CameraFTP_v${VERSION}-neural.exe  (神经网络解马赛克)
+           out/CameraFTP_v${VERSION}-legacy.exe   (传统算法)
   Android: out/CameraFTP_v${VERSION}-neural.apk  (骁龙8 Gen2+, 含 NN 解马赛克)
            out/CameraFTP_v${VERSION}-legacy.apk  (其它设备, 传统算法)
 EOF
