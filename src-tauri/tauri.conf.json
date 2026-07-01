@@ -2,7 +2,7 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "com.gjk.cameraftpcompanion",
   "productName": "图传伴侣",
-  "version": "1.8.1",
+  "version": "1.9.0",
   "build": {
     "beforeDevCommand": "npm run dev",
     "beforeBuildCommand": "./scripts/build-frontend.sh",

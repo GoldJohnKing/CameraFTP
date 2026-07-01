@@ -2,7 +2,7 @@
 
 一款跨平台的相机FTP伴侣应用，让相机照片直接传输到电脑或手机。
 
-![版本](https://img.shields.io/badge/version-1.8.1-blue)
+![版本](https://img.shields.io/badge/version-1.9.0-blue)
 ![平台](https://img.shields.io/badge/platform-Windows%20%7C%20Android-brightgreen)
 ![技术栈](https://img.shields.io/badge/tech-Tauri%20v2%20%2B%20React%2018%20%2B%20Rust%202021-orange)
 [![QQ群](https://img.shields.io/badge/QQ%E7%BE%A4-936189868-12B7F5?logo=tencentqq&logoColor=white)](https://qm.qq.com/q/IUGLEM5V28)
@@ -88,7 +88,7 @@
 
 ### 配置文件位置
 
-- **Windows**: `%APPDATA%\cameraftp\config.json`
+- **Windows**: `%APPDATA%\com.gjk.cameraftpcompanion\config.json`
 - **Android**: `/data/data/com.gjk.cameraftpcompanion/files/config.json`
 
 ### 照片存储路径
@@ -199,8 +199,26 @@ AGPL-3.0-or-later © 2026 GoldJohnKing <GoldJohnKing@Live.cn>
 | **错误处理** | thiserror | 2.0 |
 | **日志** | tracing | 0.1 |
 | **文件监听(Win)** | notify | 8.0 |
-| **AI修图** | Volcengine Seedream | doubao-seedream-5-0 |
+| **注册表(Win)** | winreg | 0.52 |
+| **Win32 API(Win)** | windows | 0.58 |
+| **JNI(Android)** | jni | 0.21 |
+| **NDK上下文(Android)** | ndk-context | 0.1 |
+| **运行时工具** | tokio-util | 0.7 |
+| **异步组合子** | futures | 0.3 |
+| **异步trait** | async-trait | 0.1 |
+| **序列化** | serde / serde_json | 1 |
+| **Tauri插件** | tauri-plugin-dialog | 2 |
+| **网络接口检测** | local-ip-address | 0.6 |
+| **HTTP客户端** | reqwest | 0.12 |
+| **Base64编码** | base64 | 0.22 |
+| **随机数** | rand_core | 0.6 |
+| **目录解析** | dirs | 5.0 |
+| **日志订阅** | tracing-subscriber | 0.3 |
+| **AI修图** | Volcengine Seedream | doubao-seedream-5-0-260128 |
 | **调色引擎** | RawAlchemyCpp | LUT + Lensfun |
+| **NN推理** | ONNX Runtime | 1.24.1 |
+| **NN加速(Win)** | DirectML | 1.15.4 |
+| **NN加速(Android)** | QNN Runtime | 2.42.0 |
 | **Android Native** | Kotlin | JVM 21 |
 | **Android API** | min 35 / target 36 | Android 15+ |
 | **JDK** | Java | 21 |
@@ -216,6 +234,7 @@ cameraftp/
 │   ├── tsconfig.json             # TypeScript配置
 │   ├── vite.config.ts            # Vite配置
 │   ├── tailwind.config.js        # TailwindCSS配置
+│   ├── postcss.config.js         # PostCSS配置（TailwindCSS前置）
 │   └── build.sh                  # ⭐ 统一构建入口
 │
 ├── 📁 scripts/                   # 构建脚本
@@ -223,7 +242,8 @@ cameraftp/
 │   ├── build-windows.sh          # Windows构建
 │   ├── build-android.sh          # Android构建
 │   ├── build-frontend.sh         # 前端构建
-│   └── build-raw-alchemy.sh      # RawAlchemyCpp动态库构建
+│   ├── build-raw-alchemy.sh      # RawAlchemyCpp动态库构建
+│   └── fetch-nn-deps.sh          # NN推理依赖拉取（ORT/DirectML/QNN）
 │
 ├── 📁 src/                       # React前端源码
 │   ├── main.tsx                  # React入口
@@ -319,6 +339,8 @@ cameraftp/
 │
 ├── 📁 src-tauri/                 # Rust后端源码
 │   ├── Cargo.toml                # Rust依赖
+│   ├── tauri.conf.json           # Tauri应用配置
+│   ├── tauri.neural.conf.json    # NN变体Tauri配置（图传伴侣 NN）
 │   ├── build.rs                  # 构建脚本
 │   ├── src/
 │   │   ├── main.rs               # 程序入口
@@ -346,7 +368,8 @@ cameraftp/
 │   │   │       ├── bridge.rs     # JNI桥接
 │   │   │       ├── types.rs      # 数据类型
 │   │   │       ├── retry.rs      # 重试逻辑
-│   │   │       └── limiter.rs    # 并发限制
+│   │   │       ├── limiter.rs    # 并发限制
+│   │   │       └── tests.rs      # 单元测试
 │   │   ├── ai_edit/              # AI修图服务
 │   │   │   ├── mod.rs            # 模块入口
 │   │   │   ├── config.rs         # AI修图配置
@@ -422,7 +445,8 @@ cameraftp/
 │           │   ├── ImageViewerBridge.kt           # 图片查看Bridge
 │           │   ├── MediaStoreBridge.kt            # MediaStore集成Bridge
 │           │   ├── ImageProcessorBridge.kt        # 图片预处理Bridge（JNI调用）
-│           │   └── ColorGradingJniBridge.kt       # 调色JNI Bridge
+│           │   ├── ColorGradingJniBridge.kt       # 调色JNI Bridge
+│           │   └── NnCapabilityBridge.kt          # NN能力检测Bridge（Hexagon v73+）
 │           ├── controllers/                        # 控制器目录
 │           │   ├── ExifController.kt               # EXIF数据控制器
 │           │   ├── WebViewOverlayController.kt     # WebView叠加控制器
@@ -459,6 +483,7 @@ Android平台使用Kotlin实现以下功能：
 | **bridges/MediaStoreBridge.kt** | MediaStore集成Bridge，供Kotlin/Rust集成调用 |
 | **bridges/ImageProcessorBridge.kt** | 图片预处理Bridge（JNI调用），解码+降采样+Base64编码 |
 | **bridges/ColorGradingJniBridge.kt** | 调色JNI Bridge，调用RawAlchemyCpp C API |
+| **bridges/NnCapabilityBridge.kt** | NN能力检测Bridge，检测Qualcomm Hexagon v73+ SoC是否支持FP16 NN去马赛克（HTP） |
 | **galleryv2/MediaPageProvider.kt** | 分页媒体加载 |
 | **galleryv2/ThumbnailCacheV2.kt** | 缩略图缓存，内存+磁盘两级 |
 | **galleryv2/ThumbnailDecoder.kt** | 缩略图解码 |
@@ -476,7 +501,7 @@ Android平台使用Kotlin实现以下功能：
 
 #### JS Bridge 说明
 
-前端通过以下Bridge与Android原生交互：
+前端通过以下Bridge与Android原生交互（`GalleryAndroid` 为 V1 兼容保留，前端默认使用 V2）：
 
 ```typescript
 // 权限管理
@@ -493,6 +518,9 @@ window.GalleryAndroidV2?.cancelThumbnailRequests(idsJson)
 
 // 图片查看
 window.ImageViewerAndroid?.openOrNavigateTo(uri, allUrisJson)
+
+// NN能力检测（FP16去马赛克可用性）
+window.NnCapability?.getNnEnabled()
 ```
 
 </details>
