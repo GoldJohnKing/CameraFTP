@@ -30,6 +30,12 @@ use image_preview::ImagePreviewCache;
 use auto_open::AutoOpenService;
 use config_service::ConfigService;
 use file_index::FileIndexService;
+
+/// C++ NN diagnostics log-file path, captured at logging setup and pushed into
+/// the C++ core via `ra_set_log_file` after the RawAlchemy DLL loads (replaces
+/// the former `RA_NN_LOG_FILE` env var, which was invisible to MSVC
+/// `std::getenv` on Windows due to CRT/Win32 environment desync).
+static NN_LOG_FILE: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
 use commands::{
     begin_color_grading_preview,
     apply_color_grading_preview,
@@ -128,8 +134,10 @@ fn setup_logging() {
 
         tracing::info!(log_file = ?log_file, "Logging initialized");
 
-        // Expose log file path to C++ NN diagnostics (so they write to the same file)
-        std::env::set_var("RA_NN_LOG_FILE", &log_file);
+        // Capture the log-file path so it can be pushed into the C++ core via
+        // ra_set_log_file after the RawAlchemy DLL loads (replaces the former
+        // RA_NN_LOG_FILE env var — invisible to MSVC std::getenv on Windows).
+        let _ = NN_LOG_FILE.set(log_file);
     }
 }
 
@@ -186,7 +194,7 @@ pub fn run() {
                     tracing::warn!("Color grading resource extraction failed: {}", e);
                 }
 
-                // Extract embedded NN models so configure_nn_model_env can find them
+                // Extract embedded NN models so nn_model_paths can find them
                 if let Err(e) = color_grading::resources::extract_nn_models(&app_data_dir) {
                     let msg = format!("NN model extraction failed: {}", e);
                     tracing::warn!("{}", msg);
@@ -199,14 +207,75 @@ pub fn run() {
                     }
                 }
 
-                let lib_path = resolve_raw_alchemy_lib_path();
-                match color_grading::ffi::RawAlchemyLib::load_global(&lib_path) {
+                let resolved = resolve_raw_alchemy_lib_path();
+                match color_grading::ffi::RawAlchemyLib::load_global(&resolved.lib_path) {
                     Ok(lib) => {
-                        // Point the C++ NN core at the extracted model paths before init.
-                        color_grading::resources::configure_nn_model_env(&app_data_dir);
-                        // Publish the device SoC model to the QNN EP (Android only).
-                        #[cfg(target_os = "android")]
-                        color_grading::resources::configure_nn_soc_model_env();
+                        // Redirect C++ NN diagnostics into app.log (replaces the
+                        // former RA_NN_LOG_FILE env var — invisible to MSVC
+                        // std::getenv on Windows due to CRT/Win32 desync).
+                        if let Some(p) = NN_LOG_FILE.get().and_then(|p| p.to_str()) {
+                            lib.set_log_file(Some(p));
+                        }
+
+                        // Inject NN config explicitly via the C-ABI transport
+                        // (replaces RA_NN_* env vars — invisible to MSVC getenv
+                        // on Windows, so all NN config read as NULL there,
+                        // defeating NN init). The C side deep-copies every
+                        // string under a mutex, so leaking CString temporaries
+                        // here is safe (last-call-wins). MUST run before the
+                        // warmup spawn / demosaic_nn_init below.
+                        {
+                            use color_grading::ffi::RaNnConfig;
+
+                            // Leak a CString into a *const c_char. The C side
+                            // deep-copies, so the allocation is intentionally
+                            // never reclaimed (a handful of short strings, once).
+                            let cstr = |s: &str| -> *const std::os::raw::c_char {
+                                match std::ffi::CString::new(s) {
+                                    Ok(c) => c.into_raw() as *const std::os::raw::c_char,
+                                    Err(e) => {
+                                        tracing::warn!(
+                                            "NN config string {:?} had interior NUL ({}); passing as NULL",
+                                            s, e
+                                        );
+                                        std::ptr::null()
+                                    }
+                                }
+                            };
+
+                            let models = color_grading::resources::nn_model_paths(&app_data_dir);
+                            let mut cfg = RaNnConfig::default();
+                            if let Some(p) = models.bayer.as_ref().and_then(|p| p.to_str()) {
+                                cfg.bayer_model_path = cstr(p);
+                            }
+                            if let Some(p) = models.xtrans.as_ref().and_then(|p| p.to_str()) {
+                                cfg.xtrans_model_path = cstr(p);
+                            }
+                            if let Some(p) = models.ctx_dir.as_ref().and_then(|p| p.to_str()) {
+                                cfg.ctx_dir = cstr(p);
+                            }
+                            cfg.app_version = cstr(&models.app_version);
+
+                            // DirectML.dll path (Windows only) — extracted +
+                            // preloaded above; its parent dir steers ORT's DML
+                            // EP via SetDllDirectoryA in the C++ core.
+                            #[cfg(target_os = "windows")]
+                            if let Some(p) = resolved.directml_path.as_ref().and_then(|p| p.to_str()) {
+                                cfg.directml_dll_path = cstr(p);
+                            }
+
+                            // QNN SoC params (Android only) — SM8550→"43"/"73"
+                            // mapping lives in resources::nn_soc_config.
+                            #[cfg(target_os = "android")]
+                            if let Some(s) = color_grading::resources::nn_soc_config() {
+                                cfg.soc_model = cstr(s.soc_model);
+                                cfg.htp_arch = cstr(s.htp_arch);
+                            }
+
+                            if let Err(e) = lib.set_nn_config(&cfg) {
+                                tracing::error!("ra_set_nn_config failed: {}", e);
+                            }
+                        }
 
                         // Eagerly compile/warm the NN demosaic session in the
                         // background so the first edit doesn't pay the ~2s QNN
@@ -404,12 +473,27 @@ pub fn run() {
         });
 }
 
-fn resolve_raw_alchemy_lib_path() -> std::path::PathBuf {
+/// Resolved RawAlchemy core library path plus the extracted DirectML.dll path
+/// (Windows only; `None` elsewhere or when the preload failed). The DirectML
+/// path is handed to the C++ core via `ra_set_nn_config` so nn_session.cpp can
+/// `SetDllDirectoryA` its parent dir.
+struct ResolvedLibPath {
+    lib_path: std::path::PathBuf,
+    // Only read under #[cfg(target_os = "windows")] below; allow(dead_code) silences
+    // the unused-field warning on Android/Linux where DirectML doesn't apply.
+    #[allow(dead_code)]
+    directml_path: Option<std::path::PathBuf>,
+}
+
+fn resolve_raw_alchemy_lib_path() -> ResolvedLibPath {
     #[cfg(target_os = "android")]
     {
         // Kotlin side calls System.loadLibrary("raw_alchemy_core") in MainActivity.onCreate().
         // After that, dlopen("libraw_alchemy_core.so") finds the already-loaded library.
-        std::path::PathBuf::from("libraw_alchemy_core.so")
+        ResolvedLibPath {
+            lib_path: std::path::PathBuf::from("libraw_alchemy_core.so"),
+            directml_path: None,
+        }
     }
     #[cfg(target_os = "windows")]
     {
@@ -425,9 +509,20 @@ fn resolve_raw_alchemy_lib_path() -> std::path::PathBuf {
                 // the core DLL's import-table resolution binds to these copies
                 // (LoadLibraryEx flags=0 does not search the DLL's own directory).
                 preload_or_log(color_grading::ffi::embedded_dll::preload_libomp, "libomp");
-                preload_or_log(color_grading::ffi::embedded_dll::preload_directml, "DirectML");
+                // DirectML is preloaded directly (not via preload_or_log) so its
+                // extracted path can be captured and pushed to the C++ core.
+                let directml_path = match color_grading::ffi::embedded_dll::preload_directml() {
+                    Ok(p) => Some(p),
+                    Err(e) => {
+                        tracing::error!(
+                            "Failed to preload DirectML: {}. raw_alchemy_core.dll may fail to load.",
+                            e
+                        );
+                        None
+                    }
+                };
                 preload_or_log(color_grading::ffi::embedded_dll::preload_onnxruntime, "onnxruntime");
-                path
+                ResolvedLibPath { lib_path: path, directml_path }
             }
             Err(e) => {
                 tracing::error!("Failed to extract embedded DLL: {}. Falling back to exe dir.", e);
@@ -435,7 +530,10 @@ fn resolve_raw_alchemy_lib_path() -> std::path::PathBuf {
                     .ok()
                     .and_then(|p| p.parent().map(|d| d.to_path_buf()))
                     .unwrap_or_else(|| std::path::PathBuf::from("."));
-                exe_dir.join("raw_alchemy_core.dll")
+                ResolvedLibPath {
+                    lib_path: exe_dir.join("raw_alchemy_core.dll"),
+                    directml_path: None,
+                }
             }
         }
     }

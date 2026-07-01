@@ -47,62 +47,97 @@ pub fn get_resources() -> Result<&'static ResourcePaths, AppError> {
     })
 }
 
-/// Point the C++ NN demosaic core at the on-disk model files via env vars.
+/// Resolved NN model paths + QNN context-cache dir, handed to the C++ core via
+/// `ra_set_nn_config`. Each path is `None` when the corresponding model/dir is
+/// absent so the C side treats it as unset (NULL) rather than pointing at a
+/// nonexistent file.
+pub struct NnModelPaths {
+    pub bayer: Option<PathBuf>,
+    pub xtrans: Option<PathBuf>,
+    pub ctx_dir: Option<PathBuf>,
+    pub app_version: String,
+}
+
+/// Resolve the on-disk NN model paths + QNN context-cache dir for the C++ core.
 ///
-/// The C++ side (`raDemosaicNnInit` / `decodeRawNn`) reads
-/// `RA_NN_BAYER_MODEL` and `RA_NN_XTRANS_MODEL` at init time. The models are
-/// extracted to `{app_data_dir}/models/` by `extract_nn_models()` at startup;
-/// the `exists()` guard makes a failed extraction degrade cleanly to classical
-/// demosaic rather than pointing at nonexistent paths. Safe to call before the
-/// NN init.
-pub fn configure_nn_model_env(app_data_dir: &std::path::Path) {
+/// The models are extracted to `{app_data_dir}/models/` by `extract_nn_models()`
+/// at startup; the `exists()` guard makes a failed extraction degrade cleanly to
+/// classical demosaic rather than pointing at nonexistent paths (returned as
+/// `None`, which the caller maps to a NULL pointer in `RaNnConfig`). Replaces
+/// the former `configure_nn_model_env` which set `RA_NN_*` env vars — those were
+/// invisible to MSVC `std::getenv` on Windows (CRT/Win32 environment desync).
+pub fn nn_model_paths(app_data_dir: &std::path::Path) -> NnModelPaths {
     let models_dir = app_data_dir.join("models");
     let bayer = models_dir.join("bayer.onnx");
     let xtrans = models_dir.join("xtrans.onnx");
 
-    if bayer.exists() {
-        std::env::set_var("RA_NN_BAYER_MODEL", &bayer);
+    let bayer = if bayer.exists() {
         tracing::info!(path = %bayer.display(), "NN bayer model path configured");
-    }
-    if xtrans.exists() {
-        std::env::set_var("RA_NN_XTRANS_MODEL", &xtrans);
+        Some(bayer)
+    } else {
+        None
+    };
+    let xtrans = if xtrans.exists() {
         tracing::info!(path = %xtrans.display(), "NN xtrans model path configured");
-    }
+        Some(xtrans)
+    } else {
+        None
+    };
 
-    // QNN context-cache dir (Android only at runtime, but setting the env vars
-    // on all platforms is harmless — the C++ core only consumes them on Android).
-    // Use filesDir (not cacheDir): Android may auto-clear cacheDir under storage
-    // pressure, which would needlessly retrigger the ~5s graph compile.
+    // QNN context-cache dir (Android only at runtime — the C++ core only
+    // consumes it on Android). Use filesDir (not cacheDir): Android may
+    // auto-clear cacheDir under storage pressure, which would needlessly
+    // retrigger the ~5s graph compile.
     #[cfg(target_os = "android")]
-    {
+    let ctx_dir = {
         let nn_ctx_dir = app_data_dir.join("nn_ctx");
-        if let Err(e) = std::fs::create_dir_all(&nn_ctx_dir) {
-            tracing::warn!(error = %e, "could not create nn_ctx dir; QNN context cache disabled");
-        } else {
-            std::env::set_var("RA_NN_CTX_DIR", &nn_ctx_dir);
+        match std::fs::create_dir_all(&nn_ctx_dir) {
+            Ok(()) => Some(nn_ctx_dir),
+            Err(e) => {
+                tracing::warn!(error = %e, "could not create nn_ctx dir; QNN context cache disabled");
+                None
+            }
         }
+    };
+    #[cfg(not(target_os = "android"))]
+    let ctx_dir: Option<PathBuf> = None;
+
+    NnModelPaths {
+        bayer,
+        xtrans,
+        ctx_dir,
+        app_version: env!("CARGO_PKG_VERSION").to_string(),
     }
-    std::env::set_var("RA_NN_APP_VERSION", env!("CARGO_PKG_VERSION"));
 }
 
-/// Publish the device's Qualcomm SoC model to the C++ NN core via env var.
+/// Mapped QNN SoC config for the current device (Android only).
+pub struct NnSocConfig {
+    pub soc_model: &'static str,
+    pub htp_arch: &'static str,
+}
+
+/// Resolve the device's Qualcomm SoC model to the QNN EP `soc_model` /
+/// `htp_arch` options (Android only).
 ///
 /// Reads Android system property `ro.soc.model` (= `Build.SOC_MODEL`), maps it
-/// to the numeric value QNN EP's `soc_model` option expects, and sets
-/// `RA_NN_SOC_MODEL`. Read by `raw_alchemy_capi.cpp` into `DecodeParams.nnSocModel`,
-/// then consumed by `nn_session.cpp` QNN EP options. "0" (unknown) lets QNN auto-detect.
+/// to the numeric value QNN EP's `soc_model` option expects, and returns both.
+/// Consumed by the C++ core via `ra_set_nn_config` → `NnSessionConfig.socModel`.
+/// Returns `None` when the property can't be read (QNN then auto-detects with
+/// soc_model="0"). Replaces the former `configure_nn_soc_model_env` which set
+/// `RA_NN_*` env vars — those were invisible to MSVC `std::getenv` on Windows
+/// (CRT/Win32 desync).
 #[cfg(target_os = "android")]
-pub fn configure_nn_soc_model_env() {
+pub fn nn_soc_config() -> Option<NnSocConfig> {
     match read_build_soc_model() {
         Some(sm) => {
             let numeric = sm_to_qnn_soc_model(&sm);
             let arch = sm_to_qnn_htp_arch(&sm);
-            std::env::set_var("RA_NN_SOC_MODEL", numeric);
-            std::env::set_var("RA_NN_HTP_ARCH", arch);
             tracing::info!(soc_model = %sm, qnn_numeric = %numeric, htp_arch = %arch, "QNN soc_model + htp_arch configured");
+            Some(NnSocConfig { soc_model: numeric, htp_arch: arch })
         }
         None => {
             tracing::warn!("Could not read ro.soc.model; QNN will auto-detect (soc_model=0)");
+            None
         }
     }
 }

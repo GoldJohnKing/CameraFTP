@@ -234,20 +234,16 @@ pub mod embedded_dll {
         Ok(())
     }
 
-    /// Preload DirectML.dll and publish its path via the `RA_NN_DIRECTML_DLL`
-    /// env var. ORT's DirectML EP loads DirectML.dll at runtime (DMLCreateDevice);
-    /// the exact-name preload makes that bind to our copy, and the env var lets
-    /// the C++ core (nn_session.cpp) call `SetDllDirectoryA` on the same dir as
-    /// defense-in-depth against a stale System32 DirectML.dll (ORT issue #18831).
-    pub fn preload_directml() -> Result<(), AppError> {
+    /// Preload DirectML.dll and return its path. ORT's DirectML EP loads
+    /// DirectML.dll at runtime (DMLCreateDevice); the exact-name preload makes
+    /// that bind to our copy. The returned path is handed to the C++ core via
+    /// `ra_set_nn_config` (directml_dll_path) so nn_session.cpp can call
+    /// `SetDllDirectoryA` on its parent dir as defense-in-depth against a stale
+    /// System32 DirectML.dll (ORT issue #18831).
+    pub fn preload_directml() -> Result<std::path::PathBuf, AppError> {
         let dll_path = preload_dll_by_name(DIRECTML_DLL_GZ, "DirectML.dll")?;
-        // Read by the C++ core (raw_alchemy_capi.cpp) into DecodeParams
-        // .nnDirectmlDllPath, then used by nn_session.cpp's SetDllDirectoryA.
-        // Set unconditionally so the C++ side always points at our extraction dir.
-        let path_str = dll_path.to_string_lossy().into_owned();
-        std::env::set_var("RA_NN_DIRECTML_DLL", &path_str);
-        tracing::debug!("Set RA_NN_DIRECTML_DLL={}", path_str);
-        Ok(())
+        tracing::debug!(path = %dll_path.display(), "DirectML preloaded");
+        Ok(dll_path)
     }
 }
 
@@ -363,19 +359,53 @@ type RaFreePreviewBufferFn = unsafe extern "C" fn(
 // enabled (RA_ENABLE_NN_DEMOSAIC). Resolved lazily/optionally so library
 // loading stays robust on builds that don't export it — the NN init call site
 // then degrades to a non-fatal warning with classical-demosaic fallback.
-// No args: the C++ side reads RA_NN_BAYER_MODEL / RA_NN_XTRANS_MODEL env vars
-// for model paths (set by the Rust startup before this runs).
+// No args: the C++ side reads the config set via ra_set_nn_config for model
+// paths (ra_set_nn_config must be called before this runs).
 type RaDemosaicNnInitFn = unsafe extern "C" fn() -> c_int;
 
-// No args; reads RA_NN_* env vars itself and drives NnDemosaicSession::init().
-// Always present in NN-enabled builds; resolved optionally so a build without
-// the symbol still loads (warmup just no-ops with a debug log).
+// No args; reads the config set via ra_set_nn_config and drives
+// NnDemosaicSession::init(). Always present in NN-enabled builds; resolved
+// optionally so a build without the symbol still loads (warmup just no-ops
+// with a debug log).
 type RaWarmupNnSessionFn = unsafe extern "C" fn();
 
 // True iff the NN demosaic session successfully initialized (NPU engaged).
 // Optional: resolved like the other NN symbols so a build without it still
 // loads — `is_nn_ready()` then returns false, steering the router to classical.
 type RaIsNnReadyFn = unsafe extern "C" fn() -> bool;
+
+// Explicit NN config transport — replaces the RA_NN_* env vars (which are
+// invisible to MSVC std::getenv on Windows due to CRT/Win32 environment
+// desync, so all NN config read as NULL there). Field order MUST match the C
+// struct in raw_alchemy_capi.h exactly: bayer, xtrans, directml, soc_model,
+// htp_arch, ctx_dir, app_version.
+#[repr(C)]
+pub struct RaNnConfig {
+    pub bayer_model_path: *const c_char,
+    pub xtrans_model_path: *const c_char,
+    pub directml_dll_path: *const c_char,
+    pub soc_model: *const c_char,
+    pub htp_arch: *const c_char,
+    pub ctx_dir: *const c_char,
+    pub app_version: *const c_char,
+}
+
+impl Default for RaNnConfig {
+    fn default() -> Self {
+        Self {
+            bayer_model_path: std::ptr::null(),
+            xtrans_model_path: std::ptr::null(),
+            directml_dll_path: std::ptr::null(),
+            soc_model: std::ptr::null(),
+            htp_arch: std::ptr::null(),
+            ctx_dir: std::ptr::null(),
+            app_version: std::ptr::null(),
+        }
+    }
+}
+
+type RaSetNnConfigFn = unsafe extern "C" fn(*const RaNnConfig) -> c_int;
+type RaSetLogFileFn = unsafe extern "C" fn(*const c_char);
 
 pub struct RawAlchemyLib {
     _lib: Library,
@@ -389,6 +419,8 @@ pub struct RawAlchemyLib {
     demosaic_nn_init: Option<RaDemosaicNnInitFn>,
     warmup_nn_session: Option<RaWarmupNnSessionFn>,
     is_nn_ready: Option<RaIsNnReadyFn>,
+    set_nn_config: Option<RaSetNnConfigFn>,
+    set_log_file: Option<RaSetLogFileFn>,
 }
 
 fn ra_result_from_code(code: c_int) -> RaResult {
@@ -535,6 +567,37 @@ impl RawAlchemyLib {
             tracing::debug!("raIsNnReady symbol not present — router will treat NN as never ready");
         }
 
+        // ra_set_nn_config is the explicit C-ABI NN config transport that
+        // replaces the RA_NN_* env vars (env vars set by the Rust host are
+        // invisible to MSVC std::getenv on Windows — CRT/Win32 desync — so
+        // all NN config read as NULL there, defeating NN init). Optional for
+        // the same robustness reason as the other NN symbols; when absent,
+        // set_nn_config() returns an error and callers fall back to classical.
+        let set_nn_config = unsafe {
+            lib.get::<RaSetNnConfigFn>(b"ra_set_nn_config\0")
+                .ok()
+                .map(|f| *f)
+        };
+        if set_nn_config.is_some() {
+            tracing::debug!("ra_set_nn_config symbol resolved");
+        } else {
+            tracing::warn!("ra_set_nn_config symbol not present — NN config injection disabled (NN demosaic will be unavailable)");
+        }
+
+        // ra_set_log_file redirects C++ NN diagnostics (nnlog::info) into the
+        // app log file. Optional; when absent, set_log_file() no-ops with a
+        // debug log and the C++ side keeps writing to stderr.
+        let set_log_file = unsafe {
+            lib.get::<RaSetLogFileFn>(b"ra_set_log_file\0")
+                .ok()
+                .map(|f| *f)
+        };
+        if set_log_file.is_some() {
+            tracing::debug!("ra_set_log_file symbol resolved");
+        } else {
+            tracing::debug!("ra_set_log_file symbol not present — C++ NN diagnostics stay on stderr");
+        }
+
         Ok(Self {
             _lib: lib,
             process_file_with_lut,
@@ -547,6 +610,8 @@ impl RawAlchemyLib {
             demosaic_nn_init,
             warmup_nn_session,
             is_nn_ready,
+            set_nn_config,
+            set_log_file,
         })
     }
 
@@ -661,9 +726,9 @@ impl RawAlchemyLib {
     ///
     /// Non-fatal by design: callers wrap the `Result` in a warning and fall
     /// back to classical demosaic. Model paths are supplied to the C++ side via
-    /// the `RA_NN_BAYER_MODEL` / `RA_NN_XTRANS_MODEL` env vars (see
-    /// `resources::configure_nn_model_env`), which must be set before this call.
-    /// Returns an error if the build does not export `raDemosaicNnInit`.
+    /// `ra_set_nn_config` (see `resources::nn_model_paths`), which must be
+    /// called before this. Returns an error if the build does not export
+    /// `raDemosaicNnInit`.
     pub fn demosaic_nn_init(&self) -> Result<(), AppError> {
         let init = self.demosaic_nn_init.ok_or_else(|| {
             AppError::ColorGradingError(
@@ -698,6 +763,48 @@ impl RawAlchemyLib {
         match self.is_nn_ready {
             Some(f) => unsafe { f() },
             None => false, // symbol absent → treat as "not ready" → classical
+        }
+    }
+
+    /// Inject NN runtime config (model paths, QNN SoC params, DirectML path)
+    /// into the C++ core via the explicit C-ABI transport. Must be called
+    /// before warmup/decode so the config is in place when the NN session
+    /// initializes. The C side deep-copies every field, so the caller's
+    /// `RaNnConfig` (and any CString temporaries behind its pointers) may be
+    /// dropped immediately after this returns. Returns an error if the build
+    /// does not export `ra_set_nn_config`, or if the C side reports a failure
+    /// (e.g. out-of-memory during the deep copy).
+    pub fn set_nn_config(&self, cfg: &RaNnConfig) -> Result<(), AppError> {
+        let f = self.set_nn_config.ok_or_else(|| {
+            AppError::ColorGradingError("ra_set_nn_config unavailable in this build".into())
+        })?;
+        let result = unsafe { f(cfg) };
+        if result == 0 {
+            Ok(())
+        } else {
+            Err(AppError::ColorGradingError(format!(
+                "ra_set_nn_config failed (code {})",
+                result
+            )))
+        }
+    }
+
+    /// Redirect C++ NN diagnostics (nnlog::info) into `path` (opened in append
+    /// mode). Pass `None` to revert the C++ side to stderr. No-op (debug log)
+    /// if the build does not export `ra_set_log_file`.
+    pub fn set_log_file(&self, path: Option<&str>) {
+        match self.set_log_file {
+            Some(f) => {
+                let cstr = path.map(std::ffi::CString::new);
+                match cstr {
+                    Some(Ok(c)) => unsafe { f(c.as_ptr()) },
+                    // NUL in path: log and skip rather than panic; diagnostics
+                    // just stay on whatever was previously configured.
+                    Some(Err(e)) => tracing::warn!("set_log_file: invalid path ({}); skipped", e),
+                    None => unsafe { f(std::ptr::null()) },
+                }
+            }
+            None => tracing::debug!("ra_set_log_file unavailable — C++ NN diagnostics stay on stderr"),
         }
     }
 
