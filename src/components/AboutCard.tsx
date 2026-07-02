@@ -60,6 +60,21 @@ const DEPENDENCIES: DependencyGroup[] = [
         description: '优雅的 Toast 通知组件',
         url: 'https://sonner.emilkowal.dev/',
       },
+      {
+        name: 'TypeScript',
+        description: '前端开发语言，JavaScript 的类型安全超集',
+        url: 'https://www.typescriptlang.org/',
+      },
+      {
+        name: 'Vite',
+        description: '前端构建工具与开发服务器',
+        url: 'https://vitejs.dev/',
+      },
+      {
+        name: 'tauri-plugin-dialog',
+        description: 'Tauri 原生对话框插件（文件/消息选择）',
+        url: 'https://v2.tauri.app/plugin/dialog/',
+      },
     ],
   },
   {
@@ -185,6 +200,11 @@ const DEPENDENCIES: DependencyGroup[] = [
         description: '动态库加载器',
         url: 'https://docs.rs/libloading/',
       },
+      {
+        name: 'dirs',
+        description: '跨平台标准目录路径解析（配置/数据目录）',
+        url: 'https://docs.rs/dirs/',
+      },
     ],
   },
   {
@@ -199,6 +219,11 @@ const DEPENDENCIES: DependencyGroup[] = [
         name: 'tracing',
         description: '结构化日志与诊断库',
         url: 'https://docs.rs/tracing/',
+      },
+      {
+        name: 'tracing-subscriber',
+        description: '日志订阅与格式化输出层（tracing 的配套）',
+        url: 'https://docs.rs/tracing-subscriber/',
       },
       {
         name: 'thiserror',
@@ -224,6 +249,31 @@ const DEPENDENCIES: DependencyGroup[] = [
         name: 'ts-rs',
         description: 'Rust 类型到 TypeScript 类型绑定生成',
         url: 'https://docs.rs/ts-rs/',
+      },
+    ],
+  },
+  {
+    title: '平台原生接口',
+    deps: [
+      {
+        name: 'windows-rs',
+        description: 'Windows Win32 API 绑定（系统托盘 / Shell / 网络接口）',
+        url: 'https://github.com/microsoft/windows-rs',
+      },
+      {
+        name: 'winreg',
+        description: 'Windows 注册表读写（开机自启等配置）',
+        url: 'https://docs.rs/winreg/',
+      },
+      {
+        name: 'jni',
+        description: 'Java Native Interface，Rust ↔ Kotlin 互操作桥（Android）',
+        url: 'https://docs.rs/jni/',
+      },
+      {
+        name: 'ndk-context',
+        description: 'Android NDK 上下文（JNI 运行环境）',
+        url: 'https://docs.rs/ndk-context/',
       },
     ],
   },
