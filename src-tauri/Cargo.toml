@@ -43,10 +43,10 @@ async-trait = "0.1"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 # HEIC/HEIF 解码（纯 Rust，无 C 依赖）
 heic = "=0.1.0"
-# HTTP client for AI Edit API calls
-# (tried 0.13 to dedupe with tauri's transitive reqwest on Android, but cargo
-#  fails to resolve — another dep in the tree constrains reqwest to 0.12. Kept
-#  at 0.12; the duplicate (~0.5-1MB) is accepted until tauri/that dep moves.)
+# HTTP client for AI Edit API calls.
+# NOTE: pinned to 0.12 — a transitive dep constrains reqwest to 0.12, so bumping
+# to 0.13 dedupes nothing and fails cargo resolution. The ~0.5-1 MB duplicate
+# (tauri pulls its own reqwest) is accepted until that constraint lifts.
 reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
 # Base64 encoding for AI Edit image upload
 base64 = "0.22"

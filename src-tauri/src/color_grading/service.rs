@@ -20,6 +20,17 @@ use super::presets::find_preset;
 
 static GLOBAL_CG_SERVICE: OnceLock<Arc<ColorGradingService>> = OnceLock::new();
 
+/// Process-global flag: has the NN session's init() been ATTEMPTED to completion
+/// (success or latched failure)?
+///
+/// Set after the synchronous init (Windows/Linux) or once the background warmup
+/// returns (Android). Before this flips true, `is_nn_ready()==false` is ambiguous
+/// — it can mean either "still warming up" or "structurally unavailable". The
+/// fallback router consults this to avoid latching classical demosaic for the
+/// whole session on a spurious "not ready" that was really just the background
+/// compile still running on the first edit.
+pub(crate) static NN_INIT_DONE: AtomicBool = AtomicBool::new(false);
+
 struct ColorGradingTask {
     input_path: PathBuf,
     lut_id: String,
@@ -336,11 +347,17 @@ enum FallbackDecision {
     UseClassicalAndLatch,
 }
 
-/// Classify an NN-path failure by whether the NN session is ready.
-/// NN unavailability is stable for the process, so we latch it; per-file
-/// transient errors don't latch.
+/// Classify an NN-path failure by whether the NN session is ready AND whether
+/// init has completed. NN unavailability is stable for the process, so we latch
+/// it — but only after init has actually completed. While the background warmup
+/// (Android) is still compiling, `is_nn_ready()` is false even though the
+/// session will succeed shortly; latching then would disable NN for the whole
+/// session on a spurious "not ready". `NN_INIT_DONE` distinguishes "warming up"
+/// (no latch) from "init attempted and failed" (latch).
 fn classify_nn_failure(nn_ready: bool) -> FallbackDecision {
     if nn_ready {
+        FallbackDecision::UseClassicalNoLatch
+    } else if !NN_INIT_DONE.load(Ordering::Relaxed) {
         FallbackDecision::UseClassicalNoLatch
     } else {
         FallbackDecision::UseClassicalAndLatch
@@ -472,11 +489,19 @@ mod tests {
     #[test]
     fn fallback_latches_only_when_nn_structurally_unavailable() {
         // NN was up (ready) but this file errored → fall back, do NOT latch.
-        let d = classify_nn_failure(true);
-        assert!(matches!(d, FallbackDecision::UseClassicalNoLatch));
-        // NN structurally unavailable (not ready) → fall back AND latch.
-        let d = classify_nn_failure(false);
-        assert!(matches!(d, FallbackDecision::UseClassicalAndLatch));
+        assert!(matches!(classify_nn_failure(true), FallbackDecision::UseClassicalNoLatch));
+
+        // Not ready AND still warming up (background compile not finished) → fall
+        // back, do NOT latch (avoid spurious session-wide disable).
+        NN_INIT_DONE.store(false, Ordering::SeqCst);
+        assert!(matches!(classify_nn_failure(false), FallbackDecision::UseClassicalNoLatch));
+
+        // Not ready AND init completed → structural unavailability → latch.
+        NN_INIT_DONE.store(true, Ordering::SeqCst);
+        assert!(matches!(classify_nn_failure(false), FallbackDecision::UseClassicalAndLatch));
+
+        // Reset so this static doesn't bleed into sibling tests.
+        NN_INIT_DONE.store(false, Ordering::SeqCst);
     }
 }
 

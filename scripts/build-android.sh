@@ -436,6 +436,21 @@ build_android() {
             mkdir -p "$jni_dir"
             rm -f "$jni_dir"/*.so
             cp "$rawalchemy_so" "$jni_dir/libraw_alchemy_core.so"
+            # Strip debug sections from the SHIPPED copy only. The build artifact
+            # ($rawalchemy_so) stays unstripped so ndk-stack can symbolicate crash
+            # logs from the build dir; the APK gets the lean copy. --strip-debug
+            # (not --strip-all) preserves the dynamic symbols ORT/QNN dlopen.
+            local strip_bin
+            strip_bin="$(find "${NDK_HOME}/toolchains/llvm/prebuilt" -name llvm-strip -path "*/bin/*" 2>/dev/null | head -1)"
+            if [ -n "$strip_bin" ] && [ -x "$strip_bin" ]; then
+                local pre post
+                pre=$(stat -c %s "$jni_dir/libraw_alchemy_core.so" 2>/dev/null || stat -f %z "$jni_dir/libraw_alchemy_core.so")
+                "$strip_bin" --strip-debug "$jni_dir/libraw_alchemy_core.so"
+                post=$(stat -c %s "$jni_dir/libraw_alchemy_core.so" 2>/dev/null || stat -f %z "$jni_dir/libraw_alchemy_core.so")
+                info "Stripped shipped .so: $((pre / 1024 / 1024)) MB → $((post / 1024 / 1024)) MB"
+            else
+                warn "llvm-strip not found in NDK — shipped .so keeps debug info (~13 MB bloat)"
+            fi
             # Also copy libomp.so (OpenMP runtime required by libraw_alchemy_core.so)
             local omp_so
             omp_so="$(find_ndk_libomp "$NDK_HOME")" || true

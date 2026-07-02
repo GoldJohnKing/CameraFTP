@@ -47,66 +47,53 @@ pub fn get_resources() -> Result<&'static ResourcePaths, AppError> {
     })
 }
 
-/// Resolved NN model paths + QNN context-cache dir, handed to the C++ core via
-/// `ra_set_nn_config`. Each path is `None` when the corresponding model/dir is
-/// absent so the C side treats it as unset (NULL) rather than pointing at a
-/// nonexistent file.
-pub struct NnModelPaths {
-    pub bayer: Option<PathBuf>,
-    pub xtrans: Option<PathBuf>,
-    pub ctx_dir: Option<PathBuf>,
-    pub app_version: String,
+/// Decompressed NN demosaic ONNX model weights, handed to the C++ core via
+/// `ra_set_nn_model` (Option D: ORT loads them from memory — no on-disk model
+/// file, no extraction step, no upgrade-staleness class). Each is `None` when
+/// the embedded payload is absent or failed to decompress (degrades cleanly to
+/// classical demosaic).
+///
+/// The models are embedded at compile time (build.rs gzips them into
+/// `OUT_DIR/nn_models/`). For the legacy variant build.rs writes empty gzip
+/// placeholders so this still compiles; they decompress to empty → `None`.
+pub fn nn_model_bytes() -> (Option<Vec<u8>>, Option<Vec<u8>>) {
+    (
+        decompress_nn_model(include_bytes!(concat!(
+            env!("OUT_DIR"),
+            "/nn_models/bayer.onnx.gz"
+        ))),
+        decompress_nn_model(include_bytes!(concat!(
+            env!("OUT_DIR"),
+            "/nn_models/xtrans.onnx.gz"
+        ))),
+    )
 }
 
-/// Resolve the on-disk NN model paths + QNN context-cache dir for the C++ core.
-///
-/// The models are extracted to `{app_data_dir}/models/` by `extract_nn_models()`
-/// at startup; the `exists()` guard makes a failed extraction degrade cleanly to
-/// classical demosaic rather than pointing at nonexistent paths (returned as
-/// `None`, which the caller maps to a NULL pointer in `RaNnConfig`). Replaces
-/// the former `configure_nn_model_env` which set `RA_NN_*` env vars — those were
-/// invisible to MSVC `std::getenv` on Windows (CRT/Win32 environment desync).
-pub fn nn_model_paths(app_data_dir: &std::path::Path) -> NnModelPaths {
-    let models_dir = app_data_dir.join("models");
-    let bayer = models_dir.join("bayer.onnx");
-    let xtrans = models_dir.join("xtrans.onnx");
+fn decompress_nn_model(compressed: &[u8]) -> Option<Vec<u8>> {
+    use flate2::read::GzDecoder;
+    use std::io::Read;
+    let mut out = Vec::new();
+    match GzDecoder::new(compressed).read_to_end(&mut out) {
+        // Empty payload (legacy variant's placeholder gzip) → None → classical fallback.
+        Ok(_) if !out.is_empty() => Some(out),
+        _ => None,
+    }
+}
 
-    let bayer = if bayer.exists() {
-        tracing::info!(path = %bayer.display(), "NN bayer model path configured");
-        Some(bayer)
-    } else {
-        None
-    };
-    let xtrans = if xtrans.exists() {
-        tracing::info!(path = %xtrans.display(), "NN xtrans model path configured");
-        Some(xtrans)
-    } else {
-        None
-    };
-
-    // QNN context-cache dir (Android only at runtime — the C++ core only
-    // consumes it on Android). Use filesDir (not cacheDir): Android may
-    // auto-clear cacheDir under storage pressure, which would needlessly
-    // retrigger the ~5s graph compile.
-    #[cfg(target_os = "android")]
-    let ctx_dir = {
-        let nn_ctx_dir = app_data_dir.join("nn_ctx");
-        match std::fs::create_dir_all(&nn_ctx_dir) {
-            Ok(()) => Some(nn_ctx_dir),
-            Err(e) => {
-                tracing::warn!(error = %e, "could not create nn_ctx dir; QNN context cache disabled");
-                None
-            }
+/// QNN context-cache dir (Android only at runtime — the C++ core only consumes
+/// it on Android). This is the one NN artifact that still lives on disk: the
+/// *compiled QNN graph* (context binary), distinct from the model weights (now
+/// in-memory). Use filesDir (not cacheDir): Android may auto-clear cacheDir
+/// under storage pressure, needlessly retriggering the ~5s graph compile.
+#[cfg(target_os = "android")]
+pub fn nn_ctx_dir(app_data_dir: &std::path::Path) -> Option<PathBuf> {
+    let dir = app_data_dir.join("nn_ctx");
+    match std::fs::create_dir_all(&dir) {
+        Ok(()) => Some(dir),
+        Err(e) => {
+            tracing::warn!(error = %e, "could not create nn_ctx dir; QNN context cache disabled");
+            None
         }
-    };
-    #[cfg(not(target_os = "android"))]
-    let ctx_dir: Option<PathBuf> = None;
-
-    NnModelPaths {
-        bayer,
-        xtrans,
-        ctx_dir,
-        app_version: env!("CARGO_PKG_VERSION").to_string(),
     }
 }
 
@@ -144,13 +131,17 @@ pub fn nn_soc_config() -> Option<NnSocConfig> {
 
 #[cfg(target_os = "android")]
 fn read_build_soc_model() -> Option<String> {
+    // Maximum length of a system property value (sys/system_properties.h,
+    // PROP_VALUE_MAX). Hard-coded rather than imported from an NDK header.
+    const PROP_VALUE_MAX: usize = 92;
+
     extern "C" {
         fn __system_property_get(
             name: *const std::os::raw::c_char,
             value: *mut std::os::raw::c_char,
         ) -> i32;
     }
-    let mut buf = [0u8; 92]; // PROP_VALUE_MAX
+    let mut buf = [0u8; PROP_VALUE_MAX];
     let n = unsafe {
         __system_property_get(
             b"ro.soc.model\0".as_ptr() as *const _,
@@ -191,73 +182,9 @@ fn sm_to_qnn_htp_arch(sm: &str) -> &'static str {
     }
 }
 
-/// Extract the embedded, gzip-compressed NN demosaic ONNX models to
-/// `{app_data_dir}/models/` so the C++ NN core can load them via real
-/// filesystem paths.
-///
-/// Tauri resources aren't auto-extracted to the data dir on Windows and aren't
-/// accessible as paths at all on Android (APK assets), so we embed at compile
-/// time (build.rs gzips the models into `OUT_DIR/nn_models/`) and extract
-/// here — the same pattern as `lensfun_db::ensure_db()`. Idempotent: skips
-/// files that already exist to avoid the multi-MB decompress+write on every
-/// startup.
-#[cfg(nn_demosaic)]
-pub fn extract_nn_models(app_data_dir: &std::path::Path) -> Result<(), AppError> {
-    let models_dir = app_data_dir.join("models");
-    std::fs::create_dir_all(&models_dir)
-        .map_err(|e| AppError::ColorGradingError(format!("Failed to create models dir: {}", e)))?;
-
-    extract_one_nn_model(
-        &models_dir,
-        "bayer.onnx",
-        include_bytes!(concat!(env!("OUT_DIR"), "/nn_models/bayer.onnx.gz")),
-    )?;
-    extract_one_nn_model(
-        &models_dir,
-        "xtrans.onnx",
-        include_bytes!(concat!(env!("OUT_DIR"), "/nn_models/xtrans.onnx.gz")),
-    )?;
-
-    Ok(())
-}
-
-/// NN demosaic compiled out (`CAMERAFTP_NN_DEMOSAIC=0` → the Android "legacy"
-/// variant): no models are embedded by build.rs, so extraction is a no-op.
-/// The C++ core is built without `RA_ENABLE_NN_DEMOSAIC` (no NN symbols, no
-/// ORT/QNN linkage), and the runtime path falls back to classical demosaic.
-#[cfg(not(nn_demosaic))]
-pub fn extract_nn_models(_app_data_dir: &std::path::Path) -> Result<(), AppError> {
-    Ok(())
-}
-
-/// Decompress one embedded model to `models_dir/name`, skipping if it already
-/// exists. `compressed` is the gzip payload written by build.rs.
-#[cfg(nn_demosaic)]
-fn extract_one_nn_model(
-    models_dir: &std::path::Path,
-    name: &str,
-    compressed: &[u8],
-) -> Result<(), AppError> {
-    use flate2::read::GzDecoder;
-    use std::io::Read;
-
-    let out_path = models_dir.join(name);
-    if out_path.exists() {
-        return Ok(());
-    }
-
-    let mut decoder = GzDecoder::new(compressed);
-    let mut data = Vec::new();
-    decoder.read_to_end(&mut data).map_err(|e| {
-        AppError::ColorGradingError(format!("Failed to decompress NN model '{}': {}", name, e))
-    })?;
-    std::fs::write(&out_path, &data).map_err(|e| {
-        AppError::ColorGradingError(format!("Failed to write NN model '{}': {}", name, e))
-    })?;
-    tracing::info!(
-        "NN model extracted: {} ({} KB)",
-        out_path.display(),
-        data.len() / 1024
-    );
-    Ok(())
-}
+// NN demosaic model loading is now in-memory (Option D): the embedded gzip
+// payloads are decompressed to RAM by `nn_model_bytes` and handed to the C++
+// core via `ra_set_nn_model`; the C++ core feeds them to ORT's in-memory
+// `Ort::Session(env, ptr, len, opts)` ctor. There is no on-disk extraction, so
+// there is no freshness/staleness surface here (the whole class — including the
+// former hash-sidecar — is gone).

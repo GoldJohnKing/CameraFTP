@@ -391,14 +391,6 @@ type RaFreePreviewBufferFn = unsafe extern "C" fn(
     *mut u8, // buffer
 );
 
-// Optional symbol: only present when the C++ core is built with NN demosaic
-// enabled (RA_ENABLE_NN_DEMOSAIC). Resolved lazily/optionally so library
-// loading stays robust on builds that don't export it — the NN init call site
-// then degrades to a non-fatal warning with classical-demosaic fallback.
-// No args: the C++ side reads the config set via ra_set_nn_config for model
-// paths (ra_set_nn_config must be called before this runs).
-type RaDemosaicNnInitFn = unsafe extern "C" fn() -> c_int;
-
 // No args; reads the config set via ra_set_nn_config and drives
 // NnDemosaicSession::init(). Always present in NN-enabled builds; resolved
 // optionally so a build without the symbol still loads (warmup just no-ops
@@ -413,12 +405,11 @@ type RaIsNnReadyFn = unsafe extern "C" fn() -> bool;
 // Explicit NN config transport — replaces the RA_NN_* env vars (which are
 // invisible to MSVC std::getenv on Windows due to CRT/Win32 environment
 // desync, so all NN config read as NULL there). Field order MUST match the C
-// struct in raw_alchemy_capi.h exactly: bayer, xtrans, directml, soc_model,
-// htp_arch, ctx_dir, app_version.
+// struct in raw_alchemy_capi.h exactly: directml, soc_model, htp_arch, ctx_dir,
+// app_version. (Model WEIGHTS are carried separately via ra_set_nn_model —
+// Option D: in-memory ONNX bytes, not file paths.)
 #[repr(C)]
 pub struct RaNnConfig {
-    pub bayer_model_path: *const c_char,
-    pub xtrans_model_path: *const c_char,
     pub directml_dll_path: *const c_char,
     pub soc_model: *const c_char,
     pub htp_arch: *const c_char,
@@ -429,8 +420,6 @@ pub struct RaNnConfig {
 impl Default for RaNnConfig {
     fn default() -> Self {
         Self {
-            bayer_model_path: std::ptr::null(),
-            xtrans_model_path: std::ptr::null(),
             directml_dll_path: std::ptr::null(),
             soc_model: std::ptr::null(),
             htp_arch: std::ptr::null(),
@@ -443,6 +432,16 @@ impl Default for RaNnConfig {
 type RaSetNnConfigFn = unsafe extern "C" fn(*const RaNnConfig) -> c_int;
 type RaSetLogFileFn = unsafe extern "C" fn(*const c_char);
 
+// ra_set_nn_model supplies an NN model's ONNX weights as an in-memory byte
+// buffer (Option D: ORT loads from memory, no on-disk file). kind: 0=bayer,
+// 1=xtrans. The C side deep-copies, so the caller's buffer may be freed
+// immediately. Optional like the other NN symbols.
+type RaSetNnModelFn = unsafe extern "C" fn(
+    kind: c_int,
+    data: *const std::ffi::c_void,
+    len: usize,
+) -> c_int;
+
 pub struct RawAlchemyLib {
     _lib: Library,
     process_file_with_lut: RaProcessFileWithLUTFn,
@@ -452,10 +451,10 @@ pub struct RawAlchemyLib {
     apply_preview_grading: RaApplyPreviewGradingFn,
     end_preview_session: RaEndPreviewSessionFn,
     free_preview_buffer: RaFreePreviewBufferFn,
-    demosaic_nn_init: Option<RaDemosaicNnInitFn>,
     warmup_nn_session: Option<RaWarmupNnSessionFn>,
     is_nn_ready: Option<RaIsNnReadyFn>,
     set_nn_config: Option<RaSetNnConfigFn>,
+    set_nn_model: Option<RaSetNnModelFn>,
     set_log_file: Option<RaSetLogFileFn>,
 }
 
@@ -559,23 +558,8 @@ impl RawAlchemyLib {
                 })?
         };
 
-        // NN init is optional: builds without RA_ENABLE_NN_DEMOSAIC don't export
-        // it. A failed lookup here is expected and non-fatal — demosaic_nn_init()
-        // returns an error and callers fall back to classical demosaic.
-        let demosaic_nn_init = unsafe {
-            lib.get::<RaDemosaicNnInitFn>(b"raDemosaicNnInit\0")
-                .ok()
-                .map(|f| *f)
-        };
-        if demosaic_nn_init.is_some() {
-            tracing::debug!("raDemosaicNnInit symbol resolved");
-        } else {
-            tracing::debug!("raDemosaicNnInit symbol not present — NN demosaic disabled in this build");
-        }
-
-        // raWarmupNnSession is the background-warmup entry added alongside the
-        // init() thread-safety fix. Optional for the same robustness reason as
-        // demosaic_nn_init; when absent, warmup_nn_session() no-ops with a log.
+        // raWarmupNnSession is the background-warmup entry. Optional: resolved so
+        // a build without the symbol still loads (warmup then no-ops with a log).
         let warmup_nn_session = unsafe {
             lib.get::<RaWarmupNnSessionFn>(b"raWarmupNnSession\0")
                 .ok()
@@ -620,6 +604,21 @@ impl RawAlchemyLib {
             tracing::warn!("ra_set_nn_config symbol not present — NN config injection disabled (NN demosaic will be unavailable)");
         }
 
+        // ra_set_nn_model carries NN model weights as in-memory ONNX bytes
+        // (Option D). Optional for the same robustness reason as the other NN
+        // symbols; when absent, set_nn_model() returns an error → classical
+        // fallback (no NN).
+        let set_nn_model = unsafe {
+            lib.get::<RaSetNnModelFn>(b"ra_set_nn_model\0")
+                .ok()
+                .map(|f| *f)
+        };
+        if set_nn_model.is_some() {
+            tracing::debug!("ra_set_nn_model symbol resolved");
+        } else {
+            tracing::warn!("ra_set_nn_model symbol not present — NN model bytes cannot be injected (NN demosaic will be unavailable)");
+        }
+
         // ra_set_log_file redirects C++ NN diagnostics (nnlog::info) into the
         // app log file. Optional; when absent, set_log_file() no-ops with a
         // debug log and the C++ side keeps writing to stderr.
@@ -643,10 +642,10 @@ impl RawAlchemyLib {
             apply_preview_grading,
             end_preview_session,
             free_preview_buffer,
-            demosaic_nn_init,
             warmup_nn_session,
             is_nn_ready,
             set_nn_config,
+            set_nn_model,
             set_log_file,
         })
     }
@@ -758,29 +757,6 @@ impl RawAlchemyLib {
         }
     }
 
-    /// Initialize the NN demosaic session once at startup.
-    ///
-    /// Non-fatal by design: callers wrap the `Result` in a warning and fall
-    /// back to classical demosaic. Model paths are supplied to the C++ side via
-    /// `ra_set_nn_config` (see `resources::nn_model_paths`), which must be
-    /// called before this. Returns an error if the build does not export
-    /// `raDemosaicNnInit`.
-    pub fn demosaic_nn_init(&self) -> Result<(), AppError> {
-        let init = self.demosaic_nn_init.ok_or_else(|| {
-            AppError::ColorGradingError(
-                "NN demosaic init unavailable in this build — classical path will be used".into(),
-            )
-        })?;
-        let result = unsafe { (init)() };
-        let ra_result = ra_result_from_code(result);
-        if ra_result.is_ok() {
-            tracing::info!("NN demosaic session initialized");
-            Ok(())
-        } else {
-            Err(self.format_last_error(ra_result, result))
-        }
-    }
-
     /// Eagerly initialize the NN demosaic session. Intended to be called from a
     /// background thread at app launch so the QNN graph compile overlaps with
     /// browsing. Best-effort; failures are logged in C++ and swallowed. No-op
@@ -821,6 +797,32 @@ impl RawAlchemyLib {
             Err(AppError::ColorGradingError(format!(
                 "ra_set_nn_config failed (code {})",
                 result
+            )))
+        }
+    }
+
+    /// Supply an NN model's ONNX weights as an in-memory byte buffer (Option D).
+    /// `kind`: 0 = bayer, 1 = xtrans. The C side deep-copies, so `data` may be
+    /// dropped immediately after this returns. Pass an empty slice to mark the
+    /// model absent. Returns an error if the build does not export
+    /// `ra_set_nn_model`, or if the C side reports a failure.
+    pub fn set_nn_model(&self, kind: i32, data: &[u8]) -> Result<(), AppError> {
+        let f = self.set_nn_model.ok_or_else(|| {
+            AppError::ColorGradingError("ra_set_nn_model unavailable in this build".into())
+        })?;
+        let result = unsafe {
+            f(
+                kind as c_int,
+                data.as_ptr() as *const std::ffi::c_void,
+                data.len(),
+            )
+        };
+        if result == 0 {
+            Ok(())
+        } else {
+            Err(AppError::ColorGradingError(format!(
+                "ra_set_nn_model(kind={}) failed (code {})",
+                kind, result
             )))
         }
     }

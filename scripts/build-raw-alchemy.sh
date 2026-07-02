@@ -160,19 +160,13 @@ build_raw_alchemy_android() {
         return 1
     fi
 
-    # NDK adds -g even in Release (for ndk-stack), leaving ~13 MB of debug
-    # sections that neither CMake nor AGP strips from extra-jniLibs.
-    local strip_bin
-    strip_bin="$(find "$ndk_path/toolchains/llvm/prebuilt" -name llvm-strip -path "*/bin/*" 2>/dev/null | head -1)"
-    if [ -n "$strip_bin" ] && [ -x "$strip_bin" ]; then
-        local pre_strip_size post_strip_size
-        pre_strip_size=$(stat -c %s "$so_path" 2>/dev/null || stat -f %z "$so_path")
-        "$strip_bin" --strip-debug "$so_path"
-        post_strip_size=$(stat -c %s "$so_path" 2>/dev/null || stat -f %z "$so_path")
-        info "Stripped debug info: $((pre_strip_size / 1024 / 1024)) MB → $((post_strip_size / 1024 / 1024)) MB"
-    else
-        warn "llvm-strip not found in NDK — .so will ship with debug info (~13 MB bloat)"
-    fi
+    # NOTE: debug-section stripping is intentionally NOT done here. The NDK adds
+    # -g even in Release (~13 MB of debug sections for ndk-stack); stripping THIS
+    # build artifact in place would (1) make incremental CMake relink against a
+    # stripped lib, and (2) permanently destroy the symbols ndk-stack needs to
+    # symbolicate crash logs from this build dir. Instead the SHIPPED copy is
+    # stripped at packaging time (scripts/build-android.sh, after it cp's the
+    # .so into extra-jniLibs), so the build output stays unstripped here.
 
     success "RawAlchemyCpp .so built: $so_path"
 }

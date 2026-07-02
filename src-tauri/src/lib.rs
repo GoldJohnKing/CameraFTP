@@ -83,22 +83,18 @@ use commands::{
     FtpServerState,
 };
 
+#[cfg(not(target_os = "android"))]
 fn setup_logging() {
     use tracing_subscriber::EnvFilter;
 
-    // Log to file (always — needed for diagnostics in release builds on Android/Windows)
+    // Desktop: always log to a file under the app config dir (needed for
+    // diagnostics in release). app_config_dir() resolves from dirs:: at first
+    // call, so this works before config::init_app_paths() too.
     {
         use std::fs;
-        #[cfg(target_os = "android")]
-        use std::path::PathBuf;
         use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
-        #[cfg(target_os = "android")]
-        let log_dir = PathBuf::from("/storage/emulated/0/Download");
-
-        #[cfg(not(target_os = "android"))]
         let log_dir = config::app_config_dir().join("logs");
-
         let log_file = log_dir.join("app.log");
         let log_file_for_writer = log_file.clone();
 
@@ -141,10 +137,256 @@ fn setup_logging() {
     }
 }
 
+/// Android logging: logcat is the default (and only) sink in release; a file
+/// mirror can be opted in for debugging. See [`android_logging::setup`].
+#[cfg(target_os = "android")]
+mod android_logging {
+    use std::io::Write;
+    use std::os::unix::io::FromRawFd;
+    use std::sync::{Arc, Mutex};
+    use tracing_subscriber::fmt::MakeWriter;
+
+    extern "C" {
+        fn __android_log_write(prio: i32, tag: *const u8, text: *const u8) -> i32;
+    }
+
+    const TAG: &[u8] = b"CameraFTP\0";
+    // android/log.h severity constants.
+    const LOG_ERROR: i32 = 6;
+    const LOG_WARN: i32 = 5;
+    const LOG_INFO: i32 = 4;
+    const LOG_DEBUG: i32 = 3;
+
+    /// tracing fmt writer that line-buffers into logcat. A fresh buffer per event
+    /// (MakeWriter hands one out per event), so events don't interleave at the
+    /// buffer level; the trailing partial line is flushed on Drop.
+    struct AndroidLogWriter {
+        prio: i32,
+        buf: Vec<u8>,
+    }
+
+    impl AndroidLogWriter {
+        fn new(prio: i32) -> Self {
+            Self { prio, buf: Vec::new() }
+        }
+        fn emit_line(&mut self) {
+            if self.buf.is_empty() {
+                return;
+            }
+            self.buf.push(0); // NUL-terminate for the C string
+            // SAFETY: TAG and self.buf are both NUL-terminated; prio is a constant.
+            unsafe {
+                __android_log_write(self.prio, TAG.as_ptr(), self.buf.as_ptr());
+            }
+            self.buf.clear();
+        }
+    }
+
+    impl Write for AndroidLogWriter {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            for &b in bytes {
+                if b == b'\n' {
+                    self.emit_line();
+                } else {
+                    self.buf.push(b);
+                }
+            }
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    impl Drop for AndroidLogWriter {
+        fn drop(&mut self) {
+            self.emit_line();
+        }
+    }
+
+    struct AndroidLogMakeWriter;
+    impl<'a> MakeWriter<'a> for AndroidLogMakeWriter {
+        type Writer = AndroidLogWriter;
+        fn make_writer(&'a self) -> Self::Writer {
+            AndroidLogWriter::new(LOG_INFO)
+        }
+        fn make_writer_for(&'a self, meta: &tracing::Metadata<'_>) -> Self::Writer {
+            let prio = match *meta.level() {
+                tracing::Level::ERROR => LOG_ERROR,
+                tracing::Level::WARN => LOG_WARN,
+                tracing::Level::INFO => LOG_INFO,
+                tracing::Level::DEBUG | tracing::Level::TRACE => LOG_DEBUG,
+            };
+            AndroidLogWriter::new(prio)
+        }
+    }
+
+    /// Code flag for the optional file-logging mirror. **Default: false** — logcat
+    /// is the only sink. Flip to `true` and rebuild to also append every event to
+    /// `Download/CameraFTP/app.log` (opened via MediaStore; no storage permission
+    /// required since the app owns the file). Intended for ad-hoc debugging.
+    pub const ENABLE_FILE_LOG: bool = false;
+
+    /// tracing fmt writer backed by a held-open append-mode file (a MediaStore fd
+    /// wrapped in a std File). One shared file behind an `Arc<Mutex>` so all
+    /// events serialize their appends.
+    struct FileWriter {
+        file: Arc<Mutex<std::fs::File>>,
+    }
+
+    impl Write for FileWriter {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            if let Ok(mut g) = self.file.lock() {
+                let _ = g.write_all(bytes);
+            }
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            if let Ok(mut g) = self.file.lock() {
+                let _ = g.flush();
+            }
+            Ok(())
+        }
+    }
+
+    /// Initialize Android logging. **Default: logcat only.** When
+    /// [`ENABLE_FILE_LOG`] is true, events are ALSO appended to
+    /// `Download/CameraFTP/app.log` via MediaStore (opened once and held open;
+    /// writes are raw syscalls on a detached ParcelFileDescriptor).
+    ///
+    /// No storage permission is required: MediaStore grants the app write access
+    /// to its own file under `Download/` under scoped storage — the same path the
+    /// FTP upload feature uses. Raw `fs::write` to `/storage/emulated/0/Download`
+    /// is deliberately NOT used (it fails under scoped storage); MediaStore is the
+    /// sanctioned mechanism.
+    pub fn setup() {
+        use tracing_subscriber::EnvFilter;
+        use tracing_subscriber::layer::SubscriberExt;
+        use tracing_subscriber::util::SubscriberInitExt;
+
+        #[cfg(debug_assertions)]
+        let env_filter = EnvFilter::new("debug");
+        #[cfg(not(debug_assertions))]
+        let env_filter = EnvFilter::new("info");
+
+        let logcat_layer = tracing_subscriber::fmt::layer()
+            .with_writer(AndroidLogMakeWriter)
+            .with_ansi(false)
+            .with_target(true);
+
+        // Optionally open Download/CameraFTP/app.log via MediaStore and hold it
+        // open for the process lifetime.
+        let file_target: Option<Arc<Mutex<std::fs::File>>> = if ENABLE_FILE_LOG {
+            match open_downloads_log_file() {
+                Some(f) => {
+                    tracing::debug!("File logging enabled → Download/CameraFTP/app.log");
+                    Some(Arc::new(Mutex::new(f)))
+                }
+                None => {
+                    eprintln!(
+                        "ENABLE_FILE_LOG=true but Download/CameraFTP/app.log could not be opened; logcat only"
+                    );
+                    None
+                }
+            }
+        } else {
+            None
+        };
+
+        // Always build the file layer (keeps the subscriber type stable); when no
+        // file is open it writes to std::io::sink() (cheap no-op).
+        let file_layer = tracing_subscriber::fmt::layer()
+            .with_writer(move || match &file_target {
+                Some(arc) => Box::new(FileWriter { file: Arc::clone(arc) })
+                    as Box<dyn std::io::Write + Send + Sync>,
+                None => Box::new(std::io::sink()) as Box<dyn std::io::Write + Send + Sync>,
+            })
+            .with_ansi(false)
+            .with_target(true);
+
+        tracing_subscriber::registry()
+            .with(env_filter)
+            .with(logcat_layer)
+            .with(file_layer)
+            .init();
+    }
+
+    /// Open `Download/CameraFTP/app.log` (append) as a Rust `File` via MediaStore.
+    #[allow(dead_code)] // only reached when ENABLE_FILE_LOG is true
+    fn open_downloads_log_file() -> Option<std::fs::File> {
+        let fd = open_downloads_log_fd_jni()?;
+        if fd < 0 {
+            return None;
+        }
+        // SAFETY: `fd` is a detached ParcelFileDescriptor; ownership transfers to
+        // the Rust File (closed on drop / process exit).
+        Some(unsafe { std::fs::File::from_raw_fd(fd) })
+    }
+
+    /// Call `MediaStoreBridge.openLogFdNative(context)` via JNI to obtain a raw,
+    /// detached append-mode fd for `Download/CameraFTP/app.log`. Returns None on
+    /// any JNI failure (caller falls back to logcat-only).
+    #[allow(dead_code)] // only reached when ENABLE_FILE_LOG is true
+    fn open_downloads_log_fd_jni() -> Option<std::os::raw::c_int> {
+        use jni::objects::{JClass, JObject, JValue};
+
+        let android_ctx = ndk_context::android_context();
+        let jvm = unsafe { jni::JavaVM::from_raw(android_ctx.vm().cast()) }.ok()?;
+        let mut env = jvm.attach_current_thread().ok()?;
+
+        // Context as a local ref (ndk_context holds a global ref to it).
+        let raw_context = unsafe { JObject::from_raw(android_ctx.context().cast()) };
+        let context = env.new_local_ref(&raw_context).ok()?;
+        let _ = raw_context.into_raw();
+
+        // App classes (MediaStoreBridge) are not in the JNI system classloader;
+        // load via the Context's classloader (mirrors ftp::android_mediastore::bridge).
+        let loader = env
+            .call_method(
+                &context,
+                "getClassLoader",
+                "()Ljava/lang/ClassLoader;",
+                &[],
+            )
+            .ok()?
+            .l()
+            .ok()?;
+        let class_name = env
+            .new_string("com.gjk.cameraftpcompanion.bridges.MediaStoreBridge")
+            .ok()?;
+        let class_name_obj = JObject::from(class_name);
+        let class_obj = env
+            .call_method(
+                loader,
+                "loadClass",
+                "(Ljava/lang/String;)Ljava/lang/Class;",
+                &[JValue::Object(&class_name_obj)],
+            )
+            .ok()?
+            .l()
+            .ok()?;
+        let class = JClass::from(class_obj);
+
+        let fd = env
+            .call_static_method(
+                class,
+                "openLogFdNative",
+                "(Landroid/content/Context;)I",
+                &[JValue::Object(&context)],
+            )
+            .ok()?
+            .i()
+            .ok()?;
+        Some(fd as std::os::raw::c_int)
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    // Release: init stderr logging immediately (no path dependency)
-    #[cfg(not(debug_assertions))]
+    // Desktop release: init file logging immediately (no path dependency).
+    // Android defers to the setup() closure where app_data_dir is known — logcat
+    // needs no path, and the optional file mirror must go to app-private storage.
+    #[cfg(all(not(debug_assertions), not(target_os = "android")))]
     setup_logging();
 
     // 获取平台实例
@@ -167,9 +409,17 @@ pub fn run() {
             // 初始化应用数据目录（所有平台）
             config::init_app_paths(app.handle());
 
-            // Debug: init file logging after paths are set
-            #[cfg(debug_assertions)]
+            // Desktop debug: init file logging after paths are set.
+            #[cfg(all(debug_assertions, not(target_os = "android")))]
             setup_logging();
+
+            // Android: logcat is always on. The optional file mirror
+            // (Download/CameraFTP/app.log via MediaStore) is gated by the
+            // `android_logging::ENABLE_FILE_LOG` code flag (default false).
+            #[cfg(target_os = "android")]
+            {
+                android_logging::setup();
+            }
 
             let config_service = Arc::new(ConfigService::new()?);
             config_service.set_global();
@@ -194,19 +444,6 @@ pub fn run() {
                     tracing::warn!("Color grading resource extraction failed: {}", e);
                 }
 
-                // Extract embedded NN models so nn_model_paths can find them
-                if let Err(e) = color_grading::resources::extract_nn_models(&app_data_dir) {
-                    let msg = format!("NN model extraction failed: {}", e);
-                    tracing::warn!("{}", msg);
-                    #[cfg(target_os = "android")]
-                    {
-                        extern "C" { fn __android_log_write(prio: i32, tag: *const u8, text: *const u8) -> i32; }
-                        let tag = std::ffi::CString::new("CameraFTP").unwrap();
-                        let cmsg = std::ffi::CString::new(msg.as_str()).unwrap();
-                        unsafe { __android_log_write(5, tag.as_ptr(), cmsg.as_ptr()); }
-                    }
-                }
-
                 let resolved = resolve_raw_alchemy_lib_path();
                 match color_grading::ffi::RawAlchemyLib::load_global(&resolved.lib_path) {
                     Ok(lib) => {
@@ -217,13 +454,24 @@ pub fn run() {
                             lib.set_log_file(Some(p));
                         }
 
-                        // Inject NN config explicitly via the C-ABI transport
-                        // (replaces RA_NN_* env vars — invisible to MSVC getenv
-                        // on Windows, so all NN config read as NULL there,
-                        // defeating NN init). The C side deep-copies every
-                        // string under a mutex, so leaking CString temporaries
-                        // here is safe (last-call-wins). MUST run before the
-                        // warmup spawn / demosaic_nn_init below.
+                        // Inject NN model weights + runtime config explicitly via the
+                        // C-ABI transport (Option D: weights go in-memory via
+                        // ra_set_nn_model — ORT loads them from a RAM buffer, no on-disk
+                        // model file; the rest via ra_set_nn_config). The C side
+                        // deep-copies both, so the caller's buffers may be freed right
+                        // after. MUST run before the warmup / lazy init below.
+                        let (bayer_bytes, xtrans_bytes) = color_grading::resources::nn_model_bytes();
+                        if let Some(b) = &bayer_bytes {
+                            if let Err(e) = lib.set_nn_model(0, b) {
+                                tracing::error!("ra_set_nn_model(bayer) failed: {}", e);
+                            }
+                        }
+                        if let Some(x) = &xtrans_bytes {
+                            if let Err(e) = lib.set_nn_model(1, x) {
+                                tracing::error!("ra_set_nn_model(xtrans) failed: {}", e);
+                            }
+                        }
+
                         {
                             use color_grading::ffi::RaNnConfig;
 
@@ -243,18 +491,19 @@ pub fn run() {
                                 }
                             };
 
-                            let models = color_grading::resources::nn_model_paths(&app_data_dir);
                             let mut cfg = RaNnConfig::default();
-                            if let Some(p) = models.bayer.as_ref().and_then(|p| p.to_str()) {
-                                cfg.bayer_model_path = cstr(p);
-                            }
-                            if let Some(p) = models.xtrans.as_ref().and_then(|p| p.to_str()) {
-                                cfg.xtrans_model_path = cstr(p);
-                            }
-                            if let Some(p) = models.ctx_dir.as_ref().and_then(|p| p.to_str()) {
+                            cfg.app_version = cstr(env!("CARGO_PKG_VERSION"));
+
+                            // QNN context-cache dir (Android only) — the one NN artifact
+                            // still on disk (the compiled graph), distinct from the
+                            // in-memory weights.
+                            #[cfg(target_os = "android")]
+                            if let Some(p) = color_grading::resources::nn_ctx_dir(&app_data_dir)
+                                .as_ref()
+                                .and_then(|p| p.to_str())
+                            {
                                 cfg.ctx_dir = cstr(p);
                             }
-                            cfg.app_version = cstr(&models.app_version);
 
                             // DirectML.dll path (Windows only) — extracted +
                             // preloaded above; its parent dir steers ORT's DML
@@ -277,43 +526,29 @@ pub fn run() {
                             }
                         }
 
-                        // Eagerly compile/warm the NN demosaic session in the
-                        // background so the first edit doesn't pay the ~2s QNN
-                        // graph compile. Fire-and-forget: the session singleton's
-                        // init() is thread-safe (mutex + atomic ready), so a
-                        // concurrent edit path just observes ready and skips the
-                        // re-compile. Android-only: Windows/Linux pay the compile
-                        // at first edit (no NPU, smaller cost).
-                        #[cfg(target_os = "android")]
+                        // Log whether models were embedded. (Android → logcat via the
+                        // android_logging subscriber; desktop → app.log.)
+                        tracing::info!(
+                            "NN models: bayer={} xtrans={}",
+                            bayer_bytes.is_some(),
+                            xtrans_bytes.is_some()
+                        );
+                        // Eagerly compile/warm the NN session on a background thread on ALL
+                        // platforms (Android QNN ~2s, Windows DirectML ~hundreds of ms, Linux
+                        // CPU EP). Keeps the UI thread off the compile critical path; the first
+                        // edit falls back to classical via the router if it arrives before
+                        // warmup finishes. Thread-safe by the C++ init() mutex; the lazy
+                        // raw_decoder fallback is a last-resort safety net. NN_INIT_DONE guards
+                        // the router against a spurious "not ready" latch during this window.
                         tauri::async_runtime::spawn_blocking(|| {
                             color_grading::ffi::warmup_nn_session();
+                            // Init attempted (success or failure): the router may latch
+                            // structural unavailability from here on.
+                            color_grading::service::NN_INIT_DONE.store(
+                                true,
+                                std::sync::atomic::Ordering::Release,
+                            );
                         });
-                        // Log whether models were found
-                        let bayer = app_data_dir.join("models").join("bayer.onnx");
-                        let xtrans = app_data_dir.join("models").join("xtrans.onnx");
-                        let model_status = format!("NN models: bayer={} xtrans={}", bayer.exists(), xtrans.exists());
-                        tracing::info!("{}", model_status);
-                        #[cfg(target_os = "android")]
-                        {
-                            extern "C" { fn __android_log_write(prio: i32, tag: *const u8, text: *const u8) -> i32; }
-                            let tag = std::ffi::CString::new("CameraFTP").unwrap();
-                            let cmsg = std::ffi::CString::new(model_status.as_str()).unwrap();
-                            unsafe { __android_log_write(4, tag.as_ptr(), cmsg.as_ptr()); } // 4 = ANDROID_LOG_INFO
-                        }
-                        // NN init is non-fatal: on failure (symbol absent in this
-                        // build, models not packaged, or GPU unsupported) we fall
-                        // back to classical demosaic for the whole session.
-                        if let Err(e) = lib.demosaic_nn_init() {
-                            let msg = format!("NN demosaic init skipped, using classical: {}", e);
-                            tracing::warn!("{}", msg);
-                            #[cfg(target_os = "android")]
-                            {
-                                extern "C" { fn __android_log_write(prio: i32, tag: *const u8, text: *const u8) -> i32; }
-                                let tag = std::ffi::CString::new("CameraFTP").unwrap();
-                                let cmsg = std::ffi::CString::new(msg.as_str()).unwrap();
-                                unsafe { __android_log_write(5, tag.as_ptr(), cmsg.as_ptr()); } // 5 = ANDROID_LOG_WARN
-                            }
-                        }
                     }
                     Err(e) => tracing::error!("Failed to load RawAlchemyCpp: {}", e),
                 }
@@ -324,6 +559,10 @@ pub fn run() {
                 ));
                 app.manage(cg_service.clone());
                 cg_service.set_global();
+                // nn_enabled stays at its optimistic default (true) on all platforms:
+                // the background warmup (above) may still succeed, and the router's
+                // NN_INIT_DONE guard prevents a spurious latch while it's in flight; a
+                // real structural failure latches nn_enabled=false on the first edit.
                 color_grading::preview::ColorGradingPreviewState::ensure_init();
             }
 
