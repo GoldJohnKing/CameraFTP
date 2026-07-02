@@ -227,6 +227,91 @@ const DEPENDENCIES: DependencyGroup[] = [
       },
     ],
   },
+  {
+    title: 'RAW 调色引擎',
+    deps: [
+      {
+        name: 'RawAlchemyCpp',
+        description: 'RAW 调色与神经网络去马赛克引擎（C++ 动态库，FFI 调用），系 Raw-Alchemy 的 C++ 重写版',
+        url: 'https://github.com/GoldJohnKing/RawAlchemyCpp',
+      },
+      {
+        name: 'Raw-Alchemy',
+        description: 'RawAlchemyCpp 的参考项目（Python 原版），调色管线与色彩科学的源头',
+        url: 'https://github.com/shenmintao/Raw-Alchemy',
+      },
+      {
+        name: 'darktable',
+        description: 'RawAlchemyCpp 移植了其 X-Trans Markesteijn/RCD 去马赛克及小波降噪算法',
+        url: 'https://github.com/darktable-org/darktable',
+      },
+      {
+        name: 'LibRaw',
+        description: 'RAW 图像解码库（读取相机原始数据）',
+        url: 'https://github.com/LibRaw/LibRaw',
+      },
+      {
+        name: 'lensfun',
+        description: '镜头校正数据库与算法库',
+        url: 'https://github.com/lensfun/lensfun',
+      },
+      {
+        name: 'pugixml',
+        description: '轻量级 XML 解析库（用于 Lensfun 数据库）',
+        url: 'https://github.com/zeux/pugixml',
+      },
+      {
+        name: 'libexif',
+        description: 'EXIF 元数据解析与序列化库',
+        url: 'https://github.com/libexif/libexif',
+      },
+      {
+        name: 'libtiff',
+        description: 'TIFF 图像读写库（16-bit 输出）',
+        url: 'https://gitlab.com/libtiff/libtiff',
+      },
+      {
+        name: 'libjpeg-turbo',
+        description: 'SIMD 加速的 JPEG 编解码库',
+        url: 'https://github.com/libjpeg-turbo/libjpeg-turbo',
+      },
+    ],
+  },
+  {
+    title: '神经网络推理',
+    deps: [
+      {
+        name: 'ONNX Runtime',
+        description: '跨平台神经网络推理引擎，加载去马赛克模型',
+        url: 'https://onnxruntime.ai/',
+      },
+      {
+        name: 'DirectML',
+        description: 'Windows GPU 加速推理后端（DirectX 12）',
+        url: 'https://github.com/microsoft/DirectML',
+      },
+      {
+        name: 'Qualcomm QNN',
+        description: 'Android 端 Qualcomm 神经网络推理后端（Hexagon HTP 加速）',
+        url: 'https://www.qualcomm.com/developer/software/qualcomm-ai-engine-direct',
+      },
+    ],
+  },
+  {
+    title: '神经网络模型权重',
+    deps: [
+      {
+        name: 'x-veon · bayer.onnx',
+        description: 'Bayer 传感器神经网络去马赛克模型（U-Net，FP16，约 1.94M 参数）。⚠️ 上游未声明许可证',
+        url: 'https://github.com/naorunaoru/x-veon',
+      },
+      {
+        name: 'x-veon · xtrans.onnx',
+        description: 'X-Trans 传感器神经网络去马赛克模型（U-Net，FP16，约 7.76M 参数）。⚠️ 上游未声明许可证',
+        url: 'https://github.com/naorunaoru/x-veon',
+      },
+    ],
+  },
 ];
 
 // 捐赠对话框内容组件

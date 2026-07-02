@@ -119,6 +119,39 @@ A: 确保已授权APP"访问全部照片和视频"。
 
 ---
 
+## 🙏 致谢与开源引用
+
+本项目站在巨人的肩膀上，使用了以下开源项目与第三方资源。
+
+### 调色引擎及其参考项目
+
+本项目的 RAW 调色能力由 [RawAlchemyCpp](https://github.com/GoldJohnKing/RawAlchemyCpp)（C++ 动态库，通过 FFI 调用）提供。RawAlchemyCpp 内部以子模块形式捆绑了 LibRaw、libtiff、libjpeg-turbo、lensfun、pugixml、libexif 等开源库（详见下文「技术架构」表），其核心设计、处理管线、色彩科学算法与测光策略均源自下列参考项目：
+
+| 参考项目 | 作者 | 与本项目的关系 | 许可证 |
+|------|------|------|------|
+| [Raw-Alchemy](https://github.com/shenmintao/Raw-Alchemy) | [shenmintao](https://github.com/shenmintao) | RawAlchemyCpp 的 Python 原版 —— 调色管线、色彩科学、自动测光策略的设计源头（C++ 重写版） | AGPL-3.0 |
+| [darktable](https://github.com/darktable-org/darktable) | darktable developers | RawAlchemyCpp 移植了其 X-Trans Markesteijn / RCD 去马赛克算法及 X-Trans 小波降噪算法 | GPL-3.0 |
+
+### 神经网络模型权重
+
+本项目内置的 **神经网络去马赛克（NN Demosaic）** 功能使用了以下预训练 ONNX 模型权重，存放于 `src-tauri/resources/models/xveon/`，在编译期 gzip 内嵌、运行时解压注入 ORT 内存推理：
+
+| 模型 | 来源 | 用途 | 规模 |
+|------|------|------|------|
+| `bayer.onnx` | [naorunaoru/x-veon](https://github.com/naorunaoru/x-veon) | Bayer（2×2 CFA）传感器神经网络去马赛克 | 3.8 MB / ~1.94M 参数 |
+| `xtrans.onnx` | [naorunaoru/x-veon](https://github.com/naorunaoru/x-veon) | X-Trans（6×6 CFA）传感器神经网络去马赛克 | 15 MB / ~7.76M 参数 |
+
+**模型详情：**
+
+- **架构**：U-Net（编码器-解码器 + 跳跃连接），4 个下采样阶段；残差 CFA 跳跃连接将原始马赛克值广播到全部 3 个输出通道作为基线，使网络仅学习颜色校正增量，从而对曝光基本无关。同一拓扑同时服务于 Bayer 与 X-Trans，仅权重与输入掩码不同。
+- **权重精度**：FP16（`TensorProto.FLOAT16`）+ INT64 形状张量；ONNX IR 版本 `10`，opset `ai.onnx:17`。
+- **I/O**：输入为 4 通道张量（原始 CFA 马赛克值 + 3 个二值色彩掩码），输出为 3 通道 RGB，固定 tile 尺寸 **288×288**（RawAlchemy 分发循环对更大传感器分块并重叠拼接）。
+- **推理后端**：ONNX Runtime —— Windows 走 DirectML EP，Android 走 Qualcomm QNN HTP EP（需 Hexagon v73+），其余平台走 CPU EP。
+
+> ⚠️ **许可证提示**：上游 `x-veon` 仓库**未附带 LICENSE 文件**，也未在 README 中声明许可证。这些权重目前以评估/集成为目的 vendored 于本仓库，**在许可证明确前请勿二次分发**。本说明不覆盖上游模型（尚未知的）许可条款；CameraFTP 应用本体仍遵循下文的 AGPL-3.0-or-later。
+
+---
+
 ## 📄 许可证
 
 AGPL-3.0-or-later © 2026 GoldJohnKing <GoldJohnKing@Live.cn>
@@ -215,7 +248,13 @@ AGPL-3.0-or-later © 2026 GoldJohnKing <GoldJohnKing@Live.cn>
 | **目录解析** | dirs | 5.0 |
 | **日志订阅** | tracing-subscriber | 0.3 |
 | **AI修图** | Volcengine Seedream | doubao-seedream-5-0-260128 |
-| **调色引擎** | RawAlchemyCpp | LUT + Lensfun |
+| **调色引擎** | RawAlchemyCpp | LUT + Lensfun（系 Raw-Alchemy 的 C++ 重写） |
+| **RAW解码** | LibRaw | 子模块 |
+| **TIFF读写** | libtiff | 子模块 |
+| **JPEG编解码** | libjpeg-turbo | 子模块 |
+| **镜头校正** | lensfun | 子模块 |
+| **XML解析** | pugixml | 子模块（Lensfun 数据库） |
+| **EXIF解析** | libexif | 子模块 |
 | **NN推理** | ONNX Runtime | 1.24.1 |
 | **NN加速(Win)** | DirectML | 1.15.4 |
 | **NN加速(Android)** | QNN Runtime | 2.42.0 |
