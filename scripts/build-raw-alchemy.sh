@@ -18,11 +18,11 @@ build_raw_alchemy_windows() {
         return 0
     fi
 
-    # Per-variant build subdirectory.
+    # Per-variant build subdirectory (极性：legacy=默认无后缀，neural=_nn-demosaic).
     # neural: full NN pipeline (NN-linked DLL).
-    # legacy: C++ omits NN linkage → separate build dir, no ORT/DirectML deps.
+    # legacy: C++ omits NN linkage → default dir, no ORT/DirectML deps.
     local build_subdir="build-windows-dll"
-    [ "$variant" = "legacy" ] && build_subdir="build-windows-dll-legacy"
+    [ "$variant" = "neural" ] && build_subdir="build-windows-dll_nn-demosaic"
 
     task "[RawAlchemyCpp] Building Windows DLL ($build_type, $variant)..."
 
@@ -111,11 +111,11 @@ build_raw_alchemy_android() {
         return 0
     fi
 
-    # Per-variant build subdirectory and NN demosaic toggle.
+    # Per-variant build subdirectory and NN demosaic toggle (极性：legacy=默认无后缀，neural=_nn-demosaic).
     # neural: full NN pipeline (ORT/QNN symbols linked, model packaged).
-    # legacy: C++ omits NN linkage → smaller .so, no ORT/QNN deps.
+    # legacy: C++ omits NN linkage → default dir, smaller .so, no ORT/QNN deps.
     local build_subdir="build-android-arm64"
-    [ "$variant" = "legacy" ] && build_subdir="build-android-arm64-legacy"
+    [ "$variant" = "neural" ] && build_subdir="build-android-arm64_nn-demosaic"
     local nn_flag="ON"
     [ "$variant" = "legacy" ] && nn_flag="OFF"
 

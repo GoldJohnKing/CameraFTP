@@ -95,17 +95,17 @@ build_windows() {
 
     cd ..
 
-    local VERSION=$(get_version)
+    local VERSION
+    VERSION=$(get_version)
     local DEST_NAME
     local SRC_PATH
 
     if [ "$BUILD_TYPE" = "debug" ]; then
         SRC_PATH="src-tauri/target/$TARGET_WINDOWS_TRIPLE/debug/$OUTPUT_NAME"
-        DEST_NAME="CameraFTP_v${VERSION}-${variant}-debug.exe"
     else
         SRC_PATH="src-tauri/target/$TARGET_WINDOWS_TRIPLE/release/$OUTPUT_NAME"
-        DEST_NAME="CameraFTP_v${VERSION}-${variant}.exe"
     fi
+    DEST_NAME="CameraFTP_v${VERSION}$(version_marker "$BUILD_TYPE")$(variant_suffix "$variant").exe"
 
     terminate_running_process "$DEST_NAME"
 
@@ -136,10 +136,10 @@ show_help() {
     echo ""
     local VERSION
     VERSION=$(get_version)
-    echo "输出位置 (每个 variant 一份 exe):"
-    echo "  Release: out/CameraFTP_v${VERSION}-neural.exe  (神经网络解马赛克)"
-    echo "           out/CameraFTP_v${VERSION}-legacy.exe   (传统算法)"
-    echo "  Debug:   out/CameraFTP_v${VERSION}-neural-debug.exe / out/CameraFTP_v${VERSION}-legacy-debug.exe"
+    echo "输出位置 (默认=传统算法无后缀，NN 变体=_nn-demosaic，Debug=d):"
+    echo "  Release: out/CameraFTP_v${VERSION}.exe             (传统算法)"
+    echo "           out/CameraFTP_v${VERSION}_nn-demosaic.exe (神经网络解马赛克)"
+    echo "  Debug:   out/CameraFTP_v${VERSION}d.exe / out/CameraFTP_v${VERSION}d_nn-demosaic.exe"
     echo ""
     echo "注意: 推荐使用 ./build.sh windows 进行构建，会自动生成类型绑定"
 }

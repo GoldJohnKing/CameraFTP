@@ -15,9 +15,11 @@ fn main() {
 
     // Neural and legacy variants build the C++ core into separate subdirs so the
     // NN-linked and NN-stripped DLLs don't clobber each other (mirrors Android's
-    // build-android-arm64{-legacy} split). build.rs embeds the DLL from whichever
+    // build-android-arm64{_nn-demosaic} split). Polarity: legacy is the default
+    // (no suffix), neural is the distinguished variant (_nn-demosaic), matching
+    // the artifact naming convention. build.rs embeds the DLL from whichever
     // subdir matches the active variant.
-    let nn_build_subdir = if nn_enabled { "build-windows-dll" } else { "build-windows-dll-legacy" };
+    let nn_build_subdir = if nn_enabled { "build-windows-dll_nn-demosaic" } else { "build-windows-dll" };
 
     pack_lut_zip();
     compress_lensfun_db();

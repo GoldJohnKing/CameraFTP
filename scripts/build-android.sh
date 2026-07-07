@@ -425,7 +425,7 @@ build_android() {
 
         # variant 对应的 build 子目录（与 build-raw-alchemy.sh 保持一致）
         local build_subdir="build-android-arm64"
-        [ "$variant" = "legacy" ] && build_subdir="build-android-arm64-legacy"
+        [ "$variant" = "neural" ] && build_subdir="build-android-arm64_nn-demosaic"
         local abs_dir
         abs_dir="$(cd "$rawalchemy_dir" && pwd)"
         local rawalchemy_so="$abs_dir/$build_subdir/libraw_alchemy.so"
@@ -484,6 +484,8 @@ build_android() {
         config_arg="--config src-tauri/tauri.neural.conf.json"
     fi
 
+    local apk_name="CameraFTP_v${VERSION}$(version_marker "$BUILD_TYPE")$(variant_suffix "$variant").apk"
+
     case $BUILD_TYPE in
         "debug")
             npx tauri android build --debug --apk --target aarch64 $config_arg || {
@@ -492,9 +494,9 @@ build_android() {
             }
             move_to_out \
                 "src-tauri/gen/android/app/build/outputs/apk/universal/debug/*.apk" \
-                "CameraFTP_v${VERSION}-${variant}-debug.apk" \
+                "$apk_name" \
                 "Debug APK ($variant)" \
-                "${DEPLOY_PATH:+$DEPLOY_PATH/CameraFTP_v${VERSION}-${variant}-debug.apk}"
+                "${DEPLOY_PATH:+$DEPLOY_PATH/$apk_name}"
             ;;
         "release")
             npx tauri android build --apk --target aarch64 $config_arg || {
@@ -503,9 +505,9 @@ build_android() {
             }
             move_to_out \
                 "src-tauri/gen/android/app/build/outputs/apk/universal/release/*.apk" \
-                "CameraFTP_v${VERSION}-${variant}.apk" \
+                "$apk_name" \
                 "Release APK ($variant)" \
-                "${DEPLOY_PATH:+$DEPLOY_PATH/CameraFTP_v${VERSION}-${variant}.apk}"
+                "${DEPLOY_PATH:+$DEPLOY_PATH/$apk_name}"
             ;;
     esac
 }
@@ -534,9 +536,9 @@ show_help() {
     echo ""
     local VERSION
     VERSION=$(get_version)
-    echo "输出位置 (每个 variant 一份 APK):"
-    echo "  Release: out/CameraFTP_v${VERSION}-neural.apk / out/CameraFTP_v${VERSION}-legacy.apk"
-    echo "  Debug:   out/CameraFTP_v${VERSION}-neural-debug.apk / out/CameraFTP_v${VERSION}-legacy-debug.apk"
+    echo "输出位置 (默认=传统算法无后缀，NN 变体=_nn-demosaic，Debug=d):"
+    echo "  Release: out/CameraFTP_v${VERSION}.apk / out/CameraFTP_v${VERSION}_nn-demosaic.apk"
+    echo "  Debug:   out/CameraFTP_v${VERSION}d.apk / out/CameraFTP_v${VERSION}d_nn-demosaic.apk"
     echo ""
     echo "注意: 推荐使用 ./build.sh android 进行构建，会自动生成类型绑定"
 }
