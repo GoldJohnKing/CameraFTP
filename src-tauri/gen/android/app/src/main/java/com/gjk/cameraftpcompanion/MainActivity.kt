@@ -20,6 +20,7 @@ import com.gjk.cameraftpcompanion.bridges.GalleryBridge
 import com.gjk.cameraftpcompanion.bridges.GalleryBridgeV2
 import com.gjk.cameraftpcompanion.bridges.MediaStoreBridge
 import com.gjk.cameraftpcompanion.bridges.ImageViewerBridge
+import com.gjk.cameraftpcompanion.bridges.NnCapabilityBridge
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
@@ -77,6 +78,7 @@ class MainActivity : TauriActivity() {
     private var galleryBridge: GalleryBridge? = null
     private var galleryBridgeV2: GalleryBridgeV2? = null
     private var imageViewerBridge: ImageViewerBridge? = null
+    private var nnCapabilityBridge: NnCapabilityBridge? = null
     @Volatile
     private var isWebViewActive = false
     private var eventListenerRegistration: EventListenerRegistration? = null
@@ -105,6 +107,13 @@ class MainActivity : TauriActivity() {
         
         Log.d(TAG, "onCreate: initializing bridges")
 
+        // On Qualcomm Hexagon v73+ (SD 8 Gen 2+) devices, pre-load the QNN/ORT
+        // native libraries BEFORE raw_alchemy_core so the latter can dlopen them
+        // for the NN demosaic path. Non-whitelisted devices skip this entirely.
+        if (NnCapabilityBridge.isNnCapable()) {
+            loadNnNativeLibraries()
+        }
+
         // Pre-load RawAlchemyCpp so Rust can dlopen it by name
         try {
             System.loadLibrary("raw_alchemy_core")
@@ -116,6 +125,7 @@ class MainActivity : TauriActivity() {
         galleryBridge = GalleryBridge(this)
         galleryBridgeV2 = GalleryBridgeV2(this)
         imageViewerBridge = ImageViewerBridge(this)
+        nnCapabilityBridge = NnCapabilityBridge()
 
         // Cleanup stale pending entries (older than 24 hours)
         val cutoffMillis = System.currentTimeMillis() - 24 * 60 * 60 * 1000L
@@ -141,6 +151,37 @@ class MainActivity : TauriActivity() {
     }
 
     /**
+     * Load QNN/ORT native libraries in dependency order before raw_alchemy_core.
+     *
+     * The three core libraries are required for the NN code path; if any is
+     * absent the NN path is disabled and raw_alchemy_core falls back to its
+     * bilinear demosaic. The Hexagon Skel variants are loaded best-effort —
+     * only the one matching this SoC's Hexagon version is expected to resolve;
+     * the others throw UnsatisfiedLinkError and are ignored.
+     */
+    private fun loadNnNativeLibraries() {
+        val required = listOf("onnxruntime", "QnnSystem", "QnnHtp")
+        for (lib in required) {
+            try {
+                System.loadLibrary(lib)
+                Log.d(TAG, "NN lib loaded: $lib")
+            } catch (e: UnsatisfiedLinkError) {
+                Log.e(TAG, "NN path disabled — required lib missing: $lib", e)
+                return
+            }
+        }
+        // libQnnHtpV{73,75,79,81}Skel.so — whichever matches this Hexagon version.
+        for (skel in listOf("QnnHtpV73Skel", "QnnHtpV75Skel", "QnnHtpV79Skel", "QnnHtpV81Skel")) {
+            try {
+                System.loadLibrary(skel)
+                Log.d(TAG, "NN Skel loaded: $skel")
+            } catch (e: UnsatisfiedLinkError) {
+                // Skel variant for a different Hexagon version — expected, ignore.
+            }
+        }
+    }
+
+    /**
      * WebView创建完成时调用（由WryActivity触发）
      * 这是添加JavaScript Bridge的正确时机
      */
@@ -156,6 +197,7 @@ class MainActivity : TauriActivity() {
         addJsBridge(webView, galleryBridge, "GalleryAndroid")
         addJsBridge(webView, galleryBridgeV2, "GalleryAndroidV2")
         addJsBridge(webView, imageViewerBridge, "ImageViewerAndroid")
+        addJsBridge(webView, nnCapabilityBridge, "NnCapability")
 
         // 注册Tauri事件监听
         registerTauriEventListeners()
@@ -237,6 +279,7 @@ class MainActivity : TauriActivity() {
         galleryBridge = null
         galleryBridgeV2 = null
         imageViewerBridge = null
+        nnCapabilityBridge = null
     }
 
     override fun onStart() {

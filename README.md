@@ -2,7 +2,7 @@
 
 一款跨平台的相机FTP伴侣应用，让相机照片直接传输到电脑或手机。
 
-![版本](https://img.shields.io/badge/version-1.8.1-blue)
+![版本](https://img.shields.io/badge/version-1.9.0-blue)
 ![平台](https://img.shields.io/badge/platform-Windows%20%7C%20Android-brightgreen)
 ![技术栈](https://img.shields.io/badge/tech-Tauri%20v2%20%2B%20React%2018%20%2B%20Rust%202021-orange)
 [![QQ群](https://img.shields.io/badge/QQ%E7%BE%A4-936189868-12B7F5?logo=tencentqq&logoColor=white)](https://qm.qq.com/q/IUGLEM5V28)
@@ -88,7 +88,7 @@
 
 ### 配置文件位置
 
-- **Windows**: `%APPDATA%\cameraftp\config.json`
+- **Windows**: `%APPDATA%\com.gjk.cameraftpcompanion\config.json`
 - **Android**: `/data/data/com.gjk.cameraftpcompanion/files/config.json`
 
 ### 照片存储路径
@@ -116,6 +116,39 @@ A: 确保已授权APP"访问全部照片和视频"。
 如果这个项目对你有帮助，欢迎打赏支持开发！
 
 <img src="docs/images/wechat_alipay.png" alt="微信支付 / 支付宝" width="300"/>
+
+---
+
+## 🙏 致谢与开源引用
+
+本项目站在巨人的肩膀上，使用了以下开源项目与第三方资源。
+
+### 调色引擎及其参考项目
+
+本项目的 RAW 调色能力由 [RawAlchemyCpp](https://github.com/GoldJohnKing/RawAlchemyCpp)（C++ 动态库，通过 FFI 调用）提供。RawAlchemyCpp 内部以子模块形式捆绑了 LibRaw、libtiff、libjpeg-turbo、lensfun、pugixml、libexif 等开源库（详见下文「技术架构」表），其核心设计、处理管线、色彩科学算法与测光策略均源自下列参考项目：
+
+| 参考项目 | 作者 | 与本项目的关系 | 许可证 |
+|------|------|------|------|
+| [Raw-Alchemy](https://github.com/shenmintao/Raw-Alchemy) | [shenmintao](https://github.com/shenmintao) | RawAlchemyCpp 的 Python 原版 —— 调色管线、色彩科学、自动测光策略的设计源头（C++ 重写版） | AGPL-3.0 |
+| [darktable](https://github.com/darktable-org/darktable) | darktable developers | RawAlchemyCpp 移植了其 X-Trans Markesteijn / RCD 去马赛克算法及 X-Trans 小波降噪算法 | GPL-3.0 |
+
+### 神经网络模型权重
+
+本项目内置的 **神经网络去马赛克（NN Demosaic）** 功能使用了以下预训练 ONNX 模型权重，存放于 `src-tauri/resources/models/xveon/`，在编译期 gzip 内嵌、运行时解压注入 ORT 内存推理：
+
+| 模型 | 来源 | 用途 | 规模 |
+|------|------|------|------|
+| `bayer.onnx` | [naorunaoru/x-veon](https://github.com/naorunaoru/x-veon) | Bayer（2×2 CFA）传感器神经网络去马赛克 | 3.8 MB / ~1.94M 参数 |
+| `xtrans.onnx` | [naorunaoru/x-veon](https://github.com/naorunaoru/x-veon) | X-Trans（6×6 CFA）传感器神经网络去马赛克 | 15 MB / ~7.76M 参数 |
+
+**模型详情：**
+
+- **架构**：U-Net（编码器-解码器 + 跳跃连接），4 个下采样阶段；残差 CFA 跳跃连接将原始马赛克值广播到全部 3 个输出通道作为基线，使网络仅学习颜色校正增量，从而对曝光基本无关。同一拓扑同时服务于 Bayer 与 X-Trans，仅权重与输入掩码不同。
+- **权重精度**：FP16（`TensorProto.FLOAT16`）+ INT64 形状张量；ONNX IR 版本 `10`，opset `ai.onnx:17`。
+- **I/O**：输入为 4 通道张量（原始 CFA 马赛克值 + 3 个二值色彩掩码），输出为 3 通道 RGB，固定 tile 尺寸 **288×288**（RawAlchemy 分发循环对更大传感器分块并重叠拼接）。
+- **推理后端**：ONNX Runtime —— Windows 走 DirectML EP，Android 走 Qualcomm QNN HTP EP（需 Hexagon v73+），其余平台走 CPU EP。
+
+> ⚠️ **许可证提示**：上游 `x-veon` 仓库**未附带 LICENSE 文件**，也未在 README 中声明许可证。这些权重目前以评估/集成为目的 vendored 于本仓库，**在许可证明确前请勿二次分发**。本说明不覆盖上游模型（尚未知的）许可条款；CameraFTP 应用本体仍遵循下文的 AGPL-3.0-or-later。
 
 ---
 
@@ -199,8 +232,32 @@ AGPL-3.0-or-later © 2026 GoldJohnKing <GoldJohnKing@Live.cn>
 | **错误处理** | thiserror | 2.0 |
 | **日志** | tracing | 0.1 |
 | **文件监听(Win)** | notify | 8.0 |
-| **AI修图** | Volcengine Seedream | doubao-seedream-5-0 |
-| **调色引擎** | RawAlchemyCpp | LUT + Lensfun |
+| **注册表(Win)** | winreg | 0.52 |
+| **Win32 API(Win)** | windows | 0.58 |
+| **JNI(Android)** | jni | 0.21 |
+| **NDK上下文(Android)** | ndk-context | 0.1 |
+| **运行时工具** | tokio-util | 0.7 |
+| **异步组合子** | futures | 0.3 |
+| **异步trait** | async-trait | 0.1 |
+| **序列化** | serde / serde_json | 1 |
+| **Tauri插件** | tauri-plugin-dialog | 2 |
+| **网络接口检测** | local-ip-address | 0.6 |
+| **HTTP客户端** | reqwest | 0.12 |
+| **Base64编码** | base64 | 0.22 |
+| **随机数** | rand_core | 0.6 |
+| **目录解析** | dirs | 5.0 |
+| **日志订阅** | tracing-subscriber | 0.3 |
+| **AI修图** | Volcengine Seedream | doubao-seedream-5-0-260128 |
+| **调色引擎** | RawAlchemyCpp | LUT + Lensfun（系 Raw-Alchemy 的 C++ 重写） |
+| **RAW解码** | LibRaw | 子模块 |
+| **TIFF读写** | libtiff | 子模块 |
+| **JPEG编解码** | libjpeg-turbo | 子模块 |
+| **镜头校正** | lensfun | 子模块 |
+| **XML解析** | pugixml | 子模块（Lensfun 数据库） |
+| **EXIF解析** | libexif | 子模块 |
+| **NN推理** | ONNX Runtime | 1.24.1 |
+| **NN加速(Win)** | DirectML | 1.15.4 |
+| **NN加速(Android)** | QNN Runtime | 2.42.0 |
 | **Android Native** | Kotlin | JVM 21 |
 | **Android API** | min 35 / target 36 | Android 15+ |
 | **JDK** | Java | 21 |
@@ -216,6 +273,7 @@ cameraftp/
 │   ├── tsconfig.json             # TypeScript配置
 │   ├── vite.config.ts            # Vite配置
 │   ├── tailwind.config.js        # TailwindCSS配置
+│   ├── postcss.config.js         # PostCSS配置（TailwindCSS前置）
 │   └── build.sh                  # ⭐ 统一构建入口
 │
 ├── 📁 scripts/                   # 构建脚本
@@ -223,7 +281,8 @@ cameraftp/
 │   ├── build-windows.sh          # Windows构建
 │   ├── build-android.sh          # Android构建
 │   ├── build-frontend.sh         # 前端构建
-│   └── build-raw-alchemy.sh      # RawAlchemyCpp动态库构建
+│   ├── build-raw-alchemy.sh      # RawAlchemyCpp动态库构建
+│   └── fetch-nn-deps.sh          # NN推理依赖拉取（ORT/DirectML/QNN）
 │
 ├── 📁 src/                       # React前端源码
 │   ├── main.tsx                  # React入口
@@ -319,6 +378,8 @@ cameraftp/
 │
 ├── 📁 src-tauri/                 # Rust后端源码
 │   ├── Cargo.toml                # Rust依赖
+│   ├── tauri.conf.json           # Tauri应用配置
+│   ├── tauri.neural.conf.json    # NN变体Tauri配置（图传伴侣 NN）
 │   ├── build.rs                  # 构建脚本
 │   ├── src/
 │   │   ├── main.rs               # 程序入口
@@ -346,7 +407,8 @@ cameraftp/
 │   │   │       ├── bridge.rs     # JNI桥接
 │   │   │       ├── types.rs      # 数据类型
 │   │   │       ├── retry.rs      # 重试逻辑
-│   │   │       └── limiter.rs    # 并发限制
+│   │   │       ├── limiter.rs    # 并发限制
+│   │   │       └── tests.rs      # 单元测试
 │   │   ├── ai_edit/              # AI修图服务
 │   │   │   ├── mod.rs            # 模块入口
 │   │   │   ├── config.rs         # AI修图配置
@@ -422,7 +484,8 @@ cameraftp/
 │           │   ├── ImageViewerBridge.kt           # 图片查看Bridge
 │           │   ├── MediaStoreBridge.kt            # MediaStore集成Bridge
 │           │   ├── ImageProcessorBridge.kt        # 图片预处理Bridge（JNI调用）
-│           │   └── ColorGradingJniBridge.kt       # 调色JNI Bridge
+│           │   ├── ColorGradingJniBridge.kt       # 调色JNI Bridge
+│           │   └── NnCapabilityBridge.kt          # NN能力检测Bridge（Hexagon v73+）
 │           ├── controllers/                        # 控制器目录
 │           │   ├── ExifController.kt               # EXIF数据控制器
 │           │   ├── WebViewOverlayController.kt     # WebView叠加控制器
@@ -459,6 +522,7 @@ Android平台使用Kotlin实现以下功能：
 | **bridges/MediaStoreBridge.kt** | MediaStore集成Bridge，供Kotlin/Rust集成调用 |
 | **bridges/ImageProcessorBridge.kt** | 图片预处理Bridge（JNI调用），解码+降采样+Base64编码 |
 | **bridges/ColorGradingJniBridge.kt** | 调色JNI Bridge，调用RawAlchemyCpp C API |
+| **bridges/NnCapabilityBridge.kt** | NN能力检测Bridge，检测Qualcomm Hexagon v73+ SoC是否支持FP16 NN去马赛克（HTP） |
 | **galleryv2/MediaPageProvider.kt** | 分页媒体加载 |
 | **galleryv2/ThumbnailCacheV2.kt** | 缩略图缓存，内存+磁盘两级 |
 | **galleryv2/ThumbnailDecoder.kt** | 缩略图解码 |
@@ -476,7 +540,7 @@ Android平台使用Kotlin实现以下功能：
 
 #### JS Bridge 说明
 
-前端通过以下Bridge与Android原生交互：
+前端通过以下Bridge与Android原生交互（`GalleryAndroid` 为 V1 兼容保留，前端默认使用 V2）：
 
 ```typescript
 // 权限管理
@@ -493,6 +557,9 @@ window.GalleryAndroidV2?.cancelThumbnailRequests(idsJson)
 
 // 图片查看
 window.ImageViewerAndroid?.openOrNavigateTo(uri, allUrisJson)
+
+// NN能力检测（FP16去马赛克可用性）
+window.NnCapability?.getNnEnabled()
 ```
 
 </details>

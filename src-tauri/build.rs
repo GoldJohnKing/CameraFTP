@@ -1,8 +1,35 @@
 fn main() {
+    // NN demosaic can be compiled out for the Android "legacy" APK variant
+    // (smaller package for devices without a Qualcomm NPU). Driven by
+    // CAMERAFTP_NN_DEMOSAIC (exported by scripts/build-android.sh): "0"
+    // disables it; any other value (including unset) keeps the default
+    // NN-enabled build so Windows/Linux/tests are unaffected. When disabled,
+    // the ONNX model bytes are not embedded and #[cfg(not(nn_demosaic))]
+    // stubs out the extraction code in color_grading::resources.
+    println!("cargo:rustc-check-cfg=cfg(nn_demosaic)");
+    println!("cargo:rerun-if-env-changed=CAMERAFTP_NN_DEMOSAIC");
+    let nn_enabled = std::env::var("CAMERAFTP_NN_DEMOSAIC").as_deref() != Ok("0");
+    if nn_enabled {
+        println!("cargo:rustc-cfg=nn_demosaic");
+    }
+
+    // Neural and legacy variants build the C++ core into separate subdirs so the
+    // NN-linked and NN-stripped DLLs don't clobber each other (mirrors Android's
+    // build-android-arm64{_nn-demosaic} split). Polarity: legacy is the default
+    // (no suffix), neural is the distinguished variant (_nn-demosaic), matching
+    // the artifact naming convention. build.rs embeds the DLL from whichever
+    // subdir matches the active variant.
+    let nn_build_subdir = if nn_enabled { "build-windows-dll_nn-demosaic" } else { "build-windows-dll" };
+
     pack_lut_zip();
     compress_lensfun_db();
-    compress_raw_alchemy_dll();
-    compress_libomp_dll();
+    compress_raw_alchemy_dll(nn_build_subdir);
+    compress_libomp_dll(nn_build_subdir);
+    if nn_enabled {
+        compress_onnxruntime_dll();
+        compress_directml_dll();
+        compress_nn_models();
+    }
 
     let mut attributes = tauri_build::Attributes::new();
 
@@ -184,7 +211,7 @@ fn write_empty_manifest(out_dir: &std::path::Path) {
 
 /// Gzip-compress raw_alchemy_core.dll into OUT_DIR for embedding via include_bytes!.
 /// The DLL is built by CMake before cargo builds, so it should already exist on disk.
-fn compress_raw_alchemy_dll() {
+fn compress_raw_alchemy_dll(build_subdir: &str) {
     use flate2::write::GzEncoder;
     use flate2::Compression;
     use std::fs;
@@ -213,7 +240,7 @@ fn compress_raw_alchemy_dll() {
     };
 
     let dll_path = rawalchemy_dir
-        .join("build-windows-dll")
+        .join(build_subdir)
         .join("bin")
         .join(build_type)
         .join("raw_alchemy_core.dll");
@@ -267,7 +294,7 @@ fn write_empty_dll_placeholder(filename: &str) {
 /// raw_alchemy_core.dll has a load-time dependency on libomp.dll; the host
 /// preloads it before LoadLibrary-ing the core DLL so the dependency resolves
 /// without libomp needing to be on the system PATH or in System32.
-fn compress_libomp_dll() {
+fn compress_libomp_dll(build_subdir: &str) {
     use flate2::write::GzEncoder;
     use flate2::Compression;
     use std::fs;
@@ -290,7 +317,7 @@ fn compress_libomp_dll() {
     };
 
     let libomp_path = rawalchemy_dir
-        .join("build-windows-dll")
+        .join(build_subdir)
         .join("bin")
         .join(build_type)
         .join("libomp.dll");
@@ -331,4 +358,223 @@ fn compress_libomp_dll() {
         data.len() / 1024,
         compressed_size / 1024
     );
+}
+
+/// Gzip a source DLL into `<OUT_DIR>/<out_name>` for embedding via include_bytes!.
+/// Shared by the ORT/DirectML embeds (both pulled from the nn-cache, not built
+/// locally). Emits a placeholder on Windows when the source is absent so the
+/// downstream include_bytes! still compiles.
+fn compress_nn_cache_dll(
+    src_path: std::path::PathBuf,
+    out_name: &str,
+    label: &str,
+    rerun_if: &str,
+) {
+    use flate2::write::GzEncoder;
+    use flate2::Compression;
+    use std::fs;
+    use std::io::{Read, Write};
+
+    if !is_windows_msvc_target() {
+        return;
+    }
+
+    println!("cargo:rerun-if-changed={}", rerun_if);
+
+    if !src_path.exists() {
+        println!(
+            "cargo:warning={} not found at {}, skipping embed (NN runtime will be unavailable)",
+            label,
+            src_path.display()
+        );
+        write_empty_dll_placeholder(out_name);
+        return;
+    }
+
+    let mut input = match fs::File::open(&src_path) {
+        Ok(f) => f,
+        Err(e) => {
+            println!(
+                "cargo:warning=Failed to open {} at {}: {} — skipping embed",
+                label,
+                src_path.display(),
+                e
+            );
+            write_empty_dll_placeholder(out_name);
+            return;
+        }
+    };
+    let mut data = Vec::new();
+    if let Err(e) = input.read_to_end(&mut data) {
+        println!(
+            "cargo:warning=Failed to read {} ({}): {} — skipping embed",
+            label,
+            src_path.display(),
+            e
+        );
+        write_empty_dll_placeholder(out_name);
+        return;
+    }
+
+    let out_dir = std::path::PathBuf::from(
+        std::env::var("OUT_DIR").expect("OUT_DIR env var not set — this should be provided by Cargo; are you running outside of 'cargo build'?"),
+    );
+    let output_path = out_dir.join(out_name);
+    let output = fs::File::create(&output_path).unwrap_or_else(|e| {
+        panic!(
+            "Failed to create compressed {} file in OUT_DIR ({}): {}",
+            label, out_dir.display(), e
+        )
+    });
+    let mut encoder = GzEncoder::new(output, Compression::best());
+    encoder
+        .write_all(&data)
+        .unwrap_or_else(|e| panic!("Failed to compress {} to gzip: {}", label, e));
+    encoder
+        .finish()
+        .unwrap_or_else(|e| panic!("Failed to finish {} gzip compression: {}", label, e));
+
+    let compressed_size = fs::metadata(&output_path).map(|m| m.len()).unwrap_or(0);
+    println!(
+        "cargo:warning=Embedded {}: {} KB → {} KB (gzip)",
+        label,
+        data.len() / 1024,
+        compressed_size / 1024
+    );
+}
+
+/// Gzip the DirectML-capable onnxruntime.dll (from the nn-cache after
+/// fetch-nn-deps.sh) into OUT_DIR for embedding. This is the ORT build with the
+/// DirectML EP compiled in — without it, GetExecutionProviderApi("DML") returns
+/// null and NN init always fails. raw_alchemy_core.dll imports onnxruntime.dll,
+/// so the host preloads it before loading the core DLL.
+fn compress_onnxruntime_dll() {
+    if !is_windows_msvc_target() {
+        return;
+    }
+    // Re-run when the fetch script changes so a version bump re-embeds.
+    println!("cargo:rerun-if-changed=../scripts/fetch-nn-deps.sh");
+
+    let src = std::path::Path::new("lib/rawalchemy")
+        .join("third_party/nn-cache")
+        .join("onnxruntime-win-x64-1.24.1")
+        .join("lib/onnxruntime.dll");
+    compress_nn_cache_dll(
+        src,
+        "onnxruntime.dll.gz",
+        "onnxruntime.dll (DirectML)",
+        "lib/rawalchemy/third_party/nn-cache/onnxruntime-win-x64-1.24.1/lib/onnxruntime.dll",
+    );
+}
+
+/// Gzip DirectML.dll (from the Microsoft.AI.DirectML NuGet via fetch-nn-deps.sh)
+/// into OUT_DIR for embedding. ORT's DirectML EP loads DirectML.dll at runtime
+/// (DMLCreateDevice); the host preloads it so the EP resolves our copy rather
+/// than a stale System32 version.
+fn compress_directml_dll() {
+    if !is_windows_msvc_target() {
+        return;
+    }
+    println!("cargo:rerun-if-changed=../scripts/fetch-nn-deps.sh");
+
+    let src = std::path::Path::new("lib/rawalchemy")
+        .join("third_party/nn-cache/DirectML.dll");
+    compress_nn_cache_dll(
+        src,
+        "directml.dll.gz",
+        "DirectML.dll",
+        "lib/rawalchemy/third_party/nn-cache/DirectML.dll",
+    );
+}
+
+/// Gzip the NN demosaic ONNX models (bayer + xtrans) into
+/// `OUT_DIR/nn_models/` for embedding via `include_bytes!()`. At runtime the
+/// host extracts them to `{app_data_dir}/models/` so the C++ NN core can load
+/// real filesystem paths — Tauri resources aren't auto-extracted to the data
+/// dir on Windows and aren't accessible as paths at all on Android (APK
+/// assets), so we embed+extract exactly like the Lensfun DB and the DLLs.
+fn compress_nn_models() {
+    use flate2::write::GzEncoder;
+    use flate2::Compression;
+    use std::fs;
+    use std::io::{Read, Write};
+
+    let out_dir = std::path::PathBuf::from(std::env::var("OUT_DIR").expect("OUT_DIR env var not set — this should be provided by Cargo; are you running outside of 'cargo build'?"));
+    let models_out = out_dir.join("nn_models");
+    fs::create_dir_all(&models_out).expect("Failed to create nn_models output directory in OUT_DIR — check disk space and write permissions");
+
+    let models_src = std::path::Path::new("resources/models/xveon");
+
+    // (source filename, output filename)
+    let targets: &[(&str, &str)] = &[
+        ("bayer.onnx", "bayer.onnx.gz"),
+        ("xtrans.onnx", "xtrans.onnx.gz"),
+    ];
+
+    for &(src_name, out_name) in targets {
+        let src_path = models_src.join(src_name);
+        let out_path = models_out.join(out_name);
+
+        if !src_path.exists() {
+            println!(
+                "cargo:warning=NN model {} not found at {}, skipping model embed (NN demosaic will be unavailable)",
+                src_name,
+                src_path.display()
+            );
+            write_empty_model_placeholder(&out_path);
+            continue;
+        }
+
+        println!("cargo:rerun-if-changed={}", src_path.display());
+
+        let mut input = fs::File::open(&src_path)
+            .unwrap_or_else(|e| panic!("Failed to open NN model '{}': {}", src_path.display(), e));
+        let mut data = Vec::new();
+        input
+            .read_to_end(&mut data)
+            .unwrap_or_else(|e| panic!("Failed to read NN model '{}': {}", src_path.display(), e));
+
+        let output = fs::File::create(&out_path).unwrap_or_else(|e| {
+            panic!(
+                "Failed to create compressed NN model in OUT_DIR ({}): {}",
+                out_path.display(),
+                e
+            )
+        });
+        let mut encoder = GzEncoder::new(output, Compression::best());
+        encoder
+            .write_all(&data)
+            .unwrap_or_else(|e| panic!("Failed to compress NN model '{}' to gzip: {}", src_name, e));
+        encoder.finish().unwrap_or_else(|e| {
+            panic!("Failed to finish NN model '{}' gzip compression: {}", src_name, e)
+        });
+
+        let compressed_size = fs::metadata(&out_path).map(|m| m.len()).unwrap_or(0);
+        println!(
+            "cargo:warning=Embedded NN model {}: {} KB → {} KB (gzip)",
+            src_name,
+            data.len() / 1024,
+            compressed_size / 1024
+        );
+    }
+}
+
+/// Write a minimal (empty-payload) gzip file so `include_bytes!()` still
+/// compiles when an ONNX model source is missing from the repo.
+fn write_empty_model_placeholder(out_path: &std::path::Path) {
+    use std::io::Write;
+    let mut f = std::fs::File::create(out_path).unwrap_or_else(|e| {
+        panic!(
+            "Failed to create NN model placeholder ({}): {}",
+            out_path.display(),
+            e
+        )
+    });
+    // Minimal gzip: 10-byte header + 8-byte footer for empty content.
+    let empty_gz: &[u8] = &[
+        0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03, 0x03, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00,
+    ];
+    f.write_all(empty_gz)
+        .unwrap_or_else(|e| panic!("Failed to write NN model placeholder content: {}", e));
 }

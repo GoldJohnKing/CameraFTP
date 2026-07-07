@@ -5,7 +5,7 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::OnceLock;
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use tauri::{AppHandle, Emitter};
@@ -19,6 +19,17 @@ use super::progress::ColorGradingEvent;
 use super::presets::find_preset;
 
 static GLOBAL_CG_SERVICE: OnceLock<Arc<ColorGradingService>> = OnceLock::new();
+
+/// Process-global flag: has the NN session's init() been ATTEMPTED to completion
+/// (success or latched failure)?
+///
+/// Set after the synchronous init (Windows/Linux) or once the background warmup
+/// returns (Android). Before this flips true, `is_nn_ready()==false` is ambiguous
+/// — it can mean either "still warming up" or "structurally unavailable". The
+/// fallback router consults this to avoid latching classical demosaic for the
+/// whole session on a spurious "not ready" that was really just the background
+/// compile still running on the first edit.
+pub(crate) static NN_INIT_DONE: AtomicBool = AtomicBool::new(false);
 
 struct ColorGradingTask {
     input_path: PathBuf,
@@ -42,6 +53,19 @@ pub struct ColorGradingService {
     worker: tokio::sync::Mutex<Option<ColorGradingWorkerHandle>>,
     queue_depth: Arc<AtomicU32>,
     cancel_token: Arc<std::sync::Mutex<CancellationToken>>,
+    /// NN demosaic gate. Defaults to true on all platforms — NN is always
+    /// attempted, with classical demosaic as the fallback on decode failure.
+    /// Retained as a runtime knob for future per-device gating/telemetry.
+    nn_enabled: Arc<AtomicBool>,
+}
+
+/// Platform default for the NN demosaic gate. NN is always attempted; on NN
+/// failure the Rust worker (`process_single_file`) retries the file via the
+/// classical demosaic path, and latches this gate to false for the session if
+/// the NPU is structurally unavailable (so later files skip the NN attempt).
+/// The C++ `decodeRaw` layer does NOT fall back — it throws on NN failure.
+fn nn_enabled_default() -> bool {
+    true
 }
 
 impl ColorGradingService {
@@ -60,7 +84,22 @@ impl ColorGradingService {
             worker: tokio::sync::Mutex::new(None),
             queue_depth: Arc::new(AtomicU32::new(0)),
             cancel_token: Arc::new(std::sync::Mutex::new(CancellationToken::new())),
+            nn_enabled: Arc::new(AtomicBool::new(nn_enabled_default())),
         }
+    }
+
+    /// Whether NN demosaic is currently enabled. Defaults to true on all
+    /// platforms; may be flipped at runtime via `set_nn_enabled` for future
+    /// per-device gating/telemetry.
+    pub fn is_nn_enabled(&self) -> bool {
+        self.nn_enabled.load(Ordering::Relaxed)
+    }
+
+    /// Update the NN demosaic gate at runtime (e.g. per-device gating/telemetry).
+    /// The worker reads the current value on each file, so a flip takes effect
+    /// for the next enqueued task without restarting the worker.
+    pub fn set_nn_enabled(&self, enabled: bool) {
+        self.nn_enabled.store(enabled, Ordering::Relaxed);
     }
 
     /// Lazily spawn the worker on first use, or respawn after the worker exits
@@ -79,8 +118,9 @@ impl ColorGradingService {
             let app_handle_clone = self.app_handle.clone();
             let queue_depth_clone = Arc::clone(&self.queue_depth);
             let cancel_token_clone = Arc::clone(&self.cancel_token);
+            let nn_enabled_clone = Arc::clone(&self.nn_enabled);
             let join = tauri::async_runtime::spawn(async move {
-                worker_loop(receiver, app_handle_clone, queue_depth_clone, cancel_token_clone).await;
+                worker_loop(receiver, app_handle_clone, queue_depth_clone, cancel_token_clone, nn_enabled_clone).await;
             });
             *guard = Some(ColorGradingWorkerHandle {
                 sender: sender.clone(),
@@ -173,6 +213,7 @@ async fn worker_loop(
     app_handle: AppHandle,
     queue_depth: Arc<AtomicU32>,
     cancel_token_arc: Arc<std::sync::Mutex<CancellationToken>>,
+    nn_enabled: Arc<AtomicBool>,
 ) {
     tracing::info!("Color grading worker started");
 
@@ -245,7 +286,7 @@ async fn worker_loop(
         });
 
         let result = tokio::select! {
-            r = process_single_file(&task) => Some(r),
+            r = process_single_file(&task, &nn_enabled) => Some(r),
             _ = cancel_token.cancelled() => {
                 tracing::info!("Color grading cancelled before/during task processing");
                 None
@@ -296,7 +337,37 @@ async fn worker_loop(
     tracing::info!("Color grading worker stopped");
 }
 
-async fn process_single_file(task: &ColorGradingTask) -> Result<String, AppError> {
+/// Result of an NN-path attempt that errored, telling the router how to fall back.
+enum FallbackDecision {
+    /// NN session was ready but this file failed (likely transient/file-specific):
+    /// retry this file via classical, but keep NN enabled for the next file.
+    UseClassicalNoLatch,
+    /// NN session is not ready (structural NPU unavailability): retry this file
+    /// via classical AND disable NN for the rest of the session.
+    UseClassicalAndLatch,
+}
+
+/// Classify an NN-path failure by whether the NN session is ready AND whether
+/// init has completed. NN unavailability is stable for the process, so we latch
+/// it — but only after init has actually completed. While the background warmup
+/// (Android) is still compiling, `is_nn_ready()` is false even though the
+/// session will succeed shortly; latching then would disable NN for the whole
+/// session on a spurious "not ready". `NN_INIT_DONE` distinguishes "warming up"
+/// (no latch) from "init attempted and failed" (latch).
+fn classify_nn_failure(nn_ready: bool) -> FallbackDecision {
+    if nn_ready {
+        FallbackDecision::UseClassicalNoLatch
+    } else if !NN_INIT_DONE.load(Ordering::Relaxed) {
+        FallbackDecision::UseClassicalNoLatch
+    } else {
+        FallbackDecision::UseClassicalAndLatch
+    }
+}
+
+async fn process_single_file(
+    task: &ColorGradingTask,
+    nn_enabled: &Arc<AtomicBool>,
+) -> Result<String, AppError> {
     let preset = find_preset(&task.lut_id)
         .ok_or_else(|| AppError::ColorGradingError(format!("Unknown LUT: {}", task.lut_id)))?;
 
@@ -310,11 +381,56 @@ async fn process_single_file(task: &ColorGradingTask) -> Result<String, AppError
         .ok()
         .map(|r| r.lensfun_db_dir.to_string_lossy().into_owned());
 
+    // First attempt: NN if enabled, else skip straight to classical.
+    if nn_enabled.load(Ordering::Relaxed) {
+        match decode_once(lib, task, &output_path, &preset, &lut_data, lensfun_path.as_deref(), true).await {
+            Ok(()) => return Ok(result_path),
+            Err(nn_err) => {
+                match classify_nn_failure(super::ffi::is_nn_ready()) {
+                    FallbackDecision::UseClassicalAndLatch => {
+                        tracing::warn!(
+                            "NN unavailable (NPU not engaged); latching classical demosaic for this session: {}",
+                            nn_err
+                        );
+                        nn_enabled.store(false, Ordering::Relaxed);
+                    }
+                    FallbackDecision::UseClassicalNoLatch => {
+                        tracing::warn!(
+                            "NN decode failed on ready session; retrying this file via classical: {}",
+                            nn_err
+                        );
+                    }
+                }
+                // fall through to classical attempt below
+            }
+        }
+    }
+
+    // Classical attempt (always last resort). An error here is a real failure.
+    decode_once(lib, task, &output_path, &preset, &lut_data, lensfun_path.as_deref(), false)
+        .await
+        .map(|_| result_path)
+}
+
+/// One decode+grade attempt with a fixed NN flag. Extracted so the fallback
+/// router can call it twice (NN then classical) without duplicating the
+/// argument plumbing.
+async fn decode_once(
+    lib: &'static Arc<super::ffi::RawAlchemyLib>,
+    task: &ColorGradingTask,
+    output_path: &std::path::Path,
+    preset: &super::presets::ColorGradingPreset,
+    lut_data: &Arc<super::lut_data::LutData>,
+    lensfun_path: Option<&str>,
+    enable_nn: bool,
+) -> Result<(), AppError> {
     let input_path = task.input_path.clone();
     let log_space = preset.log_space.clone();
     let metering_mode = task.metering_mode.clone();
     let ev_offset = task.ev_offset;
-
+    let output_path = output_path.to_path_buf();
+    let lensfun_path = lensfun_path.map(|s| s.to_owned());
+    let lut_data = Arc::clone(lut_data);
     tokio::task::spawn_blocking(move || {
         lib.process_file_with_lut(
             &input_path,
@@ -324,10 +440,12 @@ async fn process_single_file(task: &ColorGradingTask) -> Result<String, AppError
             lensfun_path.as_deref(),
             ev_offset,
             &metering_mode,
+            enable_nn,
         )
-    }).await.map_err(|e| AppError::ColorGradingError(format!("Blocking task failed: {}", e)))??;
-
-    Ok(result_path)
+    })
+    .await
+    .map_err(|e| AppError::ColorGradingError(format!("Blocking task failed: {}", e)))??;
+    Ok(())
 }
 
 #[cfg(test)]
@@ -366,6 +484,24 @@ mod tests {
     #[test]
     fn should_auto_color_grade_returns_false_when_no_config() {
         assert!(!should_auto_color_grade(None, Path::new("photo.nef")));
+    }
+
+    #[test]
+    fn fallback_latches_only_when_nn_structurally_unavailable() {
+        // NN was up (ready) but this file errored → fall back, do NOT latch.
+        assert!(matches!(classify_nn_failure(true), FallbackDecision::UseClassicalNoLatch));
+
+        // Not ready AND still warming up (background compile not finished) → fall
+        // back, do NOT latch (avoid spurious session-wide disable).
+        NN_INIT_DONE.store(false, Ordering::SeqCst);
+        assert!(matches!(classify_nn_failure(false), FallbackDecision::UseClassicalNoLatch));
+
+        // Not ready AND init completed → structural unavailability → latch.
+        NN_INIT_DONE.store(true, Ordering::SeqCst);
+        assert!(matches!(classify_nn_failure(false), FallbackDecision::UseClassicalAndLatch));
+
+        // Reset so this static doesn't bleed into sibling tests.
+        NN_INIT_DONE.store(false, Ordering::SeqCst);
     }
 }
 

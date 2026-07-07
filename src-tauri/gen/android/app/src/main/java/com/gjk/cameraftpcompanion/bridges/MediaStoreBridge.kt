@@ -372,6 +372,56 @@ class MediaStoreBridge(activity: MainActivity) : BaseJsBridge(activity) {
         }
 
         /**
+         * Open (creating if absent) `Download/CameraFTP/app.log` in append mode and
+         * detach its file descriptor for native use. Powers the optional code-flagged
+         * file-logging sink (default off; flipped on in Rust `android_logging` for
+         * debugging). No storage permission required: the app owns this file via
+         * MediaStore (scoped-storage-sanctioned, like the FTP upload path). Returns
+         * the raw fd (>=0), or -1 on failure.
+         */
+        @JvmStatic
+        fun openLogFdNative(context: Context): Int {
+            return try {
+                val resolver = context.contentResolver
+                val collection = MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+                val relPath = "Download/CameraFTP/"
+                val displayName = "app.log"
+
+                // Reuse an existing app-owned row if present (avoids IS_PENDING churn).
+                var uri: Uri? = null
+                resolver.query(
+                    collection,
+                    arrayOf(MediaStore.MediaColumns._ID),
+                    "${MediaStore.MediaColumns.RELATIVE_PATH} = ? AND ${MediaStore.MediaColumns.DISPLAY_NAME} = ?",
+                    arrayOf(relPath, displayName),
+                    null,
+                )?.use { if (it.moveToFirst()) uri = ContentUris.withAppendedId(collection, it.getLong(0)) }
+
+                if (uri == null) {
+                    val pending = ContentValues().apply {
+                        put(MediaStore.MediaColumns.DISPLAY_NAME, displayName)
+                        put(MediaStore.MediaColumns.MIME_TYPE, "text/plain")
+                        put(MediaStore.MediaColumns.RELATIVE_PATH, relPath)
+                        put(MediaStore.MediaColumns.IS_PENDING, 1)
+                    }
+                    val newUri = resolver.insert(collection, pending) ?: return -1
+                    resolver.update(
+                        newUri,
+                        ContentValues().apply { put(MediaStore.MediaColumns.IS_PENDING, 0) },
+                        null,
+                        null,
+                    )
+                    uri = newUri
+                }
+
+                resolver.openFileDescriptor(uri!!, "wa")?.detachFd() ?: -1
+            } catch (e: Exception) {
+                Log.e(TAG, "openLogFdNative failed", e)
+                -1
+            }
+        }
+
+        /**
          * Delete entry (native implementation)
          */
         @JvmStatic

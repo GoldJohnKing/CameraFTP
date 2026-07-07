@@ -45,7 +45,18 @@
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:theme="@style/Theme.MaterialComponents.DayNight.NoActionBar">
-        
+
+        <!-- QNN HTP transport: libcdsprpc.so is a Qualcomm vendor lib (/vendor/lib64/)
+             that libQnnHtpV*Stub.so depends on for the FastRPC channel to the cDSP.
+             Vendor libs are invisible to the app's linker namespace (clns-*) by
+             default; from Android 12 (API 31) apps must explicitly opt-in via
+             <uses-native-library> INSIDE <application> (NOT as a <manifest> child —
+             AAPT2 rejects it there). Without it QNN fails: "Failed in loading stub:
+             library 'libcdsprpc.so' not found" -> 4000 -> INVALID_CONFIG (ORT #21203).
+             required="false" so the app still installs on non-Qualcomm devices
+             (NN path is gated by the Kotlin SoC whitelist). -->
+        <uses-native-library android:name="libcdsprpc.so" android:required="false" />
+
         <activity
             android:name=".MainActivity"
             android:configChanges="orientation|screenSize|smallestScreenSize|density|keyboard|keyboardHidden|navigation"

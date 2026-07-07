@@ -27,15 +27,42 @@ terminate_running_process() {
     fi
 }
 
+# 构建单个 variant:
+#   neural — 含 NN 推理库 (ORT/DirectML) + 模型，由 build.rs gzip 内嵌
+#   legacy — 仅传统算法，不含 NN 库/模型，体积更小
 build_windows() {
     local BUILD_TYPE="${1:-release}"
+    local variant="${2:-neural}"
     local OUTPUT_NAME="cameraftp.exe"
 
-    info "开始构建 Windows 应用程序 ($BUILD_TYPE 模式)..."
+    info "开始构建 Windows 应用程序 ($BUILD_TYPE, $variant)..."
 
     terminate_running_process "$OUTPUT_NAME"
 
-    # Build RawAlchemyCpp DLL if available
+    # NN demosaic 总开关：导出给 Rust build.rs。
+    # neural=1 启用并嵌入模型 (ORT/DirectML via build.rs gzip pipeline)；
+    # legacy=0 关闭且 build.rs 跳过模型压缩。
+    local nn_flag
+    if [ "$variant" = "neural" ]; then
+        nn_flag="1"
+        export CAMERAFTP_NN_DEMOSAIC=1
+    else
+        nn_flag="0"
+        export CAMERAFTP_NN_DEMOSAIC=0
+    fi
+    # WSL→Win32 bridge: cargo.exe is a Windows process and WSL does NOT
+    # auto-forward arbitrary env vars across the interop boundary. Without
+    # listing the var in WSLENV, build.rs sees CAMERAFTP_NN_DEMOSAIC as unset
+    # → always defaults to neural, silently defeating the legacy variant.
+    # (The Android build is unaffected: `npx tauri android build` resolves to
+    # the Linux cargo, where the env var is visible natively.) Idempotent.
+    case ":${WSLENV:-}:" in
+        *:CAMERAFTP_NN_DEMOSAIC:*) ;;
+        *) export WSLENV="CAMERAFTP_NN_DEMOSAIC:${WSLENV:-}" ;;
+    esac
+    info "Variant=$variant  CAMERAFTP_NN_DEMOSAIC=$nn_flag"
+
+    # Build RawAlchemyCpp DLL if available (variant 透传给 CMake 与 build 子目录)
     local rawalchemy_dir="${RAWALCHEMY_DIR:-$SCRIPT_DIR/../src-tauri/lib/rawalchemy}"
     if [ -d "$rawalchemy_dir" ]; then
         local bt_upper
@@ -44,8 +71,9 @@ build_windows() {
         else
             bt_upper="Release"
         fi
-        "$SCRIPT_DIR/build-raw-alchemy.sh" windows "$bt_upper" || {
-            warn "RawAlchemyCpp build failed. Color grading will be unavailable."
+        "$SCRIPT_DIR/build-raw-alchemy.sh" windows "$bt_upper" "$variant" || {
+            error "RawAlchemyCpp Windows build FAILED. Aborting — cannot produce valid exe without core library."
+            exit 1
         }
     else
         warn "RawAlchemyCpp not found. Color grading will be unavailable."
@@ -67,21 +95,28 @@ build_windows() {
 
     cd ..
 
-    local VERSION=$(get_version)
+    local VERSION
+    VERSION=$(get_version)
     local DEST_NAME
     local SRC_PATH
 
     if [ "$BUILD_TYPE" = "debug" ]; then
         SRC_PATH="src-tauri/target/$TARGET_WINDOWS_TRIPLE/debug/$OUTPUT_NAME"
-        DEST_NAME="CameraFTP_v${VERSION}-debug.exe"
     else
         SRC_PATH="src-tauri/target/$TARGET_WINDOWS_TRIPLE/release/$OUTPUT_NAME"
-        DEST_NAME="CameraFTP_v${VERSION}.exe"
     fi
+    DEST_NAME="CameraFTP_v${VERSION}$(version_marker "$BUILD_TYPE")$(variant_suffix "$variant").exe"
 
     terminate_running_process "$DEST_NAME"
 
-    move_to_out "$SRC_PATH" "$DEST_NAME" "Windows $BUILD_TYPE"
+    move_to_out "$SRC_PATH" "$DEST_NAME" "Windows $BUILD_TYPE ($variant)"
+}
+
+# 依次构建 neural 与 legacy 两个 variant，各产出一个 exe
+build_all_variants() {
+    local build_type="${1:-release}"
+    build_windows "$build_type" neural
+    build_windows "$build_type" legacy
 }
 
 # 显示帮助信息
@@ -101,9 +136,10 @@ show_help() {
     echo ""
     local VERSION
     VERSION=$(get_version)
-    echo "输出位置:"
-    echo "  Release: out/CameraFTP_v${VERSION}.exe (单文件，DLL 已内嵌)"
-    echo "  Debug:   out/CameraFTP_v${VERSION}-debug.exe (单文件，DLL 已内嵌)"
+    echo "输出位置 (默认=传统算法无后缀，NN 变体=_nn-demosaic，Debug=d):"
+    echo "  Release: out/CameraFTP_v${VERSION}.exe             (传统算法)"
+    echo "           out/CameraFTP_v${VERSION}_nn-demosaic.exe (神经网络解马赛克)"
+    echo "  Debug:   out/CameraFTP_v${VERSION}d.exe / out/CameraFTP_v${VERSION}d_nn-demosaic.exe"
     echo ""
     echo "注意: 推荐使用 ./build.sh windows 进行构建，会自动生成类型绑定"
 }
@@ -125,7 +161,7 @@ main() {
     if [ "$CHECK_ONLY" = true ]; then
         check_windows_env
     else
-        check_windows_env && build_windows "$BUILD_TYPE"
+        check_windows_env && build_all_variants "$BUILD_TYPE"
     fi
 }
 
