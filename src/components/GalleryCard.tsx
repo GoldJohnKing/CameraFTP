@@ -196,6 +196,9 @@ export const GalleryCard = memo(function GalleryCard() {
   const gridRef = useRef<VirtualGalleryGridHandle>(null);
   const [showDateJump, setShowDateJump] = useState(false);
   const [isLoadingDates, setIsLoadingDates] = useState(false);
+  // mediaId of the cell to pulse after a date-jump; cleared after the animation.
+  const [highlightMediaId, setHighlightMediaId] = useState<string | null>(null);
+  const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Unique capture days, newest-first (pager.items is sorted dateDesc), with the
   // photo count per day. Built from currently loaded items; loadAll() ensures the
@@ -238,9 +241,18 @@ export const GalleryCard = memo(function GalleryCard() {
     setShowDateJump(false);
     const index = pager.items.findIndex((item) => toDateKey(item.dateModifiedMs) === key);
     if (index >= 0) {
+      const targetId = pager.items[index].mediaId;
       gridRef.current?.scrollToIndex(index);
+      // Pulse the landed-on cell so the user sees where the jump went, even
+      // when nothing actually scrolls (e.g. all photos fit one screen).
+      clearTimeout(highlightTimerRef.current ?? undefined);
+      setHighlightMediaId(targetId);
+      highlightTimerRef.current = setTimeout(() => setHighlightMediaId(null), 850);
     }
   }, [pager.items]);
+
+  // Clear any pending highlight pulse when the card unmounts.
+  useEffect(() => () => clearTimeout(highlightTimerRef.current ?? undefined), []);
 
   // Full refresh on permission granted (necessary because gallery was empty before)
   useEffect(() => {
@@ -362,6 +374,7 @@ export const GalleryCard = memo(function GalleryCard() {
           onDragSelect={handleDragSelect}
           isDragSelectingRef={isDragSelectingRef}
           dragAnchorIndexRef={dragAnchorIndexRef}
+          highlightMediaId={highlightMediaId}
         />
       </div>
 

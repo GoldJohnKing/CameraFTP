@@ -35,6 +35,8 @@ export interface VirtualGalleryGridProps {
   dragAnchorIndexRef?: React.RefObject<number>;
   /** Called when scrolling near the end to trigger infinite scroll */
   onNearEnd?: () => void;
+  /** mediaId of the cell to briefly highlight (e.g. after a date-jump). */
+  highlightMediaId?: string | null;
 }
 
 /** Imperative handle exposed by the grid via ref. */
@@ -59,6 +61,7 @@ export const VirtualGalleryGrid = forwardRef<VirtualGalleryGridHandle, VirtualGa
   isDragSelectingRef,
   dragAnchorIndexRef,
   onNearEnd,
+  highlightMediaId,
 }, ref) {
   const containerRef = useRef<HTMLDivElement>(null);
   const itemsRef = useRef(items);
@@ -291,6 +294,13 @@ export const VirtualGalleryGrid = forwardRef<VirtualGalleryGridHandle, VirtualGa
                       <Check className="w-4 h-4 text-white" />
                     )}
                   </div>
+                )}
+
+                {highlightMediaId === item.mediaId && (
+                  <div
+                    data-testid="highlight-overlay"
+                    className="absolute inset-0 rounded-lg pointer-events-none animate-highlight-jump"
+                  />
                 )}
               </div>
             );

@@ -108,3 +108,23 @@ input[type="password"]::-webkit-credentials-auto-fill-button {
 @media (prefers-reduced-motion: reduce) {
   .animate-slide-up { animation: none; opacity: 1; }
 }
+
+/* ========================================
+   Gallery date-jump highlight pulse
+   A blue ring expands then fades, marking the
+   photo a date-jump landed on.
+   ======================================== */
+@keyframes highlight-jump {
+  0% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0); }
+  25% { box-shadow: 0 0 0 5px rgba(59, 130, 246, 0.95); }
+  65% { box-shadow: 0 0 0 5px rgba(59, 130, 246, 0.55); }
+  100% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0); }
+}
+
+.animate-highlight-jump {
+  animation: highlight-jump 0.8s ease-out forwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-highlight-jump { animation: none; box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.7); }
+}

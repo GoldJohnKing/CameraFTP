@@ -232,7 +232,49 @@ describe('GalleryCard date-jump', () => {
     // index 3 → row floor(3/3) = 1 → scrollTop = 1 * 120 = 120
     expect(capturedTop).toBe(120);
 
+    // The landed-on cell pulses with a highlight overlay (visible feedback
+    // even when the scroll is a no-op, e.g. single-page galleries).
+    const overlay = getContainer().querySelector('[data-testid="highlight-overlay"]');
+    expect(overlay).toBeTruthy();
+
     // Dialog closes after selection.
     expect(getContainer().querySelector('[data-testid="date-jump-dialog"]')).toBeNull();
+  });
+
+  it('clears the highlight overlay shortly after a jump', async () => {
+    vi.useFakeTimers();
+    try {
+      await act(async () => {
+        getRoot().render(<GalleryCard />);
+        await flush();
+      });
+
+      const title = getContainer().querySelector('[data-testid="gallery-date-title"]') as HTMLButtonElement;
+      await act(async () => {
+        title.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        await flush();
+      });
+      // jsdom lacks Element.scrollTo; stub it before the jump triggers one.
+      const gridContainer = getContainer().querySelector('[data-testid="virtual-grid-container"]') as HTMLDivElement;
+      gridContainer!.scrollTo = (() => {}) as Element['scrollTo'];
+      const row = getContainer().querySelector('[data-date-key="2026-6-30"]') as HTMLButtonElement;
+
+      await act(async () => {
+        row.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        await flush();
+      });
+
+      // Highlight appears immediately.
+      expect(getContainer().querySelector('[data-testid="highlight-overlay"]')).toBeTruthy();
+
+      // …and is removed once the pulse animation window elapses.
+      await act(async () => {
+        vi.advanceTimersByTime(900);
+        await flush();
+      });
+      expect(getContainer().querySelector('[data-testid="highlight-overlay"]')).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
