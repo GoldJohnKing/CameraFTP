@@ -110,25 +110,50 @@ input[type="password"]::-webkit-credentials-auto-fill-button {
 }
 
 /* ========================================
-   Gallery date-jump highlight pulse
-   A translucent blue overlay scales up then
-   fades, marking the photo a date-jump landed
-   on. Uses transform/opacity (composited, GPU-
-   friendly) and lives inside the cell, so it
-   survives the cell's `overflow-hidden` and
-   stays smooth during scroll on Android WebView.
+   Gallery date-jump highlight
+   Two synchronized layers, both living inside
+   the cell so the cell's `overflow-hidden`
+   clips nothing, and both animating only
+   transform/opacity (composited, GPU-friendly)
+   for smooth scrolling on Android WebView:
+     1) `animate-highlight-jump-flash` — a
+        whole-cell white wash that briefly
+        brightens the photo (opacity only).
+     2) `animate-highlight-jump-ring` — a
+        dual-tone ring drawn via INSET box-shadow
+        (dark hairline + white) so it survives
+        `overflow-hidden` and stays visible on
+        any photo; scales 0.7→1 like a lock-on.
+   Both share 0.8s ease-out and identical keyframe
+   percentages so they peak together as one pulse.
    ======================================== */
-@keyframes highlight-jump {
-  0%   { transform: scale(0.6); opacity: 0; }
-  30%  { transform: scale(1);   opacity: 0.9; }
-  65%  { transform: scale(1);   opacity: 0.55; }
+@keyframes highlight-jump-flash {
+  0%   { opacity: 0; }
+  45%  { opacity: 0.22; }
+  100% { opacity: 0; }
+}
+
+@keyframes highlight-jump-ring {
+  0%   { transform: scale(0.7); opacity: 0; }
+  45%  { transform: scale(1);   opacity: 1; }
   100% { transform: scale(1);   opacity: 0; }
 }
 
-.animate-highlight-jump {
-  animation: highlight-jump 0.8s ease-out forwards;
+.animate-highlight-jump-flash {
+  animation: highlight-jump-flash 0.8s ease-out forwards;
+}
+
+.animate-highlight-jump-ring {
+  /* Inset so it is never clipped by the cell's overflow-hidden;
+     the dark hairline gives contrast on bright photos, the white
+     ring on dark ones — visible on any image. */
+  box-shadow:
+    inset 0 0 0 2px rgba(0, 0, 0, 0.35),
+    inset 0 0 0 5px rgba(255, 255, 255, 0.95);
+  animation: highlight-jump-ring 0.8s ease-out forwards;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .animate-highlight-jump { animation: none; opacity: 0.7; }
+  .animate-highlight-jump-flash { animation: none; opacity: 0.15; }
+  .animate-highlight-jump-ring  { animation: none; opacity: 1; }
 }

@@ -323,10 +323,18 @@ export const VirtualGalleryGrid = forwardRef<VirtualGalleryGridHandle, VirtualGa
                 )}
 
                 {activeHighlight === item.mediaId && (
-                  <div
-                    data-testid="highlight-overlay"
-                    className="absolute inset-0 rounded-lg pointer-events-none bg-blue-500 animate-highlight-jump"
-                  />
+                  <>
+                    {/* Whole-cell white flash — briefly brightens the photo.
+                        Opacity-only; synced with the ring (same 0.8s/easing). */}
+                    <div className="absolute inset-0 rounded-lg pointer-events-none bg-white animate-highlight-jump-flash" />
+                    {/* Dual-tone ring ping — inset box-shadow survives the cell's
+                        overflow-hidden and reads on any photo; carries the test
+                        id used by the highlight regression tests. */}
+                    <div
+                      data-testid="highlight-overlay"
+                      className="absolute inset-0 rounded-lg pointer-events-none animate-highlight-jump-ring"
+                    />
+                  </>
                 )}
               </div>
             );

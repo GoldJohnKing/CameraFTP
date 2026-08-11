@@ -242,12 +242,18 @@ describe('GalleryCard date-jump', () => {
 
     // The landed-on cell pulses with a highlight overlay (visible feedback
     // even when the scroll is a no-op, e.g. single-page galleries).
-    const overlay = getContainer().querySelector('[data-testid="highlight-overlay"]');
-    expect(overlay).toBeTruthy();
-    // Regression guard: the overlay must carry its own background fill, not rely
-    // on an outward box-shadow (which the cell's `overflow-hidden` would clip,
-    // making the highlight invisible on-device).
-    expect(overlay!.className).toMatch(/bg-blue-500/);
+    const ring = getContainer().querySelector('[data-testid="highlight-overlay"]');
+    expect(ring).toBeTruthy();
+    // Regression guard: the ring must rely on an INSET box-shadow, not an
+    // outward one — the cell's `overflow-hidden` clips outward shadows, which
+    // would make the highlight invisible on-device. The ring class carries
+    // that inset shadow.
+    expect(ring!.className).toMatch(/animate-highlight-jump-ring/);
+
+    // A whole-cell white flash rides along, synced with the ring.
+    const flash = getContainer().querySelector('.animate-highlight-jump-flash');
+    expect(flash).toBeTruthy();
+    expect(flash!.className).toMatch(/bg-white/);
 
     // Dialog closes after selection.
     expect(getContainer().querySelector('[data-testid="date-jump-dialog"]')).toBeNull();
