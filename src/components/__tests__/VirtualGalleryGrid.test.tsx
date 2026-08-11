@@ -249,4 +249,54 @@ describe('VirtualGalleryGrid', () => {
     expect(onItemClick).toHaveBeenCalledTimes(1);
     expect(onItemClick).toHaveBeenCalledWith(items[0]);
   });
+
+  it('arms the highlight overlay only after the target scrolls into view', async () => {
+    // Regression: a highlight requested while the target is outside the render
+    // window (e.g. a multi-page date-jump) must still pulse once the scroll
+    // settles and the cell mounts — not be silently dropped.
+    const CONTAINER_HEIGHT = 360; // 3 visible rows
+    const items = makeItems(300); // 100 rows; target media-90 lives on row 30
+    const TARGET_ID = 'media-90';
+
+    await act(async () => {
+      getRoot().render(
+        <VirtualGalleryGrid
+          items={items}
+          thumbnails={new Map()}
+          loadingThumbs={new Set()}
+          onItemClick={vi.fn()}
+          highlightMediaId={TARGET_ID}
+        />
+      );
+      await flush();
+    });
+
+    const gridContainer = getContainer().querySelector('[data-testid="virtual-grid-container"]');
+    expect(gridContainer).toBeTruthy();
+    if (gridContainer) {
+      act(() => {
+        resizeMock.triggerResize(gridContainer, CONTAINER_HEIGHT);
+      });
+    }
+    await flush();
+
+    // Target is far below the initial window — no overlay yet.
+    expect(getContainer().querySelector('[data-testid="highlight-overlay"]')).toBeNull();
+
+    // Simulate the scroll the jump would trigger: scrollTop to row 30 = 3600.
+    if (gridContainer) {
+      Object.defineProperty(gridContainer, 'scrollTop', {
+        value: 30 * 120,
+        writable: true,
+        configurable: true,
+      });
+      act(() => {
+        gridContainer.dispatchEvent(new Event('scroll'));
+      });
+    }
+    await flush();
+
+    // Now the target is in the render window; the latch arms the pulse.
+    expect(getContainer().querySelector('[data-testid="highlight-overlay"]')).toBeTruthy();
+  });
 });

@@ -196,9 +196,9 @@ export const GalleryCard = memo(function GalleryCard() {
   const gridRef = useRef<VirtualGalleryGridHandle>(null);
   const [showDateJump, setShowDateJump] = useState(false);
   const [isLoadingDates, setIsLoadingDates] = useState(false);
-  // mediaId of the cell to pulse after a date-jump; cleared after the animation.
+  // mediaId of the cell to pulse after a date-jump; the grid owns the pulse
+  // lifecycle (arming it once the cell mounts after the scroll settles).
   const [highlightMediaId, setHighlightMediaId] = useState<string | null>(null);
-  const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Unique capture days, newest-first (pager.items is sorted dateDesc), with the
   // photo count per day. Built from currently loaded items; loadAll() ensures the
@@ -243,16 +243,17 @@ export const GalleryCard = memo(function GalleryCard() {
     if (index >= 0) {
       const targetId = pager.items[index].mediaId;
       gridRef.current?.scrollToIndex(index);
-      // Pulse the landed-on cell so the user sees where the jump went, even
-      // when nothing actually scrolls (e.g. all photos fit one screen).
-      clearTimeout(highlightTimerRef.current ?? undefined);
-      setHighlightMediaId(targetId);
-      highlightTimerRef.current = setTimeout(() => setHighlightMediaId(null), 850);
+      // Request a highlight pulse on the landed-on cell. The grid owns the
+      // pulse lifecycle (it waits for the cell to mount after the scroll
+      // settles, then plays the animation and clears itself), so we only set
+      // the request here. Clearing any prior request first ensures a fresh
+      // pulse even when jumping to the same day twice in a row.
+      setHighlightMediaId(null);
+      // Defer to the next tick so React registers a changed value (null→id)
+      // even when the previous highlight was the same id.
+      requestAnimationFrame(() => setHighlightMediaId(targetId));
     }
   }, [pager.items]);
-
-  // Clear any pending highlight pulse when the card unmounts.
-  useEffect(() => () => clearTimeout(highlightTimerRef.current ?? undefined), []);
 
   // Full refresh on permission granted (necessary because gallery was empty before)
   useEffect(() => {

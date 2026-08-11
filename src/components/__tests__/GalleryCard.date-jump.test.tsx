@@ -232,6 +232,14 @@ describe('GalleryCard date-jump', () => {
     // index 3 → row floor(3/3) = 1 → scrollTop = 1 * 120 = 120
     expect(capturedTop).toBe(120);
 
+    // The highlight request is deferred to the next animation frame (real
+    // timers here, so flush() won't drain it). Wait one frame, then let the
+    // grid's latch effect arm the pulse once the target cell mounts.
+    await act(async () => {
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+      await flush();
+    });
+
     // The landed-on cell pulses with a highlight overlay (visible feedback
     // even when the scroll is a no-op, e.g. single-page galleries).
     const overlay = getContainer().querySelector('[data-testid="highlight-overlay"]');
@@ -261,10 +269,12 @@ describe('GalleryCard date-jump', () => {
 
       await act(async () => {
         row.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-        await flush();
+        // handleDateJump defers setHighlightMediaId via requestAnimationFrame;
+        // flush that, then the grid's latch effect arms the pulse + clear timer.
+        await vi.runAllTimersAsync();
       });
 
-      // Highlight appears immediately.
+      // Highlight is armed once the target cell is in the render window.
       expect(getContainer().querySelector('[data-testid="highlight-overlay"]')).toBeTruthy();
 
       // …and is removed once the pulse animation window elapses.

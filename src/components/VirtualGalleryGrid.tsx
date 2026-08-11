@@ -76,6 +76,13 @@ export const VirtualGalleryGrid = forwardRef<VirtualGalleryGridHandle, VirtualGa
   const [containerHeight, setContainerHeight] = useState(0);
   const [isScrolling, setIsScrolling] = useState(false);
   const scrollEndTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // The parent requests a highlight via `highlightMediaId`, but the target cell
+  // may not be in the render window yet (e.g. after a multi-page jump, the scroll
+  // hasn't settled so `visibleItems` still reflects the old position). We latch
+  // the request and only arm the pulse once the target actually mounts; the clear
+  // timer likewise runs from that moment, not from when the jump was requested.
+  const [activeHighlight, setActiveHighlight] = useState<string | null>(null);
+  const highlightClearRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const totalRows = Math.ceil(items.length / COLUMNS);
   const totalHeight = totalRows * ROW_HEIGHT;
@@ -220,6 +227,25 @@ export const VirtualGalleryGrid = forwardRef<VirtualGalleryGridHandle, VirtualGa
     }
   }, [items, visibleStartRow, visibleEndRow, startRow, endRow, onRangeChange, onNearEnd, containerHeight, totalRows]);
 
+  // When the parent requests a highlight, arm it only once the target cell is in
+  // the render window. This decouples the pulse from scroll timing: on a big
+  // jump the target won't be visible until the scroll settles, so arming it
+  // eagerly (and clearing on a wall-clock timer) could expire before the cell
+  // ever mounts. Here we wait for visibility, then play the pulse to completion.
+  useEffect(() => {
+    const requested = highlightMediaId;
+    if (!requested) return;
+    const inWindow = visibleItems.some((item) => item.mediaId === requested);
+    if (!inWindow) return;
+    // Target is mounted — arm the pulse if not already showing for this target.
+    setActiveHighlight((cur) => (cur === requested ? cur : requested));
+    clearTimeout(highlightClearRef.current ?? undefined);
+    highlightClearRef.current = setTimeout(() => setActiveHighlight(null), 850);
+  }, [highlightMediaId, visibleItems]);
+
+  // Clear the highlight pulse timer on unmount.
+  useEffect(() => () => clearTimeout(highlightClearRef.current ?? undefined), []);
+
   const offsetY = startRow * ROW_HEIGHT;
 
   return (
@@ -296,7 +322,7 @@ export const VirtualGalleryGrid = forwardRef<VirtualGalleryGridHandle, VirtualGa
                   </div>
                 )}
 
-                {highlightMediaId === item.mediaId && (
+                {activeHighlight === item.mediaId && (
                   <div
                     data-testid="highlight-overlay"
                     className="absolute inset-0 rounded-lg pointer-events-none animate-highlight-jump"
