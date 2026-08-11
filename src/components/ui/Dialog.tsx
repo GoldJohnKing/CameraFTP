@@ -64,7 +64,12 @@ export function Dialog({
         </div>
 
         {/* Content */}
-        <div className={`overflow-y-auto ${contentClassName}`}>{children}</div>
+        <div
+          data-testid="dialog-content"
+          className={`overflow-y-auto min-h-0 ${contentClassName}`}
+        >
+          {children}
+        </div>
 
         {/* Footer */}
         {footer && (
