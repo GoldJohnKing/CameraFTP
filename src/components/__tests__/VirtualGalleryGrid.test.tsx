@@ -299,4 +299,67 @@ describe('VirtualGalleryGrid', () => {
     // Now the target is in the render window; the latch arms the pulse.
     expect(getContainer().querySelector('[data-testid="highlight-overlay"]')).toBeTruthy();
   });
+
+  it('does not replay the highlight when items reload (refresh)', async () => {
+    // Regression: highlightMediaId is not cleared after a pulse. A gallery
+    // refresh rebuilds the items array (new identity) → visibleItems changes →
+    // the latch effect used to re-run and re-arm the pulse even though no new
+    // jump happened. The pulse must fire exactly once per request.
+    vi.useFakeTimers();
+    try {
+      const CONTAINER_HEIGHT = 360; // 3 visible rows
+      const TARGET_ID = 'media-0';  // lives in the first render window
+
+      await act(async () => {
+        getRoot().render(
+          <VirtualGalleryGrid
+            items={makeItems(9)}
+            thumbnails={new Map()}
+            loadingThumbs={new Set()}
+            onItemClick={vi.fn()}
+            highlightMediaId={TARGET_ID}
+          />
+        );
+        await flush();
+      });
+
+      const gridContainer = getContainer().querySelector('[data-testid="virtual-grid-container"]');
+      if (gridContainer) {
+        act(() => {
+          resizeMock.triggerResize(gridContainer, CONTAINER_HEIGHT);
+        });
+      }
+      await flush();
+
+      // Pulse arms on mount (target is in the first render window).
+      expect(getContainer().querySelector('[data-testid="highlight-overlay"]')).toBeTruthy();
+
+      // …and clears once the pulse window elapses.
+      await act(async () => {
+        vi.advanceTimersByTime(900);
+        await flush();
+      });
+      expect(getContainer().querySelector('[data-testid="highlight-overlay"]')).toBeNull();
+
+      // Simulate a gallery refresh: pager.reload() returns a fresh items array
+      // (same content, new identity) while highlightMediaId is still set.
+      await act(async () => {
+        getRoot().render(
+          <VirtualGalleryGrid
+            items={makeItems(9)}
+            thumbnails={new Map()}
+            loadingThumbs={new Set()}
+            onItemClick={vi.fn()}
+            highlightMediaId={TARGET_ID}
+          />
+        );
+        await flush();
+      });
+
+      // Regression guard: the pulse must NOT replay just because items reloaded.
+      expect(getContainer().querySelector('[data-testid="highlight-overlay"]')).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

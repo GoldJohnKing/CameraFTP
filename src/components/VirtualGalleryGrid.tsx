@@ -83,6 +83,14 @@ export const VirtualGalleryGrid = forwardRef<VirtualGalleryGridHandle, VirtualGa
   // timer likewise runs from that moment, not from when the jump was requested.
   const [activeHighlight, setActiveHighlight] = useState<string | null>(null);
   const highlightClearRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Last highlight request we actually armed. The latch effect re-runs whenever
+  // visibleItems changes (e.g. a gallery refresh rebuilding the items array, or
+  // scrolling the target back into view), and highlightMediaId is not cleared
+  // after a pulse — without this guard that re-run would replay the animation.
+  // We arm at most once per request; resetting the request to null (as
+  // GalleryCard does between repeat jumps to the same day) clears the guard so
+  // the next pulse still fires.
+  const lastArmedHighlightRef = useRef<string | null>(null);
 
   const totalRows = Math.ceil(items.length / COLUMNS);
   const totalHeight = totalRows * ROW_HEIGHT;
@@ -232,13 +240,25 @@ export const VirtualGalleryGrid = forwardRef<VirtualGalleryGridHandle, VirtualGa
   // jump the target won't be visible until the scroll settles, so arming it
   // eagerly (and clearing on a wall-clock timer) could expire before the cell
   // ever mounts. Here we wait for visibility, then play the pulse to completion.
+  //
+  // The pulse fires at most ONCE per request: highlightMediaId is not cleared
+  // after the pulse, so any later visibleItems change (a refresh's reload, or
+  // scrolling the target back into view) would otherwise re-arm the latch and
+  // replay the animation. We skip re-arming a request we've already armed, and
+  // clear the guard when the request becomes null so a repeat jump to the same
+  // day still pulses.
   useEffect(() => {
     const requested = highlightMediaId;
-    if (!requested) return;
+    if (!requested) {
+      lastArmedHighlightRef.current = null;
+      return;
+    }
+    if (lastArmedHighlightRef.current === requested) return;
     const inWindow = visibleItems.some((item) => item.mediaId === requested);
     if (!inWindow) return;
-    // Target is mounted — arm the pulse if not already showing for this target.
-    setActiveHighlight((cur) => (cur === requested ? cur : requested));
+    // Target is mounted — arm the pulse and mark this request as handled.
+    lastArmedHighlightRef.current = requested;
+    setActiveHighlight(requested);
     clearTimeout(highlightClearRef.current ?? undefined);
     highlightClearRef.current = setTimeout(() => setActiveHighlight(null), 850);
   }, [highlightMediaId, visibleItems]);
