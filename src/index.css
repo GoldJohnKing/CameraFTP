@@ -111,14 +111,18 @@ input[type="password"]::-webkit-credentials-auto-fill-button {
 
 /* ========================================
    Gallery date-jump highlight pulse
-   A blue ring expands then fades, marking the
-   photo a date-jump landed on.
+   A translucent blue overlay scales up then
+   fades, marking the photo a date-jump landed
+   on. Uses transform/opacity (composited, GPU-
+   friendly) and lives inside the cell, so it
+   survives the cell's `overflow-hidden` and
+   stays smooth during scroll on Android WebView.
    ======================================== */
 @keyframes highlight-jump {
-  0% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0); }
-  25% { box-shadow: 0 0 0 5px rgba(59, 130, 246, 0.95); }
-  65% { box-shadow: 0 0 0 5px rgba(59, 130, 246, 0.55); }
-  100% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0); }
+  0%   { transform: scale(0.6); opacity: 0; }
+  30%  { transform: scale(1);   opacity: 0.9; }
+  65%  { transform: scale(1);   opacity: 0.55; }
+  100% { transform: scale(1);   opacity: 0; }
 }
 
 .animate-highlight-jump {
@@ -126,5 +130,5 @@ input[type="password"]::-webkit-credentials-auto-fill-button {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .animate-highlight-jump { animation: none; box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.7); }
+  .animate-highlight-jump { animation: none; opacity: 0.7; }
 }

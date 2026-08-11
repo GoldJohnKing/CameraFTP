@@ -325,7 +325,7 @@ export const VirtualGalleryGrid = forwardRef<VirtualGalleryGridHandle, VirtualGa
                 {activeHighlight === item.mediaId && (
                   <div
                     data-testid="highlight-overlay"
-                    className="absolute inset-0 rounded-lg pointer-events-none animate-highlight-jump"
+                    className="absolute inset-0 rounded-lg pointer-events-none bg-blue-500 animate-highlight-jump"
                   />
                 )}
               </div>

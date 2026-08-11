@@ -244,6 +244,10 @@ describe('GalleryCard date-jump', () => {
     // even when the scroll is a no-op, e.g. single-page galleries).
     const overlay = getContainer().querySelector('[data-testid="highlight-overlay"]');
     expect(overlay).toBeTruthy();
+    // Regression guard: the overlay must carry its own background fill, not rely
+    // on an outward box-shadow (which the cell's `overflow-hidden` would clip,
+    // making the highlight invisible on-device).
+    expect(overlay!.className).toMatch(/bg-blue-500/);
 
     // Dialog closes after selection.
     expect(getContainer().querySelector('[data-testid="date-jump-dialog"]')).toBeNull();
