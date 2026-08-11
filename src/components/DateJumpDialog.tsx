@@ -79,7 +79,7 @@ export function DateJumpDialog({
               ref={active ? selectedRef : undefined}
               onClick={() => onSelect(d.key)}
               data-date-key={d.key}
-              className={`flex w-full items-center justify-between px-4 py-3 text-left transition-colors hover:bg-gray-50 ${
+              className={`flex w-full items-center justify-between px-4 py-3 text-left transition-colors duration-150 hover:bg-gray-50 active:bg-blue-100 ${
                 active ? 'bg-blue-50' : ''
               }`}
             >
