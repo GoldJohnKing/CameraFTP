@@ -362,4 +362,76 @@ describe('VirtualGalleryGrid', () => {
       vi.useRealTimers();
     }
   });
+
+  it('cancels an in-flight pulse when items reload (refresh during the pulse)', async () => {
+    // Regression: a gallery refresh empties items (pager.reload sets []) then
+    // refills them. If the refresh happens while the pulse is still playing,
+    // the armed activeHighlight used to survive the empty→refill and re-render
+    // the overlay on the remounted cell — looking like refresh re-triggered the
+    // animation. The grid must cancel the in-flight pulse when the dataset is
+    // emptied. (We deliberately do NOT advance the 850ms clear timer, so the
+    // pulse is still in-flight when the reload happens.)
+    vi.useFakeTimers();
+    try {
+      const CONTAINER_HEIGHT = 360; // 3 visible rows
+      const TARGET_ID = 'media-0';  // lives in the first render window
+
+      await act(async () => {
+        getRoot().render(
+          <VirtualGalleryGrid
+            items={makeItems(9)}
+            thumbnails={new Map()}
+            loadingThumbs={new Set()}
+            onItemClick={vi.fn()}
+            highlightMediaId={TARGET_ID}
+          />
+        );
+        await flush();
+      });
+
+      const gridContainer = getContainer().querySelector('[data-testid="virtual-grid-container"]');
+      if (gridContainer) {
+        act(() => {
+          resizeMock.triggerResize(gridContainer, CONTAINER_HEIGHT);
+        });
+      }
+      await flush();
+
+      // Pulse is armed and still in-flight (timer not advanced).
+      expect(getContainer().querySelector('[data-testid="highlight-overlay"]')).toBeTruthy();
+
+      // Simulate the start of a refresh: pager.reload() empties items.
+      await act(async () => {
+        getRoot().render(
+          <VirtualGalleryGrid
+            items={[]}
+            thumbnails={new Map()}
+            loadingThumbs={new Set()}
+            onItemClick={vi.fn()}
+            highlightMediaId={TARGET_ID}
+          />
+        );
+        await flush();
+      });
+
+      // Simulate the refresh completing: items refill (same target present).
+      await act(async () => {
+        getRoot().render(
+          <VirtualGalleryGrid
+            items={makeItems(9)}
+            thumbnails={new Map()}
+            loadingThumbs={new Set()}
+            onItemClick={vi.fn()}
+            highlightMediaId={TARGET_ID}
+          />
+        );
+        await flush();
+      });
+
+      // The in-flight pulse must NOT reappear after the reload.
+      expect(getContainer().querySelector('[data-testid="highlight-overlay"]')).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

@@ -263,6 +263,19 @@ export const VirtualGalleryGrid = forwardRef<VirtualGalleryGridHandle, VirtualGa
     highlightClearRef.current = setTimeout(() => setActiveHighlight(null), 850);
   }, [highlightMediaId, visibleItems]);
 
+  // Cancel an in-flight highlight when the dataset is emptied — most importantly
+  // a gallery refresh, whose pager.reload() sets items to []. Without this, the
+  // armed activeHighlight survives the empty→refill and re-renders the overlay
+  // on the remounted cell, so a refresh during the pulse looks like it
+  // re-triggered the animation. lastArmedHighlightRef is left set so the refill
+  // doesn't re-arm the pulse either.
+  useEffect(() => {
+    if (activeHighlight == null) return;
+    if (items.length > 0) return;
+    setActiveHighlight(null);
+    clearTimeout(highlightClearRef.current ?? undefined);
+  }, [items.length, activeHighlight]);
+
   // Clear the highlight pulse timer on unmount.
   useEffect(() => () => clearTimeout(highlightClearRef.current ?? undefined), []);
 
