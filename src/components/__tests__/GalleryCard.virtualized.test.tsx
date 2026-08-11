@@ -219,7 +219,9 @@ describe('GalleryCard (virtualized)', () => {
       await flush();
     });
 
-    const refreshButton = getContainer().querySelector('button');
+    const refreshButton = Array.from(getContainer().querySelectorAll('button')).find((btn) =>
+      btn.textContent?.includes('刷新'),
+    );
     expect(refreshButton).toBeTruthy();
 
     await act(async () => {

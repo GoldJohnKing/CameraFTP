@@ -4,8 +4,8 @@
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
 
-import { memo, useCallback, useEffect, useState } from 'react';
-import { ImageOff, X, Trash2, Share2, Sparkles, MoreVertical, Palette } from 'lucide-react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ImageOff, X, Trash2, Share2, Sparkles, MoreVertical, Palette, ChevronDown } from 'lucide-react';
 import { useConfigStore } from '../stores/configStore';
 import { usePermissionStore } from '../stores/permissionStore';
 import type { MediaItemDto, GalleryItemsAddedEvent, GalleryItemsDeletedEvent } from '../types';
@@ -18,13 +18,15 @@ import { useThumbnailScheduler } from '../hooks/useThumbnailScheduler';
 import { useGallerySelection } from '../hooks/useGallerySelection';
 import { useImagePreviewOpener } from '../hooks/useImagePreviewOpener';
 import { useAndroidAutoOpenLatestPhoto } from '../hooks/useAndroidAutoOpenLatestPhoto';
-import { VirtualGalleryGrid } from './VirtualGalleryGrid';
+import { VirtualGalleryGrid, type VirtualGalleryGridHandle } from './VirtualGalleryGrid';
 import { RefreshButton } from './ui';
 import { PromptDialog } from './PromptDialog';
 import { ColorGradingDialog } from './ColorGradingDialog';
 import { enqueueColorGrading } from '../hooks/useColorGradingProgress';
 import { useColorGradingPresets } from '../hooks/useColorGradingPresets';
 import { isRawFile } from '../utils/raw';
+import { DateJumpDialog, type GalleryDateOption } from './DateJumpDialog';
+import { formatDateTitle, toDateKey } from '../utils/date-format';
 
 export const GalleryCard = memo(function GalleryCard() {
   const { activeTab } = useConfigStore();
@@ -90,11 +92,31 @@ export const GalleryCard = memo(function GalleryCard() {
     }
   }, [pager.items, scheduler]);
 
+  // First visible item's capture day — drives the title and the date-jump
+  // default selection. Only the calendar day is tracked, so scrolling within
+  // the same day never triggers a re-render.
+  const [firstVisible, setFirstVisible] = useState<{ key: string; ms: number } | null>(null);
+  // mediaId → dateModifiedMs lookup, rebuilt when items change, for O(1) date
+  // resolution of the topmost visible item reported by the grid.
+  const dateByMediaId = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const item of pager.items) map.set(item.mediaId, item.dateModifiedMs);
+    return map;
+  }, [pager.items]);
+
   const handleRangeChange = useCallback(
     (visibleIds: string[], nearbyIds: string[]) => {
       scheduler.updateViewport(visibleIds, nearbyIds);
+      const firstId = visibleIds[0];
+      if (firstId) {
+        const ms = dateByMediaId.get(firstId);
+        if (ms != null) {
+          const key = toDateKey(ms);
+          setFirstVisible((prev) => (prev?.key === key ? prev : { key, ms }));
+        }
+      }
     },
-    [scheduler],
+    [scheduler, dateByMediaId],
   );
 
   const handleNearEnd = useCallback(() => {
@@ -169,6 +191,56 @@ export const GalleryCard = memo(function GalleryCard() {
     const item = pager.items.find(i => i.mediaId === id);
     return item?.filePath ? isRawFile(item.filePath) : false;
   });
+
+  // ===== Date-jump picker =====
+  const gridRef = useRef<VirtualGalleryGridHandle>(null);
+  const [showDateJump, setShowDateJump] = useState(false);
+  const [isLoadingDates, setIsLoadingDates] = useState(false);
+
+  // Unique capture days, newest-first (pager.items is sorted dateDesc), with the
+  // photo count per day. Built from currently loaded items; loadAll() ensures the
+  // full gallery is loaded before the picker opens.
+  const dateOptions = useMemo<GalleryDateOption[]>(() => {
+    const order: string[] = [];
+    const msByKey = new Map<string, number>();
+    const countByKey = new Map<string, number>();
+    for (const item of pager.items) {
+      const key = toDateKey(item.dateModifiedMs);
+      if (!msByKey.has(key)) {
+        msByKey.set(key, item.dateModifiedMs);
+        order.push(key);
+        countByKey.set(key, 0);
+      }
+      countByKey.set(key, (countByKey.get(key) ?? 0) + 1);
+    }
+    return order.map((key) => ({ key, ms: msByKey.get(key)!, count: countByKey.get(key) ?? 0 }));
+  }, [pager.items]);
+
+  // Title reflects the first visible photo's day; fall back to the newest photo
+  // before the first range report lands (e.g. initial mount / remeasure).
+  const titleMs = firstVisible?.ms ?? pager.items[0]?.dateModifiedMs ?? null;
+  const selectedDateKey = firstVisible?.key ?? (pager.items[0] ? toDateKey(pager.items[0].dateModifiedMs) : null);
+
+  const handleOpenDateJump = useCallback(async () => {
+    setShowDateJump(true);
+    // Load every remaining page so the date list covers the whole gallery.
+    if (pager.cursor !== null) {
+      setIsLoadingDates(true);
+      try {
+        await pager.loadAll();
+      } finally {
+        setIsLoadingDates(false);
+      }
+    }
+  }, [pager.cursor, pager.loadAll]);
+
+  const handleDateJump = useCallback((key: string) => {
+    setShowDateJump(false);
+    const index = pager.items.findIndex((item) => toDateKey(item.dateModifiedMs) === key);
+    if (index >= 0) {
+      gridRef.current?.scrollToIndex(index);
+    }
+  }, [pager.items]);
 
   // Full refresh on permission granted (necessary because gallery was empty before)
   useEffect(() => {
@@ -256,15 +328,25 @@ export const GalleryCard = memo(function GalleryCard() {
     <div className="h-full flex flex-col px-4 pt-6 pb-[68px] select-none">
       {/* Header with refresh button */}
       <div className="flex items-center justify-between shrink-0">
-        <h2 className="text-lg font-semibold text-gray-900">
-          图库 ({pager.totalCount})
-        </h2>
+        <button
+          type="button"
+          onClick={() => void handleOpenDateJump()}
+          disabled={titleMs == null}
+          data-testid="gallery-date-title"
+          className="flex min-w-0 items-center gap-1 text-lg font-semibold text-gray-900 transition-colors hover:text-blue-600 active:text-blue-700 disabled:opacity-50"
+        >
+          <span className="truncate">
+            {titleMs != null ? formatDateTitle(titleMs) : '图库'}
+          </span>
+          <ChevronDown className="h-4 w-4 shrink-0 text-gray-400" />
+        </button>
         <RefreshButton onClick={handleRefresh} isLoading={isRefreshing} />
       </div>
 
       {/* Virtualized image grid */}
       <div className="flex-1 min-h-0 mt-2">
         <VirtualGalleryGrid
+          ref={gridRef}
           items={pager.items}
           thumbnails={scheduler.thumbnails}
           loadingThumbs={scheduler.loadingThumbs}
@@ -363,6 +445,14 @@ export const GalleryCard = memo(function GalleryCard() {
         colorGradingPresets={colorGradingPresets}
         onConfirm={handleColorGradingConfirm}
         onCancel={() => setShowColorGradingDialog(false)}
+      />
+      <DateJumpDialog
+        isOpen={showDateJump}
+        dates={dateOptions}
+        selectedKey={selectedDateKey}
+        isLoading={isLoadingDates}
+        onSelect={handleDateJump}
+        onClose={() => setShowDateJump(false)}
       />
     </div>
   );

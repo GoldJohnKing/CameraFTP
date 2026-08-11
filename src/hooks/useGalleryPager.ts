@@ -16,6 +16,8 @@ interface UseGalleryPagerResult {
   error: string | null;
   loadNextPage: () => Promise<void>;
   reload: () => Promise<void>;
+  /** Load all remaining pages (used to build the complete date list). */
+  loadAll: () => Promise<void>;
   removeItems: (mediaIds: Set<string>) => void;
   addItems: (items: MediaItemDto[]) => void;
 }
@@ -33,6 +35,7 @@ export function useGalleryPager(): UseGalleryPagerResult {
 
   const seenMediaIdsRef = useRef<Set<string>>(new Set());
   const inflightRef = useRef(false);
+  const cursorRef = useRef<MediaCursor>(null);
 
   const fetchPage = useCallback(async (pageCursor: MediaCursor): Promise<void> => {
     const response = await listMediaPage({
@@ -42,6 +45,7 @@ export function useGalleryPager(): UseGalleryPagerResult {
     });
 
     setCursor(response.nextCursor);
+    cursorRef.current = response.nextCursor;
     setTotalCount(response.totalCount);
 
     const seen = seenMediaIdsRef.current;
@@ -96,6 +100,7 @@ export function useGalleryPager(): UseGalleryPagerResult {
     setError(null);
     setItems([]);
     setCursor(null);
+    cursorRef.current = null;
     setTotalCount(0);
     seenMediaIdsRef.current = new Set();
 
@@ -103,6 +108,30 @@ export function useGalleryPager(): UseGalleryPagerResult {
       await fetchPage(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load page');
+    } finally {
+      inflightRef.current = false;
+      setIsLoading(false);
+    }
+  }, [fetchPage]);
+
+  // Load every remaining page until the cursor is exhausted. Used to build a
+  // complete list of capture dates for the date-jump picker; the virtualized
+  // grid only renders the visible slice, so holding all items in memory is cheap.
+  const loadAll = useCallback(async () => {
+    if (inflightRef.current) {
+      return;
+    }
+
+    inflightRef.current = true;
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      while (cursorRef.current !== null) {
+        await fetchPage(cursorRef.current);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load all media');
     } finally {
       inflightRef.current = false;
       setIsLoading(false);
@@ -155,6 +184,7 @@ export function useGalleryPager(): UseGalleryPagerResult {
     error,
     loadNextPage,
     reload,
+    loadAll,
     removeItems,
     addItems,
   };

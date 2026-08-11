@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
 
-import { type TouchEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { type TouchEvent, forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import { Check, Loader2 } from 'lucide-react';
 import type { MediaItemDto } from '../types';
 
@@ -37,7 +37,13 @@ export interface VirtualGalleryGridProps {
   onNearEnd?: () => void;
 }
 
-export function VirtualGalleryGrid({
+/** Imperative handle exposed by the grid via ref. */
+export interface VirtualGalleryGridHandle {
+  /** Scroll so the item at `index` sits at the top of the viewport. */
+  scrollToIndex: (index: number) => void;
+}
+
+export const VirtualGalleryGrid = forwardRef<VirtualGalleryGridHandle, VirtualGalleryGridProps>(function VirtualGalleryGrid({
   items,
   thumbnails,
   loadingThumbs,
@@ -53,10 +59,16 @@ export function VirtualGalleryGrid({
   isDragSelectingRef,
   dragAnchorIndexRef,
   onNearEnd,
-}: VirtualGalleryGridProps) {
+}, ref) {
   const containerRef = useRef<HTMLDivElement>(null);
   const itemsRef = useRef(items);
   itemsRef.current = items;
+  useImperativeHandle(ref, () => ({
+    scrollToIndex(index: number) {
+      const row = Math.floor(index / COLUMNS);
+      containerRef.current?.scrollTo({ top: row * ROW_HEIGHT });
+    },
+  }), [containerRef]);
   const [scrollTop, setScrollTop] = useState(0);
   const [containerHeight, setContainerHeight] = useState(0);
   const [isScrolling, setIsScrolling] = useState(false);
@@ -287,4 +299,4 @@ export function VirtualGalleryGrid({
       </div>
     </div>
   );
-}
+});
