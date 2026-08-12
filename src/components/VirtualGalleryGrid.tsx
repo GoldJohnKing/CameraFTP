@@ -7,6 +7,7 @@
 import { type TouchEvent, forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import { Check, Loader2 } from 'lucide-react';
 import type { MediaItemDto } from '../types';
+import { classifyFile } from '../utils/gallery-filter';
 
 const COLUMNS = 3;
 const ROW_HEIGHT = 120;
@@ -305,6 +306,7 @@ export const VirtualGalleryGrid = forwardRef<VirtualGalleryGridHandle, VirtualGa
             const isLoadingThumb = loadingThumbs.has(item.mediaId);
             const isSelected = selectedIds?.has(item.mediaId) ?? false;
             const isDeleting = deletingIds?.has(item.mediaId) ?? false;
+            const typeCategory = classifyFile(item);
 
             return (
               <div
@@ -352,6 +354,16 @@ export const VirtualGalleryGrid = forwardRef<VirtualGalleryGridHandle, VirtualGa
                     {isSelected && (
                       <Check className="w-4 h-4 text-white" />
                     )}
+                  </div>
+                )}
+
+                {(typeCategory === 'raw' || typeCategory === 'heif') && (
+                  <div
+                    data-testid="type-label"
+                    data-type-category={typeCategory}
+                    className="absolute top-1 right-1 pointer-events-none rounded bg-gray-500/50 px-1 py-0.5 text-[10px] font-semibold leading-none text-white"
+                  >
+                    {typeCategory === 'raw' ? 'RAW' : 'HEIF'}
                   </div>
                 )}
 
