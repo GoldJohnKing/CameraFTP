@@ -423,7 +423,7 @@ fn parse_bind_addr(bind_addr: &str) -> Option<(String, u16)> {
 }
 
 /// 托盘状态更新处理器 - 监听服务器运行时状态（ServerRuntimeSnapshot）变化，
-/// 据此更新托盘图标（运行/停止）、菜单项状态及前端状态同步。
+/// 据此更新托盘图标（运行/停止）和托盘菜单项状态。
 /// 替代原有的轮询机制，使用事件驱动更新。
 pub struct TrayUpdateHandler {
     app_handle: tauri::AppHandle,

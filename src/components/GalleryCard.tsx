@@ -252,6 +252,7 @@ export const GalleryCard = memo(function GalleryCard() {
     setShowDateJump(true);
     // Load every remaining page so the date list covers all loaded items.
     if (pager.cursor !== null) {
+      setIsLoadingDates(true);
       try {
         await pager.loadAll();
       } finally {

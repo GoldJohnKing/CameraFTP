@@ -953,7 +953,7 @@ impl RawAlchemyLib {
 }
 
 /// Eagerly initialize the NN demosaic session from a background thread at app
-/// launch so the ~2s DirectML session init (desktop) overlaps with browsing. Fire-and-forget
+/// launch so the NN session init (Android QNN ~2s, desktop ~hundreds of ms) overlaps with browsing. Fire-and-forget
 /// best-effort: any failure is logged and swallowed in C++; the edit path
 /// re-attempts via decodeRawNn if this didn't succeed. Thread-safe by the
 /// singleton's init() mutex, so a concurrent first edit just observes ready.

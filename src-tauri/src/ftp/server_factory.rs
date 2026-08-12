@@ -55,7 +55,7 @@ pub(crate) async fn start_ftp_server(
             AppError::StoragePermissionError(e)
         })?;
 
-    // ensure_storage_ready 可能返回平台规范化后的路径，转换为 PathBuf 供后续使用
+    // ensure_storage_ready 返回已验证的存储路径，转换为 PathBuf 供后续使用
     let save_path = std::path::PathBuf::from(save_path);
 
     // 查找可用端口
