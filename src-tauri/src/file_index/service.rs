@@ -139,8 +139,9 @@ impl FileIndexService {
     #[cfg(target_os = "windows")]
     pub async fn stop_watcher(&self) {
         let mut watcher_guard = self.watcher.lock().await;
-        if let Some(ref mut watcher) = *watcher_guard {
-            watcher.stop();
+        // 置 None 让 start_watcher 能用新路径重建 FileWatcher
+        // FileWatcher 的 Drop 会停止内部 RecommendedWatcher
+        if watcher_guard.take().is_some() {
             info!("File watcher stopped");
         }
     }
@@ -464,8 +465,7 @@ impl FileIndexService {
         index.current_index = if !index.files().is_empty() { Some(0) } else { None };
     }
 
-    /// 更新存储路径并重新扫描
-    pub async fn update_save_path(&self, new_path: PathBuf) -> Result<(), AppError> {
+    pub async fn update_save_path(self: Arc<Self>, new_path: PathBuf) -> Result<(), AppError> {
         let current_path = self.save_path.read().await.clone();
         if current_path == new_path {
             return Ok(());
@@ -477,24 +477,11 @@ impl FileIndexService {
         );
 
         self.stop_watcher().await;
-        *self.save_path.write().await = new_path.clone();
+        *self.save_path.write().await = new_path;
         self.scan_directory().await?;
-        self.restart_watcher(new_path).await;
+        Self::start_watcher(Arc::clone(&self)).await?;
 
         Ok(())
-    }
-
-    /// 重启文件监听器（桌面平台）
-    #[cfg(target_os = "windows")]
-    async fn restart_watcher(&self, path: PathBuf) {
-        let mut watcher_guard = self.watcher.lock().await;
-        *watcher_guard = Some(FileWatcher::new(path));
-    }
-
-    /// 重启文件监听器（Android 平台 - 无操作）
-    #[cfg(target_os = "android")]
-    async fn restart_watcher(&self, _path: PathBuf) {
-        // Android 不使用文件系统监听
     }
 }
 

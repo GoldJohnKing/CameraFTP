@@ -6,7 +6,8 @@
 //!
 //! 负责自签名证书的生成、存储和轮换。
 
-use rcgen::{generate_simple_self_signed, CertifiedKey};
+use rcgen::{CertificateParams, KeyPair};
+use time::{OffsetDateTime, Duration};
 use std::fs;
 use std::path::{Path, PathBuf};
 use tracing::{info, warn};
@@ -127,10 +128,22 @@ fn generate_and_save_certificates(
 ) -> crate::error::AppResult<CertificatePaths> {
     info!("Generating new self-signed TLS certificate");
 
-    // 生成自签名证书
-    let CertifiedKey { cert, key_pair } =
-        generate_simple_self_signed(vec!["CameraFTP".to_string(), "localhost".to_string()])
-            .map_err(|e| crate::error::AppError::Other(e.to_string()))?;
+    // 显式设置有效期（rcgen 默认 not_after=4096，与 CERT_VALIDITY_DAYS 不符）
+    let now = OffsetDateTime::now_utc();
+    let mut params = CertificateParams::new(vec![
+        "CameraFTP".to_string(),
+        "localhost".to_string(),
+    ])
+    .map_err(|e| crate::error::AppError::Other(e.to_string()))?;
+    // 回拨 1 天以容忍客户端时钟偏移
+    params.not_before = now - Duration::days(1);
+    params.not_after = now + Duration::days(CERT_VALIDITY_DAYS as i64);
+
+    let key_pair = KeyPair::generate()
+        .map_err(|e| crate::error::AppError::Other(e.to_string()))?;
+    let cert = params
+        .self_signed(&key_pair)
+        .map_err(|e| crate::error::AppError::Other(e.to_string()))?;
 
     let cert_pem = cert.pem();
     let key_pem = key_pair.serialize_pem();

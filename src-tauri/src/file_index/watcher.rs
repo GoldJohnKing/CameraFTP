@@ -109,7 +109,7 @@ impl FileWatcher {
 
     /// 处理 notify 事件，转换为内部事件格式
     fn handle_notify_event(event: Event, tx: &Sender<FileSystemEvent>) {
-        use notify::EventKind;
+        use notify::event::{EventKind, ModifyKind, RenameMode};
 
         debug!("Raw notify event: {:?}", event);
 
@@ -121,9 +121,39 @@ impl FileWatcher {
                     }
                 }
             }
-            EventKind::Modify(_) => {
-                // 修改事件不需要索引更新
+            // 重命名旧路径（From）→ 等同于删除
+            EventKind::Modify(ModifyKind::Name(RenameMode::From)) => {
+                for path in &event.paths {
+                    if crate::image_utils::is_supported_image(path) {
+                        let _ = tx.try_send(FileSystemEvent::Deleted(path.clone()));
+                    }
+                }
             }
+            // 重命名新路径（To）→ 等同于创建
+            EventKind::Modify(ModifyKind::Name(RenameMode::To)) => {
+                for path in &event.paths {
+                    if crate::image_utils::is_supported_image(path) {
+                        let _ = tx.try_send(FileSystemEvent::Created(path.clone()));
+                    }
+                }
+            }
+            // 单事件同时携带 from + to（某些后端）
+            EventKind::Modify(ModifyKind::Name(RenameMode::Both)) => {
+                if event.paths.len() == 2 {
+                    let from = &event.paths[0];
+                    let to = &event.paths[1];
+                    if crate::image_utils::is_supported_image(from)
+                        || crate::image_utils::is_supported_image(to)
+                    {
+                        let _ = tx.try_send(FileSystemEvent::Renamed {
+                            from: from.clone(),
+                            to: to.clone(),
+                        });
+                    }
+                }
+            }
+            // 其他修改事件（内容/属性/时间戳）不需要索引更新
+            EventKind::Modify(_) => {}
             EventKind::Remove(_) => {
                 for path in &event.paths {
                     if crate::image_utils::is_supported_image(path) {
@@ -132,19 +162,7 @@ impl FileWatcher {
                 }
             }
             _ => {
-                // 其他事件类型（如重命名）
-                if event.paths.len() == 2 {
-                    // 可能是重命名事件
-                    let from = &event.paths[0];
-                    let to = &event.paths[1];
-                    if crate::image_utils::is_supported_image(from) || 
-                       crate::image_utils::is_supported_image(to) {
-                        let _ = tx.try_send(FileSystemEvent::Renamed {
-                            from: from.clone(),
-                            to: to.clone(),
-                        });
-                    }
-                }
+                // 其他未知事件：不做处理
             }
         }
     }

@@ -67,6 +67,7 @@ rand_core = { version = "0.6", features = ["getrandom"] }
 zeroize = "1.8"  # 内存安全：密码使用后自动清零
 # FTPS 证书生成
 rcgen = "0.13"
+time = "0.3"  # 证书有效期时间类型（OffsetDateTime/Duration）
 
 [target.'cfg(target_os = "windows")'.dependencies]
 # 文件系统监听（仅 Windows 使用）

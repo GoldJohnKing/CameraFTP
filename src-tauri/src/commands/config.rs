@@ -118,7 +118,7 @@ pub async fn save_config(
 
     if old_save_path != new_save_path {
         tracing::info!("save_path changed from {:?} to {:?}, triggering rescan", old_save_path, new_save_path);
-        file_index.update_save_path(new_save_path).await?;
+        Arc::clone(&file_index).update_save_path(new_save_path).await?;
     }
 
     Ok(())
