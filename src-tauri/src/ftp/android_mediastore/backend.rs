@@ -834,7 +834,7 @@ impl StorageBackend<DefaultUser> for AndroidMediaStoreBackend {
         let relative_path = self.resolve_path(path);
         let parent_path = relative_path_from_full_path(&relative_path);
 
-        // Classify file using Android system MimeTypeMap
+        // Classify file using the static Rust MIME mapping
         let (mime_type, file_class) = classify_file(&display_name);
         let collection = collection_from_class(file_class);
 

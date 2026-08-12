@@ -16,18 +16,18 @@ pub enum StatsCommand {
 }
 
 /// 统计信息Actor句柄
-/// 持有共享状态引用，可以直接读取统计
+/// 持有共享状态引用，用于在测试中直接读取统计（不经过 channel）。
 #[derive(Debug, Clone)]
 pub struct StatsActor {
     tx: mpsc::Sender<StatsCommand>,
-    /// 共享状态引用，用于直接读取（不经过 channel）
+    /// 测试专用：直接读取统计快照（不经过 channel）
     #[cfg(test)]
     stats: Arc<RwLock<ServerStats>>,
 }
 
 impl StatsActor {
     /// 创建带 EventBus 的 StatsActor
-    /// 当统计信息变化时，会通过 EventBus 发送 StatsUpdated 事件
+    /// 当统计信息变化时，通过 EventBus 更新运行时状态（emit_stats_updated）。
     pub fn with_event_bus(event_bus: Option<EventBus>) -> (Self, StatsActorWorker) {
         let (tx, rx) = mpsc::channel(100);
         let stats = Arc::new(RwLock::new(ServerStats::default()));
@@ -93,7 +93,7 @@ impl StatsActorWorker {
                 }
             };
 
-            // 如果状态有变化且配置了 EventBus，发送 StatsUpdated 事件
+            // 如果状态有变化且配置了 EventBus，通过 emit_stats_updated 更新运行时状态
             if should_emit {
                 if let Some(ref bus) = self.event_bus {
                     let stats = self.stats.read().await.clone();

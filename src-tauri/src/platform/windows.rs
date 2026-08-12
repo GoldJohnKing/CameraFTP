@@ -321,7 +321,7 @@ impl PlatformService for WindowsPlatform {
         let state_clone = state.clone();
 
         tauri::async_runtime::spawn(async move {
-            // 短暂延迟，让应用完全初始化（而非等待服务器启动的1秒）
+            // 短暂延迟，让应用完全初始化后再启动 FTP 服务器
             tokio::time::sleep(tokio::time::Duration::from_millis(AUTOSTART_DELAY_MS)).await;
 
             match crate::ftp::server_factory::start_server_with_event_pipeline(

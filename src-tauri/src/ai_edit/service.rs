@@ -43,7 +43,7 @@ struct AiEditWorkerHandle {
 
 pub struct AiEditService {
     config_service: Arc<ConfigService>,
-    /// Used only by `emit_queued()` for broadcasting queue events from public API methods.
+    /// Used by `emit_queued()` and the `QueuedDropped` path in `on_file_uploaded()`.
     /// The worker_loop uses its own cloned AppHandle for all other event emissions.
     app_handle: AppHandle,
     worker: tokio::sync::Mutex<Option<AiEditWorkerHandle>>,

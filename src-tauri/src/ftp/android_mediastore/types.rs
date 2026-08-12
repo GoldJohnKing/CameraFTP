@@ -78,8 +78,8 @@ fn classify_from_mime(mime: &str) -> MediaFileClass {
 
 /// Classifies a file using the static MIME mapping in [`mime_type_from_filename`].
 ///
-/// Returns a `(mime_type, class)` tuple. Uses the same extension→MIME mapping as
-/// Kotlin's `determineMime`, avoiding a cross-layer JNI call for what is a static lookup.
+/// Returns a `(mime_type, class)` tuple using a pure Rust extension→MIME
+/// lookup (no JNI call needed for a static mapping).
 pub fn classify_file(filename: &str) -> (String, MediaFileClass) {
     let mime = mime_type_from_filename(filename);
     let class = classify_from_mime(mime);
@@ -233,12 +233,8 @@ pub fn relative_path_from_full_path(path: &str) -> String {
     }
 }
 
-/// Determines the MIME type from a file extension.
-///
-/// This static mapping serves as the fallback MIME source for non-Android builds
-/// (e.g., mock bridge tests) and is the reference mapping for the Kotlin
-/// `MediaStoreBridge.determineMime`. On Android at runtime, `classify_file()`
-/// queries the system MimeTypeMap via JNI instead.
+/// Determines the MIME type from a file extension via a static Rust mapping.
+/// This is the sole MIME source on all platforms (no runtime JNI call).
 pub fn mime_type_from_filename(filename: &str) -> &'static str {
     let lower = filename.to_lowercase();
     if lower.ends_with(".jpg") || lower.ends_with(".jpeg") {

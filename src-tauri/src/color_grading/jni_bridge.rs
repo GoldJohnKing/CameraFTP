@@ -103,7 +103,9 @@ pub unsafe extern "C" fn Java_com_gjk_cameraftpcompanion_bridges_ColorGradingJni
 }
 
 /// JNI: Apply grading to current preview session.
-/// Returns JPEG bytes directly as `jbyteArray`, or `null` + throws `RuntimeException` on error.
+/// Returns JPEG bytes directly as `jbyteArray`, or `null` + throws
+/// `IllegalArgumentException` (invalid lutId/meteringMode) or
+/// `RuntimeException` (processing/allocation failure) on error.
 #[cfg(target_os = "android")]
 #[no_mangle]
 pub unsafe extern "C" fn Java_com_gjk_cameraftpcompanion_bridges_ColorGradingJniBridge_nativeApplyPreview(

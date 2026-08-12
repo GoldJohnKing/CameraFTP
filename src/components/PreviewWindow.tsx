@@ -94,7 +94,7 @@ const PreviewWindowContent = memo(function PreviewWindowContent({
     onNavigationSettled: () => {}, // Required by usePreviewNavigation; no-op for this component
   });
 
-  // 重置图片错误状态和缩放
+  // 重置图片错误状态和拖拽（缩放重置由 usePreviewZoomPan 内部处理）
   useEffect(() => {
     setImageError(false);
     stopDragging();

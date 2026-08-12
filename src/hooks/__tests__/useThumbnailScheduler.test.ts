@@ -501,7 +501,7 @@ describe('useThumbnailScheduler', () => {
 
     it('falls back to displaying thumbnail as-is when orientation read fails', async () => {
       mockInvoke.mockImplementation((cmd: string) => {
-        if (cmd === 'get_raw_orientation') return Promise.reject(new Error('nomexif failed'));
+        if (cmd === 'get_raw_orientation') return Promise.reject(new Error('nom_exif failed'));
         return Promise.resolve(null);
       });
 

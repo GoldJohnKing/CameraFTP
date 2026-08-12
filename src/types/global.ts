@@ -201,9 +201,10 @@ interface ImageViewerAndroid {
   onExifResultForPosition(position: number, exifJson: string | null): void;
 
   /**
-   * Request batch EXIF resolution for multiple image positions.
-   * The native viewer calls this to prefetch EXIF for offscreen pages.
-   * For each item, onExifResultForPosition will be called with the result.
+   * Bridge method for batch EXIF resolution. NOTE: The native viewer does not
+   * call this method directly — it calls the global `window.__requestExifForPositions`.
+   * This bridge declaration exists for interface completeness; for each result,
+   * onExifResultForPosition will be called.
    * @param requestJson JSON array of { position: number, uri: string }
    */
   requestExifForPositions(requestJson: string): void;

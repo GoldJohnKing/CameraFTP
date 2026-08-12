@@ -14,7 +14,7 @@
 //! - Retry logic with exponential backoff for transient failures
 //! - Concurrency limiting (max 4 concurrent uploads by default)
 //! - Automatic MIME type detection based on file extension
-//! - Support for common image formats (JPEG, PNG, HEIF, RAW)
+//! - Support for common image formats (JPEG, HEIF, RAW)
 //!
 //! # Architecture
 //!

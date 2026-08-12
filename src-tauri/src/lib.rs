@@ -622,7 +622,7 @@ pub fn run() {
             ensure_storage_ready,
             check_server_start_prerequisites,
 
-            // 自动预览配置（Windows）
+            // 预览配置与文件操作（Windows）
             update_preview_config,
             open_preview_window,
             select_executable_file,

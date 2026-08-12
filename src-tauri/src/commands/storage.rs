@@ -16,7 +16,7 @@ use crate::platform::{
 // 存储权限管理命令（从 storage_permission.rs 迁移）
 // ============================================================================
 
-/// 获取固定存储路径信息
+/// 获取存储路径信息（Android 为固定路径，Windows 返回空 path 由用户配置）
 #[command]
 pub async fn get_storage_info() -> Result<StorageInfo, AppError> {
     Ok(get_platform_service().get_storage_info())

@@ -134,7 +134,7 @@ export function AdvancedConnectionConfigPanel({
     setEditPasswordValue(e.target.value);
   };
 
-  // ========== 失焦处理：更新 draft（触发防抖保存）==========
+  // ========== 失焦处理：更新 draft（触发防抖保存）或直接保存（密码）==========
   const handlePortBlur = async () => {
     // 如果为空，恢复原端口
     if (portInput.trim() === '') {

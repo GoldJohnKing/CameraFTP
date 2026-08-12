@@ -593,8 +593,8 @@ impl FtpServerActor {
             }
             Err(_) => {
                 server_task.abort();
-                // Port remained reachable after FTP server task exited
-                // (abort enforced — the port will be released by the OS)
+                // 服务器任务未在超时内退出，强制 abort 以释放端口
+                // (OS 会回收监听套接字)
                 let _ = server_task.await;
                 self.finalize_terminal_stop().await;
                 return Ok(());

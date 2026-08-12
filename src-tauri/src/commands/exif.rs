@@ -121,9 +121,9 @@ pub async fn get_raw_orientation(file_path: String) -> Result<u8, AppError> {
 }
 
 /// Inject EXIF orientation into a JPEG file that lacks it.
-/// Reads orientation from a RAW source file via nomexif, then injects a minimal
-/// APP1 segment into the JPEG at `thumbnail_path`.
-/// Returns `true` if orientation was injected, `false` if not needed.
+/// Injects a minimal APP1 segment with the given `orientation` value into
+/// the JPEG at `thumbnail_path`. Returns `true` if injected, `false` if
+/// orientation is 0 or 1 (no rotation needed).
 #[command]
 pub async fn inject_exif_orientation(
     app: tauri::AppHandle,

@@ -12,7 +12,7 @@
 //!
 //! ## 存储后端
 //!
-//! - Windows: 使用 `unftp_sbe_fs::Filesystem` 存储到本地文件系统
+//! - 非 Android 平台 (Windows/Linux/macOS): 使用 `unftp_sbe_fs::Filesystem` 存储到本地文件系统
 //! - Android: 使用 `android_mediastore::AndroidMediaStoreBackend` 存储到 MediaStore
 
 pub mod android_mediastore;

@@ -225,9 +225,8 @@ export const GalleryCard = memo(function GalleryCard() {
   // lifecycle (arming it once the cell mounts after the scroll settles).
   const [highlightMediaId, setHighlightMediaId] = useState<string | null>(null);
 
-  // Unique capture days, newest-first (pager.items is sorted dateDesc), with the
-  // photo count per day. Built from currently loaded items; loadAll() ensures the
-  // full gallery is loaded before the picker opens.
+  // Unique capture days, newest-first (filteredItems is sorted dateDesc), with the
+  // photo count per day. When a filter is active, only matching items are included.
   const dateOptions = useMemo<GalleryDateOption[]>(() => {
     const order: string[] = [];
     const msByKey = new Map<string, number>();
@@ -251,9 +250,8 @@ export const GalleryCard = memo(function GalleryCard() {
 
   const handleOpenDateJump = useCallback(async () => {
     setShowDateJump(true);
-    // Load every remaining page so the date list covers the whole gallery.
+    // Load every remaining page so the date list covers all loaded items.
     if (pager.cursor !== null) {
-      setIsLoadingDates(true);
       try {
         await pager.loadAll();
       } finally {
@@ -280,7 +278,7 @@ export const GalleryCard = memo(function GalleryCard() {
     }
   }, [filteredItems]);
 
-  // Full refresh on permission granted (necessary because gallery was empty before)
+  // Full gallery refresh on any gallery-refresh-requested event (upload, delete, permission grant, etc.)
   useEffect(() => {
     const handleGalleryRefresh = () => {
       void handleRefresh();

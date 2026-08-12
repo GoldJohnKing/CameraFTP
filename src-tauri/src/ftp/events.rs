@@ -35,7 +35,7 @@ impl EventBus {
         self.tx.subscribe()
     }
 
-    /// 发布服务器启动事件
+    /// 更新运行时状态：记录服务器启动（不广播 DomainEvent，仅更新 watch channel 状态）
     pub async fn emit_server_started(&self, bind_addr: impl Into<String>) {
         let bind_addr = bind_addr.into();
         self.runtime_state()
@@ -43,7 +43,7 @@ impl EventBus {
             .await;
     }
 
-    /// 发布服务器停止事件
+    /// 更新运行时状态：记录服务器停止（不广播 DomainEvent，仅更新 watch channel 状态）
     pub async fn emit_server_stopped(&self) {
         self.runtime_state().record_server_stopped().await;
     }
@@ -66,7 +66,7 @@ impl EventBus {
         self.emit_non_state_event(event);
     }
 
-    /// 发布统计更新
+    /// 更新运行时状态：记录统计信息（不广播 DomainEvent，仅更新 watch channel 状态）
     pub(crate) async fn emit_stats_updated(&self, stats: ServerStats) {
         self.runtime_state().record_stats(stats).await;
     }
@@ -422,8 +422,9 @@ fn parse_bind_addr(bind_addr: &str) -> Option<(String, u16)> {
     Some((ip, port))
 }
 
-/// 托盘状态更新处理器 - 监听统计更新并更新托盘图标
-/// 替代原有的轮询机制，使用事件驱动更新
+/// 托盘状态更新处理器 - 监听服务器运行时状态（ServerRuntimeSnapshot）变化，
+/// 据此更新托盘图标（运行/停止）、菜单项状态及前端状态同步。
+/// 替代原有的轮询机制，使用事件驱动更新。
 pub struct TrayUpdateHandler {
     app_handle: tauri::AppHandle,
     last_state: Option<ServerStateSnapshot>,

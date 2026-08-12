@@ -35,7 +35,7 @@ function App() {
 
   useAppBootstrap({ isMainWindow: !isPreviewWindow });
 
-  // Register JS functions for native Android ImageViewerActivity prompt dialog integration
+  // Register JS functions for native Android ImageViewerActivity integration (AI edit, color grading, previews)
   useEffect(() => {
     const w = window as unknown as Record<string, unknown>;
 

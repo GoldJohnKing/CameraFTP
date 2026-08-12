@@ -5,7 +5,6 @@
  */
 
 // ConfigChangedEvent is auto-generated from the Rust ConfigChangedEvent struct.
-// Re-export from bindings when available (Windows), otherwise provide a local fallback.
 // The generated binding file is created by `./build.sh gen-types`.
 export type { ConfigChangedEvent } from '../../src-tauri/bindings/ConfigChangedEvent';
 

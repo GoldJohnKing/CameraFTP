@@ -75,7 +75,7 @@ impl FileIndexService {
         }
     }
 
-    /// 启动文件系统监听（桌面平台）
+    /// 启动文件系统监听（仅 Windows）
     /// 注意：需要传入 Arc<Self> 以在 watcher 任务中保持服务存活
     #[cfg_attr(target_os = "android", allow(unused_variables))]
     pub async fn start_watcher(self_arc: Arc<Self>) -> Result<bool, AppError> {
@@ -90,7 +90,7 @@ impl FileIndexService {
                 }
             } // 释放 watcher_guard
 
-            // 重新获取 watcher 的可变引用并启动
+            // 取出 watcher 的所有权，调用 start 后放回 Mutex
             let watcher_option = {
                 let mut watcher_guard = self_arc.watcher.lock().await;
                 watcher_guard.take() // 将 watcher 从 Mutex 中取出

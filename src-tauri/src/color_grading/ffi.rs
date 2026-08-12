@@ -73,8 +73,9 @@ pub mod embedded_dll {
     }
 
     /// Remove old versions of an extracted DLL from the temp directory.
-    /// Matches files named `<prefix>*.dll` other than `current_name`. Used to GC
-    /// both `raw_alchemy_core_<hash>.dll` and `libomp_<hash>.dll` across updates.
+    /// Matches files named `<prefix>*.dll` other than `current_name`.
+    /// Used to GC `raw_alchemy_core_<hash>.dll` across updates, and to sweep
+    /// legacy `libomp_<hash>.dll` files left by the previous extraction scheme.
     fn cleanup_old_dlls(temp_dir: &Path, prefix: &str, current_name: &str) {
         if let Ok(entries) = std::fs::read_dir(temp_dir) {
             for entry in entries.flatten() {
@@ -778,7 +779,7 @@ impl RawAlchemyLib {
         }
     }
 
-    /// Inject NN runtime config (model paths, QNN SoC params, DirectML path)
+    /// Inject NN runtime config (DirectML path, QNN SoC/HTP params, ctx dir, app version)
     /// into the C++ core via the explicit C-ABI transport. Must be called
     /// before warmup/decode so the config is in place when the NN session
     /// initializes. The C side deep-copies every field, so the caller's
@@ -952,7 +953,7 @@ impl RawAlchemyLib {
 }
 
 /// Eagerly initialize the NN demosaic session from a background thread at app
-/// launch so the ~2s QNN graph compile overlaps with browsing. Fire-and-forget
+/// launch so the ~2s DirectML session init (desktop) overlaps with browsing. Fire-and-forget
 /// best-effort: any failure is logged and swallowed in C++; the edit path
 /// re-attempts via decodeRawNn if this didn't succeed. Thread-safe by the
 /// singleton's init() mutex, so a concurrent first edit just observes ready.

@@ -47,7 +47,7 @@ export function ColorGradingDialog({ isOpen, colorGradingPresets, onConfirm, onC
       setEvOffset(lastUsed?.evOffset ?? DEFAULT_EV_OFFSET);
       setSyncToAuto(false);
     }
-  // draft intentionally excluded — effect should only run on mount/dialog open
+  // draft intentionally excluded — effect runs on mount, dialog open, and preset list change
   }, [isOpen, colorGradingPresets]);
 
   const handleConfirm = () => {

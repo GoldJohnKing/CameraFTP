@@ -64,7 +64,7 @@ export interface ThumbRequest {
 /** Status of a completed thumbnail result */
 type ThumbStatus = 'ready' | 'failed' | 'cancelled';
 
-/** Result delivered via listener when a thumbnail is ready or failed */
+/** Result delivered via listener when a thumbnail is ready, failed, or cancelled */
 export interface ThumbResult {
   requestId: string;
   mediaId: string;

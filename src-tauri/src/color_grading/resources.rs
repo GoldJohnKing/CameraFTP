@@ -84,7 +84,7 @@ fn decompress_nn_model(compressed: &[u8]) -> Option<Vec<u8>> {
 /// it on Android). This is the one NN artifact that still lives on disk: the
 /// *compiled QNN graph* (context binary), distinct from the model weights (now
 /// in-memory). Use filesDir (not cacheDir): Android may auto-clear cacheDir
-/// under storage pressure, needlessly retriggering the ~5s graph compile.
+/// under storage pressure, needlessly retriggering the ~5s QNN graph compile (Android).
 #[cfg(target_os = "android")]
 pub fn nn_ctx_dir(app_data_dir: &std::path::Path) -> Option<PathBuf> {
     let dir = app_data_dir.join("nn_ctx");

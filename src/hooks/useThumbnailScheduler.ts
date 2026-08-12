@@ -14,7 +14,7 @@
  * For RAW files (NEF, CR2, ARW, etc.), Android's ImageDecoder cannot reliably
  * read EXIF orientation from the RAW file's TIFF structure. After the Kotlin
  * thumbnail pipeline saves a JPEG thumbnail (without EXIF), this scheduler
- * calls Rust's nomexif to read the correct orientation from the RAW file and
+ * calls Rust's nom_exif to read the correct orientation from the RAW file and
  * injects it into the saved JPEG. The browser's `imageOrientation: from-image`
  * CSS then applies the rotation.
  */
@@ -87,7 +87,7 @@ export function useThumbnailScheduler(opts?: UseThumbnailSchedulerOptions) {
 
   /**
    * Register media metadata so the scheduler can build ThumbRequests.
-   * Called internally when media items are loaded.
+   * Called by the consumer (e.g. GalleryCard) when media items are loaded.
    */
   const registerMedia = useCallback((items: ThumbnailSchedulerMedia[]) => {
     for (const item of items) {
@@ -147,7 +147,7 @@ export function useThumbnailScheduler(opts?: UseThumbnailSchedulerOptions) {
       });
     };
 
-    /** Read orientation from RAW file via Rust nomexif and inject into thumbnail JPEG. */
+    /** Read orientation from RAW file via Rust nom_exif and inject into thumbnail JPEG. */
     const fixRawOrientation = async (
       mediaId: string,
       requestId: string,

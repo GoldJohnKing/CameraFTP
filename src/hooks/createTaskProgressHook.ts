@@ -86,8 +86,8 @@ export function createTaskProgressHook<TEvent extends { type: string }>(
         config.onAfterUpdate?.(mapped, store);
         break;
       case 'completed': {
-        // Per-file completion: immediately scan and refresh so the gallery
-        // updates as each image is produced, not only when the batch ends.
+        // Per-file completion: scan immediately and refresh after a short delay
+        // so the gallery updates as each image is produced, not only when the batch ends.
         const completedOutputPath = mapped.outputPath;
         if (completedOutputPath) {
           scanOutputFiles([completedOutputPath]);

@@ -55,7 +55,7 @@ pub(crate) async fn start_ftp_server(
             AppError::StoragePermissionError(e)
         })?;
 
-    // 更新配置中的保存路径（可能与验证后的路径不同）
+    // ensure_storage_ready 可能返回平台规范化后的路径，转换为 PathBuf 供后续使用
     let save_path = std::path::PathBuf::from(save_path);
 
     // 查找可用端口
@@ -183,7 +183,7 @@ pub(crate) fn spawn_event_processor(app_handle: AppHandle, event_bus: &EventBus)
     ready_rx
 }
 
-/// Complete server startup sequence: start FTP server, spawn event processor, wire file index.
+/// Complete server startup sequence: start FTP server and spawn event processor.
 ///
 /// This encapsulates the shared logic used by both manual start (`start_server` command)
 /// and autostart (`execute_autostart_server` on Windows).

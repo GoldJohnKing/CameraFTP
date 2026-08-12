@@ -80,8 +80,7 @@ pub trait PlatformService: Send + Sync {
     /// 开机自启模式下隐藏窗口
     fn hide_window_on_autostart(&self, _app: &AppHandle) {}
 
-    /// 执行开机自启服务器启动逻辑
-    /// 返回 true 表示已处理（需要等待），false 表示跳过
+    /// 执行开机自启服务器启动逻辑（异步，在后台 spawn 服务器启动任务）
     fn execute_autostart_server(
         &self,
         _app: &AppHandle,

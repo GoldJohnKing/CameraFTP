@@ -94,15 +94,15 @@ async fn is_file_readable(path: &Path) -> Result<bool, std::io::Error> {
 
 /// 检查路径是否可写（通过创建临时测试文件）
 ///
-/// 注意：不检查路径是否存在，直接尝试创建测试文件。
-/// 如果路径不存在，创建操作会失败返回 false。
+/// 直接在目标目录下创建临时测试文件。成功则删除并返回 `Ok(true)`；
+/// 失败（路径不存在、权限不足等）返回 `Err(io::Error)`。
 ///
 /// # Arguments
-/// * `path` - 要检查的路径
+/// * `path` - 要检查的目录路径
 ///
 /// # Returns
-/// * `true` - 路径可写
-/// * `false` - 路径不可写或不存在
+/// * `Ok(true)` - 路径可写
+/// * `Err(io::Error)` - 路径不可写或不存在
 ///
 /// # Example
 /// ```ignore
