@@ -23,6 +23,7 @@ export function RefreshButton({
 }: RefreshButtonProps) {
   return (
     <button
+      data-testid="refresh-button"
       onClick={onClick}
       disabled={isLoading}
       className={className}

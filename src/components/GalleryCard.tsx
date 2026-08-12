@@ -25,6 +25,7 @@ import { ColorGradingDialog } from './ColorGradingDialog';
 import { enqueueColorGrading } from '../hooks/useColorGradingProgress';
 import { useColorGradingPresets } from '../hooks/useColorGradingPresets';
 import { isRawFile } from '../utils/raw';
+import { classifyFile, FILTER_CATEGORY_ORDER, FILTER_CATEGORY_LABEL, type GalleryFilterMode, type GalleryFileCategory } from '../utils/gallery-filter';
 import { DateJumpDialog, type GalleryDateOption } from './DateJumpDialog';
 import { formatDateTitle, toDateKey } from '../utils/date-format';
 
@@ -91,6 +92,28 @@ export const GalleryCard = memo(function GalleryCard() {
       scheduler.registerMedia(pager.items);
     }
   }, [pager.items, scheduler]);
+  // ===== Extension filter =====
+  const [filterMode, setFilterMode] = useState<GalleryFilterMode>('all');
+  // Categories that actually have at least one loaded item; drives which
+  // filter buttons are shown (empty categories stay hidden).
+  const availableCategories = useMemo<Set<GalleryFileCategory>>(() => {
+    const set = new Set<GalleryFileCategory>();
+    for (const item of pager.items) set.add(classifyFile(item));
+    return set;
+  }, [pager.items]);
+  // Items after applying the active extension filter. When "all" (default) the
+  // full set is returned by reference so existing behavior is unchanged.
+  const filteredItems = useMemo<MediaItemDto[]>(() => {
+    if (filterMode === 'all') return pager.items;
+    return pager.items.filter((item) => classifyFile(item) === filterMode);
+  }, [pager.items, filterMode]);
+  // If the active category empties out (e.g. its items were deleted), fall back
+  // to "all" so the gallery never shows a blank grid with a hidden filter.
+  useEffect(() => {
+    if (filterMode !== 'all' && !availableCategories.has(filterMode)) {
+      setFilterMode('all');
+    }
+  }, [filterMode, availableCategories]);
 
   // First visible item's capture day — drives the title and the date-jump
   // default selection. Only the calendar day is tracked, so scrolling within
@@ -100,9 +123,9 @@ export const GalleryCard = memo(function GalleryCard() {
   // resolution of the topmost visible item reported by the grid.
   const dateByMediaId = useMemo(() => {
     const map = new Map<string, number>();
-    for (const item of pager.items) map.set(item.mediaId, item.dateModifiedMs);
+    for (const item of filteredItems) map.set(item.mediaId, item.dateModifiedMs);
     return map;
-  }, [pager.items]);
+  }, [filteredItems]);
 
   const handleRangeChange = useCallback(
     (visibleIds: string[], nearbyIds: string[]) => {
@@ -134,10 +157,10 @@ export const GalleryCard = memo(function GalleryCard() {
 
       void openPreview({
         filePath: item.uri,
-        allUris: pager.items.map((i) => i.uri),
+        allUris: filteredItems.map((i) => i.uri),
       });
     },
-    [handleSelectionClick, openPreview, pager.items],
+    [handleSelectionClick, openPreview, filteredItems],
   );
 
   const requestStoragePermission = usePermissionStore((state) => state.requestStoragePermission);
@@ -162,6 +185,8 @@ export const GalleryCard = memo(function GalleryCard() {
     try {
       await withMinDuration(async () => {
         handleRefreshStart();
+        // Reset the extension filter so a refresh always starts from "全部".
+        setFilterMode('all');
         scheduler.cleanup();
         await pager.reload();
       });
@@ -207,7 +232,7 @@ export const GalleryCard = memo(function GalleryCard() {
     const order: string[] = [];
     const msByKey = new Map<string, number>();
     const countByKey = new Map<string, number>();
-    for (const item of pager.items) {
+    for (const item of filteredItems) {
       const key = toDateKey(item.dateModifiedMs);
       if (!msByKey.has(key)) {
         msByKey.set(key, item.dateModifiedMs);
@@ -217,12 +242,12 @@ export const GalleryCard = memo(function GalleryCard() {
       countByKey.set(key, (countByKey.get(key) ?? 0) + 1);
     }
     return order.map((key) => ({ key, ms: msByKey.get(key)!, count: countByKey.get(key) ?? 0 }));
-  }, [pager.items]);
+  }, [filteredItems]);
 
   // Title reflects the first visible photo's day; fall back to the newest photo
   // before the first range report lands (e.g. initial mount / remeasure).
-  const titleMs = firstVisible?.ms ?? pager.items[0]?.dateModifiedMs ?? null;
-  const selectedDateKey = firstVisible?.key ?? (pager.items[0] ? toDateKey(pager.items[0].dateModifiedMs) : null);
+  const titleMs = firstVisible?.ms ?? filteredItems[0]?.dateModifiedMs ?? null;
+  const selectedDateKey = firstVisible?.key ?? (filteredItems[0] ? toDateKey(filteredItems[0].dateModifiedMs) : null);
 
   const handleOpenDateJump = useCallback(async () => {
     setShowDateJump(true);
@@ -239,9 +264,9 @@ export const GalleryCard = memo(function GalleryCard() {
 
   const handleDateJump = useCallback((key: string) => {
     setShowDateJump(false);
-    const index = pager.items.findIndex((item) => toDateKey(item.dateModifiedMs) === key);
+    const index = filteredItems.findIndex((item) => toDateKey(item.dateModifiedMs) === key);
     if (index >= 0) {
-      const targetId = pager.items[index].mediaId;
+      const targetId = filteredItems[index].mediaId;
       gridRef.current?.scrollToIndex(index);
       // Request a highlight pulse on the landed-on cell. The grid owns the
       // pulse lifecycle (it waits for the cell to mount after the scroll
@@ -253,7 +278,7 @@ export const GalleryCard = memo(function GalleryCard() {
       // even when the previous highlight was the same id.
       requestAnimationFrame(() => setHighlightMediaId(targetId));
     }
-  }, [pager.items]);
+  }, [filteredItems]);
 
   // Full refresh on permission granted (necessary because gallery was empty before)
   useEffect(() => {
@@ -355,12 +380,30 @@ export const GalleryCard = memo(function GalleryCard() {
         </button>
         <RefreshButton onClick={handleRefresh} isLoading={isRefreshing} />
       </div>
+      {/* Extension filter — only categories with loaded files get a button */}
+      <div className="flex items-center gap-1.5 shrink-0 overflow-x-auto py-1.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        {(['all', ...FILTER_CATEGORY_ORDER.filter((c) => availableCategories.has(c))] as GalleryFilterMode[]).map((mode) => {
+          const label = mode === 'all' ? '全部' : FILTER_CATEGORY_LABEL[mode];
+          const active = filterMode === mode;
+          return (
+            <button
+              key={mode}
+              type="button"
+              onClick={() => setFilterMode(mode)}
+              data-testid={`gallery-filter-${mode}`}
+              className={`shrink-0 px-3 py-1 rounded-full text-xs font-medium transition-colors ${active ? 'bg-blue-500 text-white' : 'bg-white text-gray-600 border border-gray-200'}`}
+            >
+              {label}
+            </button>
+          );
+        })}
+      </div>
 
       {/* Virtualized image grid */}
       <div className="flex-1 min-h-0 mt-2">
         <VirtualGalleryGrid
           ref={gridRef}
-          items={pager.items}
+          items={filteredItems}
           thumbnails={scheduler.thumbnails}
           loadingThumbs={scheduler.loadingThumbs}
           onItemClick={handleItemClick}

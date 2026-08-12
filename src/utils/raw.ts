@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
 
-const RAW_EXTENSIONS = new Set([
+export const RAW_EXTENSIONS = new Set([
   'nef', 'nrw', 'cr2', 'cr3', 'arw', 'sr2',
   'raf', 'orf', 'rw2', 'pef', 'dng', 'x3f', 'raw', 'srw',
 ]);
