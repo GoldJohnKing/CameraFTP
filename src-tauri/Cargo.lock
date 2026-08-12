@@ -369,7 +369,7 @@ dependencies = [
 
 [[package]]
 name = "cameraftp"
-version = "1.9.1"
+version = "1.9.2"
 dependencies = [
  "argon2",
  "async-trait",

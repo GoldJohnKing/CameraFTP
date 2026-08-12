@@ -1,7 +1,7 @@
 {
   "name": "cameraftp",
   "private": true,
-  "version": "1.9.1",
+  "version": "1.9.2",
   "type": "module",
   "author": "GoldJohnKing <GoldJohnKing@Live.cn>",
   "license": "AGPL-3.0-or-later",
