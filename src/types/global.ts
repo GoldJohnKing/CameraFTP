@@ -75,7 +75,9 @@ export interface DeleteImagesResult {
 
 /**
  * Android Gallery interface
- * Legacy MediaStore URI bridge for gallery actions
+ * Gallery action bridge (delete / share / selection-mode back press).
+ * Orthogonal to GalleryAndroidV2 (media paging + thumbnail pipeline) —
+ * not a legacy/new-generation relationship.
  * Operates on content URI arrays serialized as JSON strings
  */
 interface GalleryAndroid {
@@ -201,15 +203,6 @@ interface ImageViewerAndroid {
   onExifResultForPosition(position: number, exifJson: string | null): void;
 
   /**
-   * Bridge method for batch EXIF resolution. NOTE: The native viewer does not
-   * call this method directly — it calls the global `window.__requestExifForPositions`.
-   * This bridge declaration exists for interface completeness; for each result,
-   * onExifResultForPosition will be called.
-   * @param requestJson JSON array of { position: number, uri: string }
-   */
-  requestExifForPositions(requestJson: string): void;
-
-  /**
    * Callback from JS when an AI edit triggered from native viewer completes
    * @param success Whether the edit succeeded
    * @param message Status message, or null if cancelled
@@ -274,7 +267,8 @@ declare global {
     PermissionAndroid?: PermissionAndroid;
     
     /**
-     * Android Gallery JS Bridge (legacy compatibility)
+     * Android Gallery JS Bridge
+     * 图库动作桥(删除/分享/选择模式返回键),与 GalleryAndroidV2(媒体分页+缩略图管线)职责正交,非新旧关系
      */
     GalleryAndroid?: GalleryAndroid;
     
@@ -302,7 +296,18 @@ declare global {
     __galleryOnBackPressed?: () => void;
 
     /**
-     * Returns the current AI edit prompt and model from config store as JSON.
+     * Returns the current AI edit call context as a JSON string:
+     * `{ dialogPrompt: string, autoPrompt: string, model: string,
+     *    autoEdit: boolean, hasApiKey: boolean,
+     *    models: Array<{ value: string, label: string }> }`.
+     * Product ruling (#4): `dialogPrompt` (manualPrompt only, may be empty)
+     * is the default for the native prompt dialog — it never falls back to
+     * the auto-edit prompt; `autoPrompt` (aiEdit.prompt only) is exclusively
+     * for no-UI automatic editing and must not be used as a dialog default.
+     * `models` is the seedream model list (single source: Rust
+     * SEEDREAM_MODELS in src-tauri/src/ai_edit/config.rs, exported by
+     * gen-types to src-tauri/bindings/SeedreamModels.ts) used to populate
+     * the native dialog dropdown; `model` is the default selected value.
      * Called by native ImageViewerActivity to pre-fill the prompt dialog.
      */
     __tauriGetAiEditPrompt?: () => string;
@@ -411,73 +416,3 @@ declare global {
   }
 }
 
-// ===== 类型守卫函数 =====
-
-/**
- * 检查 Android 权限管理是否可用
- */
-function isPermissionAndroidAvailable(): boolean {
-  return typeof window !== 'undefined' && 
-         !!window.PermissionAndroid && 
-         typeof window.PermissionAndroid.checkAllPermissions === 'function';
-}
-
-/**
- * 检查 Android 权限状态
- * @returns 权限检查结果，非 Android 平台返回 null
- */
-export async function checkAndroidPermissions(): Promise<PermissionCheckResult | null> {
-  if (!isPermissionAndroidAvailable()) {
-    return null;
-  }
-  
-  try {
-    const result = await window.PermissionAndroid!.checkAllPermissions();
-    return JSON.parse(result) as PermissionCheckResult;
-  } catch {
-    return null;
-  }
-}
-
-// ===== Android Bridge Adapters =====
-
-/**
- * Permission bridge adapter
- * Provides a clean interface for Android permission management
- */
-export const permissionBridge = {
-  /**
-   * Check if the permission bridge is available
-   */
-  isAvailable(): boolean {
-    return isPermissionAndroidAvailable();
-  },
-
-  /**
-   * Request storage permission
-   */
-  requestStorage(): void {
-    window.PermissionAndroid?.requestStoragePermission();
-  },
-
-  /**
-   * Request notification permission
-   */
-  requestNotification(): void {
-    window.PermissionAndroid?.requestNotificationPermission();
-  },
-
-  /**
-   * Request battery optimization exemption
-   */
-  requestBatteryOptimization(): void {
-    window.PermissionAndroid?.requestBatteryOptimization();
-  },
-
-  /**
-   * Check all permissions
-   */
-  async checkAll(): Promise<PermissionCheckResult | null> {
-    return checkAndroidPermissions();
-  },
-};
