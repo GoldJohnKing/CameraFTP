@@ -7,7 +7,7 @@
 import { useCallback, useEffect, useRef, useState, type RefObject } from 'react';
 import { toast } from 'sonner';
 import { buildDeleteFailureMessage } from '../utils/gallery-delete';
-import { applyAndEnqueueAiEdit } from './useAiEditProgress';
+import { applyAndEnqueueAiEdit } from '../services/ai-edit-tasks';
 import type { DeleteImagesResult } from '../types';
 
 const LONG_PRESS_DURATION = 400; // Android ViewConfiguration.DEFAULT_LONG_PRESS_TIMEOUT

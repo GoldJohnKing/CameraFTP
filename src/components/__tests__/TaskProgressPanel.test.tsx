@@ -47,12 +47,18 @@ const {
 
 vi.mock('../../hooks/useAiEditProgress', () => ({
   useAiEditProgress: () => mockAiEditState,
-  cancelAiEdit: cancelAiEditMock,
-  dismissDone: dismissAiEditDoneMock,
 }));
 
 vi.mock('../../hooks/useColorGradingProgress', () => ({
   useColorGradingProgress: () => mockCgState,
+}));
+
+vi.mock('../../services/ai-edit-tasks', () => ({
+  cancelAiEdit: cancelAiEditMock,
+  dismissDone: dismissAiEditDoneMock,
+}));
+
+vi.mock('../../services/color-grading-tasks', () => ({
   cancelColorGrading: cancelColorGradingMock,
   dismissColorGradingDone: dismissColorGradingDoneMock,
 }));

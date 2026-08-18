@@ -16,13 +16,13 @@ vi.mock('@tauri-apps/api/core', () => ({
   invoke: vi.fn(),
 }));
 
-vi.mock('../../hooks/useAiEditProgress', () => ({
+vi.mock('../../services/ai-edit-tasks', () => ({
   applyAndEnqueueAiEdit: vi.fn(),
   getCurrentAiEditProgress: vi.fn(() => null),
   cancelAiEdit: vi.fn(),
 }));
 
-vi.mock('../../hooks/useColorGradingProgress', () => ({
+vi.mock('../../services/color-grading-tasks', () => ({
   getCurrentColorGradingProgress: vi.fn(() => null),
   cancelColorGrading: vi.fn(),
 }));

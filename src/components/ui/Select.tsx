@@ -8,10 +8,9 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { ChevronDown } from 'lucide-react';
 
-export interface SelectOption {
-  value: string;
-  label: string;
-}
+import type { SelectOption } from '../../types/select';
+
+export type { SelectOption };
 
 interface SelectProps {
   value: string;

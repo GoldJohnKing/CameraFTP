@@ -46,7 +46,8 @@ vi.mock('../../utils/gallery-refresh', () => ({
   LATEST_PHOTO_REFRESH_REQUESTED_EVENT: 'latest-photo-refresh-requested',
 }));
 
-import { useAiEditProgress, dismissDone, cancelAiEdit, applyAndEnqueueAiEdit } from '../useAiEditProgress';
+import { useAiEditProgress } from '../useAiEditProgress';
+import { dismissDone, cancelAiEdit, applyAndEnqueueAiEdit } from '../../services/ai-edit-tasks';
 
 function Harness() {
   const state = useAiEditProgress();

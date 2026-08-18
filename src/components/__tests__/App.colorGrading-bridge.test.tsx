@@ -23,7 +23,7 @@ vi.mock('@tauri-apps/api/window', () => ({
   getCurrentWindow: vi.fn(() => ({ label: 'main' })),
 }));
 
-vi.mock('../../hooks/useColorGradingProgress', () => ({
+vi.mock('../../services/color-grading-tasks', () => ({
   enqueueColorGrading: enqueueColorGradingMock,
   getCurrentColorGradingProgress: vi.fn(() => ({
     isProcessing: false, isDone: false, current: 0, total: 0,
@@ -32,7 +32,7 @@ vi.mock('../../hooks/useColorGradingProgress', () => ({
   cancelColorGrading: vi.fn(),
 }));
 
-vi.mock('../../hooks/useAiEditProgress', () => ({
+vi.mock('../../services/ai-edit-tasks', () => ({
   enqueueAiEdit: vi.fn(),
   getCurrentAiEditProgress: vi.fn(() => ({
     isProcessing: false, isDone: false, current: 0, total: 0,

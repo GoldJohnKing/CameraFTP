@@ -7,12 +7,13 @@
 // TODO: Extract Chinese UI strings for i18n when locale support is added
 
 import { useEffect, useRef } from 'react';
-import { useAiEditProgress, dismissDone as dismissAiEditDone, cancelAiEdit } from '../hooks/useAiEditProgress';
+import { useAiEditProgress } from '../hooks/useAiEditProgress';
+import { dismissDone as dismissAiEditDone, cancelAiEdit } from '../services/ai-edit-tasks';
+import { useColorGradingProgress } from '../hooks/useColorGradingProgress';
 import {
-  useColorGradingProgress,
   dismissColorGradingDone,
   cancelColorGrading,
-} from '../hooks/useColorGradingProgress';
+} from '../services/color-grading-tasks';
 
 interface TaskProgressPanelProps {
   position: 'absolute' | 'fixed';
