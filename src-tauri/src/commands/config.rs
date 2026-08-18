@@ -129,27 +129,7 @@ pub fn save_auth_config(
 /// 选择保存目录
 #[command]
 pub async fn select_save_directory(app: AppHandle) -> Result<Option<String>, String> {
-    let platform = crate::platform::get_platform();
-    let result = platform.select_save_directory(&app)?;
-    
-    // 如果平台返回 None（如 Windows），则使用对话框选择
-    #[cfg(target_os = "windows")]
-    if result.is_none() {
-        use tauri_plugin_dialog::DialogExt;
-
-        let folder_path = tokio::task::spawn_blocking(move || {
-            app.dialog()
-                .file()
-                .set_title("选择存储路径")
-                .blocking_pick_folder()
-        })
-        .await
-        .map_err(|e| format!("Task failed: {}", e))?;
-
-        return Ok(folder_path.and_then(|p| p.as_path().map(|path| path.to_string_lossy().to_string())));
-    }
-    
-    Ok(result)
+    crate::platform::get_platform().select_save_directory(&app).await
 }
 
 // ============================================================================
@@ -216,51 +196,9 @@ pub async fn select_executable_file(app: AppHandle) -> Result<Option<String>, Ap
 /// 打开外部链接
 #[command]
 pub async fn open_external_link(url: String) -> Result<(), AppError> {
-    #[cfg(target_os = "windows")]
-    {
-        use std::ffi::OsStr;
-        use std::os::windows::ffi::OsStrExt;
-        use windows::core::PCWSTR;
-        use windows::Win32::UI::Shell::ShellExecuteW;
-        use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
-
-        let url_wide: Vec<u16> = OsStr::new(&url)
-            .encode_wide()
-            .chain(Some(0))
-            .collect();
-        let open_wide: Vec<u16> = OsStr::new("open")
-            .encode_wide()
-            .chain(Some(0))
-            .collect();
-
-        let result = unsafe {
-            ShellExecuteW(
-                None,
-                PCWSTR::from_raw(open_wide.as_ptr()),
-                PCWSTR::from_raw(url_wide.as_ptr()),
-                None,
-                None,
-                SW_SHOWNORMAL,
-            )
-        };
-
-        // ShellExecuteW returns HINSTANCE, success > 32, failure <= 32
-        if result.0 as isize <= 32 {
-            return Err(AppError::Other(format!(
-                "ShellExecute failed with code {:?}",
-                result.0
-            )));
-        }
-
-        Ok(())
-    }
-
-    #[cfg(target_os = "android")]
-    {
-        let _ = url;
-        // Android 平台通过 JavaScript bridge 处理外部链接
-        Ok(())
-    }
+    crate::platform::get_platform()
+        .open_external_link(&url)
+        .map_err(AppError::Other)
 }
 
 /// 打开文件夹并选中文件（Windows 资源管理器）

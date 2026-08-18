@@ -5,8 +5,8 @@
  */
 
 import { useCallback } from 'react';
-import { invoke } from '@tauri-apps/api/core';
 import type { PreviewWindowConfig } from '../types';
+import { selectExecutableFile } from '../services/system';
 import { ImagePlay } from 'lucide-react';
 import { Card, CardHeader, ToggleSwitch } from './ui';
 import { useConfigStore } from '../stores/configStore';
@@ -37,7 +37,7 @@ export function PreviewConfigCard() {
 
   const handleSelectCustomProgram = async () => {
     try {
-      const selected = await invoke<string | null>('select_executable_file');
+      const selected = await selectExecutableFile();
       if (selected) {
         await updateConfig({ method: 'custom', customPath: selected });
       }

@@ -32,6 +32,18 @@ interface ConfigState {
 
 const DEBOUNCE_DELAY = 100;
 
+// Business keys of the config draft that survive a backend resync while dirty
+// (reference-unequal to the last-known saved config). Must stay in lockstep
+// with the generated AppConfig binding: a key missing from this list would be
+// silently clobbered by mergeDraftWithBackend on the next resync, and a key
+// that no longer exists on AppConfig is a compile error via `satisfies`.
+// Exhaustiveness is enforced at runtime by the keys-coverage test in
+// __tests__/configStore.test.ts.
+export const DRAFT_PRESERVED_KEYS = [
+  'savePath', 'port', 'autoSelectPort', 'advancedConnection', 'previewConfig',
+  'androidImageViewer', 'aiEdit', 'autoColorGrading', 'colorGradingLastUsed',
+] as const satisfies readonly (keyof AppConfig)[];
+
 let draftRevision = 0;
 
 export const useConfigStore = create<ConfigState>((set, get) => {
@@ -63,16 +75,15 @@ export const useConfigStore = create<ConfigState>((set, get) => {
       return nextConfig;
     }
 
+    // advancedConnection merges per sub-field: a draft edit that only touched
+    // `auth` must not also pin a stale `enabled` (and vice versa).
     const preserveAdvancedEnabled = currentDraft.advancedConnection.enabled
       !== currentConfig.advancedConnection.enabled;
     const preserveAuth = preserveMode !== 'excludeAuth'
       && currentDraft.advancedConnection.auth !== currentConfig.advancedConnection.auth;
 
-    return {
+    const merged: AppConfig = {
       ...nextConfig,
-      savePath: preserveIfDirty(nextConfig, currentConfig, currentDraft, 'savePath'),
-      port: preserveIfDirty(nextConfig, currentConfig, currentDraft, 'port'),
-      autoSelectPort: preserveIfDirty(nextConfig, currentConfig, currentDraft, 'autoSelectPort'),
       advancedConnection: {
         ...nextConfig.advancedConnection,
         enabled: preserveAdvancedEnabled
@@ -80,10 +91,19 @@ export const useConfigStore = create<ConfigState>((set, get) => {
           : nextConfig.advancedConnection.enabled,
         auth: preserveAuth ? currentDraft.advancedConnection.auth : nextConfig.advancedConnection.auth,
       },
-      previewConfig: nextConfig.previewConfig,
-      androidImageViewer: preserveIfDirty(nextConfig, currentConfig, currentDraft, 'androidImageViewer'),
-      aiEdit: preserveIfDirty(nextConfig, currentConfig, currentDraft, 'aiEdit'),
     };
+
+    for (const key of DRAFT_PRESERVED_KEYS) {
+      // advancedConnection was merged per sub-field above, and previewConfig is
+      // backend-owned (only written through `update_preview_config`), so both
+      // keep the values set above instead of following preserve-if-dirty.
+      if (key === 'advancedConnection' || key === 'previewConfig') {
+        continue;
+      }
+      merged[key] = preserveIfDirty(nextConfig, currentConfig, currentDraft, key);
+    }
+
+    return merged;
   };
 
   const runWholeConfigSave = async (config: AppConfig, savedRevision: number) => {

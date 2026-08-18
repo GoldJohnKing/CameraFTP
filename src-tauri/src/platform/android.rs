@@ -2,6 +2,8 @@
 // Copyright (C) 2026 GoldJohnKing <GoldJohnKing@Live.cn>
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+use async_trait::async_trait;
+
 use super::traits::PlatformService;
 use super::types::{PermissionStatus, StorageInfo};
 use crate::constants::ANDROID_DCIM_PATH;
@@ -96,6 +98,7 @@ static LATEST_SYNC_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::Atomic
 /// 锁中毒仅意味着某次同步任务 panic 过，互斥语义不受影响，照常使用。
 static SYNC_EXEC_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
+#[async_trait]
 impl PlatformService for AndroidPlatform {
     fn name(&self) -> &'static str {
         "android"
@@ -221,9 +224,14 @@ impl PlatformService for AndroidPlatform {
         Ok(())
     }
 
-    fn select_save_directory(&self, _app: &AppHandle) -> Result<Option<String>, String> {
+    async fn select_save_directory(&self, _app: &AppHandle) -> Result<Option<String>, String> {
         // Android 使用固定路径，直接返回默认路径
         Ok(Some(DEFAULT_STORAGE_PATH.to_string()))
+    }
+
+    fn open_external_link(&self, _url: &str) -> Result<(), String> {
+        // Android 平台通过 JavaScript bridge 处理外部链接
+        Ok(())
     }
 }
 

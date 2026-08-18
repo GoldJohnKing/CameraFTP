@@ -2,6 +2,7 @@
 // Copyright (C) 2026 GoldJohnKing <GoldJohnKing@Live.cn>
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+use async_trait::async_trait;
 use std::env;
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -201,6 +202,7 @@ fn load_config_from_service(app: &AppHandle) -> Result<crate::config::AppConfig,
     Ok(config_service.inner().get_or_default())
 }
 
+#[async_trait]
 impl PlatformService for WindowsPlatform {
     fn name(&self) -> &'static str {
         "windows"
@@ -360,8 +362,59 @@ impl PlatformService for WindowsPlatform {
         Ok(())
     }
 
-    fn select_save_directory(&self, _app: &AppHandle) -> Result<Option<String>, String> {
-        // Windows 平台通过前端对话框选择，这里返回 None 表示使用前端选择
-        Ok(None)
+    async fn select_save_directory(&self, app: &AppHandle) -> Result<Option<String>, String> {
+        use tauri_plugin_dialog::DialogExt;
+
+        // 对话框会阻塞直至用户关闭，放入 spawn_blocking 避免阻塞异步命令线程
+        // spawn_blocking 要求 'static，而 trait 方法收到的是引用，需先 clone
+        let app = app.clone();
+        let folder_path = tokio::task::spawn_blocking(move || {
+            app.dialog()
+                .file()
+                .set_title("选择存储路径")
+                .blocking_pick_folder()
+        })
+        .await
+        .map_err(|e| format!("Task failed: {}", e))?;
+
+        Ok(folder_path.and_then(|p| p.as_path().map(|path| path.to_string_lossy().to_string())))
+    }
+
+    fn open_external_link(&self, url: &str) -> Result<(), String> {
+        use std::ffi::OsStr;
+        use std::os::windows::ffi::OsStrExt;
+        use windows::core::PCWSTR;
+        use windows::Win32::UI::Shell::ShellExecuteW;
+        use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+
+        let url_wide: Vec<u16> = OsStr::new(url)
+            .encode_wide()
+            .chain(Some(0))
+            .collect();
+        let open_wide: Vec<u16> = OsStr::new("open")
+            .encode_wide()
+            .chain(Some(0))
+            .collect();
+
+        let result = unsafe {
+            ShellExecuteW(
+                None,
+                PCWSTR::from_raw(open_wide.as_ptr()),
+                PCWSTR::from_raw(url_wide.as_ptr()),
+                None,
+                None,
+                SW_SHOWNORMAL,
+            )
+        };
+
+        // ShellExecuteW returns HINSTANCE, success > 32, failure <= 32
+        if result.0 as isize <= 32 {
+            return Err(format!(
+                "ShellExecute failed with code {:?}",
+                result.0
+            ));
+        }
+
+        Ok(())
     }
 }
