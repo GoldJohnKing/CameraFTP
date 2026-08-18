@@ -55,6 +55,38 @@ private class NativeAiEditBridge(
     }
 }
 
+/**
+ * Resolved model options + default selection for the native AI edit dialog.
+ * Pure derivation over the caller-supplied model list — no hardcoded catalog.
+ */
+internal data class AiEditModelSelection(
+    val selectedModel: String,
+    val selectedLabel: String,
+    val optionsHtml: String,
+)
+
+/**
+ * Build the model dropdown options HTML and resolve the default selection.
+ * Selection semantics: the entry matching [currentModel] wins; otherwise the
+ * first entry is selected. An empty [models] list degrades to a single option
+ * built from [currentModel] so the dialog stays functional.
+ */
+internal fun buildAiEditModelSelection(
+    models: List<Pair<String, String>>,
+    currentModel: String,
+): AiEditModelSelection {
+    val effectiveModels = if (models.isEmpty()) listOf(currentModel to currentModel) else models
+    val selectedModel = effectiveModels.map { it.first }
+        .firstOrNull { it == currentModel }
+        ?: effectiveModels.first().first
+    val optionsHtml = effectiveModels.joinToString("") { (value, label) ->
+        val sel = if (value == selectedModel) " selected" else ""
+        """<div class="dropdown-opt$sel" data-value="$value">$label</div>"""
+    }
+    val selectedLabel = effectiveModels.first { it.first == selectedModel }.second
+    return AiEditModelSelection(selectedModel, selectedLabel, optionsHtml)
+}
+
 class WebViewOverlayController(private val activity: ImageViewerActivity) {
 
     private companion object {
@@ -80,6 +112,14 @@ class WebViewOverlayController(private val activity: ImageViewerActivity) {
         currentModel: String,
         autoEditEnabled: Boolean,
         hasApiKey: Boolean,
+        /**
+         * Model catalog for the dropdown, passed in from the frontend via the
+         * __tauriGetAiEditPrompt callback (single source: Rust
+         * SEEDREAM_MODELS in ai_edit/config.rs, exported to the frontend by
+         * gen-types as bindings/SeedreamModels.ts).
+         * Each pair is (modelId, displayLabel).
+         */
+        models: List<Pair<String, String>>,
         mainActivity: MainActivity,
     ) {
         lockOrientation()
@@ -90,19 +130,10 @@ class WebViewOverlayController(private val activity: ImageViewerActivity) {
         val escapedPrompt = android.text.TextUtils.htmlEncode(currentPrompt)
             .replace("\n", "&#10;")
 
-        val modelOptions = listOf(
-            "doubao-seedream-5-0-260128" to "Doubao-Seedream-5.0-lite",
-            "doubao-seedream-4-5-251128" to "Doubao-Seedream-4.5",
-            "doubao-seedream-4-0-250828" to "Doubao-Seedream-4.0",
-        )
-        val selectedModel = modelOptions.map { it.first }
-            .firstOrNull { it == currentModel }
-            ?: modelOptions.first().first
-        val modelOptionHtml = modelOptions.joinToString("") { (value, label) ->
-            val sel = if (value == selectedModel) " selected" else ""
-            """<div class="dropdown-opt$sel" data-value="$value">$label</div>"""
-        }
-        val selectedLabel = modelOptions.first { it.first == selectedModel }.second
+        val selection = buildAiEditModelSelection(models, currentModel)
+        val selectedModel = selection.selectedModel
+        val modelOptionHtml = selection.optionsHtml
+        val selectedLabel = selection.selectedLabel
 
         val saveToggleHtml = if (autoEditEnabled) {
             """<div class="save-toggle" onclick="toggleSave()">

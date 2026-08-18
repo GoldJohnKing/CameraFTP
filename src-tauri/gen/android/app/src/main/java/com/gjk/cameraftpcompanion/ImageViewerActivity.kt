@@ -120,8 +120,9 @@ class ImageViewerActivity : AppCompatActivity() {
         }
 
         data class InsertResult(
-            val uris: List<String>,
             val currentIndex: Int,
+            /** Clamped position the uri was inserted at — anchor for cache shifts and rollback. */
+            val insertIndex: Int,
         )
 
         @JvmStatic
@@ -133,8 +134,6 @@ class ImageViewerActivity : AppCompatActivity() {
         ): InsertResult? {
             if (currentUris.contains(uri)) return null
             val clampedIndex = insertIndex.coerceIn(0, currentUris.size)
-            val newUris = currentUris.toMutableList()
-            newUris.add(clampedIndex, uri)
             // Empty list: only item, index must be 0
             val newIndex = if (currentUris.isEmpty()) {
                 0
@@ -143,7 +142,7 @@ class ImageViewerActivity : AppCompatActivity() {
             } else {
                 currentIndex
             }
-            return InsertResult(newUris, newIndex)
+            return InsertResult(newIndex, clampedIndex)
         }
 
         @JvmStatic
@@ -156,6 +155,32 @@ class ImageViewerActivity : AppCompatActivity() {
             if (targetIndex < 0) return null
             if (targetIndex == currentIndex) return null
             return targetIndex
+        }
+
+        /**
+         * Map orientation-cache positions forward across an insert at [insertIndex]:
+         * positions >= [insertIndex] shift by +1, earlier positions stay.
+         */
+        @JvmStatic
+        fun shiftCachePositionsForInsert(entries: Map<Int, Int>, insertIndex: Int): Map<Int, Int> {
+            val shifted = HashMap<Int, Int>(entries.size)
+            for ((pos, degrees) in entries) {
+                shifted[if (pos >= insertIndex) pos + 1 else pos] = degrees
+            }
+            return shifted
+        }
+
+        /**
+         * Inverse of [shiftCachePositionsForInsert] over already-shifted entries:
+         * positions > [insertIndex] shift back by -1, others stay.
+         */
+        @JvmStatic
+        fun revertShiftedCachePositions(shifted: Map<Int, Int>, insertIndex: Int): Map<Int, Int> {
+            val reverted = HashMap<Int, Int>(shifted.size)
+            for ((pos, degrees) in shifted) {
+                reverted[if (pos > insertIndex) pos - 1 else pos] = degrees
+            }
+            return reverted
         }
 
         @JvmStatic
@@ -332,37 +357,35 @@ class ImageViewerActivity : AppCompatActivity() {
     fun insertImage(uri: String, insertIndex: Int) {
         runOnUiThread {
             if (isFinishing || isDestroyed) return@runOnUiThread
-            if (uris.contains(uri)) return@runOnUiThread
 
             val adapter = viewPager.adapter as? ImageViewerAdapter ?: return@runOnUiThread
-            val clampedIndex = insertIndex.coerceIn(0, uris.size)
 
-            uris.add(clampedIndex, uri)
+            // All insert index math is single-sourced in the pure companion
+            // helpers (covered by ImageViewerActivityInsertTest and
+            // ImageViewerInsertImageLiveTest).
+            val state = computeInsertState(uris, currentIndex, uri, insertIndex)
+                ?: return@runOnUiThread
 
-            // Shift orientation cache entries for positions >= clampedIndex
-            val shiftedCache = java.util.concurrent.ConcurrentHashMap<Int, Int>()
-            for ((pos, degrees) in exifController.orientationCache) {
-                shiftedCache[if (pos >= clampedIndex) pos + 1 else pos] = degrees
-            }
+            uris.add(state.insertIndex, uri)
+
+            // Shift orientation cache entries for positions >= insertIndex
+            val shiftedCache = shiftCachePositionsForInsert(
+                exifController.orientationCache, state.insertIndex
+            )
             exifController.orientationCache.clear()
             exifController.orientationCache.putAll(shiftedCache)
 
-            if (!adapter.insertUri(clampedIndex, uri)) {
+            if (!adapter.insertUri(state.insertIndex, uri)) {
                 // Adapter rejected (duplicate or other issue) — revert
-                uris.removeAt(clampedIndex)
+                uris.removeAt(state.insertIndex)
                 exifController.orientationCache.clear()
-                shiftedCache.let { old ->
-                    for ((pos, degrees) in old) {
-                        exifController.orientationCache[if (pos > clampedIndex) pos - 1 else pos] = degrees
-                    }
-                }
+                exifController.orientationCache.putAll(
+                    revertShiftedCachePositions(shiftedCache, state.insertIndex)
+                )
                 return@runOnUiThread
             }
 
-            // Adjust currentIndex if insert is before or at current position
-            if (clampedIndex <= currentIndex) {
-                currentIndex += 1
-            }
+            currentIndex = state.currentIndex
 
             // ViewPager2 stays at current position; update bottom bar info
             viewPager.setCurrentItem(currentIndex, false)
@@ -374,9 +397,9 @@ class ImageViewerActivity : AppCompatActivity() {
     fun navigateToExistingUri(uri: String) {
         runOnUiThread {
             if (isFinishing || isDestroyed) return@runOnUiThread
-            val targetIndex = uris.indexOf(uri)
-            if (targetIndex < 0) return@runOnUiThread
-            if (targetIndex == currentIndex) return@runOnUiThread
+
+            val targetIndex = computeNavigateToExistingIndex(uris, currentIndex, uri)
+                ?: return@runOnUiThread
 
             val adapter = viewPager.adapter as? ImageViewerAdapter ?: return@runOnUiThread
             currentIndex = targetIndex
@@ -507,15 +530,22 @@ class ImageViewerActivity : AppCompatActivity() {
                 } catch (e: Exception) {
                     Log.w(TAG, "Failed to decode JSON from WebView: $result", e); ""
                 }
-                val json = try { org.json.JSONObject(jsonString) } catch (e: Exception) {
-                    Log.w(TAG, "Failed to parse prompt JSON: $jsonString", e); null
+                val context = parseAiEditDialogContext(jsonString)
+                if (context == null) {
+                    Log.w(TAG, "Failed to parse prompt JSON: $jsonString")
                 }
-                val currentPrompt = json?.optString("prompt", "")?.replace("\\n", "\n") ?: ""
-                val currentModel = json?.optString("model", "") ?: ""
-                val autoEdit = json?.optBoolean("autoEdit", false) ?: false
-                val hasApiKey = json?.optBoolean("hasApiKey", true) ?: true
                 runOnUiThread {
-                    overlayController.showAiEditPrompt(filePath, currentPrompt, currentModel, autoEdit, hasApiKey, mainActivity)
+                    // Product ruling (#4): the dialog defaults to dialogPrompt
+                    // (manualPrompt) only — never the auto-edit prompt.
+                    overlayController.showAiEditPrompt(
+                        filePath,
+                        context?.dialogPrompt ?: "",
+                        context?.model ?: "",
+                        context?.autoEdit ?: false,
+                        context?.hasApiKey ?: true,
+                        context?.models ?: emptyList(),
+                        mainActivity
+                    )
                 }
             }
         }
@@ -594,10 +624,6 @@ class ImageViewerActivity : AppCompatActivity() {
             if (isFinishing || isDestroyed) return@runOnUiThread
             taskController.onColorGradingComplete(cancelled)
         }
-    }
-
-    fun dismissAllTaskProgress() {
-        runOnUiThread { taskController.dismissAll() }
     }
 
     // --- Delete callback (called by DeleteController) ---
@@ -715,4 +741,58 @@ class ImageViewerActivity : AppCompatActivity() {
     private fun Int.dpToPx(): Int {
         return dpToPx(this@ImageViewerActivity)
     }
+}
+
+/**
+ * AI edit context parsed from the `__tauriGetAiEditPrompt` bridge payload
+ * (JSON shape documented in src/types/global.ts).
+ *
+ * Product ruling (#4): UI dialogs default to [dialogPrompt] (manualPrompt)
+ * ONLY — when it is empty the default stays empty; they must never fall
+ * back to the auto-edit prompt. [autoPrompt] (aiEdit.prompt only) is
+ * exclusively for no-UI automatic editing (enforced Rust-side in
+ * ai_edit/service.rs) and is carried here purely for contract visibility.
+ */
+internal data class AiEditDialogContext(
+    val dialogPrompt: String,
+    val autoPrompt: String,
+    val model: String,
+    val autoEdit: Boolean,
+    val hasApiKey: Boolean,
+    /** Model catalog passed in from the frontend; pairs are (modelId, label). */
+    val models: List<Pair<String, String>>,
+)
+
+/**
+ * Parse the `__tauriGetAiEditPrompt` JSON payload for the native AI edit
+ * dialog. Returns null when the payload is not valid JSON; the caller then
+ * degrades to empty dialog defaults. Entries with an empty value are
+ * skipped and an empty label falls back to the value itself.
+ */
+internal fun parseAiEditDialogContext(jsonString: String): AiEditDialogContext? {
+    val json = try {
+        org.json.JSONObject(jsonString)
+    } catch (e: Exception) {
+        null
+    } ?: return null
+    val dialogPrompt = json.optString("dialogPrompt", "").replace("\\n", "\n")
+    val autoPrompt = json.optString("autoPrompt", "")
+    val model = json.optString("model", "")
+    val autoEdit = json.optBoolean("autoEdit", false)
+    val hasApiKey = json.optBoolean("hasApiKey", true)
+    // Model catalog comes from the frontend (generated SeedreamModels.ts,
+    // single source: Rust SEEDREAM_MODELS in ai_edit/config.rs);
+    // the native layer keeps no hardcoded list.
+    val models = mutableListOf<Pair<String, String>>()
+    val modelsJson = json.optJSONArray("models")
+    if (modelsJson != null) {
+        for (i in 0 until modelsJson.length()) {
+            val entry = modelsJson.optJSONObject(i) ?: continue
+            val value = entry.optString("value", "")
+            if (value.isEmpty()) continue
+            val label = entry.optString("label", "").ifEmpty { value }
+            models.add(value to label)
+        }
+    }
+    return AiEditDialogContext(dialogPrompt, autoPrompt, model, autoEdit, hasApiKey, models)
 }
