@@ -167,6 +167,33 @@ Classes referenced from Rust by string class name (e.g. `JniClass::call_static_m
 -keep class com.gjk.cameraftpcompanion.bridges.YourBridge$Companion { *; }
 ```
 
+### Add/Update a Constant List (Rust → generated TS constants)
+
+For constant lists the frontend needs as **values** (model catalogs, option lists, …). Rust is
+the single source; the generator bin produces the TS file. (ts-rs cannot export `const` — see
+"Common Pitfalls → Constant Lists".)
+
+1. **Edit the Rust constant** — e.g. `SEEDREAM_MODELS` in `src-tauri/src/ai_edit/config.rs`.
+   - Adding/updating an entry: edit `value`/`label`. `DEFAULT_SEEDREAM_MODEL` follows the first
+     entry automatically — put the default model first, do not touch the `DEFAULT_*` const.
+   - New list: define `pub struct XxxDef { value, label }` + `pub const XXX: &[XxxDef]` in the
+     owning module, and derive the default from `XXX[0]`.
+2. **Add the generator call** (only for a NEW list): extend
+   `src-tauri/src/bin/export-bindings.rs` (copy `export_seedream_models`), writing
+   `bindings/Xxx.ts` with a `// Code-generated ... DO NOT EDIT.` header, SPDX header, a TS
+   interface, the `export const XXX = [...]` list, and any derived default const.
+3. **Generate:** `./build.sh gen-types` → inspect the new/changed file in `src-tauri/bindings/`.
+4. **Re-export** (only for a NEW list) values and types from `src/types/index.ts`.
+5. **Consume** in components/hooks from `../types` (never import `src-tauri/bindings/` directly;
+   never hand-edit generated files).
+6. **Verify:** `./build.sh windows android` (frontend build re-runs gen-types automatically, but
+   run it first so `tsc`/tests see the new values). Update list-related tests if they assert
+   entry counts/values (e.g. `src/utils/__tests__/ai-edit.test.ts`).
+
+Note: cross-language consumers that receive the list via IPC/bridge (e.g. the Android AI-edit
+dialog gets `models` from `__tauriGetAiEditPrompt`) need no changes — they consume the same
+generated constant through the frontend.
+
 ### Update Version Number
 
 When updating the application version, **ALL FOUR** of the following files must be updated:
@@ -226,6 +253,21 @@ import type { MyConfig } from '../types';  // Re-exports from bindings/
 ```typescript
 export type { MyConfig } from '../../src-tauri/bindings/MyConfig';
 ```
+
+#### Constant Lists (e.g. model catalogs)
+
+ts-rs only exports **types**, never values (`export const` is unsupported upstream), so constant
+lists use the generator bin instead. Pattern introduced for the Seedream model catalog:
+
+1. Define the list in Rust as the single source, e.g. `SEEDREAM_MODELS` in
+   `src-tauri/src/ai_edit/config.rs` (the default value is derived from the first entry).
+2. Extend the generator in `src-tauri/src/bin/export-bindings.rs` (see `export_seedream_models`)
+   to write a `bindings/*.ts` file containing `export const ...` (serde-serialized).
+3. Run `./build.sh gen-types`, then re-export values/types from `src/types/index.ts` and consume
+   from there.
+
+Never hand-edit generated files; changing a list means editing the Rust constant and re-running
+gen-types. See "Common Tasks → Add/Update a Constant List" for the full walkthrough.
 
 ---
 
