@@ -119,4 +119,39 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn verify_password_round_trips_empty_password() {
+        // 空密码同样可哈希/验证（钉住 argon2 对空输入的实际行为）
+        let hashed = hash_password(String::new());
+
+        assert!(
+            verify_password(String::new(), &hashed.hash),
+            "empty password must verify against its own hash"
+        );
+        assert!(!verify_password("nonempty".to_string(), &hashed.hash));
+    }
+
+    #[test]
+    fn verify_password_rejects_wrong_length_hash_bodies_without_panic() {
+        let password = "test_password_123".to_string();
+
+        // PHC 形状完整但哈希体缺失/长度与参数不符 → 必须返回 false 而非 panic
+        let wrong_length = [
+            // 有盐、哈希体为空（尾部 $ 后无内容）
+            "$argon2id$v=19$m=65536,t=3,p=4$c2FsdHNhbHQ$",
+            // 哈希体是合法 b64 但过短（1 字节）
+            "$argon2id$v=19$m=65536,t=3,p=4$c2FsdHNhbHQ$YQ",
+            // 哈希体是合法 b64 但长度与参数推出的输出长度不符
+            "$argon2id$v=19$m=65536,t=3,p=4$c2FsdHNhbHQ$c2FsdHNhbHRzYWx0c2FsdA",
+        ];
+
+        for stored in wrong_length {
+            assert!(
+                !verify_password(password.clone(), stored),
+                "wrong-length hash body must verify to false: {:?}",
+                stored
+            );
+        }
+    }
 }

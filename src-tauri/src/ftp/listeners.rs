@@ -13,6 +13,32 @@ use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager};
 use tracing::{info, warn};
 
+/// 上传文件的自动处理分类
+///
+/// 决定 Put 事件是否进入文件索引 / AI 修图 / 自动调色管线。
+/// 从原先内联在事件处理中的 `is_raw || is_supported_image` 判定抽取为纯函数，
+/// 便于单测钉住过滤语义（行为不变）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum UploadedFileKind {
+    /// RAW 文件：索引 + AI 修图 + 自动调色
+    RawImage,
+    /// 非 RAW 图片（JPEG/HEIF 系列）：索引 + AI 修图（不做自动调色）
+    Image,
+    /// 非图片文件：跳过自动处理管线
+    Other,
+}
+
+/// 对上传/删除路径做图片格式分类（纯函数）
+fn classify_uploaded_file(path: &std::path::Path) -> UploadedFileKind {
+    if crate::image_utils::is_raw_file(path) {
+        UploadedFileKind::RawImage
+    } else if crate::image_utils::is_supported_image(path) {
+        UploadedFileKind::Image
+    } else {
+        UploadedFileKind::Other
+    }
+}
+
 /// 数据事件监听器（上传、下载等）
 #[derive(Debug, Clone)]
 pub struct FtpDataListener {
@@ -45,11 +71,10 @@ impl DataListener for FtpDataListener {
                     // 上传统计与 "File uploaded" 日志由 StatsActor 统一记录
                     stats.record_upload(path.clone(), bytes).await;
 
-                    let file_path = std::path::Path::new(&path);
-                    let is_raw = crate::image_utils::is_raw_file(file_path);
-                    let is_image = is_raw || crate::image_utils::is_supported_image(file_path);
+                    let kind = classify_uploaded_file(std::path::Path::new(&path));
 
-                    if is_image {
+                    if kind != UploadedFileKind::Other {
+                        let is_raw = kind == UploadedFileKind::RawImage;
                         if let Some(handle) = app_handle.as_ref() {
                             let full_path = save_path.join(&path);
                             let handle_clone = handle.clone();
@@ -98,7 +123,8 @@ impl DataListener for FtpDataListener {
                 DataEvent::Deleted { path } => {
                     info!(file = %path, "File deleted");
 
-                    let is_image = crate::image_utils::is_supported_image(std::path::Path::new(&path));
+                    let is_image =
+                        classify_uploaded_file(std::path::Path::new(&path)) != UploadedFileKind::Other;
 
                     // 从文件索引中移除
                     if let Some(handle) = app_handle.as_ref() {
@@ -204,5 +230,219 @@ impl PresenceListener for FtpPresenceListener {
                 }
             }
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn event_meta(trace_id: &str) -> EventMeta {
+        EventMeta {
+            username: "camera".to_string(),
+            trace_id: trace_id.to_string(),
+            sequence_number: 1,
+        }
+    }
+
+    /// 轮询直到条件满足（与 color_grading::service 测试的 wait_until 同款，支持异步探针）
+    async fn wait_until<F, Fut, T>(timeout: Duration, mut probe: F) -> T
+    where
+        F: FnMut() -> Fut,
+        Fut: std::future::Future<Output = Option<T>>,
+    {
+        let deadline = tokio::time::Instant::now() + timeout;
+        loop {
+            if let Some(value) = probe().await {
+                return value;
+            }
+            assert!(
+                tokio::time::Instant::now() < deadline,
+                "timed out after {:?} waiting for condition",
+                timeout
+            );
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    }
+
+    // ---- Put 事件：上传统计在图片过滤之前无条件记录 ----
+    //
+    // 注：Put 的"文件就绪等待 → 索引更新 → 前端事件 → AI/调色/自动打开"管线
+    // 需要从 AppHandle 解析 AiEditService / AutoOpenService / ColorGradingService
+    // 等具体 Wry 句柄类型，MockRuntime 无法构造这些服务，因此该管线无法在
+    // 单测中确定性驱动（驱动它会因 state::<AiEditService>() 缺失而 panic）。
+    // 这里钉住管线之外的可见契约；同样的"就绪等待 → 索引"逻辑由
+    // file_index::watcher 的 process_event 测试覆盖。
+
+    #[tokio::test]
+    async fn put_events_record_uploads_in_stats_regardless_of_file_kind() {
+        let (stats, worker) = StatsActor::with_event_bus(None);
+        let stats_probe = stats.clone();
+        let _worker = tokio::spawn(worker.run());
+
+        // 无 AppHandle：上传管线整体跳过，但统计仍必须记录
+        let listener =
+            FtpDataListener::new(stats, std::path::PathBuf::from("/tmp/cameraftp"), None);
+
+        listener
+            .receive_data_event(
+                DataEvent::Put { path: "photo.jpg".to_string(), bytes: 2048 },
+                event_meta("t-put-1"),
+            )
+            .await;
+        listener
+            .receive_data_event(
+                DataEvent::Put { path: "notes.txt".to_string(), bytes: 32 },
+                event_meta("t-put-2"),
+            )
+            .await;
+
+        // 图片与非图片上传都计数：统计发生在过滤之前
+        let snapshot = wait_until(Duration::from_secs(5), || {
+            let stats_probe = stats_probe.clone();
+            async move {
+                let stats = stats_probe.get_stats_direct().await;
+                (stats.total_uploads == 2).then_some(stats)
+            }
+        })
+        .await;
+
+        assert_eq!(snapshot.total_uploads, 2);
+        assert_eq!(snapshot.total_bytes_received, 2048 + 32);
+        assert_eq!(snapshot.last_uploaded_file.as_deref(), Some("notes.txt"));
+    }
+
+    #[test]
+    fn classify_uploaded_file_separates_raw_images_and_non_images() {
+        use std::path::Path;
+
+        // RAW 扩展名（大小写不敏感）→ RawImage
+        for name in ["a.nef", "b.CR3", "c.dng", "d.Rw2", "e.x3f"] {
+            assert_eq!(
+                classify_uploaded_file(Path::new(name)),
+                UploadedFileKind::RawImage,
+                "{} must classify as RawImage",
+                name
+            );
+        }
+
+        // 非 RAW 的受支持图片 → Image
+        for name in ["a.jpg", "b.JPEG", "c.heic", "d.hif", "e.heif"] {
+            assert_eq!(
+                classify_uploaded_file(Path::new(name)),
+                UploadedFileKind::Image,
+                "{} must classify as Image",
+                name
+            );
+        }
+
+        // 非图片 → Other（包括无扩展名与 ".jpg" 这类隐藏文件名——扩展名为 None）
+        for name in ["a.txt", "b.mp4", "no-extension", ".jpg"] {
+            assert_eq!(
+                classify_uploaded_file(Path::new(name)),
+                UploadedFileKind::Other,
+                "{} must classify as Other",
+                name
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn non_put_data_events_complete_without_touching_upload_stats() {
+        let (stats, worker) = StatsActor::with_event_bus(None);
+        let stats_probe = stats.clone();
+        let _worker = tokio::spawn(worker.run());
+
+        let listener =
+            FtpDataListener::new(stats, std::path::PathBuf::from("/tmp/cameraftp"), None);
+
+        // Got/Deleted/MadeDir/RemovedDir/Renamed 都不产生上传统计
+        let events = [
+            DataEvent::Got { path: "photo.jpg".to_string(), bytes: 10 },
+            DataEvent::Deleted { path: "photo.jpg".to_string() },
+            DataEvent::MadeDir { path: "subdir".to_string() },
+            DataEvent::RemovedDir { path: "subdir".to_string() },
+            DataEvent::Renamed {
+                from: "a.jpg".to_string(),
+                to: "b.jpg".to_string(),
+            },
+        ];
+        for event in events {
+            listener.receive_data_event(event, event_meta("t-other")).await;
+        }
+
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        assert_eq!(
+            stats_probe.get_stats_direct().await,
+            crate::ftp::types::ServerStats::default()
+        );
+    }
+
+    // ---- Presence 事件：会话去重 + 连接数同步 ----
+
+    async fn connection_count_becomes(
+        stats: &StatsActor,
+        expected: u64,
+    ) -> crate::ftp::types::ServerStats {
+        wait_until(Duration::from_secs(5), || {
+            let stats = stats.clone();
+            async move {
+                let stats = stats.get_stats_direct().await;
+                (stats.active_connections == expected).then_some(stats)
+            }
+        })
+        .await
+    }
+
+    #[tokio::test]
+    async fn presence_events_update_connection_count_with_session_dedup() {
+        let (stats, worker) = StatsActor::with_event_bus(None);
+        let stats_probe = stats.clone();
+        let _worker = tokio::spawn(worker.run());
+
+        let sessions: Arc<DashSet<String>> = Arc::new(DashSet::new());
+        let listener = FtpPresenceListener::new(stats, Arc::clone(&sessions));
+
+        // 第一个会话登录 → 连接数 1，会话入集合
+        listener
+            .receive_presence_event(PresenceEvent::LoggedIn, event_meta("trace-1"))
+            .await;
+        assert_eq!(
+            connection_count_becomes(&stats_probe, 1).await.active_connections,
+            1
+        );
+        assert!(sessions.contains("trace-1"));
+
+        // 第二个会话登录 → 连接数 2
+        listener
+            .receive_presence_event(PresenceEvent::LoggedIn, event_meta("trace-2"))
+            .await;
+        connection_count_becomes(&stats_probe, 2).await;
+        assert_eq!(sessions.len(), 2);
+
+        // 同一 trace_id 重复 LoggedIn → 去重：连接数不涨
+        listener
+            .receive_presence_event(PresenceEvent::LoggedIn, event_meta("trace-1"))
+            .await;
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        assert_eq!(
+            stats_probe.get_stats_direct().await.active_connections, 2,
+            "duplicate LoggedIn for a known session must not bump the count"
+        );
+        assert_eq!(sessions.len(), 2);
+
+        // 登出已知会话 → 连接数 1，会话出集合
+        listener
+            .receive_presence_event(PresenceEvent::LoggedOut, event_meta("trace-1"))
+            .await;
+        connection_count_becomes(&stats_probe, 1).await;
+        assert!(!sessions.contains("trace-1"));
+
+        // 未知会话 LoggedOut → 计数不变、不 panic
+        listener
+            .receive_presence_event(PresenceEvent::LoggedOut, event_meta("ghost"))
+            .await;
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        assert_eq!(stats_probe.get_stats_direct().await.active_connections, 1);
     }
 }
