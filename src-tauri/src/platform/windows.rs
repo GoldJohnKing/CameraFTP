@@ -317,7 +317,7 @@ impl PlatformService for WindowsPlatform {
     fn execute_autostart_server(
         &self,
         app: &AppHandle,
-        state: &Arc<Mutex<Option<crate::ftp::FtpServerHandle>>>,
+        state: &Arc<Mutex<crate::ftp::FtpServerSlot>>,
     ) {
         let app_handle = app.clone();
         let state_clone = state.clone();

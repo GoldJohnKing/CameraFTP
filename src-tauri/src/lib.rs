@@ -151,7 +151,7 @@ pub fn run() {
 
     let builder = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
-        .manage(FtpServerState(Arc::new(Mutex::new(None))))
+        .manage(FtpServerState(Arc::new(Mutex::new(ftp::FtpServerSlot::None))))
         .setup(move |app| {
             // 统一平台初始化（托盘、权限等）
             if let Err(e) = platform.setup(app.handle()) {

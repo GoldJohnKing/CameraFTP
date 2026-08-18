@@ -5,7 +5,7 @@
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
-use crate::ftp::FtpServerHandle;
+use crate::ftp::FtpServerSlot;
 
 mod config;
 mod ai_edit;
@@ -16,7 +16,12 @@ mod server;
 mod storage;
 
 /// FTP 服务器状态（使用 Arc<Mutex> 包装以支持异步操作）
-pub struct FtpServerState(pub Arc<Mutex<Option<FtpServerHandle>>>);
+///
+/// 槽位状态机（FtpServerSlot）：None → Starting（启动权已认领）→ Running，
+/// 用于序列化并发的 start_server 调用（UI 按钮与托盘菜单同时触发等场景），
+/// 防止并发启动各自绑定端口、产生无法停止的孤儿服务器。
+/// 认领/提交/回滚时序见 ftp::server_factory::start_ftp_server。
+pub struct FtpServerState(pub Arc<Mutex<FtpServerSlot>>);
 
 // Re-export EXIF info type
 pub use exif::ExifInfo;

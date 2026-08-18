@@ -78,7 +78,7 @@ pub trait PlatformService: Send + Sync {
     fn execute_autostart_server(
         &self,
         _app: &AppHandle,
-        _state: &Arc<Mutex<Option<crate::ftp::FtpServerHandle>>>,
+        _state: &Arc<Mutex<crate::ftp::FtpServerSlot>>,
     ) {
         // 默认实现：无操作
     }
