@@ -4,6 +4,7 @@ set -eu
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/scripts/build-common.sh"
+source "$SCRIPT_DIR/scripts/nn-versions.env"
 
 cd "$SCRIPT_DIR"
 
@@ -137,16 +138,7 @@ prepare_lut_resources() {
     local resources_dir="src-tauri/resources"
     mkdir -p "$resources_dir/luts" "$resources_dir/lensfun_db"
 
-    # Copy LUT files from F-Log2C_LUT/
-    local lut_source="F-Log2C_LUT"
-    if [ -d "$lut_source" ]; then
-        local lut_count=$(find "$lut_source" -name "*.cube" 2>/dev/null | wc -l)
-        if [ "$lut_count" -gt 0 ]; then
-            cp "$lut_source"/*.cube "$resources_dir/luts/"
-            info "Copied $lut_count LUT files to $resources_dir/luts/"
-        fi
-    fi
-
+    # LUT .cube files are committed directly under resources/luts/.
     # Copy Lensfun DB from submodule
     local lensfun_source="src-tauri/lib/rawalchemy/third_party/lensfun/data/db"
     if [ -d "$lensfun_source" ]; then
@@ -181,7 +173,7 @@ prepare_nn_resources() {
 
     # Surface nn-cache status for the platform builds (no copy performed here).
     local nn_cache="src-tauri/lib/rawalchemy/third_party/nn-cache"
-    if [ -d "$nn_cache/qnn-runtime-2.34.0" ]; then
+    if [ -d "$nn_cache/qnn-runtime-$QNN_RUNTIME_VERSION" ]; then
         info "nn-cache: QNN runtime available for Android packaging"
     fi
     if [ -f "$nn_cache/DirectML.dll" ]; then

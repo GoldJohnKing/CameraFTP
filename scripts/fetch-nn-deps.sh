@@ -17,10 +17,11 @@ RA_ROOT="$(cd "${SCRIPT_DIR}/../src-tauri/lib/rawalchemy" && pwd)"
 CACHE_DIR="${1:-${RA_ROOT}/third_party/nn-cache}"
 mkdir -p "$CACHE_DIR"
 
-# Pin versions — update here, run script, commit the cache (or gitignore + refetch).
-ORT_VERSION="1.24.1"          # latest stable at plan time; verify at onnxruntime.ai
-QNN_RUNTIME_VERSION="2.42.0"  # com.qualcomm.qti:qnn-runtime Maven (matches ORT 1.24.1 POM)
-DIRECTML_VERSION="1.15.4"     # Microsoft.AI.DirectML NuGet
+# Versions come from the shared nn-versions.env (also consumed by build.sh /
+# build-android.sh so cache dir names stay in sync).
+source "$SCRIPT_DIR/nn-versions.env"
+ORT_VERSION="$NN_DEMOSAIC_VERSION"
+DIRECTML_VERSION="1.15.4"     # Microsoft.AI.DirectML NuGet (Windows-only)
 
 # --- Windows ORT (DirectML-capable) + DirectML.dll ---
 #

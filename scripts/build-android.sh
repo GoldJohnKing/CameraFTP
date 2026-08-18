@@ -4,10 +4,20 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/build-common.sh"
+source "$SCRIPT_DIR/nn-versions.env"
 
 cd "$SCRIPT_DIR/.."
 
-DEPLOY_PATH="${DEPLOY_PATH:-/mnt/ext1/shared-files/nginx}"
+# 部署（拷贝构建产物到额外目录）默认启用：
+#   - 默认目标 DEPLOY_PATH=/mnt/ext1/shared-files/nginx（存在时自动拷贝 APK）
+#   - 覆盖目标：DEPLOY_PATH=/your/path ./build.sh android
+#   - 显式禁用：DEPLOY_PATH= ./build.sh android（设为空串）
+DEPLOY_PATH="${DEPLOY_PATH-/mnt/ext1/shared-files/nginx}"
+if [ -n "$DEPLOY_PATH" ]; then
+    info "部署已启用: 构建产物将拷贝到 $DEPLOY_PATH"
+else
+    info "部署已禁用 (DEPLOY_PATH 为空)"
+fi
 
 declare -A SELECTED_TOOLS
 declare -A SELECTED_PATHS
@@ -99,8 +109,6 @@ check_toolchain() {
         return 1
     fi
 
-    SELECTED_TOOLS[java]="$java"
-    SELECTED_TOOLS[javac]="$javac"
     SELECTED_PATHS[android_sdk]="$sdk"
     SELECTED_PATHS[android_ndk]="$ndk"
     SELECTED_PATHS[java_home]="$java_home"
@@ -302,8 +310,8 @@ find_ndk_libomp() {
 # demosaic path degrades gracefully to the classical algorithm.
 package_nn_android() {
     local nn_cache="src-tauri/lib/rawalchemy/third_party/nn-cache"
-    local ort_dir="$nn_cache/onnxruntime-android-qnn-1.24.1/jni/arm64-v8a"
-    local qnn_dir="$nn_cache/qnn-runtime-2.42.0/jni/arm64-v8a"
+    local ort_dir="$nn_cache/onnxruntime-android-qnn-$NN_DEMOSAIC_VERSION/jni/arm64-v8a"
+    local qnn_dir="$nn_cache/qnn-runtime-$QNN_RUNTIME_VERSION/jni/arm64-v8a"
     local nn_jni_dir="src-tauri/gen/android/app/extra-jniLibs/arm64-v8a"
 
     if [ ! -d "$ort_dir" ] || [ ! -d "$qnn_dir" ]; then

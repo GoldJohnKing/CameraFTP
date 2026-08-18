@@ -1,6 +1,6 @@
 #!/bin/bash
 # Build RawAlchemyCpp dynamic library for the current platform
-set -e
+set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/build-common.sh"
@@ -136,12 +136,11 @@ build_raw_alchemy_android() {
         -DENABLE_LENS_CORRECTION=ON \
         -DRA_ENABLE_NN_DEMOSAIC="$nn_flag"
 
+    # NOTE: no explicit error check here — `set -e` aborts the script on a
+    # failing cmake step. When invoked from build-android.sh, the caller's
+    # `||` handler reports the failure; standalone invocation fails with
+    # cmake's own output.
     cmake --build "$build_subdir" -j"$(nproc 2>/dev/null || echo 4)"
-    local cmake_status=$?
-    if [ $cmake_status -ne 0 ]; then
-        error "RawAlchemyCpp CMake build FAILED (exit code $cmake_status). Aborting — check compile errors above."
-        return 1
-    fi
     cd - > /dev/null
 
     local so_path="$abs_dir/$build_subdir/libraw_alchemy.so"
