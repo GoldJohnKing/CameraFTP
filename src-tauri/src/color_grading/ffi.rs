@@ -13,6 +13,20 @@ use crate::error::AppError;
 const DEFAULT_JPEG_QUALITY: c_int = 95;
 const ENABLE_LENS_CORRECTION: c_int = 1;
 
+/// Marshal an optional Rust string into an optional C string for the FFI
+/// boundary: `None` stays `None` (callers pass a null pointer for it), while
+/// an interior NUL byte becomes a descriptive error. `what` labels the field
+/// in that error.
+fn opt_cstring(s: Option<&str>, what: &str) -> Result<Option<std::ffi::CString>, AppError> {
+    s.map(|s| cstring(s, what)).transpose()
+}
+
+/// Required-string variant of [`opt_cstring`] for non-optional parameters.
+fn cstring(s: &str, what: &str) -> Result<std::ffi::CString, AppError> {
+    std::ffi::CString::new(s)
+        .map_err(|e| AppError::ColorGradingError(format!("Invalid {}: {}", what, e)))
+}
+
 #[cfg(target_os = "windows")]
 pub mod embedded_dll {
     use super::*;
@@ -711,28 +725,18 @@ impl RawAlchemyLib {
             .map_err(|e| AppError::ColorGradingError(format!("Invalid input path: {}", e)))?;
         let output_c = std::ffi::CString::new(output_path.to_string_lossy().into_owned())
             .map_err(|e| AppError::ColorGradingError(format!("Invalid output path: {}", e)))?;
-        let log_c = log_space
-            .map(|s| std::ffi::CString::new(s).map_err(|e| AppError::ColorGradingError(format!("Invalid log space string: {}", e))))
-            .transpose()?
-            .unwrap_or_else(|| {
-                // Empty string is infallible for CString::new (no interior null bytes possible)
-                std::ffi::CString::new("").expect("empty string is valid CString")
-            });
-        let metering_c = std::ffi::CString::new(metering_mode)
-            .map_err(|e| AppError::ColorGradingError(format!("Invalid metering mode string: {}", e)))?;
-        let lensfun_c = lensfun_db_path
-            .map(|s| std::ffi::CString::new(s).map_err(|e| AppError::ColorGradingError(format!("Invalid lensfun path string: {}", e))))
-            .transpose()?;
+        let log_c = opt_cstring(log_space, "log space string")?;
+        let metering_c = cstring(metering_mode, "metering mode string")?;
+        let lensfun_c = opt_cstring(lensfun_db_path, "lensfun path string")?;
 
         let result = unsafe {
             (self.process_file_with_lut)(
                 input_c.as_ptr(),
                 output_c.as_ptr(),
-                if log_space.is_some() {
-                    log_c.as_ptr()
-                } else {
-                    std::ptr::null()
-                },
+                log_c
+                    .as_ref()
+                    .map(|c| c.as_ptr())
+                    .unwrap_or(std::ptr::null()),
                 lut_data.table.as_ptr(),
                 lut_data.size as c_int,
                 lut_data.domain_min.as_ptr(),
@@ -857,9 +861,7 @@ impl RawAlchemyLib {
     ) -> Result<RaPreviewSession, AppError> {
         let input_c = std::ffi::CString::new(input_path.to_string_lossy().into_owned())
             .map_err(|e| AppError::ColorGradingError(format!("Invalid input path: {}", e)))?;
-        let lensfun_c = lensfun_db_path
-            .map(|s| std::ffi::CString::new(s).map_err(|e| AppError::ColorGradingError(format!("Invalid lensfun path string: {}", e))))
-            .transpose()?;
+        let lensfun_c = opt_cstring(lensfun_db_path, "lensfun path string")?;
 
         let mut session = RaPreviewSession { ptr: std::ptr::null_mut() };
 
@@ -897,12 +899,8 @@ impl RawAlchemyLib {
         max_width: u32,
         max_height: u32,
     ) -> Result<Vec<u8>, AppError> {
-        let log_c = log_space
-            .map(|s| std::ffi::CString::new(s).map_err(|e| AppError::ColorGradingError(format!("Invalid log space: {}", e))))
-            .transpose()?
-            .unwrap_or_else(|| std::ffi::CString::new("").expect("empty string is valid CString"));
-        let metering_c = std::ffi::CString::new(metering_mode)
-            .map_err(|e| AppError::ColorGradingError(format!("Invalid metering mode: {}", e)))?;
+        let log_c = opt_cstring(log_space, "log space")?;
+        let metering_c = cstring(metering_mode, "metering mode")?;
 
         let mut out_buf: *mut u8 = std::ptr::null_mut();
         let mut out_len: c_int = 0;
@@ -910,7 +908,10 @@ impl RawAlchemyLib {
         let result = unsafe {
             (self.apply_preview_grading)(
                 session.ptr,
-                if log_space.is_some() { log_c.as_ptr() } else { std::ptr::null() },
+                log_c
+                    .as_ref()
+                    .map(|c| c.as_ptr())
+                    .unwrap_or(std::ptr::null()),
                 lut_data.table.as_ptr(),
                 lut_data.size as c_int,
                 lut_data.domain_min.as_ptr(),
@@ -979,21 +980,31 @@ mod tests {
     use super::*;
 
     #[test]
-    fn ra_result_is_ok_only_for_ok_variant() {
-        assert!(RaResult::Ok.is_ok());
+    fn opt_cstring_passes_through_none_and_valid_strings() {
+        assert!(opt_cstring(None, "field").unwrap().is_none());
+        assert_eq!(
+            opt_cstring(Some("sRGB"), "field").unwrap().map(|c| c.to_string_lossy().into_owned()),
+            Some("sRGB".to_string())
+        );
+    }
 
-        assert!(!RaResult::ErrUnknown.is_ok());
-        assert!(!RaResult::ErrFileNotFound.is_ok());
-        assert!(!RaResult::ErrDecodeFailed.is_ok());
-        assert!(!RaResult::ErrInvalidParam.is_ok());
-        assert!(!RaResult::ErrLogUnsupported.is_ok());
-        assert!(!RaResult::ErrLutLoadFailed.is_ok());
-        assert!(!RaResult::ErrWriteFailed.is_ok());
-        assert!(!RaResult::ErrNoLensProfile.is_ok());
-        assert!(!RaResult::ErrOutOfMemory.is_ok());
-        assert!(!RaResult::ErrNnNotInitialized.is_ok());
-        assert!(!RaResult::ErrNnNanOutput.is_ok());
-        assert!(!RaResult::ErrNnInferenceFailed.is_ok());
+    #[test]
+    fn opt_cstring_and_cstring_reject_interior_nul_with_field_label() {
+        let err = opt_cstring(Some("a\0b"), "log space string").unwrap_err();
+        match err {
+            AppError::ColorGradingError(msg) => {
+                assert!(msg.starts_with("Invalid log space string: "), "{}", msg)
+            }
+            other => panic!("expected ColorGradingError, got {:?}", other),
+        }
+
+        let err = cstring("a\0b", "metering mode").unwrap_err();
+        match err {
+            AppError::ColorGradingError(msg) => {
+                assert!(msg.starts_with("Invalid metering mode: "), "{}", msg)
+            }
+            other => panic!("expected ColorGradingError, got {:?}", other),
+        }
     }
 
     #[test]
@@ -1030,23 +1041,6 @@ mod tests {
                 );
             }
         }
-    }
-
-    #[test]
-    fn ra_result_repr_values() {
-        assert_eq!(RaResult::Ok as i32, 0);
-        assert_eq!(RaResult::ErrUnknown as i32, -1);
-        assert_eq!(RaResult::ErrFileNotFound as i32, -2);
-        assert_eq!(RaResult::ErrDecodeFailed as i32, -3);
-        assert_eq!(RaResult::ErrInvalidParam as i32, -4);
-        assert_eq!(RaResult::ErrLogUnsupported as i32, -5);
-        assert_eq!(RaResult::ErrLutLoadFailed as i32, -6);
-        assert_eq!(RaResult::ErrWriteFailed as i32, -7);
-        assert_eq!(RaResult::ErrNoLensProfile as i32, -8);
-        assert_eq!(RaResult::ErrOutOfMemory as i32, -9);
-        assert_eq!(RaResult::ErrNnNotInitialized as i32, -10);
-        assert_eq!(RaResult::ErrNnNanOutput as i32, -11);
-        assert_eq!(RaResult::ErrNnInferenceFailed as i32, -12);
     }
 
     #[test]
