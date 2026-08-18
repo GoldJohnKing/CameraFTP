@@ -7,6 +7,10 @@
 export const GALLERY_REFRESH_REQUESTED_EVENT = 'gallery-refresh-requested';
 export const LATEST_PHOTO_REFRESH_REQUESTED_EVENT = 'latest-photo-refresh-requested';
 
+// Dispatched by MainActivity.onResume (e.g. after returning from system
+// permission settings) so the web layer re-checks Android permissions.
+export const PERMISSION_RECHECK_REQUESTED_EVENT = 'permission-recheck-requested';
+
 export type MediaLibraryRefreshReason =
   | 'manual'
   | 'upload'

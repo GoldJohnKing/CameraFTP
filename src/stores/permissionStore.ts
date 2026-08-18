@@ -18,6 +18,12 @@ interface PermissionStoreState {
   isLoading: boolean;
   error: string | null;
   allGranted: boolean;
+
+  // True once at least one permission check result has been applied.
+  // Storage false→true transitions only dispatch a gallery refresh when they
+  // happen between two real checks — never from the initial default state
+  // (avoids a duplicate refresh on devices that start already authorized).
+  hasCompletedFirstPermissionCheck: boolean;
   
   // Storage states (merged from useStoragePermission)
   storageInfo: StorageInfo | null;
@@ -87,6 +93,7 @@ export const usePermissionStore = create<PermissionStoreState>()((set, get) => (
     isLoading: false,
     error: null,
     allGranted: false,
+    hasCompletedFirstPermissionCheck: false,
     
     // Storage states
     storageInfo: null,
@@ -97,11 +104,22 @@ export const usePermissionStore = create<PermissionStoreState>()((set, get) => (
     
     // Actions - 必须传入完整对象，内部计算 allGranted
     setPermissions: (newPerms) => {
+      const prevPerms = get().permissions;
+      const isFirstCheck = !get().hasCompletedFirstPermissionCheck;
       const allGranted = checkAllGranted(newPerms);
       set({
         permissions: newPerms,
         allGranted,
+        hasCompletedFirstPermissionCheck: true,
       });
+
+      // Storage permission flipped to granted between two real checks:
+      // the gallery may now see media it could not see before → refresh it.
+      // (Skipped on the very first check so already-authorized devices do
+      // not trigger a duplicate refresh next to the initial load.)
+      if (!isFirstCheck && !prevPerms.storage && newPerms.storage) {
+        requestMediaLibraryRefresh({ reason: 'permission-granted' });
+      }
     },
     
     // Initialize store - call once on app start (Android only)
@@ -130,12 +148,10 @@ export const usePermissionStore = create<PermissionStoreState>()((set, get) => (
         const perms = await permissionCheckInternal();
         
         if (perms) {
-          const allGranted = checkAllGranted(perms);
-          set({ 
-            permissions: perms, 
-            allGranted,
-            isLoading: false,
-          });
+          // Route through setPermissions so permission transitions converge
+          // on a single place (gallery refresh hook, allGranted).
+          get().setPermissions(perms);
+          set({ isLoading: false });
           return perms;
         } else {
           set({ isLoading: false, error: 'Failed to check permissions' });
@@ -226,13 +242,8 @@ export const usePermissionStore = create<PermissionStoreState>()((set, get) => (
             perms.batteryOptimization !== previousState.batteryOptimization;
           
           if (hasChanged) {
-            const storageJustGranted = !previousState.storage && perms.storage;
             previousState = perms;
             get().setPermissions(perms);
-
-            if (storageJustGranted) {
-              requestMediaLibraryRefresh({ reason: 'permission-granted' });
-            }
           }
           
           if (shouldStopPolling(mode, perms)) {

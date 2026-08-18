@@ -40,6 +40,7 @@ describe('permissionStore', () => {
       isLoading: false,
       error: null,
       allGranted: false,
+      hasCompletedFirstPermissionCheck: false,
       storageInfo: null,
       needsPermission: false,
       pollingIntervalId: null,
@@ -79,6 +80,50 @@ describe('permissionStore', () => {
 
     expect(refreshHandler).toHaveBeenCalledTimes(1);
     expect(usePermissionStore.getState().pollingIntervalId).toBeNull();
+
+    window.removeEventListener(GALLERY_REFRESH_REQUESTED_EVENT, refreshHandler);
+  });
+
+  it('dispatches a gallery refresh when storage transitions to granted after the first check', () => {
+    const refreshHandler = vi.fn();
+    window.addEventListener(GALLERY_REFRESH_REQUESTED_EVENT, refreshHandler);
+
+    const { setPermissions } = usePermissionStore.getState();
+    setPermissions({ storage: false, notification: false, batteryOptimization: false });
+    setPermissions({ storage: true, notification: false, batteryOptimization: false });
+
+    expect(refreshHandler).toHaveBeenCalledTimes(1);
+    expect(refreshHandler.mock.calls[0]?.[0]).toMatchObject({
+      detail: { reason: 'permission-granted' },
+    });
+
+    window.removeEventListener(GALLERY_REFRESH_REQUESTED_EVENT, refreshHandler);
+  });
+
+  it('skips the gallery refresh on the very first permission check', () => {
+    // First check reports storage already granted (app startup on a
+    // previously authorized device) → no refresh next to the initial load.
+    const refreshHandler = vi.fn();
+    window.addEventListener(GALLERY_REFRESH_REQUESTED_EVENT, refreshHandler);
+
+    usePermissionStore.getState().setPermissions({ storage: true, notification: true, batteryOptimization: true });
+
+    expect(refreshHandler).not.toHaveBeenCalled();
+    expect(usePermissionStore.getState().hasCompletedFirstPermissionCheck).toBe(true);
+
+    window.removeEventListener(GALLERY_REFRESH_REQUESTED_EVENT, refreshHandler);
+  });
+
+  it('does not dispatch again when storage stays granted', () => {
+    const refreshHandler = vi.fn();
+    window.addEventListener(GALLERY_REFRESH_REQUESTED_EVENT, refreshHandler);
+
+    const { setPermissions } = usePermissionStore.getState();
+    setPermissions({ storage: false, notification: false, batteryOptimization: false });
+    setPermissions({ storage: true, notification: false, batteryOptimization: false });
+    setPermissions({ storage: true, notification: true, batteryOptimization: true });
+
+    expect(refreshHandler).toHaveBeenCalledTimes(1);
 
     window.removeEventListener(GALLERY_REFRESH_REQUESTED_EVENT, refreshHandler);
   });

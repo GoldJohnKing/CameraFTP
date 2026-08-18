@@ -9,8 +9,10 @@ import { applyAndEnqueueAiEdit, getCurrentAiEditProgress } from '../hooks/useAiE
 import { getCurrentColorGradingProgress } from '../hooks/useColorGradingProgress';
 import { getCachedColorGradingPresets } from '../hooks/useColorGradingPresets';
 import { useConfigStore } from '../stores/configStore';
+import { usePermissionStore } from '../stores/permissionStore';
 import { applyColorGradingLastUsed } from '../utils/color-grading';
 import { getAiEditCallContext } from '../utils/ai-edit';
+import { PERMISSION_RECHECK_REQUESTED_EVENT } from '../utils/gallery-refresh';
 import { requestExifForPositions } from './image-open';
 
 /**
@@ -23,6 +25,15 @@ import { requestExifForPositions } from './image-open';
  */
 export function registerNativeViewerBridges(): () => void {
   const w = window as unknown as Record<string, unknown>;
+
+  // MainActivity dispatches this from onResume (e.g. after returning from
+  // system permission settings). Re-check Android permissions; the storage
+  // false→true transition hook inside setPermissions then refreshes the
+  // gallery.
+  const handlePermissionRecheckRequest = () => {
+    void usePermissionStore.getState().checkPermissions();
+  };
+  window.addEventListener(PERMISSION_RECHECK_REQUESTED_EVENT, handlePermissionRecheckRequest);
 
   w.__tauriGetAiEditPrompt = () => {
     return JSON.stringify(getAiEditCallContext(useConfigStore.getState().draft));
@@ -112,6 +123,7 @@ export function registerNativeViewerBridges(): () => void {
   };
 
   return () => {
+    window.removeEventListener(PERMISSION_RECHECK_REQUESTED_EVENT, handlePermissionRecheckRequest);
     delete w.__tauriGetAiEditPrompt;
     delete w.__tauriTriggerAiEditWithPrompt;
     delete w.__tauriGetAiEditProgress;

@@ -9,6 +9,7 @@ import { invoke } from '@tauri-apps/api/core';
 import type { ServerInfo, ServerStateSnapshot } from '../types';
 import { executeAsync } from '../utils/store';
 import { permissionBridge } from '../services/permission-bridge';
+import { usePermissionStore } from './permissionStore';
 
 interface ServerState {
   isRunning: boolean;
@@ -71,6 +72,10 @@ export const useServerStore = create<ServerState>((set, get) => ({
     const permissions = await permissionBridge.checkAll();
 
     if (permissions !== null) {
+      // Keep the permission store in sync on the "start without opening the
+      // settings page" path; setPermissions also hosts the storage
+      // false→true gallery-refresh transition hook.
+      usePermissionStore.getState().setPermissions(permissions);
       if (!permissions.storage || !permissions.notification || !permissions.batteryOptimization) {
         set({ showPermissionDialog: true });
         return false;

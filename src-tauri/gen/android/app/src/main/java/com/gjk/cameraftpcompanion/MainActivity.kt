@@ -209,6 +209,15 @@ class MainActivity : TauriActivity() {
         super.onStop()
     }
 
+    override fun onResume() {
+        super.onResume()
+        // Returning to the app may mean the user just granted the storage
+        // permission in system settings; ask the web layer to re-check so a
+        // false→true transition can trigger the gallery refresh hook.
+        Log.d(TAG, "onResume: requesting permission re-check")
+        emitWindowEvent("permission-recheck-requested", "{}")
+    }
+
     /**
      * 获取 WebView 引用（供 Bridge 使用）
      */

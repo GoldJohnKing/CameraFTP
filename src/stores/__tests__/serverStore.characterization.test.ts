@@ -6,6 +6,7 @@
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useServerStore } from '../serverStore';
+import { usePermissionStore } from '../permissionStore';
 
 const {
   invokeMock,
@@ -40,6 +41,15 @@ describe('serverStore characterization', () => {
       isLoading: false,
       error: null,
       showPermissionDialog: false,
+    });
+    usePermissionStore.setState({
+      permissions: {
+        storage: false,
+        notification: false,
+        batteryOptimization: false,
+      },
+      allGranted: false,
+      hasCompletedFirstPermissionCheck: false,
     });
 
     invokeMock.mockReset();
@@ -125,6 +135,25 @@ describe('serverStore characterization', () => {
     expect(started).toBe(false);
     expect(useServerStore.getState().showPermissionDialog).toBe(true);
     expect(invokeMock).not.toHaveBeenCalledWith('start_server');
+  });
+
+  it('syncs checked permissions into the permission store on startServer', async () => {
+    checkAndroidPermissionsMock.mockResolvedValue({
+      storage: true,
+      notification: true,
+      batteryOptimization: true,
+    });
+
+    const started = await useServerStore.getState().startServer();
+
+    expect(started).toBe(true);
+    expect(usePermissionStore.getState().permissions).toEqual({
+      storage: true,
+      notification: true,
+      batteryOptimization: true,
+    });
+    expect(usePermissionStore.getState().allGranted).toBe(true);
+    expect(invokeMock).toHaveBeenCalledWith('start_server');
   });
 
   it('stops server and resets runtime state', async () => {
