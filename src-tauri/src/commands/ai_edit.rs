@@ -9,17 +9,6 @@ use crate::ai_edit::AiEditService;
 use crate::error::AppError;
 
 #[command]
-pub async fn trigger_ai_edit(
-    ai_edit: State<'_, AiEditService>,
-    file_path: String,
-    prompt: Option<String>,
-    model: Option<String>,
-) -> Result<String, AppError> {
-    let output_path = ai_edit.edit_single(PathBuf::from(&file_path), prompt, model).await?;
-    Ok(output_path.to_string_lossy().to_string())
-}
-
-#[command]
 pub async fn enqueue_ai_edit(
     ai_edit: State<'_, AiEditService>,
     file_paths: Vec<String>,

@@ -8,17 +8,13 @@ use tauri::{command, State};
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 
 use crate::error::AppError;
-use crate::color_grading::presets::{ColorGradingPreset, all_presets, METERING_MODES};
+use crate::color_grading::presets::{ColorGradingPreset, all_presets};
+use crate::color_grading::preview::ColorGradingPreviewState;
 use crate::color_grading::service::ColorGradingService;
 
 #[command]
 pub async fn get_color_grading_presets() -> Vec<ColorGradingPreset> {
     all_presets().to_vec()
-}
-
-#[command]
-pub fn get_metering_modes() -> Vec<(&'static str, &'static str)> {
-    METERING_MODES.to_vec()
 }
 
 #[command]
@@ -40,13 +36,6 @@ pub async fn cancel_color_grading(
     color_grading.cancel();
     Ok(())
 }
-
-#[command]
-pub fn is_raw_file(file_path: String) -> bool {
-    crate::image_utils::is_raw_file(&PathBuf::from(file_path))
-}
-
-use crate::color_grading::preview::ColorGradingPreviewState;
 
 #[command]
 pub async fn begin_color_grading_preview(
