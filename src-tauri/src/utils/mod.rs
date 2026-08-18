@@ -10,6 +10,11 @@ pub mod fs;
 pub(crate) mod batch_state;
 pub(crate) mod task_worker;
 
+// 测试共享辅助（仅测试编译）：ai_edit / color_grading 测试模块共用的
+// wait_until / event_collector，避免两份重复拷贝。
+#[cfg(test)]
+pub(crate) mod test_support;
+
 // Android JNI 引导助手（模块整体仅在 Android 编译）
 #[cfg(target_os = "android")]
 pub mod jni;
