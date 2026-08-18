@@ -15,12 +15,13 @@ use super::types::{display_name_from_path, mime_type_from_filename, relative_pat
 #[cfg(target_os = "android")]
 use jni::objects::{JClass, JObject, JString, JValue};
 #[cfg(target_os = "android")]
-use jni::{JNIEnv, JavaVM};
+use jni::JNIEnv;
 #[cfg(target_os = "android")]
 use serde::Deserialize;
 #[cfg(target_os = "android")]
 use tracing::debug;
 
+// desktop-generic (not android-specific)
 #[cfg(not(target_os = "android"))]
 use super::types::{display_name_from_path, mime_type_from_filename, relative_path_from_full_path};
 
@@ -55,78 +56,49 @@ impl JniMediaStoreBridge {
         Self
     }
 
-    fn get_jvm() -> Result<JavaVM, MediaStoreError> {
-        let ctx = ndk_context::android_context();
-        // SAFETY: vm pointer is provided by Android runtime via ndk-context.
-        unsafe { JavaVM::from_raw(ctx.vm().cast()) }
-            .map_err(|e| MediaStoreError::BridgeError(format!("Failed to get JavaVM: {e}")))
+    /// 把 JNI 引导阶段（JavaVM / attach / Context / loadClass）的 AppError
+    /// 映射为 MediaStoreError（文案语义不变）。
+    fn bridge_err(e: crate::error::AppError) -> MediaStoreError {
+        MediaStoreError::BridgeError(e.user_message())
     }
 
     fn with_env<T>(f: impl FnOnce(&mut JNIEnv<'_>) -> Result<T, MediaStoreError>) -> Result<T, MediaStoreError> {
-        let jvm = Self::get_jvm()?;
-        let mut env = jvm.attach_current_thread().map_err(|e| {
-            MediaStoreError::BridgeError(format!("Failed to attach JNI thread: {e}"))
-        })?;
-
-        f(&mut env)
+        // JVM attach 走共享助手（crate::utils::jni，含统一异常清理）；
+        // f 的 MediaStoreError 变体（如 NotFound）经 Ok 通道透传，
+        // 不经过 AppError 往返以避免丢失变体。
+        crate::utils::jni::with_env(move |env| Ok(f(env)))
+            .map_err(Self::bridge_err)?
     }
 
-    fn clear_pending_exception(env: &mut JNIEnv<'_>) {
-        match env.exception_check() {
-            Ok(true) => {
-                let _ = env.exception_describe();
-                let _ = env.exception_clear();
-            }
-            _ => {}
-        }
+    /// 在 `spawn_blocking` 线程中执行同步 JNI 调用，避免阻塞 tokio 异步运行时线程
+    /// （模式同 crypto::verify_password 在 CustomAuthenticator 中的处理）。
+    async fn with_env_blocking<T, F>(f: F) -> Result<T, MediaStoreError>
+    where
+        T: Send + 'static,
+        F: FnOnce(&mut JNIEnv<'_>) -> Result<T, MediaStoreError> + Send + 'static,
+    {
+        tokio::task::spawn_blocking(move || Self::with_env(f))
+            .await
+            .map_err(|e| {
+                MediaStoreError::BridgeError(format!("JNI blocking task join failed: {e}"))
+            })?
     }
 
     fn get_bridge_class<'a>(env: &mut JNIEnv<'a>) -> Result<JClass<'a>, MediaStoreError> {
         let context = Self::get_context(env)?;
-        let loader = env
-            .call_method(context, "getClassLoader", "()Ljava/lang/ClassLoader;", &[])
-            .and_then(|v| v.l())
-            .map_err(|e| {
-                Self::clear_pending_exception(env);
-                MediaStoreError::BridgeError(format!("Failed to get ClassLoader: {e}"))
-            })?;
-
-        let class_name = env
-            .new_string(MEDIASTORE_BRIDGE_CLASS)
-            .map_err(|e| MediaStoreError::BridgeError(format!("Failed to create class string: {e}")))?;
-        let class_name_obj = JObject::from(class_name);
-
-        let class_obj = env
-            .call_method(
-                loader,
-                "loadClass",
-                "(Ljava/lang/String;)Ljava/lang/Class;",
-                &[JValue::Object(&class_name_obj)],
-            )
-            .and_then(|v| v.l())
-            .map_err(|e| {
-                Self::clear_pending_exception(env);
-                MediaStoreError::BridgeError(format!("Failed to load MediaStoreBridge class: {e}"))
-            })?;
-
-        Ok(JClass::from(class_obj))
+        crate::utils::jni::load_app_class(env, &context, MEDIASTORE_BRIDGE_CLASS)
+            .map_err(Self::bridge_err)
     }
 
     fn get_context<'a>(env: &mut JNIEnv<'a>) -> Result<JObject<'a>, MediaStoreError> {
-        let ctx = ndk_context::android_context();
-        // SAFETY: context pointer is managed by Android runtime and valid for process lifetime.
-        let raw_context = unsafe { JObject::from_raw(ctx.context().cast()) };
-        let local_context = env.new_local_ref(&raw_context).map_err(|e| {
-            MediaStoreError::BridgeError(format!("Failed to create local context ref: {e}"))
-        })?;
-        let _ = raw_context.into_raw();
-        Ok(local_context)
+        crate::utils::jni::android_context(env).map_err(Self::bridge_err)
     }
 
     fn new_jstring<'a>(env: &mut JNIEnv<'a>, value: &str) -> Result<JObject<'a>, MediaStoreError> {
-        let s = env.new_string(value).map_err(|e| {
-            MediaStoreError::BridgeError(format!("Failed to create Java string: {e}"))
-        })?;
+        let s = crate::utils::jni::jni_ok(env, "Failed to create Java string", |env| {
+            env.new_string(value)
+        })
+        .map_err(Self::bridge_err)?;
         Ok(JObject::from(s))
     }
 
@@ -137,17 +109,16 @@ impl JniMediaStoreBridge {
         match value {
             None => Ok(JObject::null()),
             Some(v) => {
-                let boxed = env
-                    .call_static_method(
+                let boxed = crate::utils::jni::jni_ok(env, "Failed to box Long value", |env| {
+                    env.call_static_method(
                         "java/lang/Long",
                         "valueOf",
                         "(J)Ljava/lang/Long;",
                         &[JValue::Long(v as i64)],
                     )
                     .and_then(|o| o.l())
-                    .map_err(|e| {
-                        MediaStoreError::BridgeError(format!("Failed to box Long value: {e}"))
-                    })?;
+                })
+                .map_err(Self::bridge_err)?;
                 Ok(boxed)
             }
         }
@@ -235,7 +206,7 @@ impl JniMediaStoreBridge {
             .call_static_method(&class, method, signature, args)
             .and_then(|v| v.l())
             .map_err(|e| {
-                Self::clear_pending_exception(env);
+                crate::utils::jni::clear_pending_exception(env);
                 MediaStoreError::BridgeError(format!("{method} call failed: {e}"))
             })?;
 
@@ -244,9 +215,17 @@ impl JniMediaStoreBridge {
         }
 
         let s = JString::from(obj);
-        env.get_string(&s)
-            .map(|v| v.into())
-            .map_err(|e| MediaStoreError::BridgeError(format!("{method} result decode failed: {e}")))
+        match env.get_string(&s).map(|v| v.into()) {
+            Ok(value) => Ok(value),
+            Err(e) => {
+                // 解码结果字符串可能残留 pending Java 异常（如 OOM），
+                // 必须清除，否则当前线程后续 JNI 调用都会失败
+                crate::utils::jni::clear_pending_exception(env);
+                Err(MediaStoreError::BridgeError(format!(
+                    "{method} result decode failed: {e}"
+                )))
+            }
+        }
     }
 
     fn call_static_bool(
@@ -259,7 +238,7 @@ impl JniMediaStoreBridge {
         env.call_static_method(&class, method, signature, args)
             .and_then(|v| v.z())
             .map_err(|e| {
-                Self::clear_pending_exception(env);
+                crate::utils::jni::clear_pending_exception(env);
                 MediaStoreError::BridgeError(format!("{method} call failed: {e}"))
             })
     }
@@ -274,7 +253,7 @@ impl JniMediaStoreBridge {
         env.call_static_method(&class, method, signature, args)
             .and_then(|v| v.i())
             .map_err(|e| {
-                Self::clear_pending_exception(env);
+                crate::utils::jni::clear_pending_exception(env);
                 MediaStoreError::BridgeError(format!("{method} call failed: {e}"))
             })
     }
@@ -288,8 +267,9 @@ impl MediaStoreBridgeClient for JniMediaStoreBridge {
 
         let display_name = display_name_from_path(path);
         let relative_path = relative_path_from_full_path(path);
+        let not_found_path = path.to_string();
 
-        let content_uri = Self::with_env(|env| {
+        let content_uri = Self::with_env_blocking(move |env| {
             let context = Self::get_context(env)?;
             let j_relative_path = Self::new_jstring(env, &relative_path)?;
             let j_display_name = Self::new_jstring(env, &display_name)?;
@@ -306,22 +286,27 @@ impl MediaStoreBridgeClient for JniMediaStoreBridge {
             )?;
 
             if uri.is_empty() {
-                return Err(MediaStoreError::NotFound(path.to_string()));
+                return Err(MediaStoreError::NotFound(not_found_path));
             }
 
             Ok(uri)
-        })?;
+        })
+        .await?;
 
-        let fd = Self::with_env(|env| {
-            let context = Self::get_context(env)?;
-            let j_uri = Self::new_jstring(env, &content_uri)?;
-            Self::call_static_i32(
-                env,
-                "openEntryForReadNative",
-                "(Landroid/content/Context;Ljava/lang/String;)I",
-                &[JValue::Object(&context), JValue::Object(&j_uri)],
-            )
-        })?;
+        let fd = {
+            let content_uri = content_uri.clone();
+            Self::with_env_blocking(move |env| {
+                let context = Self::get_context(env)?;
+                let j_uri = Self::new_jstring(env, &content_uri)?;
+                Self::call_static_i32(
+                    env,
+                    "openEntryForReadNative",
+                    "(Landroid/content/Context;Ljava/lang/String;)I",
+                    &[JValue::Object(&context), JValue::Object(&j_uri)],
+                )
+            })
+            .await?
+        };
 
         Ok(FileDescriptorInfo {
             #[cfg(unix)]
@@ -340,11 +325,14 @@ impl MediaStoreBridgeClient for JniMediaStoreBridge {
     ) -> Result<FileDescriptorInfo, MediaStoreError> {
         debug!(display_name, mime_type, relative_path, collection = %collection.as_str(), "Opening file descriptor for write");
 
-        Self::with_env(|env| {
+        let display_name = display_name.to_string();
+        let mime_type = mime_type.to_string();
+        let relative_path = relative_path.to_string();
+        Self::with_env_blocking(move |env| {
             let context = Self::get_context(env)?;
-            let j_display_name = Self::new_jstring(env, display_name)?;
-            let j_mime = Self::new_jstring(env, mime_type)?;
-            let j_relative_path = Self::new_jstring(env, relative_path)?;
+            let j_display_name = Self::new_jstring(env, &display_name)?;
+            let j_mime = Self::new_jstring(env, &mime_type)?;
+            let j_relative_path = Self::new_jstring(env, &relative_path)?;
             let j_collection = Self::new_jstring(env, collection.as_str())?;
             let j_size = JObject::null();
 
@@ -362,8 +350,9 @@ impl MediaStoreBridgeClient for JniMediaStoreBridge {
                 ],
             )?;
 
-            Self::parse_create_result(&json, display_name, relative_path)
+            Self::parse_create_result(&json, &display_name, &relative_path)
         })
+        .await
     }
 
     async fn finalize_entry(
@@ -373,9 +362,10 @@ impl MediaStoreBridgeClient for JniMediaStoreBridge {
     ) -> Result<(), MediaStoreError> {
         debug!(content_uri, expected_size, "Finalizing MediaStore entry");
 
-        Self::with_env(|env| {
+        let content_uri = content_uri.to_string();
+        Self::with_env_blocking(move |env| {
             let context = Self::get_context(env)?;
-            let j_uri = Self::new_jstring(env, content_uri)?;
+            let j_uri = Self::new_jstring(env, &content_uri)?;
             let j_size = Self::optional_long(env, expected_size)?;
 
             let ok = Self::call_static_bool(
@@ -397,14 +387,16 @@ impl MediaStoreBridgeClient for JniMediaStoreBridge {
                 )))
             }
         })
+        .await
     }
 
     async fn abort_entry(&self, content_uri: &str) -> Result<(), MediaStoreError> {
         debug!(content_uri, "Aborting MediaStore entry");
 
-        Self::with_env(|env| {
+        let content_uri = content_uri.to_string();
+        Self::with_env_blocking(move |env| {
             let context = Self::get_context(env)?;
-            let j_uri = Self::new_jstring(env, content_uri)?;
+            let j_uri = Self::new_jstring(env, &content_uri)?;
 
             let ok = Self::call_static_bool(
                 env,
@@ -421,6 +413,7 @@ impl MediaStoreBridgeClient for JniMediaStoreBridge {
                 )))
             }
         })
+        .await
     }
 
     async fn query_files(&self, path: &str) -> Result<Vec<QueryResult>, MediaStoreError> {
@@ -433,7 +426,7 @@ impl MediaStoreBridgeClient for JniMediaStoreBridge {
             format!("{}/", trimmed.trim_end_matches('/'))
         };
 
-        let json = Self::with_env(|env| {
+        let json = Self::with_env_blocking(move |env| {
             let context = Self::get_context(env)?;
             let j_relative_path = Self::new_jstring(env, &relative_path)?;
 
@@ -443,7 +436,8 @@ impl MediaStoreBridgeClient for JniMediaStoreBridge {
                 "(Landroid/content/Context;Ljava/lang/String;)Ljava/lang/String;",
                 &[JValue::Object(&context), JValue::Object(&j_relative_path)],
             )
-        })?;
+        })
+        .await?;
 
         Self::parse_list_entries(&json)
     }
@@ -470,30 +464,34 @@ impl MediaStoreBridgeClient for JniMediaStoreBridge {
         let display_name = display_name_from_path(path);
         let relative_path = relative_path_from_full_path(path);
 
-        let content_uri = Self::with_env(|env| {
-            let context = Self::get_context(env)?;
-            let j_relative_path = Self::new_jstring(env, &relative_path)?;
-            let j_display_name = Self::new_jstring(env, &display_name)?;
+        let content_uri = {
+            let not_found_path = path.to_string();
+            Self::with_env_blocking(move |env| {
+                let context = Self::get_context(env)?;
+                let j_relative_path = Self::new_jstring(env, &relative_path)?;
+                let j_display_name = Self::new_jstring(env, &display_name)?;
 
-            let uri = Self::call_static_string(
-                env,
-                "findEntryUriNative",
-                "(Landroid/content/Context;Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;",
-                &[
-                    JValue::Object(&context),
-                    JValue::Object(&j_relative_path),
-                    JValue::Object(&j_display_name),
-                ],
-            )?;
+                let uri = Self::call_static_string(
+                    env,
+                    "findEntryUriNative",
+                    "(Landroid/content/Context;Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;",
+                    &[
+                        JValue::Object(&context),
+                        JValue::Object(&j_relative_path),
+                        JValue::Object(&j_display_name),
+                    ],
+                )?;
 
-            if uri.is_empty() {
-                Err(MediaStoreError::NotFound(path.to_string()))
-            } else {
-                Ok(uri)
-            }
-        })?;
+                if uri.is_empty() {
+                    Err(MediaStoreError::NotFound(not_found_path))
+                } else {
+                    Ok(uri)
+                }
+            })
+            .await?
+        };
 
-        let deleted = Self::with_env(|env| {
+        let deleted = Self::with_env_blocking(move |env| {
             let context = Self::get_context(env)?;
             let j_uri = Self::new_jstring(env, &content_uri)?;
             Self::call_static_bool(
@@ -502,7 +500,8 @@ impl MediaStoreBridgeClient for JniMediaStoreBridge {
                 "(Landroid/content/Context;Ljava/lang/String;)Z",
                 &[JValue::Object(&context), JValue::Object(&j_uri)],
             )
-        })?;
+        })
+        .await?;
 
         if deleted {
             Ok(())
@@ -515,12 +514,14 @@ impl MediaStoreBridgeClient for JniMediaStoreBridge {
 }
 
 /// Mock MediaStore bridge for testing and non-Android platforms.
+// desktop-generic (not android-specific)
 #[cfg(not(target_os = "android"))]
 #[derive(Debug)]
 pub struct MockMediaStoreBridge {
     base_path: PathBuf,
 }
 
+// desktop-generic (not android-specific)
 #[cfg(not(target_os = "android"))]
 impl MockMediaStoreBridge {
     pub fn new(base_path: PathBuf) -> Self {
@@ -534,6 +535,7 @@ impl MockMediaStoreBridge {
     }
 }
 
+// desktop-generic (not android-specific)
 #[cfg(not(target_os = "android"))]
 #[async_trait::async_trait]
 impl MediaStoreBridgeClient for MockMediaStoreBridge {
@@ -733,6 +735,7 @@ pub fn create_bridge() -> Arc<dyn MediaStoreBridgeClient> {
     Arc::new(JniMediaStoreBridge::new())
 }
 
+// desktop-generic (not android-specific)
 #[cfg(not(target_os = "android"))]
 pub fn create_bridge() -> Arc<dyn MediaStoreBridgeClient> {
     Arc::new(MockMediaStoreBridge::temp())

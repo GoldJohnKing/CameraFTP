@@ -18,9 +18,11 @@ pub trait ImagePreprocessor: Send + Sync {
     fn prepare(&self, file_path: &Path) -> Result<PreparedImage, AppError>;
 }
 
+// desktop-generic (not android-specific)
 #[cfg(not(target_os = "android"))]
 mod rust_processor;
 
+// desktop-generic (not android-specific)
 #[cfg(not(target_os = "android"))]
 pub fn create_preprocessor() -> Box<dyn ImagePreprocessor> {
     Box::new(rust_processor::RustImagePreprocessor)

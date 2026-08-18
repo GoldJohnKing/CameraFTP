@@ -15,6 +15,8 @@ use unftp_core::auth::DefaultUser;
 // Import the traits to call trait methods
 use unftp_core::storage::{ErrorKind, Metadata, StorageBackend};
 
+// desktop-generic (not android-specific):
+// 本文件所有 not(android) cfg 将 Mock 桥接及其测试限制在非 Android 平台（桌面/CI）。
 #[cfg(not(target_os = "android"))]
 use super::bridge::MockMediaStoreBridge;
 #[cfg(not(target_os = "android"))]

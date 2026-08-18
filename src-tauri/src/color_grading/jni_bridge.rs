@@ -16,7 +16,7 @@ use jni::JNIEnv;
 use std::sync::OnceLock;
 
 #[cfg(target_os = "android")]
-static JNI_RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
+static JNI_RUNTIME: OnceLock<Result<tokio::runtime::Runtime, String>> = OnceLock::new();
 
 /// Run an async future on a JNI thread using a cached multi-threaded Tokio runtime.
 /// This is needed because JNI threads are not part of the main Tokio runtime,
@@ -25,27 +25,42 @@ static JNI_RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
 /// A multi-threaded runtime is used because multiple JNI threads may call
 /// `block_on()` concurrently — `current_thread::Runtime::block_on` is not safe
 /// for concurrent use from multiple OS threads.
+///
+/// Runtime 创建失败绝不能 panic（panic 越过 JNI 边界会 abort 进程），因此
+/// `get_or_init` 内将失败描述缓存为 `Err(String)`，由本函数转换为
+/// `AppError::Other` 走各 JNI 入口既有的错误返回路径（JSON error /
+/// RuntimeException）。
 #[cfg(target_os = "android")]
-fn run_blocking<F, T>(fut: F) -> T
+fn run_blocking<F, T>(fut: F) -> Result<T, crate::error::AppError>
 where
-    F: std::future::Future<Output = T>,
+    F: std::future::Future<Output = Result<T, crate::error::AppError>>,
 {
-    JNI_RUNTIME
-        .get_or_init(|| {
-            tokio::runtime::Builder::new_multi_thread()
-                .worker_threads(1)
-                .enable_all()
-                .build()
-                .expect("Failed to create JNI tokio runtime")
-        })
-        .block_on(fut)
+    let runtime = JNI_RUNTIME.get_or_init(|| {
+        tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(1)
+            .enable_all()
+            .build()
+            .map_err(|e| format!("Failed to create JNI tokio runtime: {e}"))
+    });
+    match runtime {
+        Ok(rt) => rt.block_on(fut),
+        Err(msg) => Err(crate::error::AppError::Other(msg.clone())),
+    }
 }
 
 #[cfg(target_os = "android")]
 fn new_json_string(env: &mut JNIEnv, json: &str) -> jstring {
-    env.new_string(json)
-        .expect("Failed to create JNI string")
-        .into_raw()
+    match env.new_string(json) {
+        Ok(s) => s.into_raw(),
+        Err(e) => {
+            // 分配失败可能残留 pending Java 异常（如 OOM）：describe + clear
+            // 后返回 null（Kotlin 侧 try/catch 会将其转为 Result.failure），
+            // 绝不能让 `.expect` 的 panic 越过 JNI 边界导致进程 abort。
+            tracing::error!("JNI: failed to create JSON string: {e}");
+            crate::utils::jni::clear_pending_exception(env);
+            std::ptr::null_mut()
+        }
+    }
 }
 
 #[cfg(target_os = "android")]
@@ -79,6 +94,7 @@ pub unsafe extern "C" fn Java_com_gjk_cameraftpcompanion_bridges_ColorGradingJni
         Ok(s) => s.to_string_lossy().into_owned(),
         Err(e) => {
             tracing::error!("JNI beginPreview: failed to read filePath: {e}");
+            crate::utils::jni::clear_pending_exception(&mut env);
             return json_error(&mut env, "Invalid file path");
         }
     };
@@ -120,6 +136,8 @@ pub unsafe extern "C" fn Java_com_gjk_cameraftpcompanion_bridges_ColorGradingJni
     let lut_id_str = match env.get_string(&lut_id) {
         Ok(s) => s.to_string_lossy().into_owned(),
         Err(_) => {
+            // 先清残留异常，保证 IllegalArgumentException 能真正抛给 Java 侧
+            crate::utils::jni::clear_pending_exception(&mut env);
             let _ = env.throw_new("java/lang/IllegalArgumentException", "Invalid lutId");
             return std::ptr::null_mut();
         }
@@ -127,6 +145,8 @@ pub unsafe extern "C" fn Java_com_gjk_cameraftpcompanion_bridges_ColorGradingJni
     let metering_str = match env.get_string(&metering_mode) {
         Ok(s) => s.to_string_lossy().into_owned(),
         Err(_) => {
+            // 先清残留异常，保证 IllegalArgumentException 能真正抛给 Java 侧
+            crate::utils::jni::clear_pending_exception(&mut env);
             let _ = env.throw_new("java/lang/IllegalArgumentException", "Invalid meteringMode");
             return std::ptr::null_mut();
         }
@@ -148,6 +168,8 @@ pub unsafe extern "C" fn Java_com_gjk_cameraftpcompanion_bridges_ColorGradingJni
                 Ok(a) => a,
                 Err(e) => {
                     tracing::error!("JNI applyPreview: failed to create byte array: {e}");
+                    // 先清残留异常（如 OOM），保证 RuntimeException 能真正抛给 Java 侧
+                    crate::utils::jni::clear_pending_exception(&mut env);
                     let _ = env.throw_new("java/lang/RuntimeException", "Failed to allocate byte array");
                     return std::ptr::null_mut();
                 }
@@ -157,6 +179,8 @@ pub unsafe extern "C" fn Java_com_gjk_cameraftpcompanion_bridges_ColorGradingJni
             };
             if let Err(e) = env.set_byte_array_region(&arr, 0, signed) {
                 tracing::error!("JNI applyPreview: failed to set byte array: {e}");
+                // 先清残留异常（如越界），保证 RuntimeException 能真正抛给 Java 侧
+                crate::utils::jni::clear_pending_exception(&mut env);
                 let _ = env.throw_new("java/lang/RuntimeException", "Failed to copy byte array");
                 return std::ptr::null_mut();
             }
@@ -241,11 +265,17 @@ pub unsafe extern "C" fn Java_com_gjk_cameraftpcompanion_bridges_ColorGradingJni
 ) -> jstring {
     let preset_id_str = match env.get_string(&preset_id) {
         Ok(s) => s.to_string_lossy().into_owned(),
-        Err(_) => return json_error(&mut env, "Invalid presetId"),
+        Err(_) => {
+            crate::utils::jni::clear_pending_exception(&mut env);
+            return json_error(&mut env, "Invalid presetId");
+        }
     };
     let metering_str = match env.get_string(&metering_mode) {
         Ok(s) => s.to_string_lossy().into_owned(),
-        Err(_) => return json_error(&mut env, "Invalid meteringMode"),
+        Err(_) => {
+            crate::utils::jni::clear_pending_exception(&mut env);
+            return json_error(&mut env, "Invalid meteringMode");
+        }
     };
 
     let config_service = crate::config_service::ConfigService::get_global();
@@ -277,16 +307,23 @@ pub unsafe extern "C" fn Java_com_gjk_cameraftpcompanion_bridges_ColorGradingJni
         Ok(s) => s.to_string_lossy().into_owned(),
         Err(e) => {
             tracing::error!("JNI enqueueBatch: failed to read filePath: {e}");
+            crate::utils::jni::clear_pending_exception(&mut env);
             return json_error(&mut env, "Invalid file path");
         }
     };
     let lut_id_str = match env.get_string(&lut_id) {
         Ok(s) => s.to_string_lossy().into_owned(),
-        Err(_) => return json_error(&mut env, "Invalid lutId"),
+        Err(_) => {
+            crate::utils::jni::clear_pending_exception(&mut env);
+            return json_error(&mut env, "Invalid lutId");
+        }
     };
     let metering_str = match env.get_string(&metering_mode) {
         Ok(s) => s.to_string_lossy().into_owned(),
-        Err(_) => return json_error(&mut env, "Invalid meteringMode"),
+        Err(_) => {
+            crate::utils::jni::clear_pending_exception(&mut env);
+            return json_error(&mut env, "Invalid meteringMode");
+        }
     };
 
     let service = crate::color_grading::service::ColorGradingService::get_global();

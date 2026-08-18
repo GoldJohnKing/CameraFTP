@@ -4,11 +4,13 @@
 
 use std::path::Path;
 
-use jni::objects::{JClass, JObject, JValue};
-use jni::JavaVM;
+use jni::objects::{JObject, JValue};
 
 use super::{ImagePreprocessor, PreparedImage, JPEG_QUALITY, MAX_LONG_SIDE};
 use crate::error::AppError;
+use crate::utils::jni::{
+    android_context, clear_pending_exception, jni_ok, load_app_class, with_env,
+};
 
 const BRIDGE_CLASS: &str = "com.gjk.cameraftpcompanion.bridges.ImageProcessorBridge";
 const METHOD_NAME: &str = "prepareForUpload";
@@ -20,19 +22,14 @@ impl ImagePreprocessor for AndroidImagePreprocessor {
     fn prepare(&self, file_path: &Path) -> Result<PreparedImage, AppError> {
         let path_str = file_path.to_string_lossy().to_string();
 
-        let jvm = get_java_vm()?;
-        let mut env = jvm
-            .attach_current_thread()
-            .map_err(|e| AppError::AiEditError(format!("JNI attach failed: {e}")))?;
-        let context = get_android_context(&mut env)?;
-        let bridge_class = load_class(&mut env, &context)?;
+        with_env(|env| {
+            let context = android_context(env)?;
+            let bridge_class = load_app_class(env, &context, BRIDGE_CLASS)?;
 
-        let j_path = env
-            .new_string(&path_str)
-            .map_err(|e| AppError::AiEditError(format!("JNI new_string failed: {e}")))?;
+            let j_path =
+                jni_ok(env, "JNI new_string failed", |env| env.new_string(&path_str))?;
 
-        let result = env
-            .call_static_method(
+            let result = match env.call_static_method(
                 bridge_class,
                 METHOD_NAME,
                 METHOD_SIG,
@@ -41,67 +38,48 @@ impl ImagePreprocessor for AndroidImagePreprocessor {
                     JValue::Int(MAX_LONG_SIDE as i32),
                     JValue::Int(JPEG_QUALITY as i32),
                 ],
-            )
-            .map_err(|e| AppError::AiEditError(format!("JNI call failed: {e}")))?;
+            ) {
+                Ok(result) => result,
+                Err(e) => {
+                    // 调用失败时可能残留 pending Java 异常，必须清除，
+                    // 否则当前线程后续所有 JNI 调用都会失败
+                    clear_pending_exception(env);
+                    return Err(AppError::AiEditError(format!("JNI call failed: {e}")));
+                }
+            };
 
-        let j_result = result
-            .l()
-            .map_err(|e| AppError::AiEditError(format!("JNI result extraction failed: {e}")))?;
+            let j_result = result
+                .l()
+                .map_err(|e| AppError::AiEditError(format!("JNI result extraction failed: {e}")))?;
 
-        if j_result.is_null() {
-            return Err(AppError::AiEditError(
-                "Android native image processing failed — likely OOM or unsupported format"
-                    .to_string(),
-            ));
-        }
+            if j_result.is_null() {
+                return Err(AppError::AiEditError(
+                    "Android native image processing failed — likely OOM or unsupported format"
+                        .to_string(),
+                ));
+            }
 
-        let base64: String = env
-            .get_string(&j_result.into())
-            .map_err(|e| AppError::AiEditError(format!("JNI get_string failed: {e}")))?
-            .into();
+            let base64: String = match env.get_string(&j_result.into()) {
+                Ok(s) => s.into(),
+                Err(e) => {
+                    // 读取结果字符串可能残留 pending Java 异常（如 OOM），
+                    // 必须清除，否则当前线程后续 JNI 调用都会失败
+                    clear_pending_exception(env);
+                    return Err(AppError::AiEditError(format!("JNI get_string failed: {e}")));
+                }
+            };
 
-        Ok(PreparedImage {
-            base64_data: base64,
-            mime_type: "image/jpeg",
+            Ok(PreparedImage {
+                base64_data: base64,
+                mime_type: "image/jpeg",
+            })
+        })
+        .map_err(|e| match e {
+            // env 操作失败的 AiEditError 原样透传；JNI 引导阶段的
+            // AppError（JavaVM/attach/Context/loadClass）按原实现语义
+            // 统一包装为 AiEditError。
+            AppError::AiEditError(_) => e,
+            other => AppError::AiEditError(other.user_message()),
         })
     }
-}
-
-fn get_java_vm() -> Result<JavaVM, AppError> {
-    let context = ndk_context::android_context();
-    unsafe { JavaVM::from_raw(context.vm().cast()) }
-        .map_err(|e| AppError::AiEditError(format!("Failed to get JavaVM: {e}")))
-}
-
-fn get_android_context<'a>(env: &mut jni::JNIEnv<'a>) -> Result<JObject<'a>, AppError> {
-    let context = ndk_context::android_context();
-    let raw = unsafe { JObject::from_raw(context.context().cast()) };
-    let local = env
-        .new_local_ref(&raw)
-        .map_err(|e| AppError::AiEditError(format!("Failed to get Android context: {e}")))?;
-    let _ = raw.into_raw();
-    Ok(local)
-}
-
-fn load_class<'a>(
-    env: &mut jni::JNIEnv<'a>,
-    context: &JObject<'a>,
-) -> Result<JClass<'a>, AppError> {
-    let loader = env
-        .call_method(context, "getClassLoader", "()Ljava/lang/ClassLoader;", &[])
-        .and_then(|v| v.l())
-        .map_err(|e| AppError::AiEditError(format!("getClassLoader failed: {e}")))?;
-    let name = env
-        .new_string(BRIDGE_CLASS)
-        .map_err(|e| AppError::AiEditError(format!("new_string failed: {e}")))?;
-    let class_obj = env
-        .call_method(
-            loader,
-            "loadClass",
-            "(Ljava/lang/String;)Ljava/lang/Class;",
-            &[JValue::Object(&JObject::from(name))],
-        )
-        .and_then(|v| v.l())
-        .map_err(|e| AppError::AiEditError(format!("loadClass failed: {e}")))?;
-    Ok(JClass::from(class_obj))
 }
