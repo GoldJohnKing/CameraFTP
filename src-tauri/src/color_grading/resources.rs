@@ -157,7 +157,9 @@ fn read_build_soc_model() -> Option<String> {
 
 /// Maps `Build.SOC_MODEL` → QNN `soc_model` numeric string (from QNN SDK's Qnn_SocModel_t).
 /// Verified against ORT 1.24.1 + ExecuTorch qc_schema.py + LiteRT supported_soc.csv.
-#[cfg(target_os = "android")]
+// Compiled on all platforms so the pure-data mapping stays unit-testable
+// (`cargo test` on Windows CI); only consumed by Android's `nn_soc_config`.
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
 fn sm_to_qnn_soc_model(sm: &str) -> &'static str {
     match sm {
         "SM8550" => "43", // Hexagon v73
@@ -171,7 +173,7 @@ fn sm_to_qnn_soc_model(sm: &str) -> &'static str {
 
 /// Maps `Build.SOC_MODEL` → QNN HTP architecture string. Empty = let QNN infer
 /// from soc_model (used when the SoC is outside the known whitelist).
-#[cfg(target_os = "android")]
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
 fn sm_to_qnn_htp_arch(sm: &str) -> &'static str {
     match sm {
         "SM8550" => "73",
@@ -188,3 +190,41 @@ fn sm_to_qnn_htp_arch(sm: &str) -> &'static str {
 // `Ort::Session(env, ptr, len, opts)` ctor. There is no on-disk extraction, so
 // there is no freshness/staleness surface here (the whole class — including the
 // former hash-sidecar — is gone).
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn known_soc_models_map_to_expected_qnn_numeric_and_htp_arch() {
+        let cases = [
+            ("SM8550", "43", "73"), // Hexagon v73
+            ("SM8650", "57", "75"), // Hexagon v75
+            ("SM8750", "69", "79"), // Hexagon v79
+            ("SM8845", "97", "81"), // Hexagon v81
+            ("SM8850", "87", "81"), // Hexagon v81
+        ];
+        for (sm, numeric, arch) in cases {
+            assert_eq!(sm_to_qnn_soc_model(sm), numeric, "soc_model for {}", sm);
+            assert_eq!(sm_to_qnn_htp_arch(sm), arch, "htp_arch for {}", sm);
+        }
+    }
+
+    #[test]
+    fn unknown_soc_models_fall_back_to_qnn_autodetect() {
+        for sm in ["SM9999", "sm8550", "", "Exynos 2400", "Tensor G4"] {
+            assert_eq!(
+                sm_to_qnn_soc_model(sm),
+                "0",
+                "unknown SoC '{}' must fall back to QNN auto-detect (soc_model=0)",
+                sm
+            );
+            assert_eq!(
+                sm_to_qnn_htp_arch(sm),
+                "",
+                "unknown SoC '{}' must leave htp_arch empty so QNN infers it",
+                sm
+            );
+        }
+    }
+}

@@ -94,6 +94,8 @@ windows = { version = "0.58", features = [
 [dev-dependencies]
 tempfile = "3.12"
 filetime = "0.2"
+# `test` feature enables tauri::test::mock_app() for worker-loop tests
+tauri = { version = "2", features = ["test"] }
 
 [profile.release]
 # "symbols" not "debuginfo": Rust release emits no DWARF, so debuginfo-only

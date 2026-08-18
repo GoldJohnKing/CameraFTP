@@ -18,7 +18,10 @@ pub fn color_grading_output_path(input_path: &Path, preset_id: &str) -> Result<P
         .file_stem()
         .map(|s| s.to_string_lossy().to_string())
         .unwrap_or_else(|| "output".into());
-    let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S");
+    // 使用 UTC 而非 Local：部分 Android 设备缺少 tzdata，chrono::Local 会 panic
+    // （ai_edit/service.rs 的 chrono_now_string 出于同样原因使用 Utc）。
+    // 文件名时间戳只需保证唯一性/可排序，UTC 完全满足。
+    let timestamp = chrono::Utc::now().format("%Y%m%d_%H%M%S");
     let output_dir = parent.join("ColorGrading");
     std::fs::create_dir_all(&output_dir)
         .map_err(|e| AppError::ColorGradingError(format!("Failed to create output dir: {}", e)))?;
@@ -54,12 +57,19 @@ mod tests {
     #[test]
     fn no_file_stem_uses_output_default() {
         let dir = tempfile::tempdir().unwrap();
-        let input = create_input(&dir, "photos/IMG_001.NEF");
+        // A path ending in `..` has a parent directory but no file stem
+        // (`file_name()`/`file_stem()` return None), exercising the
+        // `"output"` fallback branch.
+        let input = dir.path().join("photos/..");
 
         let result = color_grading_output_path(&input, "custom-lut").unwrap();
 
         let name = result.file_name().unwrap().to_string_lossy();
-        assert!(name.starts_with("IMG_001_custom-lut_"));
+        assert!(
+            name.starts_with("output_custom-lut_"),
+            "expected output stem fallback, got: {}",
+            name
+        );
         assert!(name.ends_with(".jpg"));
     }
 

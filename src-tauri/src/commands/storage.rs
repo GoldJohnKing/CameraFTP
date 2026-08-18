@@ -19,22 +19,17 @@ use crate::platform::{
 /// 获取存储路径信息（Android 为固定路径，Windows 返回空 path 由用户配置）
 #[command]
 pub async fn get_storage_info() -> Result<StorageInfo, AppError> {
-    Ok(get_platform_service().get_storage_info())
+    // 平台实现内部包含阻塞的文件系统检查（exists/create_dir_all/可写探测），
+    // 放入 spawn_blocking 避免阻塞异步命令线程
+    tokio::task::spawn_blocking(|| get_platform_service().get_storage_info())
+        .await
+        .map_err(|e| AppError::Other(format!("Storage info task failed: {}", e)))
 }
 
 /// 检查权限状态
 #[command]
 pub async fn check_permission_status() -> Result<PermissionStatus, AppError> {
     Ok(get_platform_service().check_permission_status())
-}
-
-/// 请求"所有文件访问权限"
-#[command]
-pub async fn request_all_files_permission(app: AppHandle) -> Result<(), AppError> {
-    get_platform_service()
-        .request_all_files_permission(&app)
-        .map_err(AppError::StoragePermissionError)?;
-    Ok(())
 }
 
 /// 确保存储目录存在且可写

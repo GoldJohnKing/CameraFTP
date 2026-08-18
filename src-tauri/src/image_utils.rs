@@ -177,6 +177,86 @@ pub fn inject_orientation_exif(jpeg: Vec<u8>, orientation: u8) -> Vec<u8> {
     result
 }
 
+/// Builds a full APP1/EXIF segment whose IFD0 carries `Orientation` and whose
+/// Exif sub-IFD carries `DateTimeOriginal` (`datetime`, "YYYY:MM:DD HH:MM:SS").
+///
+/// Test-only counterpart of [`build_orientation_app1`] for exercising
+/// [`parse_exif`] end-to-end against a real EXIF payload.
+///
+/// Layout (little-endian TIFF, offsets relative to TIFF header start):
+///   0   "II" 2A00 08000000   TIFF header, IFD0 at 8
+///   8   IFD0 (2 entries: Orientation, ExifIFDPointer)
+///   38  Exif IFD (1 entry: DateTimeOriginal)
+///   56  20-byte ASCII datetime field (19 chars + NUL)
+#[cfg(test)]
+pub(crate) fn build_exif_datetime_orientation_app1(datetime: &str, orientation: u16) -> Vec<u8> {
+    let dt = datetime.as_bytes();
+    assert_eq!(dt.len(), 19, "datetime must be formatted YYYY:MM:DD HH:MM:SS");
+
+    const IFD0_OFFSET: u32 = 8;
+    const IFD0_LEN: u32 = 2 + 2 * 12 + 4; // entry count + 2 entries + next-IFD
+    const EXIF_IFD_OFFSET: u32 = IFD0_OFFSET + IFD0_LEN; // 38
+    const EXIF_IFD_LEN: u32 = 2 + 1 * 12 + 4; // entry count + 1 entry + next-IFD
+    const DATETIME_OFFSET: u32 = EXIF_IFD_OFFSET + EXIF_IFD_LEN; // 56
+
+    let mut tiff: Vec<u8> = Vec::with_capacity(DATETIME_OFFSET as usize + 20);
+    tiff.extend_from_slice(b"II"); // little-endian byte order
+    tiff.extend_from_slice(&42u16.to_le_bytes()); // TIFF magic
+    tiff.extend_from_slice(&IFD0_OFFSET.to_le_bytes());
+
+    // IFD0 — entries ascending by tag (0x0112 < 0x8769)
+    tiff.extend_from_slice(&2u16.to_le_bytes());
+    // Orientation (0x0112), SHORT, count 1, inline value
+    tiff.extend_from_slice(&0x0112u16.to_le_bytes());
+    tiff.extend_from_slice(&3u16.to_le_bytes());
+    tiff.extend_from_slice(&1u32.to_le_bytes());
+    tiff.extend_from_slice(&orientation.to_le_bytes());
+    tiff.extend_from_slice(&[0u8, 0u8]); // pad inline value to 4 bytes
+    // ExifIFDPointer (0x8769), LONG, count 1
+    tiff.extend_from_slice(&0x8769u16.to_le_bytes());
+    tiff.extend_from_slice(&4u16.to_le_bytes());
+    tiff.extend_from_slice(&1u32.to_le_bytes());
+    tiff.extend_from_slice(&EXIF_IFD_OFFSET.to_le_bytes());
+    tiff.extend_from_slice(&0u32.to_le_bytes()); // no next IFD
+
+    // Exif sub-IFD
+    tiff.extend_from_slice(&1u16.to_le_bytes());
+    // DateTimeOriginal (0x9003), ASCII, count 20 (19 chars + NUL)
+    tiff.extend_from_slice(&0x9003u16.to_le_bytes());
+    tiff.extend_from_slice(&2u16.to_le_bytes());
+    tiff.extend_from_slice(&20u32.to_le_bytes());
+    tiff.extend_from_slice(&DATETIME_OFFSET.to_le_bytes());
+    tiff.extend_from_slice(&0u32.to_le_bytes()); // no next IFD
+    tiff.extend_from_slice(dt);
+    tiff.push(0);
+
+    let payload_len = 6 + tiff.len(); // "Exif\0\0" + TIFF
+    let mut segment = Vec::with_capacity(4 + payload_len);
+    segment.extend_from_slice(&[0xFF, 0xE1]); // APP1 marker
+    segment.extend_from_slice(&((payload_len + 2) as u16).to_be_bytes()); // segment length
+    segment.extend_from_slice(b"Exif\0\0");
+    segment.extend_from_slice(&tiff);
+    segment
+}
+
+/// Encodes a tiny real JPEG (via the `image` crate) with the EXIF APP1 segment
+/// from [`build_exif_datetime_orientation_app1`] injected after SOI.
+#[cfg(test)]
+pub(crate) fn build_exif_jpeg(datetime: &str, orientation: u16) -> Vec<u8> {
+    let img = image::RgbImage::from_pixel(2, 2, image::Rgb([128u8, 128, 128]));
+    let mut jpeg = Vec::new();
+    image::DynamicImage::ImageRgb8(img)
+        .write_to(&mut std::io::Cursor::new(&mut jpeg), image::ImageFormat::Jpeg)
+        .expect("failed to encode test JPEG");
+
+    let app1 = build_exif_datetime_orientation_app1(datetime, orientation);
+    let mut out = Vec::with_capacity(jpeg.len() + app1.len());
+    out.extend_from_slice(&jpeg[..2]); // SOI
+    out.extend(app1);
+    out.extend_from_slice(&jpeg[2..]);
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -262,5 +342,58 @@ mod tests {
 
         // Total length = original + 36 (the injected APP1 segment)
         assert_eq!(result.len(), original.len() + app1_len);
+    }
+
+    // ---- parse_exif tests against a real (tiny) EXIF-bearing JPEG ----
+
+    #[test]
+    fn parse_exif_extracts_datetime_and_orientation_from_real_jpeg() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("exif.jpg");
+        std::fs::write(&path, build_exif_jpeg("2024:01:15 10:30:00", 6)).unwrap();
+
+        let parsed = parse_exif(&path)
+            .expect("existing file must open")
+            .expect("EXIF-bearing JPEG must yield Some");
+        let expected = chrono::NaiveDate::from_ymd_opt(2024, 1, 15)
+            .unwrap()
+            .and_hms_opt(10, 30, 0)
+            .unwrap();
+        assert_eq!(parsed.datetime_original, Some(expected));
+        assert_eq!(parsed.orientation, Some(6));
+
+        // Tags absent from the fixture must be None, not garbage
+        assert_eq!(parsed.iso, None);
+        assert_eq!(parsed.aperture, None);
+        assert_eq!(parsed.shutter_speed, None);
+        assert_eq!(parsed.focal_length_35mm, None);
+        assert_eq!(parsed.focal_length_raw, None);
+    }
+
+    #[test]
+    fn parse_exif_jpeg_without_exif_returns_ok_none() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("plain.jpg");
+
+        let img = image::RgbImage::from_pixel(2, 2, image::Rgb([128u8, 128, 128]));
+        image::DynamicImage::ImageRgb8(img)
+            .write_to(&mut std::fs::File::create(&path).unwrap(), image::ImageFormat::Jpeg)
+            .unwrap();
+
+        assert!(
+            matches!(parse_exif(&path), Ok(None)),
+            "JPEG without EXIF must return Ok(None), got {:?}",
+            parse_exif(&path)
+        );
+    }
+
+    #[test]
+    fn parse_exif_missing_file_returns_err() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("missing.jpg");
+        assert!(
+            parse_exif(&path).is_err(),
+            "missing file must return Err (only open failures are errors)"
+        );
     }
 }

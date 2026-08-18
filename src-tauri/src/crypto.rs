@@ -92,4 +92,31 @@ mod tests {
         // 相同密码应产生不同的哈希值（因为盐值不同）
         assert_ne!(hash1.hash, hash2.hash);
     }
+
+    #[test]
+    fn verify_password_malformed_phc_strings_return_false_without_panic() {
+        let password = "test_password_123".to_string();
+
+        let malformed = [
+            // Pure garbage — not PHC at all
+            "garbage-not-a-hash",
+            // Empty string
+            "",
+            // Truncated real PHC string (missing salt and hash bodies)
+            "$argon2id$v=19",
+            "$argon2id$v=19$m=65536,t=3,p=4",
+            // Right shape, wrong algorithm prefix
+            "$bcrypt$v=19$m=65536,t=3,p=4$c2FsdHNhbHQ$Zm9vYmFy",
+            // Correct algorithm but hash body is not valid base64/length
+            "$argon2id$v=19$m=65536,t=3,p=4$c2FsdHNhbHQ$!!!not-base64!!!",
+        ];
+
+        for stored in malformed {
+            assert!(
+                !verify_password(password.clone(), stored),
+                "malformed PHC string must verify to false: {:?}",
+                stored
+            );
+        }
+    }
 }

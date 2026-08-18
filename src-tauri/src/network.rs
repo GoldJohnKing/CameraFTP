@@ -76,6 +76,7 @@ impl NetworkManager {
     /// IF_TYPE_PPP (23) 有意排除：PPPoE 宽带用户可能仅通过 PPP 接口上网，
     /// 过滤它会导致这些用户丢失唯一可用 IP。PPTP/L2TP VPN 由名称关键字
     /// "vpn" 兜底。
+    #[cfg(target_os = "windows")]
     fn is_virtual_by_iftype(if_type: u32) -> bool {
         // 数值对应 windows::Win32::NetworkManagement::IpHelper 中的常量：
         // - IF_TYPE_SOFTWARE_LOOPBACK = 24（回环）

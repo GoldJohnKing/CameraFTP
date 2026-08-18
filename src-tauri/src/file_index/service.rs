@@ -316,24 +316,13 @@ impl FileIndexService {
             };
             index.path_set.remove(path);
 
-            // 调整 current_index
-            if let Some(current) = index.current_index {
-                if pos < current {
-                    // 删除在当前位置之前，索引减1
-                    index.current_index = Some(current - 1);
-                } else if pos == current {
-                    // 删除的是当前文件，尝试保持有效索引
-                    if new_len == 0 {
-                        index.current_index = None;
-                    } else if current >= new_len {
-                        index.current_index = Some(new_len - 1);
-                    }
-                    // 否则保持 current 不变（指向下一个文件）
-                }
-            }
+            Self::adjust_current_index_after_removal(&mut index.current_index, pos, new_len);
 
             drop(index);
             info!("Removed file from index: {:?}", path);
+
+            // 失效预览缓存中该文件的条目，避免已删除文件的预览继续命中旧数据
+            self.invalidate_preview_cache(path).await;
 
             // 发射文件索引变化事件
             self.emit_file_index_changed().await;
@@ -341,6 +330,30 @@ impl FileIndexService {
             Ok(true)
         } else {
             Ok(false)
+        }
+    }
+
+    /// 使指定路径的预览缓存条目失效（若缓存可用）
+    /// 预览缓存模块仅在 Windows 启用（见 lib.rs 的 cfg 声明），
+    /// 其他平台的删除路径无需失效操作。
+    async fn invalidate_preview_cache(&self, path: &Path) {
+        #[cfg(target_os = "windows")]
+        {
+            let app_handle = {
+                let guard = self.app_handle.read().await;
+                guard.clone()
+            };
+
+            if let Some(app_handle) = app_handle {
+                use tauri::Manager;
+                if let Some(cache) = app_handle.try_state::<Arc<crate::image_preview::ImagePreviewCache>>() {
+                    cache.invalidate(path);
+                }
+            }
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            let _ = path;
         }
     }
 
@@ -687,5 +700,92 @@ mod tests {
 
         let latest = service.get_latest_file().await;
         assert!(latest.is_none(), "empty directory should return None");
+    }
+
+    // ---- Sorted-insert tests: current_index shifts and sort-time precedence ----
+
+    fn create_file_with_mtime(dir: &Path, name: &str, mtime_secs: i64) -> PathBuf {
+        let path = dir.join(name);
+        std::fs::write(&path, b"test-jpeg-content").expect("write file");
+        filetime::set_file_mtime(&path, filetime::FileTime::from_unix_time(mtime_secs, 0))
+            .expect("set mtime");
+        path
+    }
+
+    #[tokio::test]
+    async fn add_file_newer_than_current_shifts_current_index() {
+        let temp_dir = tempdir().expect("failed to create temp dir");
+        let config_service = ConfigService::new_with_path(temp_dir.path().join("config.json"));
+        let service = FileIndexService::new(Arc::new(config_service));
+
+        // Seed: [b(2000), a(1000)] sorted by sort_time descending
+        service.add_file(create_file_with_mtime(temp_dir.path(), "b.jpg", 2000)).await.unwrap();
+        service.add_file(create_file_with_mtime(temp_dir.path(), "a.jpg", 1000)).await.unwrap();
+        service.navigate_to(0).await.expect("navigate to first file");
+        assert_eq!(service.get_current_index().await, Some(0));
+
+        // Insert a NEWER file — it lands before the current index → shift +1
+        service.add_file(create_file_with_mtime(temp_dir.path(), "n.jpg", 3000)).await.unwrap();
+
+        assert_eq!(service.get_current_index().await, Some(1), "current index must shift past the inserted file");
+        let files = service.get_files().await;
+        assert_eq!(files.len(), 3);
+        assert_eq!(files[0].filename, "n.jpg");
+        assert_eq!(files[1].filename, "b.jpg", "current index must still point at b.jpg");
+        assert_eq!(files[2].filename, "a.jpg");
+    }
+
+    #[tokio::test]
+    async fn add_file_older_than_current_keeps_current_index() {
+        let temp_dir = tempdir().expect("failed to create temp dir");
+        let config_service = ConfigService::new_with_path(temp_dir.path().join("config.json"));
+        let service = FileIndexService::new(Arc::new(config_service));
+
+        service.add_file(create_file_with_mtime(temp_dir.path(), "b.jpg", 2000)).await.unwrap();
+        service.add_file(create_file_with_mtime(temp_dir.path(), "a.jpg", 1000)).await.unwrap();
+        service.navigate_to(0).await.expect("navigate to first file");
+        assert_eq!(service.get_current_index().await, Some(0));
+
+        // Insert an OLDER file — it lands after the current index → no shift
+        service.add_file(create_file_with_mtime(temp_dir.path(), "c.jpg", 500)).await.unwrap();
+
+        assert_eq!(service.get_current_index().await, Some(0), "insert after current must not shift");
+        let files = service.get_files().await;
+        assert_eq!(files.len(), 3);
+        assert_eq!(files[0].filename, "b.jpg", "current index must still point at b.jpg");
+        assert_eq!(files[1].filename, "a.jpg");
+        assert_eq!(files[2].filename, "c.jpg");
+    }
+
+    #[tokio::test]
+    async fn add_file_sorts_by_exif_time_over_newer_mtime() {
+        let temp_dir = tempdir().expect("failed to create temp dir");
+        let config_service = ConfigService::new_with_path(temp_dir.path().join("config.json"));
+        let service = FileIndexService::new(Arc::new(config_service));
+
+        // Old mtime (1000s) but EXIF DateTimeOriginal far in the future (2030)
+        let exif_path = temp_dir.path().join("exif_new.jpg");
+        std::fs::write(
+            &exif_path,
+            crate::image_utils::build_exif_jpeg("2030:06:15 12:00:00", 1),
+        )
+        .expect("write exif jpeg");
+        filetime::set_file_mtime(&exif_path, filetime::FileTime::from_unix_time(1000, 0))
+            .expect("set old mtime");
+
+        // No EXIF, newest mtime (5000s) — still far older than the 2030 EXIF time
+        let mtime_path = create_file_with_mtime(temp_dir.path(), "mtime_new.jpg", 5000);
+
+        // Insertion order must not matter: mtime-only file added first
+        service.add_file(mtime_path).await.unwrap();
+        service.add_file(exif_path).await.unwrap();
+
+        let files = service.get_files().await;
+        assert_eq!(files.len(), 2);
+        assert_eq!(files[0].filename, "exif_new.jpg", "EXIF time must win over newer mtime");
+        assert_eq!(files[1].filename, "mtime_new.jpg");
+        assert!(files[0].exif_time.is_some(), "EXIF time must be recorded for the EXIF file");
+        assert!(files[1].exif_time.is_none(), "no EXIF file must fall back to mtime");
+        assert!(files[0].sort_time > files[1].sort_time);
     }
 }
