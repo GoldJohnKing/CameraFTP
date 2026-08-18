@@ -493,8 +493,8 @@ mod tests {
     // before any FFI/output-path work — which still exercises the full
     // queue/progress/Done machinery deterministically without the native lib.
 
+    use crate::utils::test_support::{event_collector, wait_until};
     use std::time::Duration;
-    use tauri::Listener;
 
     fn make_task(name: &str) -> ColorGradingTask {
         ColorGradingTask {
@@ -505,39 +505,12 @@ mod tests {
         }
     }
 
-    /// Collects deserialized `color-grading-progress` events from the mock app.
-    fn event_collector(handle: &tauri::AppHandle<tauri::test::MockRuntime>) -> Arc<std::sync::Mutex<Vec<ColorGradingEvent>>> {
-        let events: Arc<std::sync::Mutex<Vec<ColorGradingEvent>>> = Arc::new(std::sync::Mutex::new(Vec::new()));
-        let sink = Arc::clone(&events);
-        handle.listen("color-grading-progress", move |e| {
-            if let Ok(ev) = serde_json::from_str::<ColorGradingEvent>(e.payload()) {
-                sink.lock().unwrap().push(ev);
-            }
-        });
-        events
-    }
-
-    /// Polls `probe` until it returns `Some` or the timeout elapses (panics).
-    async fn wait_until<T>(timeout: Duration, mut probe: impl FnMut() -> Option<T>) -> T {
-        let deadline = tokio::time::Instant::now() + timeout;
-        loop {
-            if let Some(value) = probe() {
-                return value;
-            }
-            assert!(
-                tokio::time::Instant::now() < deadline,
-                "timed out after {:?} waiting for condition",
-                timeout
-            );
-            tokio::time::sleep(Duration::from_millis(10)).await;
-        }
-    }
-
     #[tokio::test]
     async fn worker_loop_fails_unknown_lut_tasks_and_emits_done() {
         let app = tauri::test::mock_app();
         let handle = app.handle().clone();
-        let events = event_collector(&handle);
+        let events: Arc<std::sync::Mutex<Vec<ColorGradingEvent>>> =
+            event_collector(&handle, "color-grading-progress");
 
         let (sender, receiver) = mpsc::channel::<ColorGradingTask>(16);
         let queue_depth = QueueDepth::new();
@@ -608,7 +581,8 @@ mod tests {
     async fn worker_loop_cancel_drains_pending_tasks_and_recovers_with_fresh_token() {
         let app = tauri::test::mock_app();
         let handle = app.handle().clone();
-        let events = event_collector(&handle);
+        let events: Arc<std::sync::Mutex<Vec<ColorGradingEvent>>> =
+            event_collector(&handle, "color-grading-progress");
 
         let (sender, receiver) = mpsc::channel::<ColorGradingTask>(16);
         let queue_depth = QueueDepth::new();

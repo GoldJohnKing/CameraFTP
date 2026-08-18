@@ -28,7 +28,8 @@ function makeDraft(): AppConfig {
       evOffset: 1.2,
       meteringMode: 'center',
     },
-    server: { port: 2121 },
+    savePath: '/tmp/photos',
+    port: 2121,
   } as unknown as AppConfig;
 }
 
@@ -102,6 +103,7 @@ describe('applyColorGradingLastUsed', () => {
   it('preserves unrelated top-level config fields', () => {
     const result = applyColorGradingLastUsed(makeDraft(), LAST_USED, true);
 
-    expect(result.server).toEqual({ port: 2121 });
+    expect(result.port).toBe(2121);
+    expect(result.savePath).toBe('/tmp/photos');
   });
 });
