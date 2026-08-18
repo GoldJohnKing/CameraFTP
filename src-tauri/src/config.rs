@@ -195,8 +195,8 @@ pub fn set_app_config_dir(dir: PathBuf) {
     }
 }
 
-/// 获取应用数据目录（从缓存读取，无需加锁）
-fn get_app_config_dir() -> PathBuf {
+/// 获取应用数据目录（从 OnceLock 缓存读取，无需加锁）
+pub fn app_config_dir() -> PathBuf {
     APP_CONFIG_DIR.get().cloned().unwrap_or_else(|| {
         #[cfg(target_os = "android")]
         {
@@ -209,11 +209,6 @@ fn get_app_config_dir() -> PathBuf {
                 .unwrap_or_else(|| PathBuf::from("./config"))
         }
     })
-}
-
-/// 获取应用数据目录的公共接口
-pub fn app_config_dir() -> PathBuf {
-    get_app_config_dir()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -260,6 +255,7 @@ fn default_android_image_viewer() -> Option<AndroidImageViewerConfig> {
     Some(AndroidImageViewerConfig::default())
 }
 
+// desktop-generic (not android-specific)
 #[cfg(not(target_os = "android"))]
 const fn default_android_image_viewer() -> Option<AndroidImageViewerConfig> {
     None
@@ -329,7 +325,7 @@ impl AppConfig {
     }
 
     pub fn config_path() -> PathBuf {
-        get_app_config_dir().join("config.json")
+        app_config_dir().join("config.json")
     }
 
     pub fn normalized_for_current_platform(self) -> Self {
@@ -340,7 +336,8 @@ impl AppConfig {
             config
         }
 
-        #[cfg(not(target_os = "android"))]
+        // desktop-generic (not android-specific)
+#[cfg(not(target_os = "android"))]
         {
             self
         }
@@ -355,26 +352,13 @@ impl AppConfig {
             return Err("Save path cannot be empty".to_string());
         }
 
-        if let Some(ref cg) = self.auto_color_grading {
-            let valid = crate::color_grading::presets::METERING_MODES
-                .iter().any(|(k, _)| k == &cg.metering_mode);
-            if !valid {
-                tracing::warn!(
-                    "Invalid metering_mode '{}', ignoring (will use FFI default)",
-                    cg.metering_mode
-                );
-            }
-        }
-
-        if let Some(ref lu) = self.color_grading_last_used {
-            let valid = crate::color_grading::presets::METERING_MODES
-                .iter().any(|(k, _)| k == &lu.metering_mode);
-            if !valid {
-                tracing::warn!(
-                    "Invalid last-used metering_mode '{}', ignoring (will use FFI default)",
-                    lu.metering_mode
-                );
-            }
+        // 启用认证时用户名不能为空：空用户名会让 FtpAuthConfig::from 静默回退为
+        // 匿名模式，与用户预期的“已开启认证”不符（安全隐患），应在保存前拦截。
+        if self.advanced_connection.enabled
+            && !self.advanced_connection.auth.anonymous
+            && self.advanced_connection.auth.username.trim().is_empty()
+        {
+            return Err("启用高级连接认证时用户名不能为空".to_string());
         }
 
         Ok(())
@@ -458,13 +442,28 @@ mod tests {
     }
 
     #[test]
-    fn auth_enabled_with_empty_username_passes_validation() {
-        // validate() only checks port and save_path — empty username is allowed
+    fn port_zero_fails_validation() {
+        let mut config = AppConfig::default();
+        config.port = 0;
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn auth_enabled_with_empty_username_fails_validation() {
+        // 启用认证（非匿名）但用户名为空：应被拒绝，
+        // 否则 FtpAuthConfig::from 会静默回退为匿名模式
         let mut config = AppConfig::default();
         config.advanced_connection.enabled = true;
         config.advanced_connection.auth.anonymous = false;
         config.advanced_connection.auth.username = String::new();
-        assert!(config.validate().is_ok());
+        assert!(config.validate().is_err());
+
+        // 纯空白用户名同样视为空
+        config.advanced_connection.auth.username = "   ".to_string();
+        assert!(
+            config.validate().is_err(),
+            "whitespace-only username should be rejected"
+        );
     }
 
     #[test]
@@ -474,6 +473,16 @@ mod tests {
         config.advanced_connection.auth.anonymous = false;
         config.advanced_connection.auth.username = "admin".to_string();
         config.advanced_connection.auth.password_hash = "somehash".to_string();
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn anonymous_auth_with_empty_username_passes_validation() {
+        // 匿名模式下用户名无意义，空用户名不应导致校验失败
+        let mut config = AppConfig::default();
+        config.advanced_connection.enabled = true;
+        config.advanced_connection.auth.anonymous = true;
+        config.advanced_connection.auth.username = String::new();
         assert!(config.validate().is_ok());
     }
 
@@ -490,7 +499,8 @@ mod tests {
             PathBuf::from(crate::constants::ANDROID_DEFAULT_STORAGE_PATH)
         );
 
-        #[cfg(not(target_os = "android"))]
+        // desktop-generic (not android-specific)
+#[cfg(not(target_os = "android"))]
         assert_eq!(normalized.save_path, PathBuf::from("/tmp/custom-cameraftp"));
     }
 }
