@@ -51,7 +51,7 @@ export const permissionBridge = {
 
   /**
    * Check all permissions
-   * @returns 权限检查结果，非 Android 平台返回 null
+   * @returns 权限检查结果，bridge 不可用（window.PermissionAndroid 未注入）时返回 null
    */
   async checkAll(): Promise<PermissionCheckResult | null> {
     if (!isPermissionAndroidAvailable()) {

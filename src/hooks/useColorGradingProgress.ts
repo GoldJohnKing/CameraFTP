@@ -10,7 +10,7 @@ import { createTaskProgressHook } from './createTaskProgressHook';
 import type { TaskProgressState } from './createTaskProgressHook';
 import { DEFAULT_METERING_MODE, DEFAULT_EV_OFFSET } from '../constants/color-grading';
 
-export interface ColorGradingProgressState {
+interface ColorGradingProgressState {
   isProcessing: boolean;
   isDone: boolean;
   current: number;

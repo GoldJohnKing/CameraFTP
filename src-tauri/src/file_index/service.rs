@@ -158,7 +158,7 @@ impl FileIndexService {
         info!("Starting directory scan: {:?}", save_path);
         
         let mut files = Vec::new();
-        self.scan_recursive(&save_path, &mut files).await?;
+        self.scan_directory_iterative(&save_path, &mut files).await?;
         
         // 按 sort_time 降序，相同则按 modified_time 降序（新文件优先）
         files.sort_by(|a, b| {
@@ -180,7 +180,7 @@ impl FileIndexService {
     }
 
     /// Scan directories iteratively using a work stack
-    async fn scan_recursive(&self, root: &Path, files: &mut Vec<FileInfo>) -> Result<(), AppError> {
+    async fn scan_directory_iterative(&self, root: &Path, files: &mut Vec<FileInfo>) -> Result<(), AppError> {
         let mut dirs_to_process = vec![root.to_path_buf()];
 
         while let Some(dir) = dirs_to_process.pop() {

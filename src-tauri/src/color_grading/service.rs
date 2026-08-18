@@ -88,20 +88,6 @@ impl ColorGradingService {
         }
     }
 
-    /// Whether NN demosaic is currently enabled. Defaults to true on all
-    /// platforms; may be flipped at runtime via `set_nn_enabled` for future
-    /// per-device gating/telemetry.
-    pub fn is_nn_enabled(&self) -> bool {
-        self.nn_enabled.load(Ordering::Relaxed)
-    }
-
-    /// Update the NN demosaic gate at runtime (e.g. per-device gating/telemetry).
-    /// The worker reads the current value on each file, so a flip takes effect
-    /// for the next enqueued task without restarting the worker.
-    pub fn set_nn_enabled(&self, enabled: bool) {
-        self.nn_enabled.store(enabled, Ordering::Relaxed);
-    }
-
     /// Lazily spawn the worker on first use, or respawn after the worker exits
     /// (panic or shutdown — detected via `sender.is_closed()`). Workers do not
     /// have an idle-timeout; they run for the app's lifetime once spawned.

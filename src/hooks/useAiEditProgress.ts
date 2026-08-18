@@ -10,7 +10,7 @@ import { createTaskProgressHook } from './createTaskProgressHook';
 import type { TaskProgressState } from './createTaskProgressHook';
 import { useConfigStore } from '../stores/configStore';
 
-export interface AiEditProgressState {
+interface AiEditProgressState {
   isEditing: boolean;
   isDone: boolean;
   current: number;

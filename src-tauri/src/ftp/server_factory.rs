@@ -48,12 +48,19 @@ pub(crate) async fn start_ftp_server(
 
     // 统一通过 PlatformService 验证存储路径
     // 这会处理平台特定的权限检查和目录创建
-    let save_path = crate::platform::get_platform()
-        .ensure_storage_ready(&app_handle)
-        .map_err(|e| {
-            error!(error = %e, "Storage not ready");
-            AppError::StoragePermissionError(e)
-        })?;
+    // 平台实现内部包含阻塞的文件系统检查（exists/create_dir_all/可写探测），
+    // 放入 spawn_blocking 避免阻塞异步运行时
+    let app_handle_for_storage = app_handle.clone();
+    let save_path = tokio::task::spawn_blocking(move || {
+        crate::platform::get_platform()
+            .ensure_storage_ready(&app_handle_for_storage)
+            .map_err(|e| {
+                error!(error = %e, "Storage not ready");
+                AppError::StoragePermissionError(e)
+            })
+    })
+    .await
+    .map_err(|e| AppError::Other(format!("Storage readiness task failed: {}", e)))??;
 
     // ensure_storage_ready 返回已验证的存储路径，转换为 PathBuf 供后续使用
     let save_path = std::path::PathBuf::from(save_path);

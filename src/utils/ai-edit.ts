@@ -7,7 +7,7 @@
 import { SEEDREAM_MODELS } from '../types';
 import type { AppConfig } from '../types';
 
-export interface AiEditCallContext {
+interface AiEditCallContext {
   /**
    * Default prompt for UI dialogs (native Android dialog and web dialog).
    * Product ruling (#4): dialogs fall back to manualPrompt ONLY — when it is

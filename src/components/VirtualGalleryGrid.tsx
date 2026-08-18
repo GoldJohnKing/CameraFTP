@@ -15,7 +15,7 @@ const OVERSCAN_ROWS = 3;
 const NEAR_END_THRESHOLD = 5;
 const SCROLL_END_DELAY = 150;
 
-export interface VirtualGalleryGridProps {
+interface VirtualGalleryGridProps {
   items: MediaItemDto[];
   thumbnails: Map<string, string>;
   loadingThumbs: Set<string>;

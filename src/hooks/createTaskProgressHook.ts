@@ -31,27 +31,27 @@ const initialTaskProgressState: TaskProgressState = {
 const GALLERY_REFRESH_DELAY_MS = 500;
 
 /** Discriminated union for type-safe event switching inside the factory. */
-export type StandardTaskEvent =
+type StandardTaskEvent =
   | { type: 'progress'; current: number; total: number; fileName: string; failedCount: number }
   | { type: 'completed'; current: number; total: number; fileName: string; failedCount: number; outputPath?: string }
   | { type: 'done'; total: number; failedCount: number; failedFiles: string[]; outputFiles: string[]; cancelled: boolean };
 
 /** Shape of the `done` event — used in `onDone` callback. */
-export type DoneEvent = Extract<StandardTaskEvent, { type: 'done' }>;
+type DoneEvent = Extract<StandardTaskEvent, { type: 'done' }>;
 
 /**
  * Native-layer adapter. Provide one to let the factory handle the common
  * progress/done glue (native progress sync, queued-total expansion, and the
  * done notification) instead of duplicating it per hook.
  */
-export interface TaskProgressNativeBridge {
+interface TaskProgressNativeBridge {
   /** Push (current, total, failedCount) to the native progress UI. */
   syncProgress: (current: number, total: number, failedCount: number) => void;
   /** Notify the native layer that the batch finished. */
   notifyDone: (success: boolean, message: string | null, cancelled: boolean) => void;
 }
 
-export interface TaskProgressHookConfig<TEvent extends { type: string }> {
+interface TaskProgressHookConfig<TEvent extends { type: string }> {
   eventName: string;
   debugLabel: string;
   refreshReason: MediaLibraryRefreshReason;

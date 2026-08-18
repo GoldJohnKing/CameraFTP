@@ -13,7 +13,7 @@ use crate::platform::{
 };
 
 // ============================================================================
-// 存储权限管理命令（从 storage_permission.rs 迁移）
+// 存储权限管理命令
 // ============================================================================
 
 /// 获取存储路径信息（Android 为固定路径，Windows 返回空 path 由用户配置）
@@ -29,21 +29,35 @@ pub async fn get_storage_info() -> Result<StorageInfo, AppError> {
 /// 检查权限状态
 #[command]
 pub async fn check_permission_status() -> Result<PermissionStatus, AppError> {
-    Ok(get_platform_service().check_permission_status())
+    // Android 平台实现内部包含阻塞的文件系统检查（DCIM 可写探测），
+    // 放入 spawn_blocking 避免阻塞异步命令线程
+    tokio::task::spawn_blocking(|| get_platform_service().check_permission_status())
+        .await
+        .map_err(|e| AppError::Other(format!("Permission status task failed: {}", e)))
 }
 
 /// 确保存储目录存在且可写
 #[command]
 pub async fn ensure_storage_ready(app: AppHandle) -> Result<String, AppError> {
-    get_platform_service()
-        .ensure_storage_ready(&app)
-        .map_err(AppError::StoragePermissionError)
+    // 平台实现内部包含阻塞的文件系统检查（exists/create_dir_all/可写探测），
+    // 放入 spawn_blocking 避免阻塞异步命令线程
+    tokio::task::spawn_blocking(move || {
+        get_platform_service()
+            .ensure_storage_ready(&app)
+            .map_err(AppError::StoragePermissionError)
+    })
+    .await
+    .map_err(|e| AppError::Other(format!("Storage readiness task failed: {}", e)))?
 }
 
 /// 检查服务器启动前提条件
 #[command]
 pub async fn check_server_start_prerequisites() -> Result<ServerStartCheckResult, AppError> {
-    Ok(get_platform_service().check_server_start_prerequisites())
+    // Android 平台实现内部经 get_storage_info 执行阻塞的文件系统检查，
+    // 放入 spawn_blocking 避免阻塞异步命令线程
+    tokio::task::spawn_blocking(|| get_platform_service().check_server_start_prerequisites())
+        .await
+        .map_err(|e| AppError::Other(format!("Server start prerequisites task failed: {}", e)))
 }
 
 /// 获取当前平台名称
