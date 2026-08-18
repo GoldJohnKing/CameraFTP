@@ -11,7 +11,8 @@ import { useSavedConfig } from '../stores/configStore';
 import { Card, IconContainer } from './ui';
 
 export const InfoCard = memo(function InfoCard() {
-  const { serverInfo, isRunning } = useServerStore();
+  const serverInfo = useServerStore((state) => state.serverInfo);
+  const isRunning = useServerStore((state) => state.isRunning);
   const config = useSavedConfig();
 
   if (!isRunning || !serverInfo) {

@@ -16,7 +16,8 @@ import { useColorGradingPresets } from '../hooks/useColorGradingPresets';
 import { ExposureConfigSection } from './ExposureConfigSection';
 
 export const AutoColorGradingConfigCard = memo(function AutoColorGradingConfigCard() {
-  const { isLoading, updateDraft } = useConfigStore();
+  const isLoading = useConfigStore((state) => state.isLoading);
+  const updateDraft = useConfigStore((state) => state.updateDraft);
   const draft = useDraftConfig();
   const colorGradingPresets = useColorGradingPresets();
 

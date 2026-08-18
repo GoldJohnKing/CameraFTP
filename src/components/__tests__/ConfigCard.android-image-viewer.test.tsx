@@ -19,20 +19,28 @@ vi.mock('@tauri-apps/api/core', () => ({
   invoke: invokeMock,
 }));
 
-vi.mock('../../stores/permissionStore', () => ({
-  usePermissionStore: () => ({
+vi.mock('../../stores/permissionStore', () => {
+  const state = {
     storageInfo: null,
     needsPermission: false,
     ensureStorageReady: vi.fn(),
     checkPermissions: vi.fn(),
-  }),
-}));
+  };
+  return {
+    usePermissionStore: (selector?: (s: typeof state) => unknown) =>
+      selector ? selector(state) : state,
+  };
+});
 
-vi.mock('../../stores/serverStore', () => ({
-  useServerStore: () => ({
+vi.mock('../../stores/serverStore', () => {
+  const state = {
     isRunning: false,
-  }),
-}));
+  };
+  return {
+    useServerStore: (selector?: (s: typeof state) => unknown) =>
+      selector ? selector(state) : state,
+  };
+});
 
 vi.mock('../PermissionList', () => ({ PermissionList: () => <div>PermissionList</div> }));
 vi.mock('../PathSelector', () => ({ PathSelector: () => <div>PathSelector</div> }));

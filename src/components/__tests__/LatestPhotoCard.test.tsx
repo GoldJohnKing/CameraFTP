@@ -23,13 +23,17 @@ vi.mock('../../hooks/useImagePreviewOpener', () => ({
   useImagePreviewOpener: () => openPreviewMock,
 }));
 
-vi.mock('../../stores/serverStore', () => ({
-  useServerStore: () => ({
+vi.mock('../../stores/serverStore', () => {
+  const state = {
     stats: {
       lastFile: null,
     },
-  }),
-}));
+  };
+  return {
+    useServerStore: (selector?: (s: typeof state) => unknown) =>
+      selector ? selector(state) : state,
+  };
+});
 
 vi.mock('../ui', () => ({
   IconContainer: ({ children }: { children: ReactNode }) => <div>{children}</div>,

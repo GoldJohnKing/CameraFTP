@@ -6,7 +6,6 @@
 
 import { useEffect } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { invoke } from '@tauri-apps/api/core';
 import { Camera, X } from 'lucide-react';
 import { ServerCard } from './components/ServerCard';
 import { StatsCard } from './components/StatsCard';
@@ -20,16 +19,15 @@ import { PermissionDialog } from './components/PermissionDialog';
 import { PreviewWindow } from './components/PreviewWindow';
 import { useAppBootstrap } from './bootstrap/useAppBootstrap';
 import { useQuitFlow } from './hooks/useQuitFlow';
-import { applyAndEnqueueAiEdit, getCurrentAiEditProgress } from './hooks/useAiEditProgress';
-import { getCurrentColorGradingProgress } from './hooks/useColorGradingProgress';
-import { getCachedColorGradingPresets } from './hooks/useColorGradingPresets';
+import { registerNativeViewerBridges } from './services/native-viewer-bridge';
 import { useServerStore } from './stores/serverStore';
 import { useConfigStore } from './stores/configStore';
 
 function App() {
-  const { showPermissionDialog, closePermissionDialog, continueAfterPermissionsGranted } = useServerStore();
-  const { activeTab } = useConfigStore();
-  const updateDraft = useConfigStore(state => state.updateDraft);
+  const showPermissionDialog = useServerStore((state) => state.showPermissionDialog);
+  const closePermissionDialog = useServerStore((state) => state.closePermissionDialog);
+  const continueAfterPermissionsGranted = useServerStore((state) => state.continueAfterPermissionsGranted);
+  const activeTab = useConfigStore((state) => state.activeTab);
   const isPreviewWindow = getCurrentWindow().label === 'preview';
   const { showQuitDialog, closeQuitDialog, handleQuitConfirm } = useQuitFlow({ enabled: !isPreviewWindow });
 
@@ -37,115 +35,8 @@ function App() {
 
   // Register JS functions for native Android ImageViewerActivity integration (AI edit, color grading, previews)
   useEffect(() => {
-    const w = window as unknown as Record<string, unknown>;
-
-    w.__tauriGetAiEditPrompt = () => {
-      const draft = useConfigStore.getState().draft;
-      const manualPrompt = draft?.aiEdit?.manualPrompt || '';
-      const manualModel = draft?.aiEdit?.manualModel || '';
-      const prompt = manualPrompt || draft?.aiEdit?.prompt || '';
-      const model = manualModel || (draft?.aiEdit?.provider?.type === 'seed-edit' ? draft.aiEdit.provider.model : '') || '';
-      const autoEdit = draft?.aiEdit?.autoEdit ?? false;
-      const hasApiKey = draft?.aiEdit?.provider?.type === 'seed-edit' ? !!draft.aiEdit.provider.apiKey : true;
-      return JSON.stringify({ prompt, model, autoEdit, hasApiKey });
-    };
-
-    w.__tauriTriggerAiEditWithPrompt = async (filePath: string, prompt: string, model?: string, saveAsAutoEdit?: boolean, apiKey?: string) => {
-      await applyAndEnqueueAiEdit({ filePaths: [filePath], prompt, model: model ?? '', saveAsAutoEdit, apiKey });
-    };
-
-    w.__tauriGetAiEditProgress = () => {
-      return getCurrentAiEditProgress();
-    };
-
-    w.__tauriCancelAiEdit = async () => {
-      const { cancelAiEdit } = await import('./hooks/useAiEditProgress');
-      await cancelAiEdit();
-    };
-
-    w.__tauriGetAutoColorGradingEnabled = () => {
-      const draft = useConfigStore.getState().draft;
-      return String(draft?.autoColorGrading?.enabled ?? false);
-    };
-
-    w.__tauriGetColorGradingLastUsed = () => {
-      const draft = useConfigStore.getState().draft;
-      return JSON.stringify(draft?.colorGradingLastUsed ?? null);
-    };
-
-    w.__tauriGetColorGradingPresets = () => {
-      return JSON.stringify(getCachedColorGradingPresets().map(p => [p.id, p.displayName]));
-    };
-
-    w.__tauriTriggerColorGrading = async (filePath: string, lutId: string, meteringMode: string, evOffset: number, syncToAuto: boolean) => {
-      const { enqueueColorGrading } = await import('./hooks/useColorGradingProgress');
-      await enqueueColorGrading([filePath], lutId, meteringMode, evOffset);
-
-      updateDraft(d => ({
-        ...d,
-        colorGradingLastUsed: {
-          presetId: lutId,
-          meteringMode,
-          evOffset,
-        },
-        ...(syncToAuto && d.autoColorGrading ? {
-          autoColorGrading: {
-            ...d.autoColorGrading,
-            presetId: lutId,
-            meteringMode,
-            evOffset,
-          },
-        } : {}),
-      }));
-    };
-
-    w.__tauriGetColorGradingProgress = () => {
-      return getCurrentColorGradingProgress();
-    };
-
-    w.__tauriCancelColorGrading = async () => {
-      const { cancelColorGrading } = await import('./hooks/useColorGradingProgress');
-      await cancelColorGrading();
-    };
-
-    w.__tauriBeginColorGradingPreview = async (filePath: string) => {
-      await invoke('begin_color_grading_preview', { imagePath: filePath });
-    };
-
-    w.__tauriApplyColorGradingPreview = async (lutId: string, meteringMode: string, evOffset: number) => {
-      return await invoke<string>('apply_color_grading_preview', {
-        lutId, meteringMode, evOffset,
-      });
-    };
-
-    w.__tauriEndColorGradingPreview = async () => {
-      await invoke('end_color_grading_preview');
-    };
-
-    w.__tauriSaveColorGradingLastUsed = (lutId: string, meteringMode: string, evOffset: number) => {
-      updateDraft(d => ({
-        ...d,
-        colorGradingLastUsed: { presetId: lutId, meteringMode, evOffset },
-      }));
-    };
-
-    return () => {
-      delete w.__tauriGetAiEditPrompt;
-      delete w.__tauriTriggerAiEditWithPrompt;
-      delete w.__tauriGetAiEditProgress;
-      delete w.__tauriCancelAiEdit;
-      delete w.__tauriGetAutoColorGradingEnabled;
-      delete w.__tauriGetColorGradingLastUsed;
-      delete w.__tauriGetColorGradingPresets;
-      delete w.__tauriTriggerColorGrading;
-      delete w.__tauriGetColorGradingProgress;
-      delete w.__tauriCancelColorGrading;
-      delete w.__tauriBeginColorGradingPreview;
-      delete w.__tauriApplyColorGradingPreview;
-      delete w.__tauriEndColorGradingPreview;
-      delete w.__tauriSaveColorGradingLastUsed;
-    };
-  }, [updateDraft]);
+    return registerNativeViewerBridges();
+  }, []);
 
   // 如果是预览窗口，直接渲染预览组件
   if (isPreviewWindow) {

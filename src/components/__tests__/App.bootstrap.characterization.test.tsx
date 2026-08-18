@@ -42,13 +42,17 @@ vi.mock('@tauri-apps/api/window', () => ({
   getCurrentWindow: vi.fn(() => ({ label: currentWindowLabel })),
 }));
 
-vi.mock('../../stores/serverStore', () => ({
-  useServerStore: () => ({
+vi.mock('../../stores/serverStore', () => {
+  const state = {
     showPermissionDialog: false,
     closePermissionDialog: closePermissionDialogMock,
     continueAfterPermissionsGranted: continueAfterPermissionsGrantedMock,
-  }),
-}));
+  };
+  return {
+    useServerStore: (selector?: (s: typeof state) => unknown) =>
+      selector ? selector(state) : state,
+  };
+});
 
 vi.mock('../../hooks/useQuitFlow', () => ({
   useQuitFlow: useQuitFlowMock,
@@ -64,14 +68,23 @@ vi.mock('../../services/server-events', () => ({
   initializeServerEvents: initializeServerEventsMock,
 }));
 
-vi.mock('../../stores/configStore', () => ({
-  useConfigStore: () => ({
-    activeTab: 'home',
+vi.mock('../../stores/configStore', () => {
+  // Lazy state: vi.mock factories run before test-body `let` declarations
+  // initialize, so the object must be built per call, not at mock time.
+  const getState = () => ({
+    activeTab: 'home' as const,
     loadConfig: loadConfigMock,
     loadPlatform: loadPlatformMock,
     platform: currentPlatform,
-  }),
-}));
+    updateDraft: vi.fn(),
+  });
+  const useConfigStore = (selector?: (s: ReturnType<typeof getState>) => unknown) => {
+    const state = getState();
+    return selector ? selector(state) : state;
+  };
+  (useConfigStore as unknown as { getState: () => ReturnType<typeof getState> }).getState = getState;
+  return { useConfigStore };
+});
 
 vi.mock('../../stores/permissionStore', () => ({
   usePermissionStore: (selector: (state: { initialize: () => void }) => unknown) => selector({ initialize: initializePermissionsMock }),

@@ -28,13 +28,17 @@ vi.mock('@tauri-apps/api/core', () => ({
   invoke: invokeMock,
 }));
 
-vi.mock('../../stores/configStore', () => ({
-  useConfigStore: () => ({
+vi.mock('../../stores/configStore', () => {
+  const state = () => ({
     updateDraft: updateDraftMock,
     isLoading: false,
-  }),
-  useDraftConfig: useDraftConfigMock,
-}));
+  });
+  return {
+    useConfigStore: (selector?: (s: ReturnType<typeof state>) => unknown) =>
+      selector ? selector(state()) : state(),
+    useDraftConfig: useDraftConfigMock,
+  };
+});
 
 import { AutoColorGradingConfigCard } from '../AutoColorGradingConfigCard';
 

@@ -28,24 +28,20 @@ const DEFAULT_ADVANCED_CONFIG: AdvancedConnectionConfig = {
 };
 
 export const ConfigCard = memo(function ConfigCard() {
-  const {
-    isLoading,
-    error,
-    setAutostart,
-    updateDraft,
-  } = useConfigStore();
+  const isLoading = useConfigStore((state) => state.isLoading);
+  const error = useConfigStore((state) => state.error);
+  const setAutostart = useConfigStore((state) => state.setAutostart);
+  const updateDraft = useConfigStore((state) => state.updateDraft);
 
   // 使用 draft（编辑界面订阅 draft，而非 config）
   const draft = useDraftConfig();
 
-  const {
-    storageInfo,
-    needsPermission,
-    ensureStorageReady,
-    checkPermissions,
-  } = usePermissionStore();
+  const storageInfo = usePermissionStore((state) => state.storageInfo);
+  const needsPermission = usePermissionStore((state) => state.needsPermission);
+  const ensureStorageReady = usePermissionStore((state) => state.ensureStorageReady);
+  const checkPermissions = usePermissionStore((state) => state.checkPermissions);
 
-  const { isRunning } = useServerStore();
+  const isRunning = useServerStore((state) => state.isRunning);
   const { platform, isWindows: isDesktop, isAndroid } = usePlatform();
 
   const [autostartEnabled, setAutostartEnabled] = useState(false);

@@ -29,7 +29,6 @@ describe('image-open service', () => {
       isAppVisible: vi.fn().mockReturnValue(true),
       onExifResult,
       onExifResultForPosition: vi.fn(),
-      requestExifForPositions: vi.fn(),
       resolveFilePath: vi.fn().mockReturnValue('/real/path.jpg'),
     };
 
@@ -54,7 +53,6 @@ describe('image-open service', () => {
       isAppVisible: vi.fn().mockReturnValue(true),
       onExifResult: vi.fn(),
       onExifResultForPosition: vi.fn(),
-      requestExifForPositions: vi.fn(),
       resolveFilePath: vi.fn().mockReturnValue('content://media/3'),
     };
 
@@ -75,7 +73,6 @@ describe('image-open service', () => {
       isAppVisible: vi.fn().mockReturnValue(true),
       onExifResult: vi.fn(),
       onExifResultForPosition: vi.fn(),
-      requestExifForPositions: vi.fn(),
       resolveFilePath: vi.fn().mockReturnValue('/real/path.jpg'),
     };
 
@@ -100,7 +97,6 @@ describe('image-open service', () => {
           isAppVisible: vi.fn().mockReturnValue(true),
           onExifResult: vi.fn(),
           onExifResultForPosition: vi.fn(),
-          requestExifForPositions: vi.fn(),
           resolveFilePath: vi.fn().mockReturnValue('/real/path.jpg'),
         };
       },
@@ -117,7 +113,6 @@ describe('image-open service', () => {
           isAppVisible: vi.fn().mockReturnValue(true),
           onExifResult: vi.fn(),
           onExifResultForPosition: vi.fn(),
-          requestExifForPositions: vi.fn(),
           resolveFilePath: vi.fn().mockReturnValue('/real/path.jpg'),
         };
       },
@@ -195,7 +190,6 @@ describe('image-open service', () => {
         isAppVisible: vi.fn(),
         onExifResult: vi.fn(),
         onExifResultForPosition,
-        requestExifForPositions: vi.fn(),
         resolveFilePath: vi.fn().mockReturnValue('/real/path.jpg'),
       };
       vi.mocked(invoke).mockResolvedValue({ iso: 400, aperture: 'f/2.8' });
@@ -217,7 +211,6 @@ describe('image-open service', () => {
         isAppVisible: vi.fn(),
         onExifResult: vi.fn(),
         onExifResultForPosition,
-        requestExifForPositions: vi.fn(),
         resolveFilePath: vi.fn().mockReturnValue('/real/path.jpg'),
       };
       vi.mocked(invoke).mockRejectedValue(new Error('EXIF failed'));
@@ -232,7 +225,6 @@ describe('image-open service', () => {
         openOrNavigateTo: vi.fn(),
         isAppVisible: vi.fn(),
         onExifResult: vi.fn(),
-        requestExifForPositions: vi.fn(),
         resolveFilePath: vi.fn(),
       } as unknown as Window['ImageViewerAndroid'];
 

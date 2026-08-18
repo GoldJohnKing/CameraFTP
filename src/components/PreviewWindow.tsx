@@ -22,6 +22,7 @@ import { applyAndEnqueueAiEdit } from '../hooks/useAiEditProgress';
 import { ColorGradingDialog } from './ColorGradingDialog';
 import { enqueueColorGrading } from '../hooks/useColorGradingProgress';
 import { isRawFile as isRawFileType } from '../utils/raw';
+import { getAiEditCallContext } from '../utils/ai-edit';
 
 export function PreviewWindow() {
   const state = usePreviewWindowLifecycle();
@@ -486,8 +487,8 @@ const PreviewWindowContent = memo(function PreviewWindowContent({
         isOpen={showPromptDialog}
         defaultPrompt={draft?.aiEdit?.manualPrompt || ''}
         defaultModel={draft?.aiEdit?.manualModel || undefined}
-        autoEditEnabled={draft?.aiEdit?.autoEdit ?? false}
-        hasApiKey={draft?.aiEdit?.provider?.type === 'seed-edit' ? !!draft.aiEdit.provider.apiKey : true}
+        autoEditEnabled={getAiEditCallContext(draft).autoEdit}
+        hasApiKey={getAiEditCallContext(draft).hasApiKey}
         onConfirm={handlePromptConfirm}
         onCancel={() => setShowPromptDialog(false)}
       />

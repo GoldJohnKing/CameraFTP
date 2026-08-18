@@ -10,7 +10,7 @@ import { flush } from '../../test-utils/flush';
 import { setupReactRoot } from '../../test-utils/react-root';
 import type { ColorGradingPreset } from '../../types';
 
-const { updateDraftMock, setDraft, useDraftConfigMock } = vi.hoisted(() => {
+const { updateDraftMock, setDraft, useDraftConfigMock, toastErrorMock } = vi.hoisted(() => {
   let draftState: Record<string, unknown> | null = null;
   return {
     updateDraftMock: vi.fn().mockImplementation((fn: (d: Record<string, unknown>) => Record<string, unknown>) => {
@@ -18,16 +18,25 @@ const { updateDraftMock, setDraft, useDraftConfigMock } = vi.hoisted(() => {
     }),
     useDraftConfigMock: () => draftState,
     setDraft: (d: Record<string, unknown> | null) => { draftState = d; },
+    toastErrorMock: vi.fn(),
   };
 });
 
-vi.mock('../../stores/configStore', () => ({
-  useConfigStore: () => ({
+vi.mock('sonner', () => ({
+  toast: { error: toastErrorMock },
+}));
+
+vi.mock('../../stores/configStore', () => {
+  const state = () => ({
     updateDraft: updateDraftMock,
     isLoading: false,
-  }),
-  useDraftConfig: useDraftConfigMock,
-}));
+  });
+  return {
+    useConfigStore: (selector?: (s: ReturnType<typeof state>) => unknown) =>
+      selector ? selector(state()) : state(),
+    useDraftConfig: useDraftConfigMock,
+  };
+});
 
 import { ColorGradingDialog } from '../ColorGradingDialog';
 
@@ -46,6 +55,7 @@ describe('ColorGradingDialog', () => {
     onConfirm.mockClear();
     onCancel.mockClear();
     updateDraftMock.mockClear();
+    toastErrorMock.mockClear();
     setDraft({
       colorGradingLastUsed: null,
       autoColorGrading: null,
@@ -102,6 +112,27 @@ describe('ColorGradingDialog', () => {
 
     expect(onConfirm).toHaveBeenCalledWith('fujifilm-provia', 'matrix', 0);
     expect(updateDraftMock).toHaveBeenCalled();
+    expect(toastErrorMock).not.toHaveBeenCalled();
+  });
+
+  it('toasts error instead of throwing when onConfirm rejects', async () => {
+    onConfirm.mockRejectedValue(new Error('enqueue failed'));
+
+    renderDialog(true);
+    await act(async () => { await flush(); });
+
+    const applyButton = Array.from(getContainer().querySelectorAll('button')).find(
+      b => b.textContent === '应用',
+    );
+    expect(applyButton).toBeTruthy();
+
+    await act(async () => {
+      applyButton!.click();
+      await flush();
+    });
+
+    expect(onConfirm).toHaveBeenCalledWith('fujifilm-provia', 'matrix', 0);
+    expect(toastErrorMock).toHaveBeenCalledWith('调色失败：enqueue failed');
   });
 
   it('calls onCancel when cancel button is clicked', async () => {

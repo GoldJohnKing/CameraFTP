@@ -33,7 +33,7 @@ export const FILTER_CATEGORY_LABEL: Record<GalleryFileCategory, string> = {
  * field is null (e.g. test fixtures, partial provider rows). Returns '' when no
  * extension is present.
  */
-export function getFileExtension(item: MediaItemDto): string {
+function getFileExtension(item: MediaItemDto): string {
   for (const candidate of [item.filePath, item.displayName, item.uri]) {
     if (!candidate) continue;
     const dotIndex = candidate.lastIndexOf('.');

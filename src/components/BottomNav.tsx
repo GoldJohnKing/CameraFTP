@@ -11,7 +11,8 @@ import { useConfigStore } from '../stores/configStore';
 import { usePlatform } from '../hooks/usePlatform';
 
 export const BottomNav = memo(function BottomNav() {
-  const { activeTab, setActiveTab } = useConfigStore();
+  const activeTab = useConfigStore((state) => state.activeTab);
+  const setActiveTab = useConfigStore((state) => state.setActiveTab);
   const { isAndroid } = usePlatform();
 
   const handleGalleryClick = useCallback(async () => {

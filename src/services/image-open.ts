@@ -125,20 +125,3 @@ export async function openImagePreview({
   await invoke('open_preview_window', { filePath });
 }
 
-// Register global handler for EXIF prefetch requests from native viewer.
-// Called via evaluateJavascript from ImageViewerActivity.
-if (typeof window !== 'undefined') {
-  (window as unknown as Record<string, unknown>).__requestExifForPositions = (
-    requestJson: string
-  ) => {
-    try {
-      const items = JSON.parse(requestJson) as Array<{
-        position: number;
-        uri: string;
-      }>;
-      void requestExifForPositions(items);
-    } catch {
-      // Ignore malformed requests
-    }
-  };
-}

@@ -11,7 +11,8 @@ import { Card, CardHeader } from './ui';
 import { AiEditConfigPanel } from './AiEditConfigPanel';
 
 export const AiEditConfigCard = memo(function AiEditConfigCard() {
-  const { isLoading, updateDraft } = useConfigStore();
+  const isLoading = useConfigStore((state) => state.isLoading);
+  const updateDraft = useConfigStore((state) => state.updateDraft);
   const draft = useDraftConfig();
 
   if (!draft) return null;

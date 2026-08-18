@@ -5,13 +5,14 @@
  */
 
 import { useState, useEffect, useRef } from 'react';
-import { Sparkles, Eye, EyeOff, ExternalLink } from 'lucide-react';
+import { toast } from 'sonner';
+import { Sparkles } from 'lucide-react';
 import { Dialog } from './ui/Dialog';
 import { ToggleSwitch } from './ui/ToggleSwitch';
-import { MaskedInput } from './ui/MaskedInput';
+import { ApiKeyField } from './ui/ApiKeyField';
 import { Select } from './ui/Select';
-import { SEEDREAM_MODELS, DEFAULT_SEEDREAM_MODEL } from '../constants/seedream-models';
-import { openExternalLink } from '../utils/external-link';
+import { SEEDREAM_MODELS, DEFAULT_SEEDREAM_MODEL } from '../types';
+import { formatError } from '../utils/error';
 
 interface PromptDialogProps {
   isOpen: boolean;
@@ -19,7 +20,7 @@ interface PromptDialogProps {
   defaultModel?: string;
   autoEditEnabled?: boolean;
   hasApiKey?: boolean;
-  onConfirm: (prompt: string, model: string, saveAsAutoEdit: boolean, apiKey?: string) => void;
+  onConfirm: (prompt: string, model: string, saveAsAutoEdit: boolean, apiKey?: string) => void | Promise<void>;
   onCancel: () => void;
 }
 
@@ -33,6 +34,10 @@ export function PromptDialog({ isOpen, defaultPrompt, defaultModel, autoEditEnab
   const apiKeyInputRef = useRef<HTMLInputElement>(null);
 
   const needsApiKey = hasApiKey === false;
+  // Keep the latest value for the deferred focus callback without re-running
+  // the reset effect (which would wipe user input) when hasApiKey changes.
+  const needsApiKeyRef = useRef(needsApiKey);
+  needsApiKeyRef.current = needsApiKey;
 
   useEffect(() => {
     if (isOpen) {
@@ -42,7 +47,7 @@ export function PromptDialog({ isOpen, defaultPrompt, defaultModel, autoEditEnab
       setApiKey('');
       setShowApiKey(false);
       requestAnimationFrame(() => {
-        if (needsApiKey) {
+        if (needsApiKeyRef.current) {
           apiKeyInputRef.current?.focus();
         } else {
           textareaRef.current?.focus();
@@ -53,9 +58,13 @@ export function PromptDialog({ isOpen, defaultPrompt, defaultModel, autoEditEnab
 
   const canConfirm = prompt.trim().length > 0 && (!needsApiKey || apiKey.trim().length > 0);
 
-  const handleConfirm = () => {
+  const handleConfirm = async () => {
     if (!canConfirm) return;
-    onConfirm(prompt.trim(), model, saveAsAutoEdit, needsApiKey ? apiKey.trim() : undefined);
+    try {
+      await onConfirm(prompt.trim(), model, saveAsAutoEdit, needsApiKey ? apiKey.trim() : undefined);
+    } catch (err) {
+      toast.error('AI 修图失败：' + formatError(err));
+    }
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -102,35 +111,13 @@ export function PromptDialog({ isOpen, defaultPrompt, defaultModel, autoEditEnab
     >
       <div className="space-y-3">
         {needsApiKey && (
-          <div className="space-y-2">
-            <label className="block text-sm font-medium text-gray-700">火山引擎 API Key</label>
-            <div className="relative">
-              <MaskedInput
-                ref={apiKeyInputRef}
-                visible={showApiKey}
-                value={apiKey}
-                onChange={(e) => setApiKey(e.target.value)}
-                placeholder="输入火山引擎 API Key"
-                className="w-full px-3 py-2 pr-10 border border-gray-200 rounded-lg text-sm bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              />
-              <button
-                type="button"
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => setShowApiKey(!showApiKey)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
-              >
-                {showApiKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-              </button>
-            </div>
-            <button
-              onClick={() => openExternalLink('https://www.volcengine.com/docs/82379/1399008')}
-              className="text-sm text-blue-600 hover:text-blue-700 inline-flex items-center gap-0.5 mt-1"
-              type="button"
-            >
-              开通火山引擎模型服务
-              <ExternalLink className="w-3 h-3" />
-            </button>
-          </div>
+          <ApiKeyField
+            value={apiKey}
+            onChange={(e) => setApiKey(e.target.value)}
+            show={showApiKey}
+            onToggleShow={() => setShowApiKey(!showApiKey)}
+            autoFocusRef={apiKeyInputRef}
+          />
         )}
         <div className="space-y-2">
           <label className="block text-sm font-medium text-gray-700">模型</label>

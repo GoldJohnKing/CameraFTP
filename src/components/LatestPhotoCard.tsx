@@ -47,7 +47,7 @@ async function getAllUrisFromGalleryV2(): Promise<string[]> {
 }
 
 export const LatestPhotoCard = memo(function LatestPhotoCard() {
-  const { stats } = useServerStore();
+  const stats = useServerStore((state) => state.stats);
   const openPreview = useImagePreviewOpener();
   const { latestPhoto, refreshLatestPhoto } = useLatestPhoto();
 

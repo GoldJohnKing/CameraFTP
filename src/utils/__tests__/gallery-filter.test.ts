@@ -5,7 +5,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { classifyFile, getFileExtension } from '../gallery-filter';
+import { classifyFile } from '../gallery-filter';
 import type { MediaItemDto } from '../../types';
 
 /** Build a MediaItemDto whose extension is derived from the given field. */
@@ -22,25 +22,27 @@ function item(opts: Partial<Pick<MediaItemDto, 'filePath' | 'displayName' | 'uri
   };
 }
 
-describe('getFileExtension', () => {
+// getFileExtension is module-private; its fallback chain is observed through
+// classifyFile, using fixtures whose categories prove which field was read.
+describe('extension extraction fallback chain (via classifyFile)', () => {
   it('reads the extension from filePath first', () => {
-    expect(getFileExtension(item({ filePath: '/a/b/Photo.JPG', displayName: 'x.PNG', uri: 'y.heic' }))).toBe('jpg');
+    expect(classifyFile(item({ filePath: '/a/b/Photo.JPG', displayName: 'x.PNG', uri: 'y.heic' }))).toBe('jpeg');
   });
 
   it('falls back to displayName when filePath is null', () => {
-    expect(getFileExtension(item({ displayName: 'Shot.Heic' }))).toBe('heic');
+    expect(classifyFile(item({ displayName: 'Shot.Heic' }))).toBe('heif');
   });
 
   it('falls back to uri when filePath and displayName are null', () => {
-    expect(getFileExtension(item({ uri: 'content://media/IMG_001.CR3' }))).toBe('cr3');
+    expect(classifyFile(item({ uri: 'content://media/IMG_001.CR3' }))).toBe('raw');
   });
 
   it('returns empty string when no field has an extension', () => {
-    expect(getFileExtension(item({ uri: 'content://media/noext' }))).toBe('');
+    expect(classifyFile(item({ uri: 'content://media/noext' }))).toBe('other');
   });
 
   it('ignores a leading-dot-only name (no real extension)', () => {
-    expect(getFileExtension(item({ filePath: '.nef' }))).toBe('');
+    expect(classifyFile(item({ filePath: '.nef' }))).toBe('other');
   });
 });
 

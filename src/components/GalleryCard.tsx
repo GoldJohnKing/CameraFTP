@@ -12,7 +12,7 @@ import type { MediaItemDto, GalleryItemsAddedEvent, GalleryItemsDeletedEvent } f
 import { isGalleryV2Available, invalidateMediaIds } from '../services/gallery-media-v2';
 import { GALLERY_REFRESH_REQUESTED_EVENT } from '../utils/gallery-refresh';
 import { withMinDuration } from '../utils/format';
-import { permissionBridge } from '../types';
+import { permissionBridge } from '../services/permission-bridge';
 import { useGalleryPager } from '../hooks/useGalleryPager';
 import { useThumbnailScheduler } from '../hooks/useThumbnailScheduler';
 import { useGallerySelection } from '../hooks/useGallerySelection';
@@ -25,12 +25,13 @@ import { ColorGradingDialog } from './ColorGradingDialog';
 import { enqueueColorGrading } from '../hooks/useColorGradingProgress';
 import { useColorGradingPresets } from '../hooks/useColorGradingPresets';
 import { isRawFile } from '../utils/raw';
+import { getAiEditCallContext } from '../utils/ai-edit';
 import { classifyFile, FILTER_CATEGORY_ORDER, FILTER_CATEGORY_LABEL, type GalleryFilterMode, type GalleryFileCategory } from '../utils/gallery-filter';
 import { DateJumpDialog, type GalleryDateOption } from './DateJumpDialog';
 import { formatDateTitle, toDateKey } from '../utils/date-format';
 
 export const GalleryCard = memo(function GalleryCard() {
-  const { activeTab } = useConfigStore();
+  const activeTab = useConfigStore((state) => state.activeTab);
   const draft = useConfigStore((state) => state.draft);
   const openPreview = useImagePreviewOpener();
   const pager = useGalleryPager();
@@ -158,6 +159,8 @@ export const GalleryCard = memo(function GalleryCard() {
       void openPreview({
         filePath: item.uri,
         allUris: filteredItems.map((i) => i.uri),
+      }).catch(() => {
+        // Silently ignore preview open failures (same as LatestPhotoCard)
       });
     },
     [handleSelectionClick, openPreview, filteredItems],
@@ -212,10 +215,21 @@ export const GalleryCard = memo(function GalleryCard() {
     handleCancelSelection();
   }, [selectedIds, pager.items, handleCancelSelection]);
 
-  const hasRawSelected = Array.from(selectedIds).some(id => {
-    const item = pager.items.find(i => i.mediaId === id);
-    return item?.filePath ? isRawFile(item.filePath) : false;
-  });
+  // mediaId → item lookup, rebuilt when items change, so per-selection RAW
+  // checks stay O(selected) instead of scanning the full list per render.
+  const itemByMediaId = useMemo(() => {
+    const map = new Map<string, MediaItemDto>();
+    for (const item of pager.items) map.set(item.mediaId, item);
+    return map;
+  }, [pager.items]);
+
+  const hasRawSelected = useMemo(
+    () => Array.from(selectedIds).some((id) => {
+      const item = itemByMediaId.get(id);
+      return item?.filePath ? isRawFile(item.filePath) : false;
+    }),
+    [selectedIds, itemByMediaId],
+  );
 
   // ===== Date-jump picker =====
   const gridRef = useRef<VirtualGalleryGridHandle>(null);
@@ -491,8 +505,8 @@ export const GalleryCard = memo(function GalleryCard() {
         isOpen={showAiEditPrompt}
         defaultPrompt={draft?.aiEdit?.manualPrompt || ''}
         defaultModel={draft?.aiEdit?.manualModel || undefined}
-        autoEditEnabled={draft?.aiEdit?.autoEdit ?? false}
-        hasApiKey={draft?.aiEdit?.provider?.type === 'seed-edit' ? !!draft.aiEdit.provider.apiKey : true}
+        autoEditEnabled={getAiEditCallContext(draft).autoEdit}
+        hasApiKey={getAiEditCallContext(draft).hasApiKey}
         onConfirm={handleAiEditPromptConfirm}
         onCancel={handleCancelAiEditPrompt}
       />

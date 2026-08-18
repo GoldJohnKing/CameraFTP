@@ -7,6 +7,7 @@
 // TODO: Extract Chinese UI strings for i18n when locale support is added
 
 import { useState, useEffect } from 'react';
+import { toast } from 'sonner';
 import { Palette } from 'lucide-react';
 import { Dialog } from './ui/Dialog';
 import { Select } from './ui/Select';
@@ -16,11 +17,13 @@ import type { ColorGradingPreset } from '../types';
 import { useConfigStore, useDraftConfig } from '../stores/configStore';
 import { ExposureConfigSection } from './ExposureConfigSection';
 import { DEFAULT_PRESET_ID, DEFAULT_METERING_MODE, DEFAULT_EV_OFFSET } from '../constants/color-grading';
+import { applyColorGradingLastUsed } from '../utils/color-grading';
+import { formatError } from '../utils/error';
 
 interface ColorGradingDialogProps {
   isOpen: boolean;
   colorGradingPresets: ColorGradingPreset[];
-  onConfirm: (lutId: string, meteringMode: string, evOffset: number) => void;
+  onConfirm: (lutId: string, meteringMode: string, evOffset: number) => void | Promise<void>;
   onCancel: () => void;
 }
 
@@ -50,27 +53,20 @@ export function ColorGradingDialog({ isOpen, colorGradingPresets, onConfirm, onC
   // draft intentionally excluded — effect runs on mount, dialog open, and preset list change
   }, [isOpen, colorGradingPresets]);
 
-  const handleConfirm = () => {
+  const handleConfirm = async () => {
     if (!selectedId) return;
 
-    updateDraft(d => ({
-      ...d,
-      colorGradingLastUsed: {
-        presetId: selectedId,
-        meteringMode,
-        evOffset,
-      },
-      ...(syncToAuto && d.autoColorGrading ? {
-        autoColorGrading: {
-          ...d.autoColorGrading,
-          presetId: selectedId,
-          meteringMode,
-          evOffset,
-        },
-      } : {}),
-    }));
+    updateDraft(d => applyColorGradingLastUsed(
+      d,
+      { presetId: selectedId, meteringMode, evOffset },
+      syncToAuto,
+    ));
 
-    onConfirm(selectedId, meteringMode, evOffset);
+    try {
+      await onConfirm(selectedId, meteringMode, evOffset);
+    } catch (err) {
+      toast.error('调色失败：' + formatError(err));
+    }
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {

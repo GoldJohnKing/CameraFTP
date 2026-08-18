@@ -5,10 +5,9 @@
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Eye, EyeOff, ExternalLink } from 'lucide-react';
-import { ToggleSwitch, Select, MaskedInput } from './ui';
-import { SEEDREAM_MODELS, DEFAULT_SEEDREAM_MODEL } from '../constants/seedream-models';
-import { openExternalLink } from '../utils/external-link';
+import { ApiKeyField } from './ui/ApiKeyField';
+import { ToggleSwitch, Select } from './ui';
+import { SEEDREAM_MODELS, DEFAULT_SEEDREAM_MODEL } from '../types';
 import type { AppConfig } from '../types';
 
 interface AiEditConfigPanelProps {
@@ -25,7 +24,7 @@ export function AiEditConfigPanel({
   updateDraft,
 }: AiEditConfigPanelProps) {
   const [showApiKey, setShowApiKey] = useState(false);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
   const autoResize = useCallback((el: HTMLTextAreaElement | null) => {
     if (!el) return;
@@ -93,39 +92,15 @@ export function AiEditConfigPanel({
   return (
     <div className="p-4 space-y-6">
       {/* API Key */}
-      <div className="space-y-2">
-        <label className="block text-sm font-medium text-gray-700">
-          火山引擎 API Key
-        </label>
-        <div className="relative">
-          <MaskedInput
-            visible={showApiKey}
-            value={apiKeyInput}
-            onChange={(e) => setApiKeyInput(e.target.value)}
-            onBlur={handleApiKeyBlur}
-            placeholder="输入火山引擎 API Key"
-            disabled={isLoading || disabled}
-            className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white text-gray-700 pr-10 disabled:opacity-50 disabled:cursor-not-allowed"
-          />
-          <button
-            type="button"
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={() => setShowApiKey(!showApiKey)}
-            disabled={isLoading || disabled}
-            className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 disabled:opacity-50"
-          >
-            {showApiKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-          </button>
-        </div>
-        <button
-          onClick={() => openExternalLink('https://www.volcengine.com/docs/82379/1399008')}
-          className="text-sm text-blue-600 hover:text-blue-700 inline-flex items-center gap-0.5 mt-1"
-          type="button"
-        >
-          开通火山引擎模型服务
-          <ExternalLink className="w-3 h-3" />
-        </button>
-      </div>
+      <ApiKeyField
+        value={apiKeyInput}
+        onChange={(e) => setApiKeyInput(e.target.value)}
+        onBlur={handleApiKeyBlur}
+        disabled={isLoading || disabled}
+        show={showApiKey}
+        onToggleShow={() => setShowApiKey(!showApiKey)}
+        inputClassName="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white text-gray-700 pr-10 disabled:opacity-50 disabled:cursor-not-allowed"
+      />
 
       {/* 自动触发开关 */}
       <ToggleSwitch
@@ -170,7 +145,7 @@ export function AiEditConfigPanel({
             </label>
             <textarea
               ref={(el) => {
-                (textareaRef as React.MutableRefObject<HTMLTextAreaElement | null>).current = el;
+                textareaRef.current = el;
                 autoResize(el);
               }}
               value={promptInput}

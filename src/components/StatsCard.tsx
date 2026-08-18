@@ -11,7 +11,7 @@ import { formatBytes } from '../utils/format';
 import { Card, IconContainer } from './ui';
 
 export const StatsCard = memo(function StatsCard() {
-  const { stats } = useServerStore();
+  const stats = useServerStore((state) => state.stats);
 
   return (
     <Card className="p-6">

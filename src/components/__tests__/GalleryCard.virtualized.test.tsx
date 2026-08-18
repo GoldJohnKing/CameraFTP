@@ -74,7 +74,7 @@ vi.mock('../../hooks/useGallerySelection', () => ({
 }));
 
 vi.mock('../../hooks/useImagePreviewOpener', () => ({
-  useImagePreviewOpener: () => vi.fn(),
+  useImagePreviewOpener: () => vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock('../../services/gallery-media-v2', () => ({
@@ -82,10 +82,14 @@ vi.mock('../../services/gallery-media-v2', () => ({
   invalidateMediaIds: vi.fn().mockResolvedValue(undefined),
 }));
 
-vi.mock('../../stores/configStore', () => ({
-  useConfigStore: () => ({ activeTab: 'gallery' }),
-  useDraftConfig: () => null,
-}));
+vi.mock('../../stores/configStore', () => {
+  const state = { activeTab: 'gallery' };
+  return {
+    useConfigStore: (selector?: (s: typeof state) => unknown) =>
+      selector ? selector(state) : state,
+    useDraftConfig: () => null,
+  };
+});
 
 import { flush } from '../../test-utils/flush';
 import { createMockRectObserver } from '../../test-utils/mock-resize-observer';

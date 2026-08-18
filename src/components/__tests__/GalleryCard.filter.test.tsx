@@ -85,7 +85,7 @@ vi.mock('../../hooks/useGallerySelection', () => ({
 }));
 
 vi.mock('../../hooks/useImagePreviewOpener', () => ({
-  useImagePreviewOpener: () => vi.fn(),
+  useImagePreviewOpener: () => vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock('../../hooks/useAndroidAutoOpenLatestPhoto', () => ({
@@ -97,14 +97,22 @@ vi.mock('../../services/gallery-media-v2', () => ({
   invalidateMediaIds: vi.fn().mockResolvedValue(undefined),
 }));
 
-vi.mock('../../stores/configStore', () => ({
-  useConfigStore: () => ({ activeTab: 'gallery' }),
-  useDraftConfig: () => null,
-}));
+vi.mock('../../stores/configStore', () => {
+  const state = { activeTab: 'gallery' };
+  return {
+    useConfigStore: (selector?: (s: typeof state) => unknown) =>
+      selector ? selector(state) : state,
+    useDraftConfig: () => null,
+  };
+});
 
-vi.mock('../../stores/permissionStore', () => ({
-  usePermissionStore: () => ({ requestStoragePermission: vi.fn(), startPolling: vi.fn() }),
-}));
+vi.mock('../../stores/permissionStore', () => {
+  const state = { requestStoragePermission: vi.fn(), startPolling: vi.fn() };
+  return {
+    usePermissionStore: (selector?: (s: typeof state) => unknown) =>
+      selector ? selector(state) : state,
+  };
+});
 
 // ---- Helpers ----
 

@@ -28,21 +28,11 @@ import { flush } from '../../test-utils/flush';
 
 describe('AboutCard Android donation flow', () => {
   const { getRoot } = setupReactRoot();
-  let saveImageToGalleryMock: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
     getVersionMock.mockReset();
     getVersionMock.mockResolvedValue('1.3.1');
     invokeMock.mockReset();
-
-    saveImageToGalleryMock = vi.fn().mockResolvedValue(
-      JSON.stringify({ success: true }),
-    );
-
-    vi.stubGlobal('PermissionAndroid', {
-      saveImageToGallery: saveImageToGalleryMock,
-      openExternalLink: vi.fn(),
-    });
 
     useConfigStore.setState((state) => ({
       ...state,
@@ -76,7 +66,6 @@ describe('AboutCard Android donation flow', () => {
       await flush();
     });
 
-    expect(saveImageToGalleryMock).not.toHaveBeenCalled();
     expect(document.body.textContent).toContain('微信收款');
     expect(document.body.textContent).toContain('请先对当前界面截图');
 

@@ -55,16 +55,18 @@ vi.mock('../../bootstrap/useAppBootstrap', () => ({
   useAppBootstrap: vi.fn(),
 }));
 
-vi.mock('../../stores/serverStore', () => ({
-  useServerStore: Object.assign(
-    () => ({
-      showPermissionDialog: false,
-      closePermissionDialog: vi.fn(),
-      continueAfterPermissionsGranted: vi.fn(),
-    }),
-    { getState: () => ({ showPermissionDialog: false }), setState: vi.fn() },
-  ),
-}));
+vi.mock('../../stores/serverStore', () => {
+  const state = {
+    showPermissionDialog: false,
+    closePermissionDialog: vi.fn(),
+    continueAfterPermissionsGranted: vi.fn(),
+  };
+  const useServerStore = (selector?: (s: typeof state) => unknown) =>
+    selector ? selector(state) : state;
+  (useServerStore as unknown as { getState: () => typeof state }).getState = () => state;
+  (useServerStore as unknown as { setState: () => void }).setState = () => {};
+  return { useServerStore };
+});
 
 vi.mock('../../stores/permissionStore', () => ({
   usePermissionStore: (selector: (s: { initialize: () => void }) => unknown) =>
