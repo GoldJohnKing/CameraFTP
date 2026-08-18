@@ -28,7 +28,7 @@ import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [33], manifest = Config.NONE)
+@Config(sdk = [35], manifest = Config.NONE)
 class AndroidServiceStateCoordinatorTest {
 
     @Test

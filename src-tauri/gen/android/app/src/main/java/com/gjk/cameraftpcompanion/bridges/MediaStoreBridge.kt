@@ -19,45 +19,15 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.FileNotFoundException
 
-class MediaStoreBridge(activity: MainActivity) : BaseJsBridge(activity) {
+class MediaStoreBridge {
 
     companion object {
         private const val TAG = "MediaStoreBridge"
         private const val DEFAULT_MIME_TYPE = "application/octet-stream"
-        private const val INITIAL_DELAY_MS = 100L
-        private const val MAX_DELAY_MS = 400L
 
         private const val COLLECTION_IMAGES = "images"
         private const val COLLECTION_VIDEOS = "videos"
         private const val COLLECTION_DOWNLOADS = "downloads"
-
-        /**
-         * Retry with exponential backoff
-         */
-        @JvmStatic
-        fun <T> retryWithBackoff(
-            attempts: Int,
-            sleep: (Long) -> Unit = { Thread.sleep(it) },
-            block: () -> T
-        ): Result<T> {
-            var lastException: Exception? = null
-            var delay = INITIAL_DELAY_MS
-
-            repeat(attempts) { attempt ->
-                try {
-                    return Result.success(block())
-                } catch (e: Exception) {
-                    lastException = e
-                    if (attempt < attempts - 1) {
-                        sleep(delay)
-                        delay = minOf(delay * 2, MAX_DELAY_MS)
-                    }
-                }
-            }
-
-            return Result.failure(lastException ?: RuntimeException("Unknown error"))
-        }
-
 
         /**
          * Build ContentValues for pending entry
@@ -130,12 +100,6 @@ class MediaStoreBridge(activity: MainActivity) : BaseJsBridge(activity) {
             return MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
         }
 
-        private fun listCollections(): List<Uri> {
-            return listOf(
-                filesCollectionUri()
-            )
-        }
-
         @JvmStatic
         fun normalizeDirectoryPrefix(relativePath: String): String {
             val normalized = relativePath.trimStart('/').trim()
@@ -149,6 +113,24 @@ class MediaStoreBridge(activity: MainActivity) : BaseJsBridge(activity) {
         @JvmStatic
         fun buildListSelection(relativePathColumn: String): String {
             return "$relativePathColumn = ? OR $relativePathColumn LIKE ?"
+        }
+
+        /**
+         * Remap DCIM-relative paths for the MediaStore.Files downloads
+         * collection.
+         *
+         * MediaStore.Files only allows Download/ and Documents/ as primary
+         * directories, so DCIM/CameraFTP/… is remapped to
+         * Download/CameraFTP/… for non-media files. Any other input is
+         * returned unchanged.
+         */
+        @JvmStatic
+        fun remapDownloadsPath(relativePath: String): String {
+            val normalized = relativePath.trimStart('/').lowercase()
+            if (!normalized.startsWith("dcim/")) {
+                return relativePath
+            }
+            return "Download/${relativePath.trimStart('/').substringAfter('/')}"
         }
 
         /**
@@ -170,12 +152,11 @@ class MediaStoreBridge(activity: MainActivity) : BaseJsBridge(activity) {
             if (collection.lowercase() == COLLECTION_DOWNLOADS) {
                 // MediaStore.Files only allows Download/ and Documents/ as primary directories.
                 // Remap DCIM/CameraFTP/ → Download/CameraFTP/ for non-media files.
-                val normalized = relativePath.trimStart('/').lowercase()
-                if (normalized.startsWith("dcim/")) {
-                    val remapped = "Download/${relativePath.trimStart('/').substringAfter('/')}"
+                val remapped = remapDownloadsPath(relativePath)
+                if (remapped != relativePath) {
                     Log.d(TAG, "Remapping Downloads path: '$relativePath' → '$remapped'")
-                    effectiveRelativePath = remapped
                 }
+                effectiveRelativePath = remapped
             }
 
             // Check if entry already exists
@@ -191,12 +172,9 @@ class MediaStoreBridge(activity: MainActivity) : BaseJsBridge(activity) {
             }
 
             // Create new entry
-            val values = ContentValues().apply {
-                put(MediaStore.MediaColumns.DISPLAY_NAME, displayName)
+            val values = buildPendingValues(displayName, sizeHint).apply {
                 put(MediaStore.MediaColumns.MIME_TYPE, mime)
                 put(MediaStore.MediaColumns.RELATIVE_PATH, effectiveRelativePath)
-                put(MediaStore.MediaColumns.IS_PENDING, 1)
-                sizeHint?.let { put(MediaStore.MediaColumns.SIZE, it) }
             }
 
             val newUri = resolver.insert(uri, values)
@@ -302,33 +280,32 @@ class MediaStoreBridge(activity: MainActivity) : BaseJsBridge(activity) {
 
             val results = mutableListOf<JSONObject>()
 
-            listCollections().forEach { collectionUri ->
-                val cursor = resolver.query(collectionUri, projection, selection, selectionArgs, null)
-                cursor?.use {
-                    val idColumn = it.getColumnIndexOrThrow(MediaStore.MediaColumns._ID)
-                    val displayNameColumn = it.getColumnIndexOrThrow(MediaStore.MediaColumns.DISPLAY_NAME)
-                    val sizeColumn = it.getColumnIndexOrThrow(MediaStore.MediaColumns.SIZE)
-                    val dateModifiedColumn = it.getColumnIndexOrThrow(MediaStore.MediaColumns.DATE_MODIFIED)
-                    val mimeTypeColumn = it.getColumnIndexOrThrow(MediaStore.MediaColumns.MIME_TYPE)
-                    val relativePathColumn = it.getColumnIndexOrThrow(MediaStore.MediaColumns.RELATIVE_PATH)
+            val collectionUri = filesCollectionUri()
+            val cursor = resolver.query(collectionUri, projection, selection, selectionArgs, null)
+            cursor?.use {
+                val idColumn = it.getColumnIndexOrThrow(MediaStore.MediaColumns._ID)
+                val displayNameColumn = it.getColumnIndexOrThrow(MediaStore.MediaColumns.DISPLAY_NAME)
+                val sizeColumn = it.getColumnIndexOrThrow(MediaStore.MediaColumns.SIZE)
+                val dateModifiedColumn = it.getColumnIndexOrThrow(MediaStore.MediaColumns.DATE_MODIFIED)
+                val mimeTypeColumn = it.getColumnIndexOrThrow(MediaStore.MediaColumns.MIME_TYPE)
+                val relativePathColumn = it.getColumnIndexOrThrow(MediaStore.MediaColumns.RELATIVE_PATH)
 
-                    while (it.moveToNext()) {
-                        val id = it.getLong(idColumn)
-                        val displayName = it.getString(displayNameColumn)
-                        val size = it.getLong(sizeColumn)
-                        val dateModified = it.getLong(dateModifiedColumn) * 1000L
-                        val mimeType = it.getString(mimeTypeColumn) ?: DEFAULT_MIME_TYPE
-                        val entryRelativePath = it.getString(relativePathColumn) ?: relativePath
+                while (it.moveToNext()) {
+                    val id = it.getLong(idColumn)
+                    val displayName = it.getString(displayNameColumn)
+                    val size = it.getLong(sizeColumn)
+                    val dateModified = it.getLong(dateModifiedColumn) * 1000L
+                    val mimeType = it.getString(mimeTypeColumn) ?: DEFAULT_MIME_TYPE
+                    val entryRelativePath = it.getString(relativePathColumn) ?: relativePath
 
-                        results.add(JSONObject().apply {
-                            put("uri", ContentUris.withAppendedId(collectionUri, id).toString())
-                            put("displayName", displayName)
-                            put("size", size)
-                            put("dateModified", dateModified)
-                            put("mimeType", mimeType)
-                            put("relativePath", entryRelativePath)
-                        })
-                    }
+                    results.add(JSONObject().apply {
+                        put("uri", ContentUris.withAppendedId(collectionUri, id).toString())
+                        put("displayName", displayName)
+                        put("size", size)
+                        put("dateModified", dateModified)
+                        put("mimeType", mimeType)
+                        put("relativePath", entryRelativePath)
+                    })
                 }
             }
 
@@ -347,13 +324,12 @@ class MediaStoreBridge(activity: MainActivity) : BaseJsBridge(activity) {
             val selection = "${MediaStore.MediaColumns.RELATIVE_PATH} = ? AND ${MediaStore.MediaColumns.DISPLAY_NAME} = ?"
             val selectionArgs = arrayOf(relativePath, displayName)
 
-            listCollections().forEach { collectionUri ->
-                val cursor = resolver.query(collectionUri, projection, selection, selectionArgs, null)
-                cursor?.use {
-                    if (it.moveToFirst()) {
-                        val id = it.getLong(it.getColumnIndexOrThrow(MediaStore.MediaColumns._ID))
-                        return ContentUris.withAppendedId(collectionUri, id).toString()
-                    }
+            val collectionUri = filesCollectionUri()
+            val cursor = resolver.query(collectionUri, projection, selection, selectionArgs, null)
+            cursor?.use {
+                if (it.moveToFirst()) {
+                    val id = it.getLong(it.getColumnIndexOrThrow(MediaStore.MediaColumns._ID))
+                    return ContentUris.withAppendedId(collectionUri, id).toString()
                 }
             }
 
@@ -369,56 +345,6 @@ class MediaStoreBridge(activity: MainActivity) : BaseJsBridge(activity) {
                 ?: throw FileNotFoundException("Failed to open file descriptor for $uri")
 
             return pfd.detachFd()
-        }
-
-        /**
-         * Open (creating if absent) `Download/CameraFTP/app.log` in append mode and
-         * detach its file descriptor for native use. Powers the optional code-flagged
-         * file-logging sink (default off; flipped on in Rust `android_logging` for
-         * debugging). No storage permission required: the app owns this file via
-         * MediaStore (scoped-storage-sanctioned, like the FTP upload path). Returns
-         * the raw fd (>=0), or -1 on failure.
-         */
-        @JvmStatic
-        fun openLogFdNative(context: Context): Int {
-            return try {
-                val resolver = context.contentResolver
-                val collection = MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
-                val relPath = "Download/CameraFTP/"
-                val displayName = "app.log"
-
-                // Reuse an existing app-owned row if present (avoids IS_PENDING churn).
-                var uri: Uri? = null
-                resolver.query(
-                    collection,
-                    arrayOf(MediaStore.MediaColumns._ID),
-                    "${MediaStore.MediaColumns.RELATIVE_PATH} = ? AND ${MediaStore.MediaColumns.DISPLAY_NAME} = ?",
-                    arrayOf(relPath, displayName),
-                    null,
-                )?.use { if (it.moveToFirst()) uri = ContentUris.withAppendedId(collection, it.getLong(0)) }
-
-                if (uri == null) {
-                    val pending = ContentValues().apply {
-                        put(MediaStore.MediaColumns.DISPLAY_NAME, displayName)
-                        put(MediaStore.MediaColumns.MIME_TYPE, "text/plain")
-                        put(MediaStore.MediaColumns.RELATIVE_PATH, relPath)
-                        put(MediaStore.MediaColumns.IS_PENDING, 1)
-                    }
-                    val newUri = resolver.insert(collection, pending) ?: return -1
-                    resolver.update(
-                        newUri,
-                        ContentValues().apply { put(MediaStore.MediaColumns.IS_PENDING, 0) },
-                        null,
-                        null,
-                    )
-                    uri = newUri
-                }
-
-                resolver.openFileDescriptor(uri!!, "wa")?.detachFd() ?: -1
-            } catch (e: Exception) {
-                Log.e(TAG, "openLogFdNative failed", e)
-                -1
-            }
         }
 
         /**

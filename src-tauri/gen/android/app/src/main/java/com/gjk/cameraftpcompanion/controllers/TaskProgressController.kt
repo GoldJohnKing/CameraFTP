@@ -131,13 +131,6 @@ class TaskProgressController(activity: android.app.Activity) {
 
     val isVisible: Boolean get() = panel.visibility == View.VISIBLE
 
-    fun dismissAll() {
-        aiEditRow.visibility = View.GONE
-        cgRow.visibility = View.GONE
-        panel.visibility = View.GONE
-        resetState()
-    }
-
     fun destroy() {
         cancelAutoDismiss()
     }

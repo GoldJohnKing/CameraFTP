@@ -20,15 +20,19 @@
 # hide the original source file name.
 #-renamesourcefileattribute SourceFile
 
-# Keep Android bridge classes that are referenced from Rust JNI by class name.
+# Keep Android bridge classes that are referenced from Rust JNI by class name
+# (string lookups are invisible to R8 — no Java-side reference exists).
 -keep class com.gjk.cameraftpcompanion.bridges.MediaStoreBridge { *; }
 -keep class com.gjk.cameraftpcompanion.bridges.MediaStoreBridge$Companion { *; }
 -keep class com.gjk.cameraftpcompanion.bridges.ImageProcessorBridge { *; }
 -keep class com.gjk.cameraftpcompanion.bridges.ImageProcessorBridge$Companion { *; }
--keep class com.gjk.cameraftpcompanion.bridges.ImageViewerBridge { *; }
--keep class com.gjk.cameraftpcompanion.bridges.ImageViewerBridge$Companion { *; }
 -keep class com.gjk.cameraftpcompanion.bridges.ColorGradingJniBridge { *; }
 -keep class com.gjk.cameraftpcompanion.bridges.ColorGradingJniBridge$Companion { *; }
+
+# Defensive keep, not JNI-referenced: these are WebView bridges referenced via
+# addJavascriptInterface (kept below) — cheap insurance against future changes.
+-keep class com.gjk.cameraftpcompanion.bridges.ImageViewerBridge { *; }
+-keep class com.gjk.cameraftpcompanion.bridges.ImageViewerBridge$Companion { *; }
 -keep class com.gjk.cameraftpcompanion.bridges.NnCapabilityBridge { *; }
 -keep class com.gjk.cameraftpcompanion.bridges.NnCapabilityBridge$Companion { *; }
 

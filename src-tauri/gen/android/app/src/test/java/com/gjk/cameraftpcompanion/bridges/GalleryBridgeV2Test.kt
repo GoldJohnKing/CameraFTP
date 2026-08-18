@@ -23,7 +23,7 @@ import org.robolectric.annotation.Config
 import java.util.concurrent.ConcurrentHashMap
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [33], manifest = Config.NONE)
+@Config(sdk = [35], manifest = Config.NONE)
 class GalleryBridgeV2Test {
 
     private lateinit var activity: Activity

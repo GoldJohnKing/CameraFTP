@@ -24,7 +24,7 @@ import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [33], manifest = Config.NONE)
+@Config(sdk = [35], manifest = Config.NONE)
 class FtpForegroundServiceTest {
     @Test
     fun start_update_and_stop_flow_uses_direct_native_payload_and_real_stop_path() {

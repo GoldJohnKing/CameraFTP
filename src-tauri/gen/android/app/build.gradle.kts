@@ -201,6 +201,14 @@ android {
             ))
         }
     }
+    testOptions {
+        unitTests {
+            // Robolectric needs the merged app resources + manifest to
+            // resolve app themes and layouts (e.g. activity tests that
+            // inflate R.layout.* or rely on manifest-declared themes).
+            isIncludeAndroidResources = true
+        }
+    }
 }
 
 tasks.matching { it.name.endsWith("Assets") && it.name.contains("merge") }.configureEach {
@@ -224,11 +232,9 @@ dependencies {
     implementation("androidx.viewpager2:viewpager2:1.1.0")
     implementation("androidx.exifinterface:exifinterface:1.4.1")
     testImplementation("junit:junit:4.13.2")
-    testImplementation("org.robolectric:robolectric:4.11.1")
+    testImplementation("org.robolectric:robolectric:4.16.1")
     testImplementation("androidx.test:core:1.6.1")
     testImplementation("androidx.test.ext:junit:1.2.1")
-    androidTestImplementation("androidx.test.ext:junit:1.1.4")
-    androidTestImplementation("androidx.test.espresso:espresso-core:3.5.0")
 }
 
 apply(from = "tauri.build.gradle.kts")

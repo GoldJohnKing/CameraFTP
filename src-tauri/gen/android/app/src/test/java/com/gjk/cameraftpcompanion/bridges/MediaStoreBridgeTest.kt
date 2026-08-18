@@ -15,26 +15,8 @@ import android.provider.MediaStore
 import org.json.JSONObject
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [33], manifest = Config.NONE)
+@Config(sdk = [35], manifest = Config.NONE)
 class MediaStoreBridgeTest {
-
-    @Test
-    fun retry_with_backoff_uses_correct_delays() {
-        val delays = mutableListOf<Long>()
-        MediaStoreBridge.retryWithBackoff(3, sleep = { delays.add(it) }) { throw RuntimeException("fail") }
-        assertEquals(listOf(100L, 200L), delays)
-    }
-
-    @Test
-    fun retry_with_backoff_succeeds_on_second_attempt() {
-        var attempt = 0
-        val result = MediaStoreBridge.retryWithBackoff(3) {
-            attempt++
-            if (attempt == 1) throw RuntimeException("fail")
-            "ok"
-        }
-        assertTrue(result.isSuccess)
-    }
 
     @Test
     fun pending_values_preserves_display_name() {
@@ -133,6 +115,87 @@ class MediaStoreBridgeTest {
         assertEquals(
             "relative_path = ? OR relative_path LIKE ?",
             MediaStoreBridge.buildListSelection("relative_path")
+        )
+    }
+
+    // ── remapDownloadsPath (DCIM → Download for the Files collection) ───
+
+    @Test
+    fun remap_downloads_path_maps_dcim_prefix_to_download() {
+        assertEquals(
+            "Download/CameraFTP/",
+            MediaStoreBridge.remapDownloadsPath("DCIM/CameraFTP/")
+        )
+    }
+
+    @Test
+    fun remap_downloads_path_maps_nested_dcim_subdirs() {
+        assertEquals(
+            "Download/CameraFTP/2026/08/",
+            MediaStoreBridge.remapDownloadsPath("DCIM/CameraFTP/2026/08/")
+        )
+    }
+
+    @Test
+    fun remap_downloads_path_matches_dcim_prefix_case_insensitively() {
+        assertEquals(
+            "Download/CameraFTP/",
+            MediaStoreBridge.remapDownloadsPath("dcim/CameraFTP/")
+        )
+    }
+
+    @Test
+    fun remap_downloads_path_strips_leading_slashes_before_matching() {
+        assertEquals(
+            "Download/CameraFTP/",
+            MediaStoreBridge.remapDownloadsPath("/DCIM/CameraFTP/")
+        )
+    }
+
+    @Test
+    fun remap_downloads_path_keeps_download_paths_untouched() {
+        assertEquals(
+            "Download/CameraFTP/",
+            MediaStoreBridge.remapDownloadsPath("Download/CameraFTP/")
+        )
+    }
+
+    @Test
+    fun remap_downloads_path_keeps_other_primary_dirs_untouched() {
+        assertEquals(
+            "Pictures/Foo/",
+            MediaStoreBridge.remapDownloadsPath("Pictures/Foo/")
+        )
+        assertEquals(
+            "Documents/x/",
+            MediaStoreBridge.remapDownloadsPath("Documents/x/")
+        )
+    }
+
+    @Test
+    fun remap_downloads_path_requires_dcim_directory_component() {
+        // "DCIM" alone (no trailing slash) and prefix-lookalikes must pass through.
+        assertEquals("DCIM", MediaStoreBridge.remapDownloadsPath("DCIM"))
+        assertEquals(
+            "dcimx/y/",
+            MediaStoreBridge.remapDownloadsPath("dcimx/y/")
+        )
+        assertEquals(
+            "mydcim/stuff/",
+            MediaStoreBridge.remapDownloadsPath("mydcim/stuff/")
+        )
+    }
+
+    @Test
+    fun remap_downloads_path_passes_empty_input_through() {
+        assertEquals("", MediaStoreBridge.remapDownloadsPath(""))
+    }
+
+    @Test
+    fun remap_downloads_path_preserves_case_of_the_remapped_suffix() {
+        assertEquals(
+            "Download/CameraFTP/MixedCase/",
+            MediaStoreBridge.remapDownloadsPath("DCIM/CameraFTP/MixedCase/")
         )
     }
 

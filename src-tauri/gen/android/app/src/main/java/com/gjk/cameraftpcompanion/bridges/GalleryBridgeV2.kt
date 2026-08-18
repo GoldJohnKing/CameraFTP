@@ -8,6 +8,7 @@ package com.gjk.cameraftpcompanion.bridges
 
 import android.app.Activity
 import android.util.Log
+import com.gjk.cameraftpcompanion.ImageViewerActivity
 import com.gjk.cameraftpcompanion.MainActivity
 import com.gjk.cameraftpcompanion.galleryv2.MediaPageProvider
 import com.gjk.cameraftpcompanion.galleryv2.ThumbJob
@@ -64,7 +65,7 @@ class GalleryBridgeV2(
     @android.webkit.JavascriptInterface
     fun listMediaPage(requestJson: String): String {
         Log.d(TAG, "listMediaPage: $requestJson")
-        return try {
+        return jsCall("listMediaPage error", """{"items":[],"nextCursor":null,"revisionToken":"error"}""") {
             val request = JSONObject(requestJson)
             val cursor = request.optString("cursor").takeIf { it.isNotEmpty() }
             val pageSize = request.optInt("pageSize", 50)
@@ -91,9 +92,6 @@ class GalleryBridgeV2(
                 put("totalCount", result.totalCount)
             }
             json.toString()
-        } catch (e: Exception) {
-            Log.e(TAG, "listMediaPage error", e)
-            """{"items":[],"nextCursor":null,"revisionToken":"error"}"""
         }
     }
 
@@ -107,7 +105,7 @@ class GalleryBridgeV2(
                 return
             }
 
-            try {
+            jsCall("enqueueThumbnails error", Unit) {
                 val requests = JSONArray(requestsJson)
                 Log.d(TAG, "enqueueThumbnails: ${requests.length()} requests")
                 var accepted = 0
@@ -152,8 +150,6 @@ class GalleryBridgeV2(
                 }
                 Log.d(TAG, "enqueueThumbnails: accepted=$accepted total=${requests.length()}, pending=${pipelineManager.pendingCount()}")
                 repeat(accepted) { pipelineManager.processNext() }
-            } catch (e: Exception) {
-                Log.e(TAG, "enqueueThumbnails error", e)
             }
         }
     }
@@ -166,15 +162,13 @@ class GalleryBridgeV2(
             }
 
             Log.d(TAG, "cancelThumbnailRequests")
-            try {
+            jsCall("cancelThumbnailRequests error", Unit) {
                 val ids = JSONArray(requestIdsJson)
                 for (i in 0 until ids.length()) {
                     val id = ids.getString(i)
                     pipelineManager.cancel(id)
                     requestViewMap.remove(id)
                 }
-            } catch (e: Exception) {
-                Log.e(TAG, "cancelThumbnailRequests error", e)
             }
         }
     }
@@ -233,15 +227,13 @@ class GalleryBridgeV2(
     @android.webkit.JavascriptInterface
     fun invalidateMediaIds(mediaIdsJson: String) {
         Log.d(TAG, "invalidateMediaIds: $mediaIdsJson")
-        try {
+        jsCall("invalidateMediaIds error", Unit) {
             val ids = JSONArray(mediaIdsJson)
             val mediaIds = mutableSetOf<String>()
             for (i in 0 until ids.length()) {
                 mediaIds.add(ids.getString(i))
             }
             cache.invalidateByMediaId(mediaIds)
-        } catch (e: Exception) {
-            Log.e(TAG, "invalidateMediaIds error", e)
         }
     }
 
@@ -284,7 +276,9 @@ class GalleryBridgeV2(
             return
         }
 
-        val script = "window.__galleryThumbDispatch('$listenerId', '${payload.replace("'", "\\'")}')"
+        // Reuse the tested escaper (also handles backslashes and \r/\n — the
+        // payload JSON embeds user-controlled display names).
+        val script = "window.__galleryThumbDispatch('$listenerId', '${ImageViewerActivity.escapeForJsString(payload)}')"
         runOnUiThread {
             if (destroyed) {
                 return@runOnUiThread

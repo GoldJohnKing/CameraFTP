@@ -6,6 +6,7 @@
 
 package com.gjk.cameraftpcompanion.bridges
 
+import android.app.Activity
 import android.content.ClipData
 import android.content.Intent
 import android.net.Uri
@@ -15,10 +16,18 @@ import com.gjk.cameraftpcompanion.MainActivity
 import org.json.JSONArray
 import org.json.JSONObject
 
-class GalleryBridge(activity: MainActivity) : BaseJsBridge(activity) {
+/**
+ * Gallery action bridge (delete / share / selection-mode back press).
+ *
+ * Naming note: this class is NOT an older generation of [GalleryBridgeV2] —
+ * the two are orthogonal: this bridge exposes gallery *actions* over content
+ * URIs, while GalleryBridgeV2 provides media paging + the thumbnail pipeline.
+ * Registered into the WebView as "GalleryAndroid" (JS name, do not rename).
+ */
+class GalleryActionsBridge(activity: Activity) : BaseJsBridge(activity) {
 
     companion object {
-        private const val TAG = "GalleryBridge"
+        private const val TAG = "GalleryActionsBridge"
 
         private fun emptyDeleteResult(): String {
             return JSONObject().apply {
@@ -65,18 +74,31 @@ class GalleryBridge(activity: MainActivity) : BaseJsBridge(activity) {
     }
 
 
+    /**
+     * Deletes images via MediaStore, routing SecurityException-refused URIs
+     * through the system delete-confirmation dialog.
+     *
+     * Structural constraint (blocking): when any URI needs the system
+     * delete-confirmation dialog, this method synchronously waits on a
+     * latch (up to 30 s) for the user's response. During that wait it
+     * blocks the WebView's shared JavaBridge thread, so every other
+     * @JavascriptInterface call of the same WebView (listMediaPage,
+     * enqueueThumbnails, …) is blocked until the user responds or the
+     * wait times out. If interaction is ever required while the dialog is
+     * up, this method must be redesigned as callback-style instead.
+     */
     @android.webkit.JavascriptInterface
     fun deleteImages(urisJson: String): String {
         Log.d(TAG, "deleteImages: urisJson=$urisJson")
 
-        return try {
+        return jsCall("deleteImages error", emptyDeleteResult()) {
             val uris = JSONArray(urisJson).let { json ->
                 (0 until json.length()).map { json.getString(it) }
             }
 
             if (uris.isEmpty()) {
                 Log.w(TAG, "deleteImages: no URIs provided")
-                return emptyDeleteResult()
+                return@jsCall emptyDeleteResult()
             }
 
             val deleted = mutableListOf<String>()
@@ -87,7 +109,7 @@ class GalleryBridge(activity: MainActivity) : BaseJsBridge(activity) {
             uris.forEach { uriString ->
                 try {
                     val uri = Uri.parse(uriString)
-                    
+
                     // Delete via MediaStore using URI
                     val rowsDeleted = activity.contentResolver.delete(uri, null, null)
                     classifyDeleteResult(uriString, rowsDeleted, deleted, notFound, failed)
@@ -118,9 +140,6 @@ class GalleryBridge(activity: MainActivity) : BaseJsBridge(activity) {
                 put("failed", JSONArray(failed))
             }
             response.toString()
-        } catch (e: Exception) {
-            Log.e(TAG, "deleteImages error", e)
-            emptyDeleteResult()
         }
     }
 
@@ -170,18 +189,18 @@ class GalleryBridge(activity: MainActivity) : BaseJsBridge(activity) {
     fun shareImages(urisJson: String): Boolean {
         Log.d(TAG, "shareImages: urisJson=$urisJson")
 
-        return try {
+        return jsCall("shareImages error", false) {
             val uris = JSONArray(urisJson).let { json ->
                 (0 until json.length()).map { json.getString(it) }
             }
 
             if (uris.isEmpty()) {
                 Log.w(TAG, "shareImages: no URIs provided")
-                return false
+                return@jsCall false
             }
 
             val intent = build_share_intent(uris)
-            
+
             val chooser = Intent.createChooser(intent, "分享图片").apply {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
@@ -189,9 +208,6 @@ class GalleryBridge(activity: MainActivity) : BaseJsBridge(activity) {
 
             Log.d(TAG, "shareImages: shared ${uris.size} images")
             true
-        } catch (e: Exception) {
-            Log.e(TAG, "shareImages error", e)
-            false
         }
     }
 
@@ -201,11 +217,8 @@ class GalleryBridge(activity: MainActivity) : BaseJsBridge(activity) {
      */
     @android.webkit.JavascriptInterface
     fun registerBackPressCallback(): Boolean {
-        return try {
+        return jsCall("registerBackPressCallback: exception", false) {
             (activity as? MainActivity)?.registerBackPressCallback() ?: false
-        } catch (e: Exception) {
-            Log.e(TAG, "registerBackPressCallback: exception", e)
-            false
         }
     }
 
@@ -215,11 +228,8 @@ class GalleryBridge(activity: MainActivity) : BaseJsBridge(activity) {
      */
     @android.webkit.JavascriptInterface
     fun unregisterBackPressCallback(): Boolean {
-        return try {
+        return jsCall("unregisterBackPressCallback: exception", false) {
             (activity as? MainActivity)?.unregisterBackPressCallback() ?: false
-        } catch (e: Exception) {
-            Log.e(TAG, "unregisterBackPressCallback: exception", e)
-            false
         }
     }
 

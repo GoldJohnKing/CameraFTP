@@ -7,6 +7,7 @@
 package com.gjk.cameraftpcompanion
 
 import android.Manifest
+import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -25,12 +26,15 @@ import android.content.ClipData
 import android.content.ContentUris
 import android.provider.MediaStore
 import java.io.File
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicReference
 
 /**
  * Permission JavaScript Bridge
  * Provides permission checking and requesting functionality to the frontend
  */
-class PermissionBridge(activity: MainActivity) : BaseJsBridge(activity) {
+class PermissionBridge(activity: Activity) : BaseJsBridge(activity) {
     companion object {
         private const val TAG = "PermissionBridge"
         // Request code for notification permission - shared with MainActivity
@@ -39,6 +43,8 @@ class PermissionBridge(activity: MainActivity) : BaseJsBridge(activity) {
         const val REQUEST_STORAGE_PERMISSIONS = 1002
         // Limits for ClipData to prevent Intent size issues
         private const val MAX_URIS_IN_CLIP_DATA = 100
+        // Upper bound for waiting on the UI-thread startActivity outcome
+        private const val AWAIT_UI_OUTCOME_MS = 2_000L
 
         /**
          * Get required permissions for MediaStore-based operations
@@ -232,6 +238,16 @@ class PermissionBridge(activity: MainActivity) : BaseJsBridge(activity) {
     /**
      * Open image with external app, supporting browsing other images in the same directory.
      * Uses MediaStore URIs only.
+     *
+     * Semantics: the returned JSON reflects the outcome of the UI-thread
+     * `startActivity`. `@JavascriptInterface` methods run on the WebView's
+     * JavaBridge thread (not the main thread), so we may block on a short
+     * bounded latch while the open runs. If called on the main thread,
+     * [Activity.runOnUiThread] executes the block synchronously and the
+     * latch is already counted down — no deadlock. On a rare latch timeout
+     * (main thread blocked > 2 s) we conservatively report failure even
+     * though the open may still complete later.
+     *
      * @param path The MediaStore URI or file path to the image
      * @return JSON string with success status
      */
@@ -239,27 +255,14 @@ class PermissionBridge(activity: MainActivity) : BaseJsBridge(activity) {
     fun openImageWithChooser(path: String?): String {
         Log.d(TAG, "openImageWithChooser: path=$path")
 
-        val result = JSONObject()
-
         if (path.isNullOrEmpty()) {
-            result.put("success", false)
-            result.put("message", "Empty path")
-            return result.toString()
+            return failureJson("Empty path")
         }
 
         // Handle MediaStore URI directly
         if (path.startsWith("content://")) {
             val uri = Uri.parse(path)
-            runOnUiThread {
-                try {
-                    openWithMediaStoreUri(uri)
-                } catch (e: Exception) {
-                    Log.e(TAG, "openImageWithChooser: failed to open URI", e)
-                    Toast.makeText(activity, "无法打开图片: ${e.message}", Toast.LENGTH_SHORT).show()
-                }
-            }
-            result.put("success", true)
-            return result.toString()
+            return runOnUiAwaitingOutcome { openWithMediaStoreUri(uri) }
         }
 
         // Non-content inputs must be resolved to MediaStore first.
@@ -269,22 +272,62 @@ class PermissionBridge(activity: MainActivity) : BaseJsBridge(activity) {
             runOnUiThread {
                 Toast.makeText(activity, "无法打开图片", Toast.LENGTH_SHORT).show()
             }
-            result.put("success", false)
-            result.put("message", "MediaStore URI not found")
-            return result.toString()
+            return failureJson("MediaStore URI not found")
         }
 
+        return runOnUiAwaitingOutcome { openWithMediaStoreUri(resolvedUri) }
+    }
+
+    private fun failureJson(message: String): String {
+        val result = JSONObject()
+        result.put("success", false)
+        result.put("message", message)
+        return result.toString()
+    }
+
+    /**
+     * Run [block] on the UI thread and wait up to [AWAIT_UI_OUTCOME_MS] for
+     * its outcome so the JS return value reflects the actual result (the
+     * old code returned `{"success":true}` before anything was attempted).
+     */
+    private fun runOnUiAwaitingOutcome(block: () -> Unit): String {
+        val latch = CountDownLatch(1)
+        val failure = AtomicReference<Exception?>(null)
         runOnUiThread {
             try {
-                openWithMediaStoreUri(resolvedUri)
+                block()
             } catch (e: Exception) {
                 Log.e(TAG, "openImageWithChooser: failed to open image", e)
-                Toast.makeText(activity, "无法打开图片: ${e.message}", Toast.LENGTH_SHORT).show()
+                failure.set(e)
+                try {
+                    Toast.makeText(activity, "无法打开图片: ${e.message}", Toast.LENGTH_SHORT).show()
+                } catch (toastError: Exception) {
+                    Log.e(TAG, "Failed to show toast", toastError)
+                }
+            } finally {
+                latch.countDown()
             }
         }
 
-        result.put("success", true)
-        return result.toString()
+        val completed = try {
+            latch.await(AWAIT_UI_OUTCOME_MS, TimeUnit.MILLISECONDS)
+        } catch (e: InterruptedException) {
+            Thread.currentThread().interrupt()
+            false
+        }
+
+        val result = JSONObject()
+        return when {
+            failure.get() != null -> failureJson(failure.get()?.message ?: "open failed")
+            !completed -> {
+                Log.w(TAG, "openImageWithChooser: UI outcome not known within ${AWAIT_UI_OUTCOME_MS}ms")
+                failureJson("open timed out")
+            }
+            else -> {
+                result.put("success", true)
+                result.toString()
+            }
+        }
     }
 
     /**

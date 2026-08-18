@@ -47,14 +47,14 @@ class ImageViewerBridge(activity: android.app.Activity) : BaseJsBridge(activity)
     @android.webkit.JavascriptInterface
     fun openOrNavigateTo(uri: String, allUrisJson: String): Boolean {
         Log.d(TAG, "openOrNavigateTo: uri=$uri")
-        return try {
+        return jsCall("openOrNavigateTo error", false) {
             val allUris = JSONArray(allUrisJson).let { json ->
                 (0 until json.length()).map { json.getString(it) }
             }
             val navigationTarget = ImageViewerActivity.buildNavigationTarget(allUris, uri)
             if (navigationTarget == null) {
                 Log.e(TAG, "openViewer: target URI not found in list")
-                return false
+                return@jsCall false
             }
             ImageViewerActivity.navigateOrStart(
                 activity,
@@ -62,9 +62,6 @@ class ImageViewerBridge(activity: android.app.Activity) : BaseJsBridge(activity)
                 navigationTarget.targetIndex,
             )
             true
-        } catch (e: Exception) {
-            Log.e(TAG, "openOrNavigateTo error", e)
-            false
         }
     }
 
@@ -208,13 +205,6 @@ class ImageViewerBridge(activity: android.app.Activity) : BaseJsBridge(activity)
         viewer.onColorGradingComplete(success, message, cancelled)
     }
 
-    @android.webkit.JavascriptInterface
-    fun dismissAllTaskProgress() {
-        clearProgress()
-        clearColorGradingProgress()
-        ImageViewerActivity.instance?.dismissAllTaskProgress()
-    }
-
     /**
      * Request EXIF data for multiple image positions.
      * Called from JS to prefetch EXIF for offscreen pages.
@@ -222,13 +212,11 @@ class ImageViewerBridge(activity: android.app.Activity) : BaseJsBridge(activity)
     @android.webkit.JavascriptInterface
     fun requestExifForPositions(requestJson: String?) {
         if (requestJson == null) return
-        try {
+        jsCall("requestExifForPositions error", Unit) {
             // Validate JSON; pass through to the activity for JS evaluation
             org.json.JSONArray(requestJson)
-            val viewer = ImageViewerActivity.instance ?: return
+            val viewer = ImageViewerActivity.instance ?: return@jsCall
             viewer.requestExifPrefetch(requestJson)
-        } catch (e: Exception) {
-            Log.e(TAG, "requestExifForPositions error", e)
         }
     }
 

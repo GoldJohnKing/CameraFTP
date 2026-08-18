@@ -16,7 +16,7 @@ import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.enableEdgeToEdge
-import com.gjk.cameraftpcompanion.bridges.GalleryBridge
+import com.gjk.cameraftpcompanion.bridges.GalleryActionsBridge
 import com.gjk.cameraftpcompanion.bridges.GalleryBridgeV2
 import com.gjk.cameraftpcompanion.bridges.MediaStoreBridge
 import com.gjk.cameraftpcompanion.bridges.ImageViewerBridge
@@ -30,23 +30,6 @@ class MainActivity : TauriActivity() {
 
     companion object {
         private const val TAG = "MainActivity"
-        // 注意：这些常量与 Rust 侧 constants.rs 中的定义保持一致
-        // Rust 侧: TAURI_LISTENER_MAX_RETRIES = 50
-        // Rust 侧: TAURI_LISTENER_RETRY_DELAY_MS = 50L
-        private const val TAURI_LISTENER_MAX_RETRIES = 50
-        private const val TAURI_LISTENER_RETRY_DELAY_MS = 50L
-        private val JS_REGISTRATION_CODE = """
-            (function() {
-                if (window.__tauriEventListenerRegistered) return 'already_registered';
-                
-                if (window.__TAURI__?.event) {
-                    window.__tauriEventListenerRegistered = true;
-
-                    return 'success';
-                }
-                return 'not_ready';
-            })();
-        """.trimIndent()
 
         /**
          * Static WebView reference for cross-Activity Tauri IPC access
@@ -75,13 +58,11 @@ class MainActivity : TauriActivity() {
 
     private var webViewRef: WebView? = null
     private var permissionBridge: PermissionBridge? = null
-    private var galleryBridge: GalleryBridge? = null
+    private var galleryActionsBridge: GalleryActionsBridge? = null
     private var galleryBridgeV2: GalleryBridgeV2? = null
     private var imageViewerBridge: ImageViewerBridge? = null
-    private var nnCapabilityBridge: NnCapabilityBridge? = null
     @Volatile
     private var isWebViewActive = false
-    private var eventListenerRegistration: EventListenerRegistration? = null
     private val pendingDeleteResult = AtomicReference<Pair<CountDownLatch, AtomicReference<Boolean>>?>(null)
     private val deleteRequestLauncher = registerForActivityResult(
         ActivityResultContracts.StartIntentSenderForResult()
@@ -122,14 +103,19 @@ class MainActivity : TauriActivity() {
             Log.w(TAG, "RawAlchemyCpp not found, LUT filter unavailable: ${e.message}")
         }
         permissionBridge = PermissionBridge(this)
-        galleryBridge = GalleryBridge(this)
+        galleryActionsBridge = GalleryActionsBridge(this)
         galleryBridgeV2 = GalleryBridgeV2(this)
         imageViewerBridge = ImageViewerBridge(this)
-        nnCapabilityBridge = NnCapabilityBridge()
 
-        // Cleanup stale pending entries (older than 24 hours)
+        // Cleanup stale pending entries (older than 24 hours).
+        // MediaStore deletes are binder calls that can block — run them off
+        // the main thread. Nothing later in startup depends on this cleanup
+        // (freshly created pending entries are younger than the cutoff, so
+        // they can never be affected by it).
         val cutoffMillis = System.currentTimeMillis() - 24 * 60 * 60 * 1000L
-        MediaStoreBridge.cleanupStalePendingEntries(contentResolver, cutoffMillis)
+        Thread({
+            MediaStoreBridge.cleanupStalePendingEntries(contentResolver, cutoffMillis)
+        }, "StalePendingCleanup").start()
 
         // Back-press callback for gallery selection mode.
         // Starts disabled; registerBackPressCallback() enables it when JS enters
@@ -194,92 +180,23 @@ class MainActivity : TauriActivity() {
         
         Log.d(TAG, "onWebViewCreate: adding JavaScript bridges")
         addJsBridge(webView, permissionBridge, "PermissionAndroid")
-        addJsBridge(webView, galleryBridge, "GalleryAndroid")
+        addJsBridge(webView, galleryActionsBridge, "GalleryAndroid")
         addJsBridge(webView, galleryBridgeV2, "GalleryAndroidV2")
         addJsBridge(webView, imageViewerBridge, "ImageViewerAndroid")
-        addJsBridge(webView, nnCapabilityBridge, "NnCapability")
-
-        // 注册Tauri事件监听
-        registerTauriEventListeners()
-    }
-    
-    /**
-     * 注册Tauri事件监听
-     * 通过JavaScript桥接监听Tauri后端事件
-     * 使用轮询重试机制确保Tauri环境就绪
-     */
-    @SuppressLint("SetJavaScriptEnabled")
-    private fun registerTauriEventListeners() {
-        webViewRef?.let { webView ->
-            eventListenerRegistration?.cancel()
-            eventListenerRegistration = EventListenerRegistration(webView).also { it.start() }
-        } ?: Log.e(TAG, "WebView is null, cannot register event listeners")
-    }
-
-    /**
-     * Tauri事件监听器注册器
-     * 处理重试逻辑和事件注册
-     */
-    private inner class EventListenerRegistration(private val webView: WebView) {
-        private var retryCount = 0
-        private var cancelled = false
-        private val retryRunnable = Runnable { attemptRegister() }
-
-        fun start() {
-            attemptRegister()
-        }
-
-        fun cancel() {
-            cancelled = true
-            webView.removeCallbacks(retryRunnable)
-        }
-
-        private fun attemptRegister() {
-            if (cancelled || !isWebViewActive || webViewRef !== webView) {
-                return
-            }
-
-            if (retryCount >= TAURI_LISTENER_MAX_RETRIES) {
-                Log.w(TAG, "Max retries reached, Tauri event listener registration failed")
-                return
-            }
-
-            webView.evaluateJavascript(JS_REGISTRATION_CODE) { result ->
-                handleResult(result?.trim()?.removeSurrounding("\""))
-            }
-        }
-
-        private fun handleResult(result: String?) {
-            if (cancelled || !isWebViewActive || webViewRef !== webView) {
-                return
-            }
-
-            when (result) {
-                "success" -> Log.d(TAG, "Tauri event listeners registered successfully")
-                "already_registered" -> Log.d(TAG, "Event listeners already registered")
-                else -> {
-                    retryCount++
-                    webView.postDelayed(retryRunnable, TAURI_LISTENER_RETRY_DELAY_MS)
-                }
-            }
-        }
     }
 
     override fun onDestroy() {
         Log.d(TAG, "onDestroy: cleaning up bridge references")
         isWebViewActive = false
-        eventListenerRegistration?.cancel()
-        eventListenerRegistration = null
         galleryBridgeV2?.destroy()
         super.onDestroy()
         instance = null
         // Clear all bridge references to prevent memory leaks
         webViewRef = null
         permissionBridge = null
-        galleryBridge = null
+        galleryActionsBridge = null
         galleryBridgeV2 = null
         imageViewerBridge = null
-        nnCapabilityBridge = null
     }
 
     override fun onStart() {
