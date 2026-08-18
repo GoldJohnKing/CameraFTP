@@ -20,7 +20,7 @@ use crate::ftp::FtpStorageBackend;
 use dashmap::DashSet;
 use libunftp::options::Shutdown;
 use libunftp::ServerBuilder;
-use std::net::{SocketAddr, TcpStream};
+use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tauri::AppHandle;
@@ -306,7 +306,6 @@ impl FtpServerActor {
     ) -> ((FtpDataListener, FtpPresenceListener), oneshot::Receiver<()>) {
         let data_listener = FtpDataListener::new(
             self.stats_actor.clone(),
-            self.event_bus.clone(),
             root_path.to_path_buf(),
             self.app_handle.clone(),
         );
@@ -330,7 +329,8 @@ impl FtpServerActor {
             return Ok(());
         }
 
-        #[cfg(not(target_os = "android"))]
+        // desktop-generic (not android-specific)
+#[cfg(not(target_os = "android"))]
         {
             if let Err(e) = unftp_sbe_fs::Filesystem::new(root_path) {
                 error!(error = %e, "Failed to create filesystem");
@@ -434,7 +434,7 @@ impl FtpServerActor {
                 }
             }
 
-            if Self::is_port_listening(port) {
+            if Self::is_port_listening(port).await {
                 info!(
                     port = port,
                     elapsed_ms = start.elapsed().as_millis() as u64,
@@ -457,10 +457,18 @@ impl FtpServerActor {
         }
     }
 
-    /// 检查端口是否在监听
-    fn is_port_listening(port: u16) -> bool {
+    /// 检查端口是否在监听（异步非阻塞连接探测，
+    /// 避免阻塞的 std::net::TcpStream::connect_timeout 卡住异步运行时）
+    async fn is_port_listening(port: u16) -> bool {
         let addr = SocketAddr::from(([127, 0, 0, 1], port));
-        TcpStream::connect_timeout(&addr, Duration::from_millis(10)).is_ok()
+        matches!(
+            tokio::time::timeout(
+                Duration::from_millis(10),
+                tokio::net::TcpStream::connect(addr),
+            )
+            .await,
+            Ok(Ok(_))
+        )
     }
 
     /// 创建文件系统实例（路径已验证，不应失败）
@@ -469,6 +477,12 @@ impl FtpServerActor {
     /// 
     /// 仅在文件系统创建失败时 panic，这种情况在正常流程中不应发生，
     /// 因为路径已在 `validate_filesystem` 中验证过。
+    ///
+    /// 注：无法改为“启动时创建一次、按会话克隆/共享”——`unftp_sbe_fs`
+    /// 0.4 的 `Filesystem` 未实现 `Clone`（内部持有 `Arc<cap_std::fs::Dir>`
+    /// 且字段私有），而 libunftp 的存储后端工厂签名是无失败的
+    /// `Fn() -> StorageBackend`（每个会话各需一个实例），共享单个实例
+    /// 需要 `Arc<Mutex<..>>` 串行化所有会话，得不偿失，故维持现状。
     fn create_filesystem(root_path: &std::path::Path) -> FtpStorageBackend {
         #[cfg(target_os = "android")]
         {
@@ -476,7 +490,8 @@ impl FtpServerActor {
             return AndroidMediaStoreBackend::new();
         }
 
-        #[cfg(not(target_os = "android"))]
+        // desktop-generic (not android-specific)
+#[cfg(not(target_os = "android"))]
         {
             return unftp_sbe_fs::Filesystem::new(root_path.to_path_buf())
                 .unwrap_or_else(|e| {

@@ -346,21 +346,6 @@ impl ServerStatus {
     }
 }
 
-/// 领域事件 - 用于事件驱动架构
-#[derive(Debug, Clone, PartialEq, serde::Serialize)]
-#[serde(tag = "type", content = "data")]
-pub(crate) enum DomainEvent {
-    FileUploaded {
-        path: String,
-        size: u64,
-    },
-    /// 文件索引发生变化（添加或删除）
-    FileIndexChanged {
-        count: usize,
-        latest_filename: Option<String>,
-    },
-}
-
 /// 服务器连接信息（用于前端显示）
 #[derive(Debug, Clone, serde::Serialize, TS)]
 #[ts(export)]
@@ -395,8 +380,7 @@ impl ServerInfo {
 
 #[cfg(test)]
 pub(crate) mod test_utils {
-    use super::{DomainEvent, ServerStats};
-    use tokio::sync::broadcast;
+    use super::ServerStats;
 
     pub(crate) fn test_stats(active: u64, uploads: u64, bytes: u64, last_file: Option<&str>) -> ServerStats {
         ServerStats {
@@ -404,33 +388,6 @@ pub(crate) mod test_utils {
             total_uploads: uploads,
             total_bytes_received: bytes,
             last_uploaded_file: last_file.map(String::from),
-        }
-    }
-
-    /// Test-only event bus that doesn't persist events
-    #[derive(Debug, Clone)]
-    pub(crate) struct TransientEventBus {
-        tx: broadcast::Sender<DomainEvent>,
-    }
-
-    impl Default for TransientEventBus {
-        fn default() -> Self {
-            Self::new()
-        }
-    }
-
-    impl TransientEventBus {
-        pub(crate) fn new() -> Self {
-            let (tx, _) = broadcast::channel(100);
-            Self { tx }
-        }
-
-        pub(crate) fn subscribe(&self) -> broadcast::Receiver<DomainEvent> {
-            self.tx.subscribe()
-        }
-
-        pub(crate) fn emit(&self, event: DomainEvent) {
-            let _ = self.tx.send(event);
         }
     }
 }

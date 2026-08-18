@@ -3,25 +3,22 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 use crate::ftp::types::{
-    DomainEvent, ServerRuntimeSnapshot, ServerRuntimeState, ServerStateSnapshot, ServerStats,
+    ServerRuntimeSnapshot, ServerRuntimeState, ServerStateSnapshot, ServerStats,
 };
-use tokio::sync::{broadcast, watch};
+use tokio::sync::watch;
 use tracing::warn;
 use tauri::Emitter;
 
-/// 事件总线 - 中心化的领域事件分发
+/// 事件总线 - 运行时状态（watch channel）的持有者与更新入口
 #[derive(Debug, Clone)]
 pub struct EventBus {
-    tx: broadcast::Sender<DomainEvent>,
     runtime_state: ServerRuntimeState,
 }
 
 impl EventBus {
     /// 创建新的事件总线
     pub fn new() -> Self {
-        let (tx, _) = broadcast::channel(100);
         Self {
-            tx,
             runtime_state: ServerRuntimeState::default(),
         }
     }
@@ -30,12 +27,7 @@ impl EventBus {
         self.runtime_state.clone()
     }
 
-    /// 订阅事件
-    pub(crate) fn subscribe(&self) -> broadcast::Receiver<DomainEvent> {
-        self.tx.subscribe()
-    }
-
-    /// 更新运行时状态：记录服务器启动（不广播 DomainEvent，仅更新 watch channel 状态）
+    /// 更新运行时状态：记录服务器启动（仅更新 watch channel 状态）
     pub async fn emit_server_started(&self, bind_addr: impl Into<String>) {
         let bind_addr = bind_addr.into();
         self.runtime_state()
@@ -43,40 +35,15 @@ impl EventBus {
             .await;
     }
 
-    /// 更新运行时状态：记录服务器停止（不广播 DomainEvent，仅更新 watch channel 状态）
+    /// 更新运行时状态：记录服务器停止（仅更新 watch channel 状态）
     pub async fn emit_server_stopped(&self) {
         self.runtime_state().record_server_stopped().await;
     }
 
-    /// 发布文件上传事件
-    pub fn emit_file_uploaded(&self, path: impl Into<String>, size: u64) {
-        let event = DomainEvent::FileUploaded {
-            path: path.into(),
-            size,
-        };
-        self.emit_non_state_event(event);
-    }
-
-    /// 发布文件索引变化事件
-    pub fn emit_file_index_changed(&self, count: usize, latest_filename: Option<String>) {
-        let event = DomainEvent::FileIndexChanged {
-            count,
-            latest_filename,
-        };
-        self.emit_non_state_event(event);
-    }
-
-    /// 更新运行时状态：记录统计信息（不广播 DomainEvent，仅更新 watch channel 状态）
+    /// 更新运行时状态：记录统计信息（仅更新 watch channel 状态）
     pub(crate) async fn emit_stats_updated(&self, stats: ServerStats) {
         self.runtime_state().record_stats(stats).await;
     }
-
-    fn emit_non_state_event(&self, event: DomainEvent) {
-        if let Err(broadcast::error::SendError(_)) = self.tx.send(event) {
-            warn!("Event dropped: no active subscribers");
-        }
-    }
-
 }
 
 impl Default for EventBus {
@@ -87,44 +54,28 @@ impl Default for EventBus {
 
 /// 事件处理器trait
 #[async_trait::async_trait]
-pub(crate) trait EventHandler: Send + Sync {
-    /// 处理事件
-    async fn handle(&mut self, event: &DomainEvent);
-
-    /// 获取感兴趣的事件类型（None表示所有事件）
-    fn interested_types(&self) -> Option<Vec<&'static str>> {
-        None
-    }
-}
-
-#[async_trait::async_trait]
 pub trait RuntimeStateHandler: Send + Sync {
     async fn handle_runtime_state(&mut self, snapshot: &ServerRuntimeSnapshot);
 }
 
 /// 事件处理器管理器
 pub struct EventProcessor {
-    rx: broadcast::Receiver<DomainEvent>,
     state_rx: watch::Receiver<ServerRuntimeSnapshot>,
     /// 用于在初始化时查询当前状态，解决订阅时序竞态条件
     runtime_state: Option<crate::ftp::types::ServerRuntimeState>,
     runtime_state_handlers: Vec<Box<dyn RuntimeStateHandler>>,
-    event_handlers: Vec<Box<dyn EventHandler>>,
 }
 
 impl EventProcessor {
     /// 创建事件处理器
     pub fn new(bus: &EventBus) -> Self {
-        let rx = bus.subscribe();
         let runtime_state = bus.runtime_state();
         let state_rx = runtime_state.subscribe();
 
         Self {
-            rx,
             state_rx,
             runtime_state: Some(runtime_state),
             runtime_state_handlers: Vec::new(),
-            event_handlers: Vec::new(),
         }
     }
 
@@ -132,16 +83,13 @@ impl EventProcessor {
     ///
     /// 用于当 EventBus 被提前丢弃，但需要保持状态监听的情况
     pub(crate) fn from_parts(
-        transient_rx: broadcast::Receiver<DomainEvent>,
         state_rx: watch::Receiver<ServerRuntimeSnapshot>,
         runtime_state: Option<crate::ftp::types::ServerRuntimeState>,
     ) -> Self {
         Self {
-            rx: transient_rx,
             state_rx,
             runtime_state,
             runtime_state_handlers: Vec::new(),
-            event_handlers: Vec::new(),
         }
     }
 
@@ -153,18 +101,12 @@ impl EventProcessor {
         self
     }
 
-    /// 注册处理器
-    pub(crate) fn register<H: EventHandler + 'static>(
-        mut self,
-        handler: H,
-    ) -> Self {
-        self.event_handlers.push(Box::new(handler));
-        self
-    }
-
     /// 运行处理器循环
     pub async fn run(mut self) {
         self.emit_current_runtime_state().await;
+        // 释放缓存的 ServerRuntimeState（内含 watch::Sender），
+        // 否则处理器自身会永久持有发送端，导致循环在所有真实所有者释放后仍无法退出。
+        self.runtime_state = None;
         self.run_loop().await;
     }
 
@@ -177,34 +119,19 @@ impl EventProcessor {
         // 在启动事件循环前发送就绪信号
         // 这确保调用者收到信号时，所有 runtime state handlers 已经处理了当前状态
         let _ = ready_tx.send(());
+        // 同 run()：释放 watch::Sender，让循环在真实所有者全部释放后能够退出。
+        self.runtime_state = None;
         self.run_loop().await;
     }
 
     async fn run_loop(&mut self) {
         loop {
-            tokio::select! {
-                state_changed = self.state_rx.changed() => {
-                    match state_changed {
-                        Ok(()) => {
-                            let snapshot = self.state_rx.borrow_and_update().clone();
-                            self.replay_state_to_handlers(&snapshot).await;
-                        }
-                        Err(_) => break,
-                    }
+            match self.state_rx.changed().await {
+                Ok(()) => {
+                    let snapshot = self.state_rx.borrow_and_update().clone();
+                    self.replay_state_to_handlers(&snapshot).await;
                 }
-                event_result = self.rx.recv() => {
-                    match event_result {
-                        Ok(event) => {
-                            self.dispatch_event(&event).await;
-                        }
-                        Err(broadcast::error::RecvError::Lagged(n)) => {
-                            warn!(dropped = n, "Event processor lagged, some events dropped");
-                        }
-                        Err(broadcast::error::RecvError::Closed) => {
-                            break;
-                        }
-                    }
-                }
+                Err(_) => break,
             }
         }
     }
@@ -227,30 +154,6 @@ impl EventProcessor {
             self.state_rx.borrow_and_update().clone()
         };
         self.replay_state_to_handlers(&snapshot).await;
-    }
-
-    async fn dispatch_event(&mut self, event: &DomainEvent) {
-        for handler in self.event_handlers.iter_mut() {
-            if should_handle(handler.as_ref(), event) {
-                handler.handle(event).await;
-            }
-        }
-    }
-}
-
-/// 检查处理器是否应该处理该事件
-fn should_handle(handler: &dyn EventHandler, event: &DomainEvent) -> bool {
-    match handler.interested_types() {
-        None => true,
-        Some(types) => types.contains(&event_type_name(event)),
-    }
-}
-
-/// 获取事件类型名称
-fn event_type_name(event: &DomainEvent) -> &'static str {
-    match event {
-        DomainEvent::FileUploaded { .. } => "FileUploaded",
-        DomainEvent::FileIndexChanged { .. } => "FileIndexChanged",
     }
 }
 
@@ -368,47 +271,6 @@ impl RuntimeStateHandler for StatsEventHandler {
     }
 }
 
-pub(crate) struct FrontendTransientEventHandler {
-    app_handle: tauri::AppHandle,
-}
-
-impl FrontendTransientEventHandler {
-    pub fn new(app_handle: tauri::AppHandle) -> Self {
-        Self { app_handle }
-    }
-}
-
-#[async_trait::async_trait]
-impl EventHandler for FrontendTransientEventHandler {
-    async fn handle(&mut self, event: &DomainEvent) {
-        match event {
-            DomainEvent::FileUploaded { path, size } => {
-                if let Err(e) = self.app_handle.emit(
-                    "file-uploaded",
-                    serde_json::json!({ "path": path, "size": size }),
-                ) {
-                    warn!(event = "file-uploaded", error = %e, "Failed to emit frontend event");
-                }
-            }
-            DomainEvent::FileIndexChanged { count, latest_filename } => {
-                if let Err(e) = self.app_handle.emit(
-                    "file-index-changed",
-                    serde_json::json!({
-                        "count": count,
-                        "latestFilename": latest_filename
-                    }),
-                ) {
-                    warn!(event = "file-index-changed", error = %e, "Failed to emit frontend event");
-                }
-            }
-        }
-    }
-
-    fn interested_types(&self) -> Option<Vec<&'static str>> {
-        Some(vec!["FileUploaded", "FileIndexChanged"])
-    }
-}
-
 /// 解析 bind_addr (格式: "ip:port") 返回 (ip, port)
 fn parse_bind_addr(bind_addr: &str) -> Option<(String, u16)> {
     let (host, port) = bind_addr.split_once(':')?;
@@ -472,11 +334,6 @@ mod tests {
     use tokio::sync::Mutex;
 
     #[derive(Clone, Default)]
-    struct RecordingHandler {
-        events: Arc<Mutex<Vec<DomainEvent>>>,
-    }
-
-    #[derive(Clone, Default)]
     struct RecordingRuntimeStateHandler {
         snapshots: Arc<Mutex<Vec<ServerRuntimeSnapshot>>>,
     }
@@ -494,20 +351,6 @@ mod tests {
 
         fn sync_android_service_state(&mut self, snapshot: &ServerStateSnapshot) {
             self.android_snapshots.push(snapshot.clone());
-        }
-    }
-
-    #[async_trait::async_trait]
-    impl EventHandler for RecordingHandler {
-        async fn handle(&mut self, event: &DomainEvent) {
-            self.events.lock().await.push(event.clone());
-        }
-
-        fn interested_types(&self) -> Option<Vec<&'static str>> {
-            Some(vec![
-                "FileUploaded",
-                "FileIndexChanged",
-            ])
         }
     }
 
@@ -570,8 +413,7 @@ mod tests {
         });
 
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-        drop(bus);
-        run_handle.await.expect("event processor should exit cleanly");
+        run_handle.abort();
 
         let recorded = snapshots.lock().await.clone();
         assert_eq!(
@@ -606,8 +448,7 @@ mod tests {
         });
 
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-        drop(bus);
-        run_handle.await.expect("event processor should exit cleanly");
+        run_handle.abort();
 
         assert_eq!(snapshots.lock().await.as_slice(), &[ServerRuntimeSnapshot::default()]);
     }
@@ -638,8 +479,7 @@ mod tests {
         });
 
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-        drop(bus);
-        run_handle.await.expect("event processor should exit cleanly");
+        run_handle.abort();
 
         assert_eq!(snapshots.lock().await.as_slice(), &[ServerRuntimeSnapshot::default()]);
     }
@@ -666,45 +506,9 @@ mod tests {
         });
 
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-        drop(bus);
-        run_handle.await.expect("event processor should exit cleanly");
+        run_handle.abort();
 
         assert_eq!(snapshots.lock().await.as_slice(), &[ServerRuntimeSnapshot::default()]);
-    }
-
-    #[tokio::test]
-    async fn transient_processor_receives_post_subscription_non_state_events() {
-        let bus = EventBus::new();
-        let handler = RecordingHandler::default();
-        let events = handler.events.clone();
-        let processor = EventProcessor::new(&bus).register(handler);
-
-        let run_handle = tokio::spawn(async move {
-            processor.run().await;
-        });
-
-        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-        bus.emit_server_started("127.0.0.1:2121").await;
-        bus.emit_file_uploaded("queued.jpg", 42);
-        bus.emit_file_index_changed(3, Some("queued.jpg".to_string()));
-
-        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-        drop(bus);
-        run_handle.await.expect("event processor should exit cleanly");
-
-        assert_eq!(
-            events.lock().await.as_slice(),
-            &[
-                DomainEvent::FileUploaded {
-                    path: "queued.jpg".to_string(),
-                    size: 42,
-                },
-                DomainEvent::FileIndexChanged {
-                    count: 3,
-                    latest_filename: Some("queued.jpg".to_string()),
-                },
-            ]
-        );
     }
 
     #[tokio::test]
@@ -722,22 +526,6 @@ mod tests {
 
         assert!(snapshot.is_running);
         assert_eq!(snapshot.connected_clients, 2);
-    }
-
-    #[tokio::test]
-    async fn transient_subscriber_does_not_receive_pre_subscription_file_events() {
-        let transient_bus = crate::ftp::types::test_utils::TransientEventBus::new();
-        transient_bus.emit(DomainEvent::FileUploaded {
-            path: "/before.jpg".into(),
-            size: 512,
-        });
-
-        let mut rx = transient_bus.subscribe();
-
-        assert!(matches!(
-            rx.try_recv(),
-            Err(broadcast::error::TryRecvError::Empty)
-        ));
     }
 
     #[tokio::test]
@@ -772,59 +560,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn transient_event_bus_and_event_processor_drop_pre_subscription_events() {
-        let bus = EventBus::new();
-        bus.emit_file_uploaded("before-processor.jpg", 7);
-
-        let transient_bus = crate::ftp::types::test_utils::TransientEventBus::new();
-        transient_bus.emit(DomainEvent::FileUploaded {
-            path: "/before.jpg".into(),
-            size: 512,
-        });
-        let mut transient_rx = transient_bus.subscribe();
-
-        let handler = RecordingHandler::default();
-        let events = handler.events.clone();
-        let processor = EventProcessor::new(&bus).register(handler);
-
-        let run_handle = tokio::spawn(async move {
-            processor.run().await;
-        });
-
-        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-        drop(bus);
-        run_handle.await.expect("event processor should exit cleanly");
-
-        assert!(matches!(
-            transient_rx.try_recv(),
-            Err(broadcast::error::TryRecvError::Empty)
-        ));
-
-        assert_eq!(events.lock().await.as_slice(), &[]);
-    }
-
-    #[tokio::test]
-    async fn non_state_events_emitted_before_processor_creation_are_not_replayed() {
-        let bus = EventBus::new();
-        bus.emit_file_uploaded("early-upload.jpg", 7);
-        bus.emit_file_index_changed(1, Some("early-upload.jpg".to_string()));
-
-        let handler = RecordingHandler::default();
-        let events = handler.events.clone();
-        let processor = EventProcessor::new(&bus).register(handler);
-
-        let run_handle = tokio::spawn(async move {
-            processor.run().await;
-        });
-
-        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-        drop(bus);
-        run_handle.await.expect("event processor should exit cleanly");
-
-        assert_eq!(events.lock().await.as_slice(), &[]);
-    }
-
-    #[tokio::test]
     async fn runtime_state_replays_started_server_with_latest_stats() {
         let bus = EventBus::new();
         let handler = RecordingRuntimeStateHandler::default();
@@ -845,8 +580,7 @@ mod tests {
         });
 
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-        drop(bus);
-        run_handle.await.expect("event processor should exit cleanly");
+        run_handle.abort();
 
         assert_eq!(snapshots.lock().await.as_slice(), &[ServerRuntimeSnapshot {
             bind_addr: Some("127.0.0.1:2121".to_string()),
@@ -882,8 +616,7 @@ mod tests {
         });
 
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-        drop(bus);
-        run_handle.await.expect("event processor should exit cleanly");
+        run_handle.abort();
 
         assert_eq!(
             snapshots.lock().await.as_slice(),
@@ -896,15 +629,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn runtime_state_handlers_update_without_state_domain_event_delivery() {
+    async fn runtime_state_handlers_update_while_processor_is_running() {
         let bus = EventBus::new();
         let runtime_handler = RecordingRuntimeStateHandler::default();
         let snapshots = runtime_handler.snapshots.clone();
-        let transient_handler = RecordingHandler::default();
-        let events = transient_handler.events.clone();
-        let processor = EventProcessor::new(&bus)
-            .register_runtime_state_handler(runtime_handler)
-            .register(transient_handler);
+        let processor = EventProcessor::new(&bus).register_runtime_state_handler(runtime_handler);
 
         let run_handle = tokio::spawn(async move {
             processor.run().await;
@@ -914,36 +643,37 @@ mod tests {
         bus.emit_server_started("127.0.0.1:2121").await;
         bus.emit_stats_updated(ServerStats { active_connections: 2, ..Default::default() })
             .await;
-        bus.emit_file_uploaded("after-start.jpg", 12);
 
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-        drop(bus);
-        run_handle.await.expect("event processor should exit cleanly");
+        run_handle.abort();
 
         assert!(snapshots.lock().await.iter().any(|snapshot| {
             snapshot.is_running
                 && snapshot.stats.as_ref().is_some_and(|stats| stats.active_connections == 2)
         }));
-        assert_eq!(
-            events.lock().await.as_slice(),
-            &[DomainEvent::FileUploaded {
-                path: "after-start.jpg".to_string(),
-                size: 12,
-            }]
-        );
     }
 
     #[tokio::test]
-    async fn state_updates_do_not_emit_transient_domain_events() {
+    async fn processor_exits_when_all_runtime_state_owners_drop() {
+        // 回归防护：处理器不能通过缓存的 ServerRuntimeState（内含 watch::Sender）
+        // 自行保活事件循环，否则每次服务器停止后任务都会泄漏。
         let bus = EventBus::new();
-        let mut rx = bus.subscribe();
+        let handler = RecordingRuntimeStateHandler::default();
+        let processor = EventProcessor::new(&bus).register_runtime_state_handler(handler);
 
-        bus.emit_server_started("127.0.0.1:2121").await;
-        bus.emit_stats_updated(ServerStats { active_connections: 2, ..Default::default() })
-            .await;
-        bus.emit_server_stopped().await;
+        let run_handle = tokio::spawn(async move {
+            processor.run().await;
+        });
 
-        assert!(matches!(rx.try_recv(), Err(broadcast::error::TryRecvError::Empty)));
+        // 给初始 replay 一点时间完成，然后释放最后一个真实所有者。
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        drop(bus);
+
+        let exited = tokio::time::timeout(std::time::Duration::from_secs(2), run_handle).await;
+        assert!(
+            exited.is_ok(),
+            "EventProcessor task did not exit after all runtime state owners dropped"
+        );
     }
 
     #[tokio::test]
@@ -963,17 +693,6 @@ mod tests {
             bus.runtime_state().current_runtime_snapshot().await,
             ServerRuntimeSnapshot::default()
         );
-    }
-
-    #[tokio::test]
-    async fn event_processor_does_not_keep_channel_alive_after_bus_drop() {
-        let bus = EventBus::new();
-        let processor = EventProcessor::new(&bus);
-        drop(bus);
-
-        tokio::time::timeout(std::time::Duration::from_millis(100), processor.run())
-            .await
-            .expect("event processor should exit after bus drop");
     }
 
     #[test]

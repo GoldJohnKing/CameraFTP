@@ -5,7 +5,7 @@
 //! FTP服务器模块
 //!
 //! 该模块提供了完整的FTP服务器功能，采用Actor模式实现，包括：
-//! - 事件驱动架构（EventBus）
+//! - 运行时状态广播（watch channel 驱动的 EventProcessor）
 //! - 统计信息Actor（StatsActor）
 //! - 服务器Actor（FtpServerActor）
 //! - 监听器（Listeners）
@@ -27,11 +27,12 @@ pub mod types;
 #[cfg(target_os = "android")]
 pub type FtpStorageBackend = crate::ftp::android_mediastore::AndroidMediaStoreBackend;
 
+// desktop-generic (not android-specific)
 #[cfg(not(target_os = "android"))]
 pub type FtpStorageBackend = unftp_sbe_fs::Filesystem;
 
 // 重新导出主要类型
 pub use events::EventBus;
-pub(crate) use events::{EventProcessor, FrontendTransientEventHandler, StatsEventHandler, TrayUpdateHandler};
+pub(crate) use events::{EventProcessor, StatsEventHandler, TrayUpdateHandler};
 pub use server::{create_ftp_server, FtpServerHandle};
 pub use types::{FtpAuthConfig, ServerInfo, ServerStateSnapshot};

@@ -4,7 +4,6 @@
 
 use crate::constants::FILE_READY_TIMEOUT_SECS;
 use crate::file_index::FileIndexService;
-use crate::ftp::events::EventBus;
 use crate::ftp::stats::StatsActor;
 use crate::utils::wait_for_file_ready;
 use dashmap::DashSet;
@@ -18,14 +17,13 @@ use tracing::{info, warn};
 #[derive(Debug, Clone)]
 pub struct FtpDataListener {
     stats: StatsActor,
-    event_bus: EventBus,
     save_path: Arc<std::path::PathBuf>,
     app_handle: Option<AppHandle>,
 }
 
 impl FtpDataListener {
-    pub fn new(stats: StatsActor, event_bus: EventBus, save_path: std::path::PathBuf, app_handle: Option<AppHandle>) -> Self {
-        Self { stats, event_bus, save_path: Arc::new(save_path), app_handle }
+    pub fn new(stats: StatsActor, save_path: std::path::PathBuf, app_handle: Option<AppHandle>) -> Self {
+        Self { stats, save_path: Arc::new(save_path), app_handle }
     }
 }
 
@@ -39,15 +37,13 @@ impl DataListener for FtpDataListener {
         'life0: 'async_trait,
     {
         let stats = self.stats.clone();
-        let event_bus = self.event_bus.clone();
         let save_path = self.save_path.clone();
         let app_handle = self.app_handle.clone();
         Box::pin(async move {
             match event {
                 DataEvent::Put { path, bytes } => {
+                    // 上传统计与 "File uploaded" 日志由 StatsActor 统一记录
                     stats.record_upload(path.clone(), bytes).await;
-                    event_bus.emit_file_uploaded(path.clone(), bytes);
-                    info!(file = %path, size = bytes, "File uploaded");
 
                     let file_path = std::path::Path::new(&path);
                     let is_raw = crate::image_utils::is_raw_file(file_path);
