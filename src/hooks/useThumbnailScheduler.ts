@@ -181,10 +181,10 @@ export function useThumbnailScheduler(opts?: UseThumbnailSchedulerOptions) {
       }
     };
 
-    void registerThumbnailListener(VIEW_ID, LISTENER_ID, handleResult);
+    void registerThumbnailListener(VIEW_ID, LISTENER_ID, handleResult).catch(() => {});
 
     return () => {
-      void unregisterThumbnailListener(LISTENER_ID);
+      void unregisterThumbnailListener(LISTENER_ID).catch(() => {});
     };
   }, []);
 
@@ -203,7 +203,7 @@ export function useThumbnailScheduler(opts?: UseThumbnailSchedulerOptions) {
         }
       }
       if (toCancel.length > 0) {
-        void cancelThumbnailRequests(toCancel);
+        void cancelThumbnailRequests(toCancel).catch(() => {});
         for (const id of toCancel) {
           const req = activeRequestsRef.current.get(id);
           if (req) {
@@ -318,7 +318,7 @@ export function useThumbnailScheduler(opts?: UseThumbnailSchedulerOptions) {
       }
     }
     if (toCancel.length > 0) {
-      void cancelThumbnailRequests(toCancel);
+      void cancelThumbnailRequests(toCancel).catch(() => {});
       for (const id of toCancel) {
         activeRequestsRef.current.delete(id);
       }
@@ -339,7 +339,7 @@ export function useThumbnailScheduler(opts?: UseThumbnailSchedulerOptions) {
 
     const allRequestIds = [...activeRequestsRef.current.keys()];
     if (allRequestIds.length > 0) {
-      void cancelThumbnailRequests(allRequestIds);
+      void cancelThumbnailRequests(allRequestIds).catch(() => {});
     }
     activeRequestsRef.current.clear();
     failedMediaRef.current.clear();

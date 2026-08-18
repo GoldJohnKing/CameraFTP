@@ -18,7 +18,7 @@ vi.mock('@tauri-apps/api/core', () => ({
   invoke: invokeMock,
 }));
 
-vi.mock('../../types', () => ({
+vi.mock('../../services/permission-bridge', () => ({
   permissionBridge: {
     isAvailable: permissionBridgeAvailableMock,
     checkAll: checkAllMock,
@@ -81,6 +81,26 @@ describe('permissionStore', () => {
     expect(usePermissionStore.getState().pollingIntervalId).toBeNull();
 
     window.removeEventListener(GALLERY_REFRESH_REQUESTED_EVENT, refreshHandler);
+  });
+
+  it('skips overlapping permission checks while one is still in flight', async () => {
+    let resolveCheck!: (value: { storage: boolean; notification: boolean; batteryOptimization: boolean }) => void;
+    checkAllMock.mockImplementation(() => new Promise((resolve) => {
+      resolveCheck = resolve;
+    }));
+
+    usePermissionStore.getState().startPolling('storage');
+    await Promise.resolve(); // immediate check starts
+
+    // Two interval ticks fire while the first check is still pending
+    await vi.advanceTimersByTimeAsync(400);
+    expect(checkAllMock).toHaveBeenCalledTimes(1);
+
+    resolveCheck({ storage: false, notification: false, batteryOptimization: false });
+    await vi.advanceTimersByTimeAsync(200);
+
+    // Polling resumes once the pending check settles
+    expect(checkAllMock).toHaveBeenCalledTimes(2);
   });
 
   it('maps checkPermissions result to permissions and allGranted', async () => {

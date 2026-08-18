@@ -46,7 +46,7 @@ vi.mock('../../utils/gallery-refresh', () => ({
   LATEST_PHOTO_REFRESH_REQUESTED_EVENT: 'latest-photo-refresh-requested',
 }));
 
-import { useAiEditProgress, dismissDone, cancelAiEdit, enqueueAiEdit } from '../useAiEditProgress';
+import { useAiEditProgress, dismissDone, cancelAiEdit, applyAndEnqueueAiEdit } from '../useAiEditProgress';
 
 function Harness() {
   const state = useAiEditProgress();
@@ -122,7 +122,6 @@ describe('useAiEditProgress', () => {
       isAppVisible: vi.fn(),
       onExifResult: vi.fn(),
       onExifResultForPosition: vi.fn(),
-      requestExifForPositions: vi.fn(),
       resolveFilePath: vi.fn(),
       scanNewFile,
     };
@@ -141,7 +140,6 @@ describe('useAiEditProgress', () => {
       isAppVisible: vi.fn(),
       onExifResult: vi.fn(),
       onExifResultForPosition: vi.fn(),
-      requestExifForPositions: vi.fn(),
       resolveFilePath: vi.fn(),
       onAiEditComplete,
     };
@@ -158,7 +156,6 @@ describe('useAiEditProgress', () => {
       isAppVisible: vi.fn(),
       onExifResult: vi.fn(),
       onExifResultForPosition: vi.fn(),
-      requestExifForPositions: vi.fn(),
       resolveFilePath: vi.fn(),
       onAiEditComplete,
     };
@@ -196,7 +193,6 @@ describe('useAiEditProgress', () => {
       isAppVisible: vi.fn(),
       onExifResult: vi.fn(),
       onExifResultForPosition: vi.fn(),
-      requestExifForPositions: vi.fn(),
       resolveFilePath: vi.fn(),
       updateAiEditProgress,
     };
@@ -319,7 +315,6 @@ describe('useAiEditProgress', () => {
       isAppVisible: vi.fn(),
       onExifResult: vi.fn(),
       onExifResultForPosition: vi.fn(),
-      requestExifForPositions: vi.fn(),
       resolveFilePath: vi.fn(),
       updateAiEditProgress,
     };
@@ -357,8 +352,10 @@ describe('useAiEditProgress', () => {
     expect(getText('is-editing')).toBe('no');
   });
 
-  it('enqueueAiEdit passes multiple files to backend', async () => {
-    await enqueueAiEdit(['/tmp/a.jpg', '/tmp/b.jpg', '/tmp/c.jpg'], 'test prompt', 'test-model');
+  it('applyAndEnqueueAiEdit passes multiple files to backend', async () => {
+    // enqueueAiEdit is module-private; the backend payload is observed
+    // through the public applyAndEnqueueAiEdit entry point.
+    await applyAndEnqueueAiEdit({ filePaths: ['/tmp/a.jpg', '/tmp/b.jpg', '/tmp/c.jpg'], prompt: 'test prompt', model: 'test-model' });
     expect(invokeMock).toHaveBeenCalledWith('enqueue_ai_edit', {
       filePaths: ['/tmp/a.jpg', '/tmp/b.jpg', '/tmp/c.jpg'],
       prompt: 'test prompt',
@@ -374,7 +371,6 @@ describe('useAiEditProgress', () => {
       isAppVisible: vi.fn(),
       onExifResult: vi.fn(),
       onExifResultForPosition: vi.fn(),
-      requestExifForPositions: vi.fn(),
       resolveFilePath: vi.fn(),
       onAiEditComplete,
       scanNewFile,

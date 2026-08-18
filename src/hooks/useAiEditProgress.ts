@@ -7,7 +7,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import type { AiEditProgressEvent } from '../types';
 import { createTaskProgressHook } from './createTaskProgressHook';
-import type { TaskProgressState, DoneEvent } from './createTaskProgressHook';
+import type { TaskProgressState } from './createTaskProgressHook';
 import { useConfigStore } from '../stores/configStore';
 
 export interface AiEditProgressState {
@@ -43,49 +43,22 @@ const aiEdit = createTaskProgressHook<AiEditProgressEvent>({
         return null;
     }
   },
-  onRawEvent: (event, store) => {
-    if (event.type === 'queued') {
-      const state = store.getState();
-      if (state.isActive) {
-        const newTotal = state.current + event.queueDepth;
-        store.setState({ total: newTotal });
-        syncToNativeLayer({ total: newTotal, failedCount: state.failedCount });
-      }
-    }
+  onRawEvent: (event) => {
     if (event.type === 'queuedDropped') {
       console.warn(
         `[ai-edit-progress] Auto-edit task dropped (queue full): ${event.fileName}`,
       );
     }
   },
-  onAfterUpdate: (mapped) => {
-    if (mapped.type === 'progress') {
-      syncToNativeLayer();
-    }
-  },
-  onDone: (event) => {
-    syncToNativeLayer(event);
-    notifyNativeDone(event);
+  nativeBridge: {
+    syncProgress: (current, total, failedCount) => {
+      window.ImageViewerAndroid?.updateAiEditProgress?.(current, total, failedCount);
+    },
+    notifyDone: (success, message, cancelled) => {
+      window.ImageViewerAndroid?.onAiEditComplete?.(success, message, cancelled);
+    },
   },
 });
-
-function syncToNativeLayer(overrides?: { total?: number; failedCount?: number }) {
-  const state = aiEdit.getProgressState();
-  const total = overrides?.total ?? state.total;
-  const failedCount = overrides?.failedCount ?? state.failedCount;
-  window.ImageViewerAndroid?.updateAiEditProgress?.(state.current, total, failedCount);
-}
-
-function notifyNativeDone(event: DoneEvent) {
-  if (event.cancelled) {
-    window.ImageViewerAndroid?.onAiEditComplete?.(false, null, true);
-    return;
-  }
-  const message = event.failedCount > 0
-    ? `成功${event.total - event.failedCount}张 失败${event.failedCount}张`
-    : `共${event.total}张`;
-  window.ImageViewerAndroid?.onAiEditComplete?.(event.failedCount === 0, message, false);
-}
 
 
 
@@ -93,7 +66,7 @@ export function useAiEditProgress(): AiEditProgressState {
   return mapToState(aiEdit.useProgress());
 }
 
-export async function enqueueAiEdit(files: string[], prompt: string, model?: string): Promise<void> {
+async function enqueueAiEdit(files: string[], prompt: string, model?: string): Promise<void> {
   await invoke('enqueue_ai_edit', {
     filePaths: files,
     prompt: prompt || null,

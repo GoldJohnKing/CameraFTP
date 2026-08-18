@@ -29,13 +29,11 @@ vi.mock('@tauri-apps/api/event', () => ({
   listen: listenMock,
 }));
 
-vi.mock('../../types', async () => {
-  const actual = await vi.importActual<typeof import('../../types')>('../../types');
-  return {
-    ...actual,
-    checkAndroidPermissions: checkAndroidPermissionsMock,
-  };
-});
+vi.mock('../../services/permission-bridge', () => ({
+  permissionBridge: {
+    checkAll: checkAndroidPermissionsMock,
+  },
+}));
 
 describe('server event lifecycle service', () => {
   beforeEach(() => {
@@ -52,7 +50,6 @@ describe('server event lifecycle service', () => {
       isLoading: false,
       error: null,
       showPermissionDialog: false,
-      pendingServerStart: false,
     });
 
     eventHandlers.clear();

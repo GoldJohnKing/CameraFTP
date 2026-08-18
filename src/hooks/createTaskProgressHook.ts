@@ -18,7 +18,7 @@ export interface TaskProgressState {
   failedFiles: string[];
 }
 
-export const initialTaskProgressState: TaskProgressState = {
+const initialTaskProgressState: TaskProgressState = {
   isActive: false,
   isDone: false,
   current: 0,
@@ -39,6 +39,18 @@ export type StandardTaskEvent =
 /** Shape of the `done` event — used in `onDone` callback. */
 export type DoneEvent = Extract<StandardTaskEvent, { type: 'done' }>;
 
+/**
+ * Native-layer adapter. Provide one to let the factory handle the common
+ * progress/done glue (native progress sync, queued-total expansion, and the
+ * done notification) instead of duplicating it per hook.
+ */
+export interface TaskProgressNativeBridge {
+  /** Push (current, total, failedCount) to the native progress UI. */
+  syncProgress: (current: number, total: number, failedCount: number) => void;
+  /** Notify the native layer that the batch finished. */
+  notifyDone: (success: boolean, message: string | null, cancelled: boolean) => void;
+}
+
 export interface TaskProgressHookConfig<TEvent extends { type: string }> {
   eventName: string;
   debugLabel: string;
@@ -51,6 +63,8 @@ export interface TaskProgressHookConfig<TEvent extends { type: string }> {
   onDone?: (event: DoneEvent) => void;
   /** Called after the store is updated for a mapped event. */
   onAfterUpdate?: (mapped: StandardTaskEvent, store: StoreApi<TaskProgressState>) => void;
+  /** Optional native-layer adapter; enables the shared progress/done glue. */
+  nativeBridge?: TaskProgressNativeBridge;
 }
 
 export function createTaskProgressHook<TEvent extends { type: string }>(
@@ -67,8 +81,46 @@ export function createTaskProgressHook<TEvent extends { type: string }>(
     }
   }
 
+  /** Push the current (or overridden) progress to the native layer. */
+  function syncNativeProgress(overrides?: { total?: number; failedCount?: number }) {
+    if (!config.nativeBridge) return;
+    const state = store.getState();
+    const total = overrides?.total ?? state.total;
+    const failedCount = overrides?.failedCount ?? state.failedCount;
+    config.nativeBridge.syncProgress(state.current, total, failedCount);
+  }
+
+  /**
+   * Expand `total` when new items are queued while a batch is active, and
+   * sync the expanded total to the native layer.
+   */
+  function handleQueued(event: TEvent) {
+    const queued = event as { type: string; queueDepth?: unknown };
+    if (queued.type !== 'queued' || typeof queued.queueDepth !== 'number') return;
+    const state = store.getState();
+    if (!state.isActive) return;
+    const newTotal = state.current + queued.queueDepth;
+    store.setState({ total: newTotal });
+    syncNativeProgress({ total: newTotal, failedCount: state.failedCount });
+  }
+
+  /** Sync final progress and notify the native layer that the batch ended. */
+  function finishNativeDone(event: DoneEvent) {
+    if (!config.nativeBridge) return;
+    syncNativeProgress(event);
+    if (event.cancelled) {
+      config.nativeBridge.notifyDone(false, null, true);
+      return;
+    }
+    const message = event.failedCount > 0
+      ? `成功${event.total - event.failedCount}张 失败${event.failedCount}张`
+      : `共${event.total}张`;
+    config.nativeBridge.notifyDone(event.failedCount === 0, message, false);
+  }
+
   function handleEvent(event: TEvent) {
     config.onRawEvent?.(event, store);
+    handleQueued(event);
 
     const mapped = config.mapEvent(event);
     if (!mapped) return;
@@ -84,6 +136,7 @@ export function createTaskProgressHook<TEvent extends { type: string }>(
           failedCount: mapped.failedCount,
         });
         config.onAfterUpdate?.(mapped, store);
+        syncNativeProgress();
         break;
       case 'completed': {
         // Per-file completion: scan immediately and refresh after a short delay
@@ -114,6 +167,7 @@ export function createTaskProgressHook<TEvent extends { type: string }>(
           setTimeout(() => {
             requestMediaLibraryRefresh({ reason: config.refreshReason });
           }, GALLERY_REFRESH_DELAY_MS);
+          finishNativeDone(mapped);
           config.onDone?.(mapped);
           break;
         }
@@ -135,6 +189,7 @@ export function createTaskProgressHook<TEvent extends { type: string }>(
           requestMediaLibraryRefresh({ reason: config.refreshReason });
         }, GALLERY_REFRESH_DELAY_MS);
 
+        finishNativeDone(mapped);
         config.onDone?.(mapped);
         break;
       }

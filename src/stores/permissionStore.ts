@@ -8,7 +8,7 @@ import { create } from 'zustand';
 import { invoke } from '@tauri-apps/api/core';
 import { toast } from 'sonner';
 import type { PermissionCheckResult, StorageInfo, PermissionStatus, ServerStartCheckResult } from '../types';
-import { permissionBridge } from '../types';
+import { permissionBridge } from '../services/permission-bridge';
 import { formatError, silent } from '../utils/error';
 import { requestMediaLibraryRefresh } from '../utils/gallery-refresh';
 
@@ -46,7 +46,6 @@ interface PermissionStoreState {
   loadStorageInfo: () => Promise<StorageInfo | null>;
   checkPermissionStatus: () => Promise<PermissionStatus | null>;
   checkPrerequisites: () => Promise<ServerStartCheckResult>;
-  requestAllFilesPermission: () => Promise<void>;
   ensureStorageReady: () => Promise<{ success: boolean; error?: string }>;
 }
 
@@ -168,32 +167,45 @@ export const usePermissionStore = create<PermissionStoreState>()((set, get) => (
     // Only PermissionDialog should call this
     startPolling: (mode = 'all') => {
       if (!permissionBridge.isAvailable()) return;
-      
+
       const state = get();
-      
+
       // Stop existing polling first
       if (state.pollingIntervalId !== null) {
         window.clearInterval(state.pollingIntervalId);
       }
-      
+
       // Store previous state to detect changes
       let previousState = { ...state.permissions };
       let stopPollingRequested = false;
+      let checkInFlight = false;
       const pollingStartedAt = Date.now();
-      
+
+      // Run a permission check, skipping when a previous one is still pending
+      // so overlapping async checks can't pile up at the 200ms cadence.
+      const runGuardedCheck = async (): Promise<PermissionCheckResult | null> => {
+        if (checkInFlight) return null;
+        checkInFlight = true;
+        try {
+          return await permissionCheckInternal();
+        } finally {
+          checkInFlight = false;
+        }
+      };
+
       // Check immediately
-      permissionCheckInternal().then(perms => {
+      void runGuardedCheck().then(perms => {
         if (perms) {
           previousState = perms;
           get().setPermissions(perms);
-          
+
           if (shouldStopPolling(mode, perms)) {
             get().stopPolling();
             return;
           }
         }
       });
-      
+
       // Start interval
       const intervalId = window.setInterval(async () => {
         // Skip if stop was requested
@@ -204,8 +216,8 @@ export const usePermissionStore = create<PermissionStoreState>()((set, get) => (
           get().stopPolling();
           return;
         }
-        
-        const perms = await permissionCheckInternal();
+
+        const perms = await runGuardedCheck();
         if (perms) {
           // Check if anything changed
           const hasChanged = 
@@ -292,15 +304,6 @@ export const usePermissionStore = create<PermissionStoreState>()((set, get) => (
           reason: errorMsg,
           storageInfo: null,
         };
-      }
-    },
-    
-    // Request all files permission (opens system settings)
-    requestAllFilesPermission: async () => {
-      try {
-        await invoke('request_all_files_permission');
-      } catch {
-        toast.error('无法打开设置页面');
       }
     },
     

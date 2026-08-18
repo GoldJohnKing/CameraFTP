@@ -19,13 +19,11 @@ vi.mock('@tauri-apps/api/core', () => ({
   invoke: invokeMock,
 }));
 
-vi.mock('../../types', async () => {
-  const actual = await vi.importActual<typeof import('../../types')>('../../types');
-  return {
-    ...actual,
-    checkAndroidPermissions: checkAndroidPermissionsMock,
-  };
-});
+vi.mock('../../services/permission-bridge', () => ({
+  permissionBridge: {
+    checkAll: checkAndroidPermissionsMock,
+  },
+}));
 
 describe('serverStore characterization', () => {
   beforeEach(() => {
@@ -42,7 +40,6 @@ describe('serverStore characterization', () => {
       isLoading: false,
       error: null,
       showPermissionDialog: false,
-      pendingServerStart: false,
     });
 
     invokeMock.mockReset();
@@ -127,7 +124,6 @@ describe('serverStore characterization', () => {
 
     expect(started).toBe(false);
     expect(useServerStore.getState().showPermissionDialog).toBe(true);
-    expect(useServerStore.getState().pendingServerStart).toBe(true);
     expect(invokeMock).not.toHaveBeenCalledWith('start_server');
   });
 

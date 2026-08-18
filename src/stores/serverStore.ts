@@ -8,7 +8,7 @@ import { create } from 'zustand';
 import { invoke } from '@tauri-apps/api/core';
 import type { ServerInfo, ServerStateSnapshot } from '../types';
 import { executeAsync } from '../utils/store';
-import { checkAndroidPermissions } from '../types';
+import { permissionBridge } from '../services/permission-bridge';
 
 interface ServerState {
   isRunning: boolean;
@@ -17,7 +17,6 @@ interface ServerState {
   isLoading: boolean;
   error: string | null;
   showPermissionDialog: boolean;
-  pendingServerStart: boolean;
 
   startServer: () => Promise<boolean>;
   stopServer: () => Promise<void>;
@@ -67,14 +66,13 @@ export const useServerStore = create<ServerState>((set, get) => ({
   isLoading: false,
   error: null,
   showPermissionDialog: false,
-  pendingServerStart: false,
 
   startServer: async () => {
-    const permissions = await checkAndroidPermissions();
+    const permissions = await permissionBridge.checkAll();
 
     if (permissions !== null) {
       if (!permissions.storage || !permissions.notification || !permissions.batteryOptimization) {
-        set({ showPermissionDialog: true, pendingServerStart: true });
+        set({ showPermissionDialog: true });
         return false;
       }
     }
@@ -94,10 +92,10 @@ export const useServerStore = create<ServerState>((set, get) => ({
     }, set);
   },
 
-  closePermissionDialog: () => set({ showPermissionDialog: false, pendingServerStart: false }),
+  closePermissionDialog: () => set({ showPermissionDialog: false }),
 
   continueAfterPermissionsGranted: async () => {
-    set({ showPermissionDialog: false, pendingServerStart: false });
+    set({ showPermissionDialog: false });
     await doStartServer(set, get);
   },
 

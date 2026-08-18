@@ -52,6 +52,9 @@ export function useGallerySelection({ activeTab, onDeleteApplied, getUriForId }:
   const menuRef = useRef<HTMLDivElement>(null);
   const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isSelectionModeRef = useRef(false);
+  // Mirrors selectedIds so handlers can compute the next selection outside the
+  // pure setState updater (side effects like menu teardown don't belong inside it).
+  const selectedIdsRef = useRef<Set<string>>(new Set());
   const touchStartPosRef = useRef<{ x: number; y: number } | null>(null);
   const wasScrollingAtTouchStartRef = useRef(false);
   const isDragSelectingRef = useRef(false);
@@ -62,30 +65,38 @@ export function useGallerySelection({ activeTab, onDeleteApplied, getUriForId }:
     setDeletingIds(new Set());
   }, []);
 
+  const commitSelection = useCallback((next: Set<string>) => {
+    selectedIdsRef.current = next;
+    setSelectedIds(next);
+  }, []);
+
   const handleCancelSelection = useCallback(() => {
     setIsSelectionMode(false);
     isSelectionModeRef.current = false;
-    setSelectedIds(new Set());
+    commitSelection(new Set());
     clearTransientSelectionUiState();
-  }, [clearTransientSelectionUiState]);
+  }, [clearTransientSelectionUiState, commitSelection]);
 
   const handleSelectionClick = useCallback((imagePath: string) => {
     if (!isSelectionMode) {
       return false;
     }
 
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      next.has(imagePath) ? next.delete(imagePath) : next.add(imagePath);
-      if (next.size === 0) {
-        setIsSelectionMode(false);
-        isSelectionModeRef.current = false;
-        clearTransientSelectionUiState();
-      }
-      return next;
-    });
+    const next = new Set(selectedIdsRef.current);
+    if (next.has(imagePath)) {
+      next.delete(imagePath);
+    } else {
+      next.add(imagePath);
+    }
+    commitSelection(next);
+
+    if (next.size === 0) {
+      setIsSelectionMode(false);
+      isSelectionModeRef.current = false;
+      clearTransientSelectionUiState();
+    }
     return true;
-  }, [clearTransientSelectionUiState, isSelectionMode]);
+  }, [clearTransientSelectionUiState, commitSelection, isSelectionMode]);
 
   const handleTouchStart = useCallback((imagePath: string, event: React.TouchEvent, isScrolling: boolean, gridIndex: number) => {
     // Ignore multi-finger touches (e.g., three-finger screenshot gesture)
@@ -113,10 +124,10 @@ export function useGallerySelection({ activeTab, onDeleteApplied, getUriForId }:
         isSelectionModeRef.current = true;
         isDragSelectingRef.current = true;
         dragAnchorIndexRef.current = gridIndex;
-        setSelectedIds(new Set([imagePath]));
+        commitSelection(new Set([imagePath]));
       }
     }, LONG_PRESS_DURATION);
-  }, []);
+  }, [commitSelection]);
 
   const handleTouchMove = useCallback((event: React.TouchEvent) => {
     if (isDragSelectingRef.current) {
@@ -152,8 +163,8 @@ export function useGallerySelection({ activeTab, onDeleteApplied, getUriForId }:
 
   const handleDragSelect = useCallback((mediaIds: Set<string>) => {
     if (mediaIds.size === 0) return;
-    setSelectedIds(mediaIds);
-  }, []);
+    commitSelection(mediaIds);
+  }, [commitSelection]);
 
   const handleRefreshStart = useCallback(() => {
     handleCancelSelection();
@@ -219,7 +230,7 @@ export function useGallerySelection({ activeTab, onDeleteApplied, getUriForId }:
       setDeletingIds(new Set());
 
       const remainingSelected = new Set([...selectedAtDeleteStart].filter((id) => !mediaIdsToAnimate.has(id)));
-      setSelectedIds(remainingSelected);
+      commitSelection(remainingSelected);
       if (remainingSelected.size === 0) {
         setIsSelectionMode(false);
         isSelectionModeRef.current = false;

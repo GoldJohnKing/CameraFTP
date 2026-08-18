@@ -15,31 +15,34 @@ import { formatError } from '../utils/error';
 
 export const ServerCard = memo(function ServerCard() {
   const [isStarting, setIsStarting] = useState(false);
-  const { 
-    isRunning, 
-    isLoading, 
-    error,
-    startServer, 
-    stopServer 
-  } = useServerStore();
-  const { 
-    needsPermission, 
-    checkPrerequisites, 
-    requestAllFilesPermission, 
-    ensureStorageReady 
-  } = usePermissionStore();
+  const isRunning = useServerStore((state) => state.isRunning);
+  const isLoading = useServerStore((state) => state.isLoading);
+  const error = useServerStore((state) => state.error);
+  const startServer = useServerStore((state) => state.startServer);
+  const stopServer = useServerStore((state) => state.stopServer);
+  const needsPermission = usePermissionStore((state) => state.needsPermission);
+  const checkPrerequisites = usePermissionStore((state) => state.checkPrerequisites);
+  const ensureStorageReady = usePermissionStore((state) => state.ensureStorageReady);
+  const requestStoragePermission = usePermissionStore((state) => state.requestStoragePermission);
+  const startPermissionPolling = usePermissionStore((state) => state.startPolling);
 
   const handleStartServer = useCallback(async () => {
     if (isStarting) return;
-    
+
     setIsStarting(true);
-    
+
     try {
       const check = await checkPrerequisites();
-      
+
       if (!check.canStart) {
         if (needsPermission) {
-          await requestAllFilesPermission();
+          // Route through the Kotlin PermissionBridge (handles system settings
+          // and partial-access flow) and poll until storage is granted.
+          // On desktop both bridge calls are no-ops.
+          requestStoragePermission();
+          if (usePermissionStore.getState().pollingIntervalId === null) {
+            startPermissionPolling('storage');
+          }
         } else {
           const result = await ensureStorageReady();
           if (result.success) {
@@ -54,7 +57,7 @@ export const ServerCard = memo(function ServerCard() {
     } finally {
       setIsStarting(false);
     }
-  }, [isStarting, checkPrerequisites, needsPermission, requestAllFilesPermission, ensureStorageReady, startServer]);
+  }, [isStarting, checkPrerequisites, needsPermission, requestStoragePermission, startPermissionPolling, ensureStorageReady, startServer]);
 
   const handleToggle = async () => {
     try {

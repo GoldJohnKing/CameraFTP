@@ -6,7 +6,9 @@
 
 import { create } from 'zustand';
 import { invoke } from '@tauri-apps/api/core';
+import { toast } from 'sonner';
 import type { AppConfig, PreviewWindowConfig } from '../types';
+import { formatError } from '../utils/error';
 import { debounce, executeAsync } from '../utils/store';
 
 interface ConfigState {
@@ -97,6 +99,9 @@ export const useConfigStore = create<ConfigState>((set, get) => {
         }
       } catch (e) {
         console.error('Failed to save config:', e);
+        const errorMessage = '配置保存失败：' + formatError(e);
+        toast.error(errorMessage);
+        set({ error: errorMessage });
       }
     });
 

@@ -123,7 +123,6 @@ describe('useColorGradingProgress', () => {
       isAppVisible: vi.fn(),
       onExifResult: vi.fn(),
       onExifResultForPosition: vi.fn(),
-      requestExifForPositions: vi.fn(),
       resolveFilePath: vi.fn(),
       scanNewFile,
     };
@@ -205,7 +204,6 @@ describe('useColorGradingProgress', () => {
       isAppVisible: vi.fn(),
       onExifResult: vi.fn(),
       onExifResultForPosition: vi.fn(),
-      requestExifForPositions: vi.fn(),
       resolveFilePath: vi.fn(),
       scanNewFile,
     };

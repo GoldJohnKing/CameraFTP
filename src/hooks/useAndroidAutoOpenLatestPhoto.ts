@@ -97,6 +97,8 @@ export function useAndroidAutoOpenLatestPhoto({
         filePath: newest.uri,
         openMethod: openMethodRef.current,
         allUris,
+      }).catch(() => {
+        // Silently ignore preview open failures (same as LatestPhotoCard)
       });
     };
 

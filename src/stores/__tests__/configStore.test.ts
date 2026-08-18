@@ -8,12 +8,17 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AppConfig, PreviewWindowConfig } from '../../types';
 import { useConfigStore } from '../configStore';
 
-const { invokeMock } = vi.hoisted(() => ({
+const { invokeMock, toastErrorMock } = vi.hoisted(() => ({
   invokeMock: vi.fn(),
+  toastErrorMock: vi.fn(),
 }));
 
 vi.mock('@tauri-apps/api/core', () => ({
   invoke: invokeMock,
+}));
+
+vi.mock('sonner', () => ({
+  toast: { error: toastErrorMock },
 }));
 
 function createDeferred() {
@@ -62,6 +67,7 @@ describe('configStore coordination', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     invokeMock.mockReset();
+    toastErrorMock.mockReset();
     useConfigStore.setState({
       config: baseConfig,
       draft: baseConfig,
@@ -298,6 +304,26 @@ describe('configStore coordination', () => {
     expect(useConfigStore.getState().draft?.savePath).toBe('/tmp/unsaved-draft-path');
     expect(useConfigStore.getState().draft?.previewConfig?.autoBringToFront).toBe(true);
     expect(useConfigStore.getState().config?.previewConfig?.autoBringToFront).toBe(true);
+  });
+
+  it('surfaces whole-config save failures via toast and error state, then clears on next successful save', async () => {
+    invokeMock.mockImplementation(async (command: string) => {
+      if (command === 'save_config') throw new Error('disk full');
+      return null;
+    });
+
+    useConfigStore.getState().updateDraft((draft) => ({ ...draft, port: 3000 }));
+    await vi.advanceTimersByTimeAsync(100);
+
+    expect(toastErrorMock).toHaveBeenCalledWith('配置保存失败：disk full');
+    expect(useConfigStore.getState().error).toBe('配置保存失败：disk full');
+
+    invokeMock.mockImplementation(async () => null);
+    useConfigStore.getState().updateDraft((draft) => ({ ...draft, port: 3001 }));
+    await vi.advanceTimersByTimeAsync(100);
+
+    expect(useConfigStore.getState().error).toBeNull();
+    expect(toastErrorMock).toHaveBeenCalledTimes(1);
   });
 
   it('keeps autoOpenLatestWhenVisible true when updateDraft only changes android openMethod', () => {

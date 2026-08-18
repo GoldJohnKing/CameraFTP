@@ -48,7 +48,8 @@ describe('useAndroidAutoOpenLatestPhoto', () => {
   const { getRoot } = setupReactRoot();
 
   beforeEach(() => {
-    openImagePreviewMock.mockReset();
+    // Keep the mock faithful to the real openImagePreview signature (Promise<void>)
+    openImagePreviewMock.mockReset().mockResolvedValue(undefined);
     window.ImageViewerAndroid = undefined;
   });
 
@@ -57,7 +58,6 @@ describe('useAndroidAutoOpenLatestPhoto', () => {
       openOrNavigateTo: vi.fn(),
       onExifResult: vi.fn(),
       onExifResultForPosition: vi.fn(),
-      requestExifForPositions: vi.fn(),
       resolveFilePath: vi.fn(),
       isAppVisible: vi.fn().mockReturnValue(true),
     };
@@ -103,7 +103,6 @@ describe('useAndroidAutoOpenLatestPhoto', () => {
       openOrNavigateTo: vi.fn(),
       onExifResult: vi.fn(),
       onExifResultForPosition: vi.fn(),
-      requestExifForPositions: vi.fn(),
       resolveFilePath: vi.fn(),
       isAppVisible: vi.fn().mockReturnValue(false),
     };
@@ -134,7 +133,6 @@ describe('useAndroidAutoOpenLatestPhoto', () => {
       openOrNavigateTo: vi.fn(),
       onExifResult: vi.fn(),
       onExifResultForPosition: vi.fn(),
-      requestExifForPositions: vi.fn(),
       resolveFilePath: vi.fn(),
       isAppVisible: vi.fn().mockReturnValue(true),
     };
@@ -165,7 +163,6 @@ describe('useAndroidAutoOpenLatestPhoto', () => {
       openOrNavigateTo: vi.fn(),
       onExifResult: vi.fn(),
       onExifResultForPosition: vi.fn(),
-      requestExifForPositions: vi.fn(),
       resolveFilePath: vi.fn(),
       isAppVisible: vi.fn().mockReturnValue(true),
     };
@@ -200,7 +197,6 @@ describe('useAndroidAutoOpenLatestPhoto', () => {
       openOrNavigateTo: vi.fn(),
       onExifResult: vi.fn(),
       onExifResultForPosition: vi.fn(),
-      requestExifForPositions: vi.fn(),
       resolveFilePath: vi.fn(),
       isAppVisible: vi.fn().mockReturnValue(true),
     };
@@ -271,7 +267,6 @@ describe('useAndroidAutoOpenLatestPhoto', () => {
       openOrNavigateTo: vi.fn(),
       onExifResult: vi.fn(),
       onExifResultForPosition: vi.fn(),
-      requestExifForPositions: vi.fn(),
       resolveFilePath: vi.fn(),
       isAppVisible: vi.fn().mockReturnValue(true),
       insertImage: insertImageMock,
@@ -317,7 +312,6 @@ describe('useAndroidAutoOpenLatestPhoto', () => {
       openOrNavigateTo: vi.fn(),
       onExifResult: vi.fn(),
       onExifResultForPosition: vi.fn(),
-      requestExifForPositions: vi.fn(),
       resolveFilePath: vi.fn(),
       isAppVisible: vi.fn().mockReturnValue(true),
       insertImage: insertImageMock,
@@ -362,7 +356,6 @@ describe('useAndroidAutoOpenLatestPhoto', () => {
       openOrNavigateTo: vi.fn(),
       onExifResult: vi.fn(),
       onExifResultForPosition: vi.fn(),
-      requestExifForPositions: vi.fn(),
       resolveFilePath: vi.fn(),
       isAppVisible: vi.fn().mockReturnValue(true),
       insertImage: insertImageMock,
@@ -406,7 +399,6 @@ describe('useAndroidAutoOpenLatestPhoto', () => {
       openOrNavigateTo: vi.fn(),
       onExifResult: vi.fn(),
       onExifResultForPosition: vi.fn(),
-      requestExifForPositions: vi.fn(),
       resolveFilePath: vi.fn(),
       isAppVisible: vi.fn().mockReturnValue(true),
       insertImage: insertImageMock,
@@ -443,7 +435,6 @@ describe('useAndroidAutoOpenLatestPhoto', () => {
       openOrNavigateTo: vi.fn(),
       onExifResult: vi.fn(),
       onExifResultForPosition: vi.fn(),
-      requestExifForPositions: vi.fn(),
       resolveFilePath: vi.fn(),
       isAppVisible: vi.fn().mockReturnValue(true),
     };
