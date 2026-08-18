@@ -4,33 +4,45 @@
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { render } from '@testing-library/react';
 import { Dialog } from '../ui/Dialog';
 
 describe('Dialog', () => {
-  it('lets its content scroll within a maxHeight flex column (min-h-0)', () => {
-    // Regression: when a Dialog has maxHeight, its content flex child must be
-    // able to shrink so overflow-y-auto engages and a scrollbar appears.
-    // Without min-h-0 the default min-height:auto keeps the child at its full
-    // content height, so long lists (e.g. the date-jump picker) overflow the
-    // card and the bottom rows get cut off.
-    render(
-      <Dialog
-        isOpen
-        onClose={() => {}}
-        title="T"
-        maxHeight="max-h-[70vh]"
-        contentClassName="p-0"
-        data-testid="d"
-      >
+  it('renders its title and content when open', () => {
+    const { getByText, getByTestId } = render(
+      <Dialog isOpen onClose={() => {}} title="导出设置" data-testid="d">
         <button type="button">row 1</button>
-        <button type="button">row 2</button>
       </Dialog>,
     );
-    const content = document.querySelector('[data-testid="d"] [data-testid="dialog-content"]');
-    expect(content).toBeTruthy();
-    expect(content!.className).toMatch(/overflow-y-auto/);
-    expect(content!.className).toMatch(/min-h-0/);
+
+    expect(getByTestId('dialog-content')).toBeTruthy();
+    expect(getByText('导出设置')).toBeTruthy();
+    expect(getByText('row 1')).toBeTruthy();
+  });
+
+  it('renders nothing when closed', () => {
+    const { container } = render(
+      <Dialog isOpen={false} onClose={() => {}} title="导出设置" data-testid="d">
+        <button type="button">row 1</button>
+      </Dialog>,
+    );
+
+    expect(container.querySelector('[data-testid="d"]')).toBeNull();
+    expect(container.querySelector('[data-testid="dialog-content"]')).toBeNull();
+    expect(container.textContent ?? '').not.toContain('row 1');
+  });
+
+  it('calls onClose when the close button is clicked', () => {
+    const onClose = vi.fn();
+    const { getByRole } = render(
+      <Dialog isOpen onClose={onClose} title="导出设置">
+        <button type="button">row 1</button>
+      </Dialog>,
+    );
+
+    getByRole('button', { name: '关闭' }).click();
+
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 });

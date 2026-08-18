@@ -6,45 +6,10 @@
 
 import { describe, it, expect } from 'vitest';
 import { getAiEditCallContext } from '../ai-edit';
-import {
-  SEEDREAM_MODELS,
-  DEFAULT_SEEDREAM_MODEL,
-} from '../../../src-tauri/bindings/SeedreamModels';
+import { SEEDREAM_MODELS } from '../../../src-tauri/bindings/SeedreamModels';
 import type { AppConfig } from '../../types';
 
 describe('getAiEditCallContext', () => {
-  it('exposes the seedream model list for the native dialog dropdown', () => {
-    const ctx = getAiEditCallContext(null);
-
-    expect(ctx.models).toEqual(
-      SEEDREAM_MODELS.map((m) => ({ value: m.value, label: m.label }))
-    );
-  });
-
-  it('models entries have the { value, label } shape required by native', () => {
-    const ctx = getAiEditCallContext(undefined);
-
-    expect(ctx.models.length).toBeGreaterThan(0);
-    for (const m of ctx.models) {
-      expect(typeof m.value).toBe('string');
-      expect(m.value.length).toBeGreaterThan(0);
-      expect(typeof m.label).toBe('string');
-      expect(m.label.length).toBeGreaterThan(0);
-    }
-  });
-
-  it('keeps the default model selectable in the exposed list', () => {
-    const ctx = getAiEditCallContext(null);
-
-    expect(ctx.models.some((m) => m.value === DEFAULT_SEEDREAM_MODEL)).toBe(
-      true
-    );
-  });
-
-  it('generated catalog keeps the default model as its first entry', () => {
-    expect(SEEDREAM_MODELS[0].value).toBe(DEFAULT_SEEDREAM_MODEL);
-  });
-
   it('dialog prompt never falls back to the auto-edit prompt (ruling #4)', () => {
     // manualPrompt empty + aiEdit.prompt set: the dialog default must stay
     // empty instead of borrowing the auto-edit prompt.

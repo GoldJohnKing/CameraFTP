@@ -93,15 +93,32 @@ export const useConfigStore = create<ConfigState>((set, get) => {
       },
     };
 
-    for (const key of DRAFT_PRESERVED_KEYS) {
-      // advancedConnection was merged per sub-field above, and previewConfig is
-      // backend-owned (only written through `update_preview_config`), so both
-      // keep the values set above instead of following preserve-if-dirty.
-      if (key === 'advancedConnection' || key === 'previewConfig') {
-        continue;
+    // 泛型辅助：通过 T 延迟联合键的类型解析，避免联合键直写 merged[key]
+    // 被收窄为 never（TS 对联合键写入要求可赋给各字段的交集）。
+    const applyPreserved = <T extends keyof AppConfig>(
+      merged: AppConfig,
+      nextConfig: AppConfig,
+      currentConfig: AppConfig,
+      currentDraft: AppConfig,
+      keys: readonly T[],
+    ): void => {
+      for (const key of keys) {
+        merged[key] = preserveIfDirty(nextConfig, currentConfig, currentDraft, key);
       }
-      merged[key] = preserveIfDirty(nextConfig, currentConfig, currentDraft, key);
-    }
+    };
+
+    // advancedConnection 与 previewConfig 不走 preserve-if-dirty：
+    // 前者上方已按子字段合并，后者为后端所有（仅经 update_preview_config 写入）。
+    applyPreserved(
+      merged,
+      nextConfig,
+      currentConfig,
+      currentDraft,
+      DRAFT_PRESERVED_KEYS.filter(
+        (key): key is Exclude<(typeof DRAFT_PRESERVED_KEYS)[number], 'advancedConnection' | 'previewConfig'> =>
+          key !== 'advancedConnection' && key !== 'previewConfig',
+      ),
+    );
 
     return merged;
   };

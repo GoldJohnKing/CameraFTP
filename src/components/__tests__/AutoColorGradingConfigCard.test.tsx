@@ -67,7 +67,7 @@ describe('AutoColorGradingConfigCard', () => {
     expect(getContainer().innerHTML).toBe('');
   });
 
-  it('renders enable/disable toggle', async () => {
+  it('flips option visibility when the enable toggle is clicked', async () => {
     renderWithDraft({
       autoColorGrading: {
         enabled: false,
@@ -79,39 +79,43 @@ describe('AutoColorGradingConfigCard', () => {
     await act(async () => { await flush(); });
     await act(async () => { await flush(); });
 
-    expect(getContainer().textContent).toContain('自动调色');
-    const toggle = getContainer().querySelector('button[aria-label="自动调色"]');
-    expect(toggle).toBeTruthy();
-    expect(toggle!.getAttribute('aria-pressed')).toBe('false');
-  });
+    const toggle = getContainer().querySelector('button[aria-label="自动调色"]') as HTMLButtonElement;
+    expect(toggle.getAttribute('aria-pressed')).toBe('false');
+    expect(getContainer().textContent).not.toContain('调色预设');
 
-  it('shows config options when enabled', async () => {
-    renderWithDraft({
-      autoColorGrading: {
-        enabled: true,
-        presetId: 'fujifilm-provia',
-        meteringMode: 'matrix',
-        evOffset: 0,
-      },
+    // Click flips enabled in the draft via updateDraft; remount to observe the
+    // conditional section. （组件是 memo 且 mock store 不建立订阅，对同组件的
+    //   重复 render 会被 memo 跳过，必须先卸载再挂载才能读到新 draft。）
+    await act(async () => {
+      toggle.click();
+      await flush();
+    });
+    act(() => {
+      getRoot().render(null);
+    });
+    act(() => {
+      getRoot().render(<AutoColorGradingConfigCard />);
     });
     await act(async () => { await flush(); });
-    await act(async () => { await flush(); });
 
-    expect(getContainer().textContent).toContain('调色预设');
-    expect(getContainer().textContent).toContain('曝光偏移');
-    expect(getContainer().textContent).toContain('测光模式');
-  });
+    const enabledToggle = getContainer().querySelector('button[aria-label="自动调色"]') as HTMLButtonElement;
+    expect(enabledToggle.getAttribute('aria-pressed')).toBe('true');
+    const text = getContainer().textContent ?? '';
+    expect(text).toContain('调色预设');
+    expect(text).toContain('曝光偏移');
+    expect(text).toContain('测光模式');
 
-  it('hides config options when disabled', async () => {
-    renderWithDraft({
-      autoColorGrading: {
-        enabled: false,
-        presetId: 'fujifilm-provia',
-        meteringMode: 'matrix',
-        evOffset: 0,
-      },
+    // Clicking again hides the options once more.（同样需要卸载重挂载。）
+    await act(async () => {
+      enabledToggle.click();
+      await flush();
     });
-    await act(async () => { await flush(); });
+    act(() => {
+      getRoot().render(null);
+    });
+    act(() => {
+      getRoot().render(<AutoColorGradingConfigCard />);
+    });
     await act(async () => { await flush(); });
 
     expect(getContainer().textContent).not.toContain('调色预设');

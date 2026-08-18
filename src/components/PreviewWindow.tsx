@@ -18,9 +18,9 @@ import { usePreviewToolbarAutoHide } from '../hooks/usePreviewToolbarAutoHide';
 import { useColorGradingPresets } from '../hooks/useColorGradingPresets';
 import { PromptDialog } from './PromptDialog';
 import { TaskProgressPanel } from './TaskProgressPanel';
-import { applyAndEnqueueAiEdit } from '../hooks/useAiEditProgress';
+import { applyAndEnqueueAiEdit } from '../services/ai-edit-tasks';
 import { ColorGradingDialog } from './ColorGradingDialog';
-import { enqueueColorGrading } from '../hooks/useColorGradingProgress';
+import { enqueueColorGrading } from '../services/color-grading-tasks';
 import { isRawFile as isRawFileType } from '../utils/raw';
 import { getAiEditCallContext } from '../utils/ai-edit';
 
