@@ -5,9 +5,9 @@
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { ApiKeyField } from './ui/ApiKeyField';
-import { ToggleSwitch, Select } from './ui';
-import { SEEDREAM_MODELS, DEFAULT_SEEDREAM_MODEL } from '../types';
+import { ToggleSwitch } from './ui';
+import { AiEditFormFields } from './AiEditFormFields';
+import { DEFAULT_SEEDREAM_MODEL } from '../types';
 import type { AppConfig } from '../types';
 
 interface AiEditConfigPanelProps {
@@ -91,80 +91,57 @@ export function AiEditConfigPanel({
 
   return (
     <div className="p-4 space-y-6">
-      {/* API Key */}
-      <ApiKeyField
-        value={apiKeyInput}
-        onChange={(e) => setApiKeyInput(e.target.value)}
-        onBlur={handleApiKeyBlur}
-        disabled={isLoading || disabled}
-        show={showApiKey}
-        onToggleShow={() => setShowApiKey(!showApiKey)}
-        inputClassName="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white text-gray-700 pr-10 disabled:opacity-50 disabled:cursor-not-allowed"
-      />
-
-      {/* 自动触发开关 */}
-      <ToggleSwitch
-        enabled={config.aiEdit.autoEdit}
-        onChange={handleAutoEditToggle}
-        label="自动修图"
-        description="接收到图片后自动运行 AI 修图"
-        disabled={isLoading || disabled}
-      />
-
-      {/* 模型 + 提示词 — 仅在自动修图启用时显示 */}
-      {config.aiEdit.autoEdit && (
-        <>
-          {seedEditConfig && (
-            <div className="space-y-2">
-              <label className="block text-sm font-medium text-gray-700">
-                模型
-              </label>
-              <Select
-                value={seedEditConfig.model || DEFAULT_SEEDREAM_MODEL}
-                options={SEEDREAM_MODELS}
-                onChange={(model) => {
-                  updateDraft(d => ({
-                    ...d,
-                    aiEdit: {
-                      ...d.aiEdit,
-                      provider: {
-                        ...d.aiEdit.provider,
-                        model,
-                      },
-                    },
-                  }));
-                }}
-                disabled={isLoading || disabled}
-              />
-            </div>
-          )}
-
-          <div className="space-y-2">
-            <label className="block text-sm font-medium text-gray-700">
-              提示词
-            </label>
-            <textarea
-              ref={(el) => {
-                textareaRef.current = el;
-                autoResize(el);
-              }}
-              value={promptInput}
-              onChange={(e) => {
-                setPromptInput(e.target.value);
-                autoResize(e.target);
-              }}
-              onBlur={handlePromptBlur}
-              placeholder="请输入提示词"
-              rows={1}
-              disabled={isLoading || disabled}
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white text-gray-700 resize-none overflow-hidden disabled:opacity-50 disabled:cursor-not-allowed"
-            />
-            {!promptInput.trim() && (
-              <p className="text-xs text-red-500">自动修图需要配置提示词才能生效</p>
-            )}
-          </div>
-        </>
-      )}
+      <AiEditFormFields
+        apiKey={{
+          value: apiKeyInput,
+          onChange: (e) => setApiKeyInput(e.target.value),
+          onBlur: handleApiKeyBlur,
+          disabled: isLoading || disabled,
+          show: showApiKey,
+          onToggleShow: () => setShowApiKey(!showApiKey),
+          inputClassName: 'w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white text-gray-700 pr-10 disabled:opacity-50 disabled:cursor-not-allowed',
+        }}
+        model={config.aiEdit.autoEdit && seedEditConfig ? {
+          value: seedEditConfig.model || DEFAULT_SEEDREAM_MODEL,
+          onChange: (model) => {
+            updateDraft(d => ({
+              ...d,
+              aiEdit: {
+                ...d.aiEdit,
+                provider: {
+                  ...d.aiEdit.provider,
+                  model,
+                },
+              },
+            }));
+          },
+          disabled: isLoading || disabled,
+        } : null}
+        prompt={config.aiEdit.autoEdit ? {
+          value: promptInput,
+          onChange: (e) => {
+            setPromptInput(e.target.value);
+            autoResize(e.target);
+          },
+          onBlur: handlePromptBlur,
+          rows: 1,
+          className: 'w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white text-gray-700 resize-none overflow-hidden disabled:opacity-50 disabled:cursor-not-allowed',
+          textareaRef: (el) => {
+            textareaRef.current = el;
+            autoResize(el);
+          },
+          error: promptInput.trim() ? undefined : '自动修图需要配置提示词才能生效',
+        } : null}
+      >
+        {/* 自动触发开关 */}
+        <ToggleSwitch
+          enabled={config.aiEdit.autoEdit}
+          onChange={handleAutoEditToggle}
+          label="自动修图"
+          description="接收到图片后自动运行 AI 修图"
+          disabled={isLoading || disabled}
+        />
+      </AiEditFormFields>
     </div>
   );
 }
