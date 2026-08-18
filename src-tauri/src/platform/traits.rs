@@ -6,8 +6,6 @@ use super::types::{PermissionStatus, ServerStartCheckResult, StorageInfo};
 use crate::ftp::types::ServerStateSnapshot;
 use std::sync::Arc;
 use tauri::AppHandle;
-#[cfg(target_os = "windows")]
-use tauri::Manager;
 use tokio::sync::Mutex;
 
 /// 平台服务接口
@@ -29,13 +27,6 @@ pub trait PlatformService: Send + Sync {
 
     /// 确保存储就绪
     fn ensure_storage_ready(&self, app: &AppHandle) -> Result<String, String>;
-
-    /// 请求所有文件访问权限（仅 Android 有效）
-    /// 返回 true 表示已授予权限，false 表示需要用户操作
-    fn request_all_files_permission(&self, _app: &AppHandle) -> Result<bool, String> {
-        // 默认实现：桌面平台始终返回 true
-        Ok(true)
-    }
 
     /// 检查服务器启动前提条件
     /// Each platform provides its own implementation
@@ -97,21 +88,9 @@ pub trait PlatformService: Send + Sync {
         Ok(())
     }
 
-    /// 显示并聚焦主窗口
-    fn show_main_window(&self, app: &AppHandle) -> Result<(), String> {
-        #[cfg(target_os = "windows")]
-        {
-            if let Some(window) = app.get_webview_window("main") {
-                let _ = window.set_skip_taskbar(false);
-                let _ = window.unminimize();
-                let _ = window.show();
-                let _ = window.set_focus();
-            }
-        }
-        #[cfg(target_os = "android")]
-        {
-            let _ = app;
-        }
+    /// 显示并聚焦主窗口（平台特定行为由各平台覆写提供）
+    fn show_main_window(&self, _app: &AppHandle) -> Result<(), String> {
+        // 默认实现：无操作
         Ok(())
     }
 

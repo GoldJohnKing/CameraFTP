@@ -198,7 +198,7 @@ pub struct WindowsPlatform;
 
 fn load_config_from_service(app: &AppHandle) -> Result<crate::config::AppConfig, String> {
     let config_service = app.state::<Arc<ConfigService>>();
-    Ok(crate::commands::config::load_config_from_service_or_default(config_service.inner().as_ref()))
+    Ok(config_service.inner().get_or_default())
 }
 
 impl PlatformService for WindowsPlatform {
@@ -348,6 +348,16 @@ impl PlatformService for WindowsPlatform {
         } else {
             Err("主窗口不存在".to_string())
         }
+    }
+
+    fn show_main_window(&self, app: &AppHandle) -> Result<(), String> {
+        if let Some(window) = app.get_webview_window("main") {
+            let _ = window.set_skip_taskbar(false);
+            let _ = window.unminimize();
+            let _ = window.show();
+            let _ = window.set_focus();
+        }
+        Ok(())
     }
 
     fn select_save_directory(&self, _app: &AppHandle) -> Result<Option<String>, String> {

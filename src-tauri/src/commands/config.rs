@@ -14,16 +14,6 @@ use crate::error::AppError;
 use crate::file_index::FileIndexService;
 use std::sync::Arc;
 
-pub(crate) fn load_config_from_service_or_default(config_service: &ConfigService) -> AppConfig {
-    match config_service.get() {
-        Ok(config) => config,
-        Err(e) => {
-            tracing::error!(error = %e, "Failed to read config from ConfigService, returning defaults");
-            AppConfig::default()
-        }
-    }
-}
-
 fn save_auth_config_with_service(
     config_service: &ConfigService,
     anonymous: bool,
@@ -97,7 +87,7 @@ fn update_preview_config_with_service(
 #[command]
 #[instrument(skip(config_service))]
 pub fn load_config(config_service: State<'_, Arc<ConfigService>>) -> AppConfig {
-    load_config_from_service_or_default(config_service.inner().as_ref())
+    config_service.inner().get_or_default()
 }
 
 #[command]
@@ -293,7 +283,7 @@ pub async fn open_folder_select_file(file_path: String) -> Result<(), AppError> 
 pub fn open_save_directory(config_service: State<'_, Arc<ConfigService>>) -> Result<(), AppError> {
     #[cfg(target_os = "windows")]
     {
-        let config = load_config_from_service_or_default(config_service.inner().as_ref());
+        let config = config_service.inner().get_or_default();
         crate::auto_open::windows::open_directory(&config.save_path)
     }
 
@@ -312,17 +302,17 @@ mod tests {
     use super::*;
 
     #[test]
-    fn helper_load_uses_service_state() {
+    fn get_or_default_reads_service_state() {
         let temp_dir = tempdir().expect("failed to create temp dir");
         let config_path = temp_dir.path().join("config.json");
         let service = ConfigService::new_with_path(config_path);
         service.load().expect("failed to load config");
 
-        let mut updated = service.get().expect("failed to get config");
-        updated.port = 3777;
-        service.update(updated).expect("failed to update config");
+        service
+            .mutate_and_persist(|config| config.port = 3777)
+            .expect("failed to update config");
 
-        let loaded = load_config_from_service_or_default(&service);
+        let loaded = service.get_or_default();
         assert_eq!(loaded.port, 3777);
     }
 

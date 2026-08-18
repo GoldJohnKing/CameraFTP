@@ -7,7 +7,7 @@ use tokio::sync::Mutex;
 
 use crate::ftp::FtpServerHandle;
 
-pub(crate) mod config;
+mod config;
 mod ai_edit;
 mod exif;
 mod color_grading;
@@ -54,9 +54,9 @@ pub use server::{
     get_server_runtime_state,
 };
 
-pub use ai_edit::{cancel_ai_edit, enqueue_ai_edit, trigger_ai_edit};
+pub use ai_edit::{cancel_ai_edit, enqueue_ai_edit};
 
-pub use color_grading::{get_color_grading_presets, get_metering_modes, enqueue_color_grading, cancel_color_grading, is_raw_file, begin_color_grading_preview, apply_color_grading_preview, end_color_grading_preview};
+pub use color_grading::{get_color_grading_presets, enqueue_color_grading, cancel_color_grading, begin_color_grading_preview, apply_color_grading_preview, end_color_grading_preview};
 
 pub use storage::{
     check_permission_status,
@@ -65,6 +65,5 @@ pub use storage::{
     get_autostart_status,
     get_platform,
     get_storage_info,
-    request_all_files_permission,
     set_autostart_command,
 };
