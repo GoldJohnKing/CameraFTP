@@ -4,10 +4,9 @@
 
 use chrono::Utc;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::Arc;
 use tokio::io::AsyncWriteExt;
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::mpsc;
 use tauri::{AppHandle, Emitter, Manager};
 use tracing::{info, warn, debug};
 use tokio_util::sync::CancellationToken;
@@ -16,6 +15,7 @@ use crate::config_service::ConfigService;
 use crate::error::AppError;
 use crate::file_index::FileIndexService;
 use crate::utils::batch_state::BatchState;
+use crate::utils::task_worker::{CancelGate, QueueDepth};
 use super::image_processor;
 use super::providers;
 
@@ -28,7 +28,6 @@ struct AiEditTask {
     file_path: PathBuf,
     override_prompt: Option<String>,
     override_model: Option<String>,
-    result_tx: Option<oneshot::Sender<Result<PathBuf, AppError>>>,
 }
 
 /// Holds channel senders and task handle for a lazily-spawned worker.
@@ -47,8 +46,8 @@ pub struct AiEditService {
     /// The worker_loop uses its own cloned AppHandle for all other event emissions.
     app_handle: AppHandle,
     worker: tokio::sync::Mutex<Option<AiEditWorkerHandle>>,
-    queue_depth: Arc<AtomicU32>,
-    cancel_token: Arc<Mutex<CancellationToken>>,
+    queue_depth: QueueDepth,
+    cancel_gate: CancelGate,
 }
 
 impl AiEditService {
@@ -57,8 +56,8 @@ impl AiEditService {
             config_service,
             app_handle,
             worker: tokio::sync::Mutex::new(None),
-            queue_depth: Arc::new(AtomicU32::new(0)),
-            cancel_token: Arc::new(Mutex::new(CancellationToken::new())),
+            queue_depth: QueueDepth::new(),
+            cancel_gate: CancelGate::new(),
         }
     }
 
@@ -73,15 +72,15 @@ impl AiEditService {
             Some(h) => h.manual_sender.is_closed(),
         };
         if needs_spawn {
-            self.queue_depth.store(0, Ordering::Relaxed);
+            self.queue_depth.reset();
             let (manual_sender, manual_receiver) = mpsc::channel::<AiEditTask>(MANUAL_QUEUE_CAPACITY);
             let (auto_sender, auto_receiver) = mpsc::channel::<AiEditTask>(AUTO_QUEUE_CAPACITY);
             let config_service_clone = Arc::clone(&self.config_service);
-            let queue_depth_clone = Arc::clone(&self.queue_depth);
-            let cancel_token_clone = Arc::clone(&self.cancel_token);
+            let queue_depth_clone = self.queue_depth.clone();
+            let cancel_gate_clone = self.cancel_gate.clone();
             let app_handle_clone = self.app_handle.clone();
             let join = tauri::async_runtime::spawn(async move {
-                worker_loop(manual_receiver, auto_receiver, app_handle_clone, config_service_clone, queue_depth_clone, cancel_token_clone).await;
+                worker_loop(manual_receiver, auto_receiver, app_handle_clone, config_service_clone, queue_depth_clone, cancel_gate_clone).await;
             });
             *guard = Some(AiEditWorkerHandle {
                 manual_sender: manual_sender.clone(),
@@ -107,15 +106,14 @@ impl AiEditService {
         }
 
         let (_, auto_sender) = self.ensure_worker().await;
-        self.queue_depth.fetch_add(1, Ordering::Relaxed);
+        self.queue_depth.add(1);
         let task = AiEditTask {
             file_path,
             override_prompt: None,
             override_model: None,
-            result_tx: None,
         };
         if let Err(e) = auto_sender.try_send(task) {
-            self.queue_depth.fetch_sub(1, Ordering::Relaxed);
+            self.queue_depth.sub(1);
             let dropped_task = e.into_inner();
             warn!("AI edit queue full, dropping task: {}", dropped_task.file_path.display());
 
@@ -123,7 +121,7 @@ impl AiEditService {
                 .and_then(|n| n.to_str())
                 .unwrap_or("unknown")
                 .to_string();
-            let depth = self.queue_depth.load(Ordering::Relaxed);
+            let depth = self.queue_depth.get();
             if let Err(emit_err) = self.app_handle.emit("ai-edit-progress", &super::progress::AiEditProgressEvent::QueuedDropped {
                 file_name,
                 queue_depth: depth,
@@ -135,46 +133,19 @@ impl AiEditService {
         }
     }
 
-    /// Manual trigger: enqueue and wait for result.
-    pub async fn edit_single(&self, file_path: PathBuf, override_prompt: Option<String>, override_model: Option<String>) -> Result<PathBuf, AppError> {
-        let (manual_sender, _) = self.ensure_worker().await;
-        self.queue_depth.fetch_add(1, Ordering::Relaxed);
-        let (tx, rx) = oneshot::channel();
-
-        if manual_sender
-            .send(AiEditTask {
-                file_path,
-                override_prompt,
-                override_model,
-                result_tx: Some(tx),
-            })
-            .await
-            .is_err()
-        {
-            self.queue_depth.fetch_sub(1, Ordering::Relaxed);
-            return Err(AppError::AiEditError("AI edit service shut down".to_string()));
-        } else {
-            self.emit_queued();
-        }
-
-        rx.await
-            .map_err(|_| AppError::AiEditError("AI edit worker dropped the task".to_string()))?
-    }
-
     /// Manual batch enqueue (non-blocking, no result callback).
     pub async fn enqueue_manual(&self, file_path: PathBuf, override_prompt: Option<String>, override_model: Option<String>) -> Result<(), AppError> {
         let (manual_sender, _) = self.ensure_worker().await;
-        self.queue_depth.fetch_add(1, Ordering::Relaxed);
+        self.queue_depth.add(1);
         if let Err(e) = manual_sender
             .send(AiEditTask {
                 file_path,
                 override_prompt,
                 override_model,
-                result_tx: None,
             })
             .await
         {
-            self.queue_depth.fetch_sub(1, Ordering::Relaxed);
+            self.queue_depth.sub(1);
             return Err(AppError::AiEditError(format!("AI edit service shut down: {}", e)));
         } else {
             self.emit_queued();
@@ -183,19 +154,13 @@ impl AiEditService {
     }
 
     /// Cancel the current batch and arm a fresh token for future tasks.
-    ///
-    /// Aborts in-flight and queued work via the active token, then replaces it
-    /// with a new uncancelled token. Safe to call repeatedly — redundant calls
-    /// are silently absorbed because the worker only reacts to the first active
-    /// cancellation. Tasks enqueued after this call use the fresh token.
+    /// Full contract lives on [`CancelGate::cancel_and_rearm`].
     pub fn cancel(&self) {
-        let mut guard = self.cancel_token.lock().unwrap_or_else(|e| e.into_inner());
-        guard.cancel();
-        *guard = CancellationToken::new();
+        self.cancel_gate.cancel_and_rearm();
     }
 
     fn emit_queued(&self) {
-        let depth = self.queue_depth.load(Ordering::Relaxed);
+        let depth = self.queue_depth.get();
         if let Err(e) = self.app_handle.emit("ai-edit-progress", &super::progress::AiEditProgressEvent::Queued {
             queue_depth: depth,
         }) {
@@ -242,13 +207,15 @@ async fn select_next_task(
     }
 }
 
-async fn worker_loop(
+/// Generic over the runtime so tests can drive the loop with a mock
+/// `AppHandle<MockRuntime>` (production always passes `AppHandle<Wry>`).
+async fn worker_loop<R: tauri::Runtime>(
     mut manual_rx: mpsc::Receiver<AiEditTask>,
     mut auto_rx: mpsc::Receiver<AiEditTask>,
-    app_handle: AppHandle,
+    app_handle: AppHandle<R>,
     config_service: Arc<ConfigService>,
-    queue_depth: Arc<AtomicU32>,
-    cancel_token_arc: Arc<Mutex<CancellationToken>>,
+    queue_depth: QueueDepth,
+    cancel_gate: CancelGate,
 ) {
     info!("AI edit worker started");
 
@@ -258,9 +225,9 @@ async fn worker_loop(
     let mut cached_api_key: Option<String> = None;
     let mut cached_model: Option<String> = None;
 
-    fn emit_batch_done(
+    fn emit_batch_done<R: tauri::Runtime>(
         state: &mut BatchState,
-        app_handle: &AppHandle,
+        app_handle: &AppHandle<R>,
         cancelled: bool,
     ) {
         if let Err(e) = app_handle.emit("ai-edit-progress", &super::progress::AiEditProgressEvent::Done {
@@ -279,24 +246,18 @@ async fn worker_loop(
     fn drain_pending_tasks(
         manual_rx: &mut mpsc::Receiver<AiEditTask>,
         auto_rx: &mut mpsc::Receiver<AiEditTask>,
-        queue_depth: &AtomicU32,
+        queue_depth: &QueueDepth,
     ) {
-        while let Ok(task) = manual_rx.try_recv() {
-            queue_depth.fetch_sub(1, Ordering::Relaxed);
-            if let Some(tx) = task.result_tx {
-                let _ = tx.send(Err(AppError::AiEditError("AI edit cancelled".to_string())));
-            }
+        while manual_rx.try_recv().is_ok() {
+            queue_depth.sub(1);
         }
-        while let Ok(task) = auto_rx.try_recv() {
-            queue_depth.fetch_sub(1, Ordering::Relaxed);
-            if let Some(tx) = task.result_tx {
-                let _ = tx.send(Err(AppError::AiEditError("AI edit cancelled".to_string())));
-            }
+        while auto_rx.try_recv().is_ok() {
+            queue_depth.sub(1);
         }
     }
 
     loop {
-        let cancel_token = cancel_token_arc.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        let cancel_token = cancel_gate.current();
 
         // Fast path: drain pending manual tasks first (high priority)
         let task = if let Ok(task) = manual_rx.try_recv() {
@@ -306,7 +267,7 @@ async fn worker_loop(
                 SelectOutcome::Task(task) => task,
                 SelectOutcome::AutoChannelClosed(task) => {
                     // Auto channel closed mid-batch — emit Done if batch has pending results
-                    if queue_depth.load(Ordering::Relaxed) == 0 && state.processed_count() > 0 {
+                    if queue_depth.get() == 0 && state.processed_count() > 0 {
                         emit_batch_done(&mut state, &app_handle, false);
                     }
                     task
@@ -326,9 +287,9 @@ async fn worker_loop(
         };
 
         // Decrement queue depth BEFORE calculating progress (fixes off-by-one)
-        queue_depth.fetch_sub(1, Ordering::Relaxed);
+        queue_depth.sub(1);
 
-        let remaining = queue_depth.load(Ordering::Relaxed);
+        let remaining = queue_depth.get();
         let current = state.processed_count() + 1;
         let total = current + remaining;
         let file_name = task.file_path.file_name()
@@ -368,7 +329,7 @@ async fn worker_loop(
                 let output_str = output_path.to_string_lossy().to_string();
                 state.output_files.push(output_str.clone());
 
-                let remaining = queue_depth.load(Ordering::Relaxed);
+                let remaining = queue_depth.get();
                 if let Err(e) = app_handle.emit("ai-edit-progress", &super::progress::AiEditProgressEvent::Completed {
                     current: state.processed_count(),
                     total: state.processed_count() + remaining,
@@ -378,22 +339,14 @@ async fn worker_loop(
                 }) {
                     warn!(error = %e, "Failed to emit ai-edit-progress Completed event");
                 }
-
-                if let Some(tx) = task.result_tx {
-                    let _ = tx.send(Ok(output_path.clone()));
-                }
             }
             Some(Err(ref e)) => {
-                if task.result_tx.is_some() {
-                    warn!(input = %task.file_path.display(), error = %e, "AI edit failed");
-                } else {
-                    debug!(input = %task.file_path.display(), error = %e, "Auto AI edit failed");
-                }
+                debug!(input = %task.file_path.display(), error = %e, "AI edit failed");
 
                 state.failed_count += 1;
                 state.failed_files.push(file_name.clone());
 
-                let remaining = queue_depth.load(Ordering::Relaxed);
+                let remaining = queue_depth.get();
                 if let Err(e) = app_handle.emit("ai-edit-progress", &super::progress::AiEditProgressEvent::Failed {
                     current: state.processed_count(),
                     total: state.processed_count() + remaining,
@@ -403,16 +356,9 @@ async fn worker_loop(
                 }) {
                     warn!(error = %e, "Failed to emit ai-edit-progress Failed event");
                 }
-
-                if let Some(tx) = task.result_tx {
-                    let _ = tx.send(Err(e.clone()));
-                }
             }
             None => {
                 // Task was cancelled during processing
-                if let Some(tx) = task.result_tx {
-                    let _ = tx.send(Err(AppError::AiEditError("AI edit cancelled".to_string())));
-                }
                 drain_pending_tasks(&mut manual_rx, &mut auto_rx, &queue_depth);
                 emit_batch_done(&mut state, &app_handle, true);
                 continue;
@@ -420,7 +366,7 @@ async fn worker_loop(
         }
 
         // Emit Done when queue is empty and batch is complete
-        if queue_depth.load(Ordering::Relaxed) == 0 && state.processed_count() > 0 {
+        if queue_depth.get() == 0 && state.processed_count() > 0 {
             emit_batch_done(&mut state, &app_handle, false);
         }
     }
@@ -541,27 +487,6 @@ mod tests {
         assert_eq!(parts[1].len(), 3, "Expected 3-digit milliseconds");
     }
 
-    #[test]
-    fn worker_state_tracks_output_files() {
-        let mut state = BatchState::default();
-
-        state.completed_count += 1;
-        state.output_files.push("/output/AIEdit/photo1_AIEdit.jpg".to_string());
-        assert_eq!(state.processed_count(), 1);
-        assert_eq!(state.output_files.len(), 1);
-
-        state.completed_count += 1;
-        state.output_files.push("/output/AIEdit/photo2_AIEdit.jpg".to_string());
-        assert_eq!(state.processed_count(), 2);
-        assert_eq!(state.output_files.len(), 2);
-
-        state.failed_count += 1;
-        state.failed_files.push("bad.jpg".to_string());
-        assert_eq!(state.processed_count(), 3);
-        assert_eq!(state.output_files.len(), 2);
-        assert_eq!(state.failed_files.len(), 1);
-    }
-
     #[tokio::test]
     async fn write_edited_image_handles_collisions() {
         let dir = tempfile::TempDir::new().unwrap();
@@ -600,5 +525,294 @@ mod tests {
         let result = override_prompt
             .or_else(|| if config_prompt.is_empty() { None } else { Some(config_prompt) });
         assert!(result.is_none());
+    }
+
+    // ---- Worker-loop tests (mock AppHandle via tauri::test) ----
+
+    use crate::ai_edit::progress::AiEditProgressEvent;
+    use std::sync::Mutex;
+    use std::time::Duration;
+    use tauri::Listener;
+
+    fn make_task(name: &str) -> AiEditTask {
+        AiEditTask {
+            file_path: PathBuf::from(name),
+            override_prompt: None,
+            override_model: None,
+        }
+    }
+
+    /// Collects deserialized `ai-edit-progress` events from the mock app.
+    fn event_collector(handle: &tauri::AppHandle<tauri::test::MockRuntime>) -> Arc<Mutex<Vec<AiEditProgressEvent>>> {
+        let events: Arc<Mutex<Vec<AiEditProgressEvent>>> = Arc::new(Mutex::new(Vec::new()));
+        let sink = Arc::clone(&events);
+        handle.listen("ai-edit-progress", move |e| {
+            if let Ok(ev) = serde_json::from_str::<AiEditProgressEvent>(e.payload()) {
+                sink.lock().unwrap().push(ev);
+            }
+        });
+        events
+    }
+
+    /// Polls `probe` until it returns `Some` or the timeout elapses (panics).
+    async fn wait_until<T>(timeout: Duration, mut probe: impl FnMut() -> Option<T>) -> T {
+        let deadline = tokio::time::Instant::now() + timeout;
+        loop {
+            if let Some(value) = probe() {
+                return value;
+            }
+            assert!(
+                tokio::time::Instant::now() < deadline,
+                "timed out after {:?} waiting for condition",
+                timeout
+            );
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    }
+
+    #[tokio::test]
+    async fn select_next_task_prefers_manual_over_auto() {
+        let (manual_tx, mut manual_rx) = mpsc::channel::<AiEditTask>(4);
+        let (auto_tx, mut auto_rx) = mpsc::channel::<AiEditTask>(32);
+        let token = CancellationToken::new();
+
+        manual_tx.send(make_task("m.jpg")).await.unwrap();
+        auto_tx.send(make_task("a.jpg")).await.unwrap();
+
+        match select_next_task(&mut manual_rx, &mut auto_rx, &token).await {
+            SelectOutcome::Task(t) => assert_eq!(t.file_path, PathBuf::from("m.jpg")),
+            SelectOutcome::Cancelled => panic!("expected manual task, got Cancelled"),
+            SelectOutcome::AutoChannelClosed(_) => panic!("expected manual task, got AutoChannelClosed"),
+            SelectOutcome::ShutDown => panic!("expected manual task, got ShutDown"),
+        }
+    }
+
+    #[tokio::test]
+    async fn select_next_task_returns_auto_when_manual_idle() {
+        let (_manual_tx, mut manual_rx) = mpsc::channel::<AiEditTask>(4);
+        let (auto_tx, mut auto_rx) = mpsc::channel::<AiEditTask>(32);
+        let token = CancellationToken::new();
+
+        auto_tx.send(make_task("a.jpg")).await.unwrap();
+
+        match select_next_task(&mut manual_rx, &mut auto_rx, &token).await {
+            SelectOutcome::Task(t) => assert_eq!(t.file_path, PathBuf::from("a.jpg")),
+            SelectOutcome::Cancelled => panic!("expected auto task, got Cancelled"),
+            SelectOutcome::AutoChannelClosed(_) => panic!("expected auto task, got AutoChannelClosed"),
+            SelectOutcome::ShutDown => panic!("expected auto task, got ShutDown"),
+        }
+    }
+
+    #[tokio::test]
+    async fn select_next_task_cancelled_wins_over_ready_channels() {
+        let (manual_tx, mut manual_rx) = mpsc::channel::<AiEditTask>(4);
+        let (auto_tx, mut auto_rx) = mpsc::channel::<AiEditTask>(32);
+        let token = CancellationToken::new();
+
+        manual_tx.send(make_task("m.jpg")).await.unwrap();
+        auto_tx.send(make_task("a.jpg")).await.unwrap();
+        token.cancel();
+
+        // `biased` select must poll the cancel branch before ready receivers
+        match select_next_task(&mut manual_rx, &mut auto_rx, &token).await {
+            SelectOutcome::Cancelled => {}
+            SelectOutcome::Task(_) => panic!("expected Cancelled, got Task"),
+            SelectOutcome::AutoChannelClosed(_) => panic!("expected Cancelled, got AutoChannelClosed"),
+            SelectOutcome::ShutDown => panic!("expected Cancelled, got ShutDown"),
+        }
+    }
+
+    #[tokio::test]
+    async fn select_next_task_returns_shutdown_when_both_channels_closed() {
+        let (manual_tx, mut manual_rx) = mpsc::channel::<AiEditTask>(4);
+        let (auto_tx, mut auto_rx) = mpsc::channel::<AiEditTask>(32);
+        let token = CancellationToken::new();
+
+        drop(manual_tx);
+        drop(auto_tx);
+
+        match select_next_task(&mut manual_rx, &mut auto_rx, &token).await {
+            SelectOutcome::ShutDown => {}
+            SelectOutcome::Task(_) => panic!("expected ShutDown, got Task"),
+            SelectOutcome::Cancelled => panic!("expected ShutDown, got Cancelled"),
+            SelectOutcome::AutoChannelClosed(_) => panic!("expected ShutDown, got AutoChannelClosed"),
+        }
+    }
+
+    #[tokio::test]
+    async fn select_next_task_falls_back_to_manual_when_auto_closed() {
+        let (manual_tx, mut manual_rx) = mpsc::channel::<AiEditTask>(4);
+        let (auto_tx, mut auto_rx) = mpsc::channel::<AiEditTask>(32);
+        let token = CancellationToken::new();
+
+        drop(auto_tx);
+
+        let select = tokio::spawn(async move {
+            select_next_task(&mut manual_rx, &mut auto_rx, &token).await
+        });
+
+        // Park the spawned select in the inner (manual-only) fallback select
+        tokio::task::yield_now().await;
+        manual_tx.send(make_task("m.jpg")).await.unwrap();
+
+        match select.await.unwrap() {
+            SelectOutcome::AutoChannelClosed(t) => assert_eq!(t.file_path, PathBuf::from("m.jpg")),
+            SelectOutcome::Task(_) => panic!("expected AutoChannelClosed, got Task"),
+            SelectOutcome::Cancelled => panic!("expected AutoChannelClosed, got Cancelled"),
+            SelectOutcome::ShutDown => panic!("expected AutoChannelClosed, got ShutDown"),
+        }
+    }
+
+    #[tokio::test]
+    async fn worker_loop_processes_tasks_and_emits_done_when_queue_drains() {
+        let app = tauri::test::mock_app();
+        let handle = app.handle().clone();
+        let events = event_collector(&handle);
+
+        let (manual_tx, manual_rx) = mpsc::channel::<AiEditTask>(4);
+        let (auto_tx, auto_rx) = mpsc::channel::<AiEditTask>(32);
+        let queue_depth = QueueDepth::new();
+        let cancel_gate = CancelGate::new();
+
+        let temp = tempfile::tempdir().unwrap();
+        // Default config: empty API key → process_task fails fast, no network
+        let config_service = Arc::new(ConfigService::new_with_path(temp.path().join("config.json")));
+
+        let worker = tokio::spawn(worker_loop(
+            manual_rx,
+            auto_rx,
+            handle,
+            config_service,
+            queue_depth.clone(),
+            cancel_gate,
+        ));
+
+        // Enqueue 3 tasks mirroring the service contract (depth++ before send)
+        for name in ["a.jpg", "b.jpg", "c.jpg"] {
+            queue_depth.add(1);
+            auto_tx.send(make_task(name)).await.unwrap();
+        }
+
+        wait_until(Duration::from_secs(10), || {
+            let ev = events.lock().unwrap();
+            ev.iter()
+                .rev()
+                .find(|e| matches!(e, AiEditProgressEvent::Done { cancelled: false, .. }))
+                .cloned()
+        })
+        .await;
+
+        assert_eq!(queue_depth.get(), 0, "queue depth must drain to 0");
+
+        let ev = events.lock().unwrap();
+        let failed_files: Vec<&str> = ev
+            .iter()
+            .filter_map(|e| match e {
+                AiEditProgressEvent::Failed { file_name, .. } => Some(file_name.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            failed_files,
+            vec!["a.jpg", "b.jpg", "c.jpg"],
+            "tasks must be processed in FIFO enqueue order"
+        );
+        assert!(
+            ev.iter().any(|e| matches!(
+                e,
+                AiEditProgressEvent::Failed { error, .. } if error.contains("API Key")
+            )),
+            "empty API key config must fail tasks: {:?}",
+            ev
+        );
+        let done_count = ev
+            .iter()
+            .filter(|e| matches!(e, AiEditProgressEvent::Done { cancelled: false, total: 3, failed_count: 3, .. }))
+            .count();
+        assert_eq!(done_count, 1, "exactly one non-cancelled Done(3 failed) expected: {:?}", ev);
+        drop(ev);
+
+        drop(manual_tx);
+        drop(auto_tx);
+        let _ = tokio::time::timeout(Duration::from_secs(5), worker).await;
+    }
+
+    #[tokio::test]
+    async fn worker_loop_cancel_drains_pending_tasks_and_recovers_with_fresh_token() {
+        let app = tauri::test::mock_app();
+        let handle = app.handle().clone();
+        let events = event_collector(&handle);
+
+        let (manual_tx, manual_rx) = mpsc::channel::<AiEditTask>(4);
+        let (auto_tx, auto_rx) = mpsc::channel::<AiEditTask>(32);
+        let queue_depth = QueueDepth::new();
+        let cancel_gate = CancelGate::new();
+
+        let temp = tempfile::tempdir().unwrap();
+        let config_service = Arc::new(ConfigService::new_with_path(temp.path().join("config.json")));
+
+        let worker = tokio::spawn(worker_loop(
+            manual_rx,
+            auto_rx,
+            handle,
+            config_service,
+            queue_depth.clone(),
+            cancel_gate.clone(),
+        ));
+
+        // Park the idle worker inside select_next_task
+        tokio::task::yield_now().await;
+
+        // Mirror AiEditService::cancel(): cancel the active token, arm a fresh one
+        cancel_gate.cancel_and_rearm();
+
+        // Queue 3 tasks AFTER cancellation; the biased select must drain them,
+        // never process them.
+        for name in ["p1.jpg", "p2.jpg", "p3.jpg"] {
+            queue_depth.add(1);
+            auto_tx.try_send(make_task(name)).expect("channel has capacity");
+        }
+
+        wait_until(Duration::from_secs(10), || {
+            let drained = queue_depth.get() == 0;
+            let done_cancelled = events.lock().unwrap().iter().any(|e| matches!(
+                e,
+                AiEditProgressEvent::Done { cancelled: true, total: 0, .. }
+            ));
+            (drained && done_cancelled).then_some(())
+        })
+        .await;
+
+        {
+            let ev = events.lock().unwrap();
+            assert!(
+                !ev.iter().any(|e| matches!(e, AiEditProgressEvent::Failed { .. })),
+                "drained tasks must not be processed: {:?}",
+                ev
+            );
+            assert!(
+                !ev.iter().any(|e| matches!(e, AiEditProgressEvent::Progress { file_name, .. } if file_name.starts_with("p"))),
+                "drained tasks must not emit progress: {:?}",
+                ev
+            );
+        }
+
+        // The fresh token keeps the worker alive: a new task is processed normally
+        queue_depth.add(1);
+        auto_tx.send(make_task("d.jpg")).await.unwrap();
+
+        wait_until(Duration::from_secs(10), || {
+            let ev = events.lock().unwrap();
+            ev.iter()
+                .rev()
+                .find(|e| matches!(e, AiEditProgressEvent::Done { cancelled: false, total: 1, failed_count: 1, .. }))
+                .cloned()
+        })
+        .await;
+        assert_eq!(queue_depth.get(), 0);
+
+        drop(manual_tx);
+        drop(auto_tx);
+        let _ = tokio::time::timeout(Duration::from_secs(5), worker).await;
     }
 }

@@ -5,9 +5,8 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::OnceLock;
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::sync::mpsc;
-use tokio_util::sync::CancellationToken;
 use tauri::{AppHandle, Emitter};
 
 use crate::config::AutoColorGradingConfig;
@@ -15,6 +14,7 @@ use crate::config_service::ConfigService;
 use crate::error::AppError;
 use crate::image_utils;
 use crate::utils::batch_state::BatchState;
+use crate::utils::task_worker::{CancelGate, QueueDepth};
 use super::progress::ColorGradingEvent;
 use super::presets::find_preset;
 
@@ -51,8 +51,8 @@ pub struct ColorGradingService {
     config_service: Arc<ConfigService>,
     app_handle: AppHandle,
     worker: tokio::sync::Mutex<Option<ColorGradingWorkerHandle>>,
-    queue_depth: Arc<AtomicU32>,
-    cancel_token: Arc<std::sync::Mutex<CancellationToken>>,
+    queue_depth: QueueDepth,
+    cancel_gate: CancelGate,
     /// NN demosaic gate. Defaults to true on all platforms — NN is always
     /// attempted, with classical demosaic as the fallback on decode failure.
     /// Retained as a runtime knob for future per-device gating/telemetry.
@@ -82,8 +82,8 @@ impl ColorGradingService {
             config_service,
             app_handle,
             worker: tokio::sync::Mutex::new(None),
-            queue_depth: Arc::new(AtomicU32::new(0)),
-            cancel_token: Arc::new(std::sync::Mutex::new(CancellationToken::new())),
+            queue_depth: QueueDepth::new(),
+            cancel_gate: CancelGate::new(),
             nn_enabled: Arc::new(AtomicBool::new(nn_enabled_default())),
         }
     }
@@ -113,14 +113,14 @@ impl ColorGradingService {
             Some(h) => h.sender.is_closed(),
         };
         if needs_spawn {
-            self.queue_depth.store(0, Ordering::Relaxed);
+            self.queue_depth.reset();
             let (sender, receiver) = mpsc::channel::<ColorGradingTask>(16);
             let app_handle_clone = self.app_handle.clone();
-            let queue_depth_clone = Arc::clone(&self.queue_depth);
-            let cancel_token_clone = Arc::clone(&self.cancel_token);
+            let queue_depth_clone = self.queue_depth.clone();
+            let cancel_gate_clone = self.cancel_gate.clone();
             let nn_enabled_clone = Arc::clone(&self.nn_enabled);
             let join = tauri::async_runtime::spawn(async move {
-                worker_loop(receiver, app_handle_clone, queue_depth_clone, cancel_token_clone, nn_enabled_clone).await;
+                worker_loop(receiver, app_handle_clone, queue_depth_clone, cancel_gate_clone, nn_enabled_clone).await;
             });
             *guard = Some(ColorGradingWorkerHandle {
                 sender: sender.clone(),
@@ -138,7 +138,7 @@ impl ColorGradingService {
 
         let sender = self.ensure_worker().await;
         let total = file_paths.len() as u32;
-        self.queue_depth.fetch_add(total, Ordering::Relaxed);
+        self.queue_depth.add(total);
 
         let mut sent = 0u32;
         for path in file_paths {
@@ -150,28 +150,22 @@ impl ColorGradingService {
             }).await {
                 Ok(()) => sent += 1,
                 Err(_) => {
-                    self.queue_depth.fetch_sub(total - sent, Ordering::Relaxed);
+                    self.queue_depth.sub(total - sent);
                     return Err(AppError::ColorGradingError("Failed to enqueue task".to_string()));
                 }
             }
         }
 
-        let depth = self.queue_depth.load(Ordering::Relaxed);
+        let depth = self.queue_depth.get();
         let _ = self.app_handle.emit("color-grading-progress", &ColorGradingEvent::Queued { queue_depth: depth });
 
         Ok(())
     }
 
     /// Cancel the current batch and arm a fresh token for future tasks.
-    ///
-    /// Aborts in-flight and queued work via the active token, then replaces it
-    /// with a new uncancelled token. Safe to call repeatedly — redundant calls
-    /// are silently absorbed because the worker only reacts to the first active
-    /// cancellation. Tasks enqueued after this call use the fresh token.
+    /// Full contract lives on [`CancelGate::cancel_and_rearm`].
     pub fn cancel(&self) {
-        let mut guard = self.cancel_token.lock().unwrap_or_else(|e| e.into_inner());
-        guard.cancel();
-        *guard = CancellationToken::new();
+        self.cancel_gate.cancel_and_rearm();
     }
 
     /// Auto-trigger: check config + RAW extension, then enqueue.
@@ -208,20 +202,22 @@ pub(crate) fn should_auto_color_grade(
     image_utils::is_raw_file(file_path)
 }
 
-async fn worker_loop(
+/// Generic over the runtime so tests can drive the loop with a mock
+/// `AppHandle<MockRuntime>` (production always passes `AppHandle<Wry>`).
+async fn worker_loop<R: tauri::Runtime>(
     mut receiver: mpsc::Receiver<ColorGradingTask>,
-    app_handle: AppHandle,
-    queue_depth: Arc<AtomicU32>,
-    cancel_token_arc: Arc<std::sync::Mutex<CancellationToken>>,
+    app_handle: AppHandle<R>,
+    queue_depth: QueueDepth,
+    cancel_gate: CancelGate,
     nn_enabled: Arc<AtomicBool>,
 ) {
     tracing::info!("Color grading worker started");
 
     let mut state = BatchState::default();
 
-    fn emit_done(
+    fn emit_done<R: tauri::Runtime>(
         state: &mut BatchState,
-        app_handle: &AppHandle,
+        app_handle: &AppHandle<R>,
         cancelled: bool,
     ) {
         let _ = app_handle.emit("color-grading-progress", &ColorGradingEvent::Done {
@@ -236,15 +232,15 @@ async fn worker_loop(
 
     fn drain_pending_tasks(
         receiver: &mut mpsc::Receiver<ColorGradingTask>,
-        queue_depth: &AtomicU32,
+        queue_depth: &QueueDepth,
     ) {
         while let Ok(_) = receiver.try_recv() {
-            queue_depth.fetch_sub(1, Ordering::Relaxed);
+            queue_depth.sub(1);
         }
     }
 
     loop {
-        let cancel_token = cancel_token_arc.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        let cancel_token = cancel_gate.current();
 
         let task = tokio::select! {
             biased;
@@ -268,9 +264,9 @@ async fn worker_loop(
             }
         };
 
-        queue_depth.fetch_sub(1, Ordering::Relaxed);
+        queue_depth.sub(1);
 
-        let remaining = queue_depth.load(Ordering::Relaxed);
+        let remaining = queue_depth.get();
         let current = state.processed_count() + 1;
         let total = current + remaining;
         let file_name = task.input_path
@@ -299,7 +295,7 @@ async fn worker_loop(
                 state.completed_count += 1;
                 state.output_files.push(output_path.clone());
 
-                let remaining = queue_depth.load(Ordering::Relaxed);
+                let remaining = queue_depth.get();
                 let _ = app_handle.emit("color-grading-progress", &ColorGradingEvent::Completed {
                     current: state.processed_count(),
                     total: state.processed_count() + remaining,
@@ -313,7 +309,7 @@ async fn worker_loop(
                 state.failed_count += 1;
                 state.failed_files.push(file_name.clone());
 
-                let remaining = queue_depth.load(Ordering::Relaxed);
+                let remaining = queue_depth.get();
                 let _ = app_handle.emit("color-grading-progress", &ColorGradingEvent::Failed {
                     current: state.processed_count(),
                     total: state.processed_count() + remaining,
@@ -329,7 +325,7 @@ async fn worker_loop(
             }
         }
 
-        if queue_depth.load(Ordering::Relaxed) == 0 && state.processed_count() > 0 {
+        if queue_depth.get() == 0 && state.processed_count() > 0 {
             emit_done(&mut state, &app_handle, false);
         }
     }
@@ -502,6 +498,193 @@ mod tests {
 
         // Reset so this static doesn't bleed into sibling tests.
         NN_INIT_DONE.store(false, Ordering::SeqCst);
+    }
+
+    // ---- Worker-loop tests (mock AppHandle via tauri::test) ----
+    //
+    // The FFI provider (`RawAlchemyLib`) cannot be trait-mocked, so worker tests
+    // use an unknown LUT id: `process_single_file` fails at `find_preset` —
+    // before any FFI/output-path work — which still exercises the full
+    // queue/progress/Done machinery deterministically without the native lib.
+
+    use std::time::Duration;
+    use tauri::Listener;
+
+    fn make_task(name: &str) -> ColorGradingTask {
+        ColorGradingTask {
+            input_path: PathBuf::from(name),
+            lut_id: "does-not-exist".to_string(),
+            metering_mode: "matrix".to_string(),
+            ev_offset: 0.0,
+        }
+    }
+
+    /// Collects deserialized `color-grading-progress` events from the mock app.
+    fn event_collector(handle: &tauri::AppHandle<tauri::test::MockRuntime>) -> Arc<std::sync::Mutex<Vec<ColorGradingEvent>>> {
+        let events: Arc<std::sync::Mutex<Vec<ColorGradingEvent>>> = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let sink = Arc::clone(&events);
+        handle.listen("color-grading-progress", move |e| {
+            if let Ok(ev) = serde_json::from_str::<ColorGradingEvent>(e.payload()) {
+                sink.lock().unwrap().push(ev);
+            }
+        });
+        events
+    }
+
+    /// Polls `probe` until it returns `Some` or the timeout elapses (panics).
+    async fn wait_until<T>(timeout: Duration, mut probe: impl FnMut() -> Option<T>) -> T {
+        let deadline = tokio::time::Instant::now() + timeout;
+        loop {
+            if let Some(value) = probe() {
+                return value;
+            }
+            assert!(
+                tokio::time::Instant::now() < deadline,
+                "timed out after {:?} waiting for condition",
+                timeout
+            );
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    }
+
+    #[tokio::test]
+    async fn worker_loop_fails_unknown_lut_tasks_and_emits_done() {
+        let app = tauri::test::mock_app();
+        let handle = app.handle().clone();
+        let events = event_collector(&handle);
+
+        let (sender, receiver) = mpsc::channel::<ColorGradingTask>(16);
+        let queue_depth = QueueDepth::new();
+        let cancel_gate = CancelGate::new();
+        let nn_enabled = Arc::new(AtomicBool::new(true));
+
+        let worker = tokio::spawn(worker_loop(
+            receiver,
+            handle,
+            queue_depth.clone(),
+            cancel_gate,
+            nn_enabled,
+        ));
+
+        // Enqueue 2 tasks mirroring the service contract (depth += total before send)
+        queue_depth.add(2);
+        for name in ["a.nef", "b.nef"] {
+            sender.send(make_task(name)).await.unwrap();
+        }
+
+        wait_until(Duration::from_secs(10), || {
+            let ev = events.lock().unwrap();
+            ev.iter()
+                .rev()
+                .find(|e| matches!(e, ColorGradingEvent::Done { cancelled: false, .. }))
+                .cloned()
+        })
+        .await;
+
+        assert_eq!(queue_depth.get(), 0, "queue depth must drain to 0");
+
+        let ev = events.lock().unwrap();
+        let failed_files: Vec<&str> = ev
+            .iter()
+            .filter_map(|e| match e {
+                ColorGradingEvent::Failed { file_name, .. } => Some(file_name.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            failed_files,
+            vec!["a.nef", "b.nef"],
+            "tasks must be processed in FIFO enqueue order"
+        );
+        assert!(
+            ev.iter().any(|e| matches!(
+                e,
+                ColorGradingEvent::Failed { error, .. } if error.contains("Unknown LUT")
+            )),
+            "unknown LUT must fail tasks before any FFI work: {:?}",
+            ev
+        );
+        let done_count = ev
+            .iter()
+            .filter(|e| matches!(
+                e,
+                ColorGradingEvent::Done { cancelled: false, total: 2, failed_count: 2, .. }
+            ))
+            .count();
+        assert_eq!(done_count, 1, "exactly one non-cancelled Done(2 failed) expected: {:?}", ev);
+        drop(ev);
+
+        drop(sender);
+        let _ = tokio::time::timeout(Duration::from_secs(5), worker).await;
+    }
+
+    #[tokio::test]
+    async fn worker_loop_cancel_drains_pending_tasks_and_recovers_with_fresh_token() {
+        let app = tauri::test::mock_app();
+        let handle = app.handle().clone();
+        let events = event_collector(&handle);
+
+        let (sender, receiver) = mpsc::channel::<ColorGradingTask>(16);
+        let queue_depth = QueueDepth::new();
+        let cancel_gate = CancelGate::new();
+        let nn_enabled = Arc::new(AtomicBool::new(true));
+
+        let worker = tokio::spawn(worker_loop(
+            receiver,
+            handle,
+            queue_depth.clone(),
+            cancel_gate.clone(),
+            nn_enabled,
+        ));
+
+        // Park the idle worker inside the recv/cancel select
+        tokio::task::yield_now().await;
+
+        // Mirror ColorGradingService::cancel(): cancel the active token, arm a fresh one
+        cancel_gate.cancel_and_rearm();
+
+        // Queue 2 tasks AFTER cancellation; the biased select must drain them,
+        // never process them.
+        queue_depth.add(2);
+        for name in ["p1.nef", "p2.nef"] {
+            sender.try_send(make_task(name)).expect("channel has capacity");
+        }
+
+        wait_until(Duration::from_secs(10), || {
+            (queue_depth.get() == 0).then_some(())
+        })
+        .await;
+
+        {
+            let ev = events.lock().unwrap();
+            assert!(
+                !ev.iter().any(|e| matches!(e, ColorGradingEvent::Failed { .. })),
+                "drained tasks must not be processed: {:?}",
+                ev
+            );
+            assert!(
+                !ev.iter().any(|e| matches!(e, ColorGradingEvent::Progress { file_name, .. } if file_name.starts_with('p'))),
+                "drained tasks must not emit progress: {:?}",
+                ev
+            );
+        }
+
+        // The fresh token keeps the worker alive: a new task is processed normally
+        queue_depth.add(1);
+        sender.send(make_task("d.nef")).await.unwrap();
+
+        wait_until(Duration::from_secs(10), || {
+            let ev = events.lock().unwrap();
+            ev.iter()
+                .rev()
+                .find(|e| matches!(e, ColorGradingEvent::Done { cancelled: false, total: 1, failed_count: 1, .. }))
+                .cloned()
+        })
+        .await;
+        assert_eq!(queue_depth.get(), 0);
+
+        drop(sender);
+        let _ = tokio::time::timeout(Duration::from_secs(5), worker).await;
     }
 }
 
