@@ -45,4 +45,19 @@ describe('Dialog', () => {
 
     expect(onClose).toHaveBeenCalledTimes(1);
   });
+
+  it('pins the scroll-layout contract on the content element', () => {
+    // 回归钉住：min-h-0 + overflow-y-auto 曾修复日期跳转选择器在受限高度
+    // 容器中把对话框撑破的布局 bug。这是布局契约，不是样式噪音 —— 删除前
+    // 请确认 Dialog.tsx 的滚动布局约束已由行为测试覆盖。
+    const { getByTestId } = render(
+      <Dialog isOpen onClose={() => {}} title="导出设置">
+        <button type="button">row 1</button>
+      </Dialog>,
+    );
+
+    const content = getByTestId('dialog-content');
+    expect(content.className).toContain('min-h-0');
+    expect(content.className).toContain('overflow-y-auto');
+  });
 });

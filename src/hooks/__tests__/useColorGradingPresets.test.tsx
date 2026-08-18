@@ -186,7 +186,10 @@ describe('useColorGradingPresets', () => {
       await flush();
     });
 
-    // No render happened after unmount (cancelled flag) and nothing threw.
+    // The module-level cache DID update (resolution is independent of the
+    // consumer), but the unmounted component rendered nothing after resolve —
+    // that distinction is exactly what the cancelled flag guards.
+    expect(getCachedColorGradingPresetsRef()).toEqual(PRESETS);
     expect(renderLog.length).toBe(renderCountAfterMount);
     expect(renderLog).toEqual([0]);
   });
