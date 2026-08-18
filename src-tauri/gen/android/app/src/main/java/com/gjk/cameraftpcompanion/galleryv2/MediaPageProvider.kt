@@ -165,18 +165,26 @@ class MediaPageProvider(private val context: Context) {
             null
         }
 
-        // revisionToken: use a stable identifier based on the current MediaStore count
-        // This changes when items are added/removed, allowing callers to detect staleness
-        val revisionToken = computeRevisionToken()
-
-        // Get total count for display
-        val totalCount = getTotalCount()
+        // Single count query backs both the revisionToken and totalCount —
+        // previously this ran two identical full-count MediaStore queries per
+        // listPage call.
+        val (totalCount, revisionToken) = queryCountAndRevision()
 
         Log.d(TAG, "listPage: returned ${items.size} items, total=$totalCount, hasNext=${nextCursor != null}")
         return MediaPageResult(items, nextCursor, revisionToken, totalCount)
     }
 
-    private fun getTotalCount(): Int {
+    /**
+     * One MediaStore count query returning both values consumed by
+     * [listPage]: the total count and the revision token derived from it
+     * (`"count:<n>"`, so the token changes when items are added/removed).
+     *
+     * Preserves the exact semantics of the two queries it replaced:
+     * - success → `(count, "count:<count>")`
+     * - null cursor → `(0, "count:unknown")`
+     * - exception → `(0, "count:error")`
+     */
+    private fun queryCountAndRevision(): Pair<Int, String> {
         return try {
             context.contentResolver.query(
                 MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
@@ -185,28 +193,11 @@ class MediaPageProvider(private val context: Context) {
                 null,
                 null
             )?.use { cursor ->
-                cursor.count
-            } ?: 0
+                cursor.count to "count:${cursor.count}"
+            } ?: (0 to "count:unknown")
         } catch (e: Exception) {
-            Log.w(TAG, "Failed to get total count", e)
-            0
-        }
-    }
-
-    private fun computeRevisionToken(): String {
-        return try {
-            context.contentResolver.query(
-                MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
-                arrayOf(MediaStore.Images.Media._ID),
-                SELECTION,
-                null,
-                null
-            )?.use { cursor ->
-                "count:${cursor.count}"
-            } ?: "count:unknown"
-        } catch (e: Exception) {
-            Log.w(TAG, "Failed to compute revisionToken", e)
-            "count:error"
+            Log.w(TAG, "Failed to query MediaStore count/revision", e)
+            0 to "count:error"
         }
     }
 }

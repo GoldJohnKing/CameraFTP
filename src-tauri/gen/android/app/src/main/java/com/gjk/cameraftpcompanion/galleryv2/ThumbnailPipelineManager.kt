@@ -400,10 +400,11 @@ class ThumbnailPipelineManager(poolSize: Int = 3) {
             Log.d("ThumbPipeline", "executeJob: mediaId=${job.mediaId} uri=$uri bucket=${job.sizeBucket}")
             val path = dec.decodeAndSave(uri, job.sizeBucket, dir, job.mediaId, key)
             if (path != null) {
-                // Update L1 cache with the decoded file
+                // The decoder already wrote the JPEG to the L2 path; insert
+                // into L1 only — no redundant disk write, no capacity walk.
                 val file = java.io.File(path)
                 if (file.exists()) {
-                    cache?.put(job.mediaId, key, job.sizeBucket, file.readBytes())
+                    cache?.putMemoryOnly(key, file)
                 }
                 Log.d("ThumbPipeline", "executeJob: ready path=$path")
                 finishJob(job, "ready", path, null)
@@ -469,22 +470,29 @@ class ThumbnailPipelineManager(poolSize: Int = 3) {
                 }
 
                 if (backoff > 0) {
-                    // Schedule re-enqueue after backoff on a pool thread
-                    try {
-                        workerPool.submit {
-                            Thread.sleep(backoff)
-                            lock.withLock {
-                                if (!isShutdown) {
-                                    queueForPriority(job.priority).addLast(job)
-                                }
+                    // Schedule the re-enqueue after the backoff delay on the
+                    // main-looper handler. This keeps the delay OFF the 2-4
+                    // slot decode pool (the old Thread.sleep burned a worker
+                    // slot for the whole backoff window), and the runnable
+                    // re-dispatches the queue afterwards so the retried job
+                    // cannot sit forever in an idle queue. Pending retries
+                    // are dropped by shutdown() via
+                    // handler.removeCallbacksAndMessages(null); the lock is
+                    // re-acquired inside the runnable, so a concurrent
+                    // shutdown simply observes isShutdown and skips.
+                    handler.postDelayed({
+                        val reQueued = lock.withLock {
+                            if (!isShutdown) {
+                                queueForPriority(job.priority).addLast(job)
+                                true
+                            } else {
+                                false
                             }
                         }
-                    } catch (e: RejectedExecutionException) {
-                        retryCount.remove(job.requestId)
-                        val key = compositeKey(job.mediaId, job.dateModifiedMs, job.sizeBucket)
-                        dedupMap.remove(key)
-                        Log.w("ThumbPipeline", "finishJob: retry rejected after shutdown for ${job.requestId}", e)
-                    }
+                        if (reQueued) {
+                            processNext()
+                        }
+                    }, backoff)
                 } else {
                     queueForPriority(job.priority).addLast(job)
                 }

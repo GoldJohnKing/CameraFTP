@@ -13,7 +13,13 @@ import android.net.Uri
 import android.util.Log
 import java.io.File
 
-class ThumbnailDecoder(private val context: Context) {
+/**
+ * Decodes MediaStore images into cache-file thumbnails.
+ *
+ * Open to allow tests to substitute a fake decoder that injects
+ * failures (e.g. io_transient retry behaviour of the pipeline).
+ */
+open class ThumbnailDecoder(private val context: Context) {
     companion object {
         private const val TAG = "ThumbnailDecoder"
         private const val QUALITY = 92
@@ -29,7 +35,7 @@ class ThumbnailDecoder(private val context: Context) {
      * @param key The cache key (hash) for file naming
      * @return The absolute path to the saved file, or null on failure
      */
-    fun decodeAndSave(uri: Uri, sizeBucket: String, cacheDir: File, mediaId: String, key: String): String? {
+    open fun decodeAndSave(uri: Uri, sizeBucket: String, cacheDir: File, mediaId: String, key: String): String? {
         return try {
             val bitmap = loadBitmap(uri) ?: return null
             val target = if (sizeBucket == "s") 200 else 360

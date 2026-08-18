@@ -33,6 +33,19 @@ class ThumbnailCacheV2(
         private const val CACHE_ROOT = "thumb/v2"
         private const val DEFAULT_L2_BYTES = 256L * 1024 * 1024 // 256 MB
 
+        /**
+         * Run the L2 capacity walk only every N puts. The walk lists and
+         * stats every file in the cache dir (up to thousands of entries at
+         * the 256 MB cap), which dominates the put path when run per-put.
+         *
+         * Bounded overshoot: between walks the cache may grow by at most
+         * L2_ENFORCE_EVERY_PUTS - 1 extra thumbnails above [DEFAULT_L2_BYTES]
+         * (~31 x ~150 KB ≈ 4.7 MB; thumbnails are bounded by the 200/360 px
+         * JPEG buckets). The hard cap is never exceeded by more than that
+         * documented slack.
+         */
+        internal const val L2_ENFORCE_EVERY_PUTS = 32
+
         /** Compute a sensible L1 size from the available heap. */
         fun defaultL1Bytes(): Int {
             val heap = Runtime.getRuntime().maxMemory()
@@ -99,6 +112,8 @@ class ThumbnailCacheV2(
     /**
      * Store thumbnail data in both L1 and L2.
      *
+     * L2 capacity enforcement is throttled (see [maybeEnforceL2Capacity]).
+     *
      * @param mediaId The media identifier for L2 file naming
      * @param key The cache key (hash) for L1 storage
      * @param sizeBucket The size bucket ("s" or "m")
@@ -113,8 +128,24 @@ class ThumbnailCacheV2(
         file.parentFile?.mkdirs()
         file.writeBytes(data)
 
-        // Enforce L2 capacity
-        enforceL2Capacity()
+        // Enforce L2 capacity (throttled)
+        maybeEnforceL2Capacity()
+    }
+
+    /**
+     * Insert into the L1 in-memory cache only, without any disk write or
+     * capacity walk.
+     *
+     * Use when the caller has already written the exact bytes to the L2 file
+     * at the expected path — e.g. [ThumbnailDecoder.decodeAndSave] saves the
+     * JPEG directly into the cache directory. Calling [put] afterwards would
+     * read the file back and rewrite the identical bytes to the same path.
+     *
+     * @param key The cache key (hash) for L1 storage
+     * @param file The already-written L2 file whose bytes are promoted to L1
+     */
+    fun putMemoryOnly(key: String, file: File) {
+        l1.put(key, file.readBytes())
     }
 
     /**
@@ -174,9 +205,35 @@ class ThumbnailCacheV2(
 
     // ── Internals ─────────────────────────────────────────────────────
 
+    /** Puts since the last L2 capacity walk. Guarded by [enforceLock]. */
+    private var putsSinceEnforce = 0
+    private val enforceLock = Any()
+
     private fun diskFile(mediaId: String, key: String, sizeBucket: String): File {
         val root = cacheRoot ?: throw IllegalStateException("ThumbnailCacheV2 not initialized")
         return File(root, "$sizeBucket/${mediaId}_$key.jpg")
+    }
+
+    /**
+     * Throttled L2 capacity enforcement: the walk runs only every
+     * [L2_ENFORCE_EVERY_PUTS] puts (see the slack documented there).
+     * The walk itself runs outside [enforceLock] — it is slow and
+     * idempotent, and serializing puts behind it would stall the decode
+     * workers.
+     */
+    private fun maybeEnforceL2Capacity() {
+        val shouldEnforce = synchronized(enforceLock) {
+            putsSinceEnforce++
+            if (putsSinceEnforce >= L2_ENFORCE_EVERY_PUTS) {
+                putsSinceEnforce = 0
+                true
+            } else {
+                false
+            }
+        }
+        if (shouldEnforce) {
+            enforceL2Capacity()
+        }
     }
 
     private fun enforceL2Capacity() {
