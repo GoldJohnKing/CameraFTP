@@ -39,6 +39,12 @@ const DEBOUNCE_DELAY = 100;
 // that no longer exists on AppConfig is a compile error via `satisfies`.
 // Exhaustiveness is enforced at runtime by the keys-coverage test in
 // __tests__/configStore.test.ts.
+//
+// 跨写者语义（colorGradingLastUsed）：Android 的 JNI 写入者
+// （color_grading/jni_bridge.rs::nativeSaveLastUsed）会绕过前端草稿直接持久化
+// 该字段。若前端同时持有未保存的草稿编辑，防抖整配置保存会覆盖 JNI 值，
+// 且 resync 时草稿值按 dirty 保留 —— 即"用户待保存的编辑胜出"（last-write-wins，
+// 本保留逻辑的设计意图）。窗口约一个防抖周期（~100ms）。
 export const DRAFT_PRESERVED_KEYS = [
   'savePath', 'port', 'autoSelectPort', 'advancedConnection', 'previewConfig',
   'androidImageViewer', 'aiEdit', 'autoColorGrading', 'colorGradingLastUsed',
