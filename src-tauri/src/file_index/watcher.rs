@@ -252,7 +252,7 @@ mod tests {
     /// 用构造的 notify 事件驱动分类逻辑，同步收集转换出的内部事件
     fn classify(kind: notify::event::EventKind, paths: Vec<PathBuf>) -> Vec<FileSystemEvent> {
         let (tx, mut rx) = channel::<FileSystemEvent>(32);
-        // notify 2.x：Event::new 只收 EventKind；paths/attrs 为公有字段，经结构体字面量设置
+        // notify 8.0：Event::new 只收 EventKind；paths/attrs 为公有字段，经结构体字面量设置
         let event = notify::Event {
             kind,
             paths,
