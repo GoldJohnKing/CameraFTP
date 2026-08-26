@@ -3,6 +3,7 @@
   "private": true,
   "version": "1.9.2",
   "type": "module",
+  "packageManager": "bun@1.4.0",
   "author": "GoldJohnKing <GoldJohnKing@Live.cn>",
   "license": "AGPL-3.0-or-later",
   "scripts": {
@@ -12,7 +13,7 @@
     "tauri": "tauri"
   },
   "dependencies": {
-    "@tauri-apps/api": "^2.0.0",
+    "@tauri-apps/api": "^2.11.0",
     "lucide-react": "^0.460.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
@@ -20,7 +21,7 @@
     "zustand": "^5.0.11"
   },
   "devDependencies": {
-    "@tauri-apps/cli": "^2.0.0",
+    "@tauri-apps/cli": "^2.11.0",
     "@testing-library/react": "^16.3.2",
     "@types/react": "^18.2.15",
     "@types/react-dom": "^18.2.7",

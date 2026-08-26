@@ -496,7 +496,7 @@ build_android() {
 
     case $BUILD_TYPE in
         "debug")
-            npx tauri android build --debug --apk --target aarch64 $config_arg || {
+            bunx tauri android build --debug --apk --target aarch64 $config_arg || {
                 error "Android debug ($variant) 构建失败"
                 exit 1
             }
@@ -507,7 +507,7 @@ build_android() {
                 "${DEPLOY_PATH:+$DEPLOY_PATH/$apk_name}"
             ;;
         "release")
-            npx tauri android build --apk --target aarch64 $config_arg || {
+            bunx tauri android build --apk --target aarch64 $config_arg || {
                 error "Android release ($variant) 构建失败"
                 exit 1
             }
@@ -568,7 +568,7 @@ main() {
     if [ "$CHECK_ONLY" = true ]; then
         check_toolchain
     else
-        # Build first, then test: `npx tauri android build` runs cargo build
+        # Build first, then test: `bunx tauri android build` runs cargo build
         # for the android target, which generates tauri.settings.gradle and
         # app/tauri.build.gradle.kts via tauri-build's build.rs. These files
         # are gitignored and required by `./gradlew test` — running tests

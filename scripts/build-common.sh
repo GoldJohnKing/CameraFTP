@@ -330,19 +330,19 @@ move_to_out() {
     fi
 }
 
-check_npm() {
-    local npm_cmd
+check_bun() {
+    local bun_cmd
     
-    if ! npm_cmd=$(get_tool_cmd "npm"); then
-        error "npm 未安装"
-        echo "提示：请安装 Node.js，访问 https://nodejs.org"
+    if ! bun_cmd=$(get_tool_cmd "bun"); then
+        error "bun 未安装"
+        echo "提示：请安装 Bun，访问 https://bun.sh"
         return 1
     fi
     
     if [ "${CHECK_ONLY:-false}" = true ]; then
         local platform
-        platform=$(get_tool_platform "npm")
-        info "npm [$platform]: $($npm_cmd --version)"
+        platform=$(get_tool_platform "bun")
+        info "bun [$platform]: $($bun_cmd --version)"
     fi
     
     return 0
@@ -446,7 +446,7 @@ run_tests() {
 
     task "正在运行前端测试..."
     local fe_output
-    fe_output=$(npx vitest run 2>&1) || {
+    fe_output=$(bun run test 2>&1) || {
         error "前端测试失败"
         echo "$fe_output" | tail -60
         return 1

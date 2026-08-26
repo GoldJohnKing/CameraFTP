@@ -54,7 +54,7 @@ build_windows() {
     # auto-forward arbitrary env vars across the interop boundary. Without
     # listing the var in WSLENV, build.rs sees CAMERAFTP_NN_DEMOSAIC as unset
     # → always defaults to neural, silently defeating the legacy variant.
-    # (The Android build is unaffected: `npx tauri android build` resolves to
+    # (The Android build is unaffected: `bunx tauri android build` resolves to
     # the Linux cargo, where the env var is visible natively.) Idempotent.
     case ":${WSLENV:-}:" in
         *:CAMERAFTP_NN_DEMOSAIC:*) ;;

@@ -16,7 +16,7 @@ NEVER use `cargo` as it can't build Windows artifects.
 
 ### 2. Build Commands
 
-NEVER use `npm` or `cargo.exe build` directly. Use `./build.sh windows android` instead.
+NEVER use `bun`/`npm` directly or `cargo.exe build`. Use `./build.sh windows android` instead.
 
 This command builds Android and Windows in parallel, making it much faster than building them one by one.
 

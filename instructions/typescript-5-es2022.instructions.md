@@ -36,7 +36,7 @@ applyTo: '**/*.ts'
 
 ## Formatting & Style
 
-- Run the repository's lint/format scripts (e.g., `npm run lint`) before submitting.
+- Run the repository's lint/format scripts (e.g., `bun run lint`) before submitting.
 - Match the project's indentation, quote style, and trailing comma rules.
 - Keep functions focused; extract helpers when logic branches grow.
 - Favor immutable data and pure functions when practical.

@@ -33,12 +33,14 @@ abstract class BuildTask : DefaultTask() {
 
     @TaskAction
     fun assemble() {
-        val executable = "npx"
+        val executable = "bunx"
         try {
             runTauriCli(executable)
         } catch (e: Exception) {
             if (Os.isFamily(Os.FAMILY_WINDOWS)) {
-                val fallback = "$executable.cmd"
+                // On Windows, bun ships bunx as a real executable (bunx.exe),
+                // unlike npm's npx which is a batch script (npx.cmd).
+                val fallback = "$executable.exe"
 
                 try {
                     runTauriCli(fallback)
