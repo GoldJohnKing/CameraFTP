@@ -87,21 +87,14 @@ class ImageViewerBridge(activity: android.app.Activity) : BaseJsBridge(activity)
      */
     @android.webkit.JavascriptInterface
     fun onAiEditComplete(success: Boolean, message: String?, cancelled: Boolean) {
-        val prev = aiEditState as? TaskProgressState.InProgress
-        aiEditState = if (cancelled) {
-            TaskProgressState.Idle
-        } else {
-            TaskProgressState.Done(success, prev?.total ?: 0, prev?.failedCount ?: 0)
-        }
-        val viewer = ImageViewerActivity.instance ?: return
-        viewer.onAiEditComplete(success, message, cancelled)
+        aiEditState = completedState(aiEditState, success, cancelled)
+        notifyViewer { it.onAiEditComplete(success, message, cancelled) }
     }
 
     @android.webkit.JavascriptInterface
     fun updateAiEditProgress(current: Int, total: Int, failedCount: Int) {
         aiEditState = TaskProgressState.InProgress(current, total, failedCount)
-        val viewer = ImageViewerActivity.instance ?: return
-        viewer.updateAiEditProgress(current, total, failedCount)
+        notifyViewer { it.updateAiEditProgress(current, total, failedCount) }
     }
 
     /**
@@ -189,20 +182,38 @@ class ImageViewerBridge(activity: android.app.Activity) : BaseJsBridge(activity)
     @android.webkit.JavascriptInterface
     fun updateColorGradingProgress(current: Int, total: Int, failedCount: Int) {
         colorGradingState = TaskProgressState.InProgress(current, total, failedCount)
-        val viewer = ImageViewerActivity.instance ?: return
-        viewer.updateColorGradingProgress(current, total, failedCount)
+        notifyViewer { it.updateColorGradingProgress(current, total, failedCount) }
     }
 
     @android.webkit.JavascriptInterface
     fun onColorGradingComplete(success: Boolean, message: String?, cancelled: Boolean) {
-        val prev = colorGradingState as? TaskProgressState.InProgress
-        colorGradingState = if (cancelled) {
+        colorGradingState = completedState(colorGradingState, success, cancelled)
+        notifyViewer { it.onColorGradingComplete(success, message, cancelled) }
+    }
+
+    /**
+     * Compute the terminal state after a task completes:
+     * Idle when cancelled, Done otherwise, carrying over the last known totals.
+     */
+    private fun completedState(
+        current: TaskProgressState,
+        success: Boolean,
+        cancelled: Boolean,
+    ): TaskProgressState {
+        val prev = current as? TaskProgressState.InProgress
+        return if (cancelled) {
             TaskProgressState.Idle
         } else {
             TaskProgressState.Done(success, prev?.total ?: 0, prev?.failedCount ?: 0)
         }
+    }
+
+    /**
+     * Invoke [notify] against the active viewer, if any.
+     */
+    private fun notifyViewer(notify: (ImageViewerActivity) -> Unit) {
         val viewer = ImageViewerActivity.instance ?: return
-        viewer.onColorGradingComplete(success, message, cancelled)
+        notify(viewer)
     }
 
     /**

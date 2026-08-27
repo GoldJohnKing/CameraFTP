@@ -9,9 +9,8 @@ import { toast } from 'sonner';
 import { Sparkles } from 'lucide-react';
 import { Dialog } from './ui/Dialog';
 import { ToggleSwitch } from './ui/ToggleSwitch';
-import { ApiKeyField } from './ui/ApiKeyField';
-import { Select } from './ui/Select';
-import { SEEDREAM_MODELS, DEFAULT_SEEDREAM_MODEL } from '../types';
+import { AiEditFormFields } from './AiEditFormFields';
+import { DEFAULT_SEEDREAM_MODEL } from '../types';
 import { formatError } from '../utils/error';
 
 interface PromptDialogProps {
@@ -110,35 +109,27 @@ export function PromptDialog({ isOpen, defaultPrompt, defaultModel, autoEditEnab
       }
     >
       <div className="space-y-3">
-        {needsApiKey && (
-          <ApiKeyField
-            value={apiKey}
-            onChange={(e) => setApiKey(e.target.value)}
-            show={showApiKey}
-            onToggleShow={() => setShowApiKey(!showApiKey)}
-            autoFocusRef={apiKeyInputRef}
-          />
-        )}
-        <div className="space-y-2">
-          <label className="block text-sm font-medium text-gray-700">模型</label>
-          <Select
-            value={model}
-            options={SEEDREAM_MODELS}
-            onChange={setModel}
-          />
-        </div>
-        <div className="space-y-2">
-          <label className="block text-sm font-medium text-gray-700">提示词</label>
-          <textarea
-            ref={textareaRef}
-            value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder="请输入提示词"
-            rows={4}
-            className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white text-gray-700 resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-          />
-        </div>
+        <AiEditFormFields
+          apiKey={needsApiKey ? {
+            value: apiKey,
+            onChange: (e) => setApiKey(e.target.value),
+            show: showApiKey,
+            onToggleShow: () => setShowApiKey(!showApiKey),
+            autoFocusRef: apiKeyInputRef,
+          } : null}
+          model={{
+            value: model,
+            onChange: setModel,
+          }}
+          prompt={{
+            value: prompt,
+            onChange: (e) => setPrompt(e.target.value),
+            onKeyDown: handleKeyDown,
+            rows: 4,
+            className: 'w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white text-gray-700 resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent',
+            textareaRef,
+          }}
+        />
       </div>
     </Dialog>
   );

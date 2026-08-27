@@ -2,6 +2,8 @@
 // Copyright (C) 2026 GoldJohnKing <GoldJohnKing@Live.cn>
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+use async_trait::async_trait;
+
 use super::types::{PermissionStatus, ServerStartCheckResult, StorageInfo};
 use crate::ftp::types::ServerStateSnapshot;
 use std::sync::Arc;
@@ -10,6 +12,7 @@ use tokio::sync::Mutex;
 
 /// 平台服务接口
 /// 定义各平台需要实现的统一接口
+#[async_trait]
 pub trait PlatformService: Send + Sync {
     /// 获取平台名称
     fn name(&self) -> &'static str;
@@ -75,7 +78,7 @@ pub trait PlatformService: Send + Sync {
     fn execute_autostart_server(
         &self,
         _app: &AppHandle,
-        _state: &Arc<Mutex<Option<crate::ftp::FtpServerHandle>>>,
+        _state: &Arc<Mutex<crate::ftp::FtpServerSlot>>,
     ) {
         // 默认实现：无操作
     }
@@ -95,8 +98,17 @@ pub trait PlatformService: Send + Sync {
     }
 
     /// 选择保存目录（Windows 打开对话框，Android 返回固定路径）
-    fn select_save_directory(&self, _app: &AppHandle) -> Result<Option<String>, String> {
+    /// 对话框会阻塞直至用户关闭，故为异步方法，由命令层在异步上下文中等待
+    async fn select_save_directory(&self, _app: &AppHandle) -> Result<Option<String>, String> {
         // 默认实现：返回 None
         Ok(None)
+    }
+
+    // ========== 外部链接相关 ==========
+
+    /// 打开外部链接（Windows 使用系统默认程序打开；Android 由前端 JavaScript bridge 处理）
+    fn open_external_link(&self, _url: &str) -> Result<(), String> {
+        // 默认实现：无操作
+        Ok(())
     }
 }

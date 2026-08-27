@@ -35,4 +35,4 @@ pub type FtpStorageBackend = unftp_sbe_fs::Filesystem;
 pub use events::EventBus;
 pub(crate) use events::{EventProcessor, StatsEventHandler, TrayUpdateHandler};
 pub use server::{create_ftp_server, FtpServerHandle};
-pub use types::{FtpAuthConfig, ServerInfo, ServerStateSnapshot};
+pub use types::{FtpAuthConfig, FtpServerSlot, ServerInfo, ServerStateSnapshot};

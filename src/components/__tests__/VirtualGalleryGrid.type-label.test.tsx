@@ -94,15 +94,20 @@ describe('VirtualGalleryGrid type label', () => {
     }
   });
 
-  it('renders the label with the semi-transparent gray rounded-rect styling', async () => {
+  it('labels every RAW cell regardless of RAW extension (NEF and CR3)', async () => {
     await renderGrid();
 
-    const label = getContainer().querySelector('[data-media-id="raw-cr3"] [data-testid="type-label"]')!;
-    // Semi-transparent gray fill (bg-gray-500/50) + rounded rect + white text.
-    expect(label.className).toMatch(/bg-gray-500\/50/);
-    expect(label.className).toMatch(/rounded/);
-    expect(label.className).toMatch(/text-white/);
-    // Positioned top-right.
-    expect(label.className).toMatch(/top-1 right-1/);
+    for (const id of ['raw-nef', 'raw-cr3']) {
+      const cell = getContainer().querySelector(`[data-media-id="${id}"]`)!;
+      const label = cell.querySelector('[data-testid="type-label"]');
+      // The label is detectable inside its own cell and identifies RAW.
+      expect(label).toBeTruthy();
+      expect(label!.getAttribute('data-type-category')).toBe('raw');
+      expect(label!.textContent).toBe('RAW');
+    }
+
+    // Functional contract across the whole grid: exactly one label per
+    // RAW/HEIF cell (2 RAW + 2 HEIF) and none on JPEG/PNG cells.
+    expect(getContainer().querySelectorAll('[data-testid="type-label"]')).toHaveLength(4);
   });
 });

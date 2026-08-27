@@ -32,6 +32,24 @@ interface ConfigState {
 
 const DEBOUNCE_DELAY = 100;
 
+// Business keys of the config draft that survive a backend resync while dirty
+// (reference-unequal to the last-known saved config). Must stay in lockstep
+// with the generated AppConfig binding: a key missing from this list would be
+// silently clobbered by mergeDraftWithBackend on the next resync, and a key
+// that no longer exists on AppConfig is a compile error via `satisfies`.
+// Exhaustiveness is enforced at runtime by the keys-coverage test in
+// __tests__/configStore.test.ts.
+//
+// 跨写者语义（colorGradingLastUsed）：Android 的 JNI 写入者
+// （color_grading/jni_bridge.rs::nativeSaveLastUsed）会绕过前端草稿直接持久化
+// 该字段。若前端同时持有未保存的草稿编辑，防抖整配置保存会覆盖 JNI 值，
+// 且 resync 时草稿值按 dirty 保留 —— 即"用户待保存的编辑胜出"（last-write-wins，
+// 本保留逻辑的设计意图）。窗口约一个防抖周期（~100ms）。
+export const DRAFT_PRESERVED_KEYS = [
+  'savePath', 'port', 'autoSelectPort', 'advancedConnection', 'previewConfig',
+  'androidImageViewer', 'aiEdit', 'autoColorGrading', 'colorGradingLastUsed',
+] as const satisfies readonly (keyof AppConfig)[];
+
 let draftRevision = 0;
 
 export const useConfigStore = create<ConfigState>((set, get) => {
@@ -63,16 +81,15 @@ export const useConfigStore = create<ConfigState>((set, get) => {
       return nextConfig;
     }
 
+    // advancedConnection merges per sub-field: a draft edit that only touched
+    // `auth` must not also pin a stale `enabled` (and vice versa).
     const preserveAdvancedEnabled = currentDraft.advancedConnection.enabled
       !== currentConfig.advancedConnection.enabled;
     const preserveAuth = preserveMode !== 'excludeAuth'
       && currentDraft.advancedConnection.auth !== currentConfig.advancedConnection.auth;
 
-    return {
+    const merged: AppConfig = {
       ...nextConfig,
-      savePath: preserveIfDirty(nextConfig, currentConfig, currentDraft, 'savePath'),
-      port: preserveIfDirty(nextConfig, currentConfig, currentDraft, 'port'),
-      autoSelectPort: preserveIfDirty(nextConfig, currentConfig, currentDraft, 'autoSelectPort'),
       advancedConnection: {
         ...nextConfig.advancedConnection,
         enabled: preserveAdvancedEnabled
@@ -80,10 +97,36 @@ export const useConfigStore = create<ConfigState>((set, get) => {
           : nextConfig.advancedConnection.enabled,
         auth: preserveAuth ? currentDraft.advancedConnection.auth : nextConfig.advancedConnection.auth,
       },
-      previewConfig: nextConfig.previewConfig,
-      androidImageViewer: preserveIfDirty(nextConfig, currentConfig, currentDraft, 'androidImageViewer'),
-      aiEdit: preserveIfDirty(nextConfig, currentConfig, currentDraft, 'aiEdit'),
     };
+
+    // 泛型辅助：通过 T 延迟联合键的类型解析，避免联合键直写 merged[key]
+    // 被收窄为 never（TS 对联合键写入要求可赋给各字段的交集）。
+    const applyPreserved = <T extends keyof AppConfig>(
+      merged: AppConfig,
+      nextConfig: AppConfig,
+      currentConfig: AppConfig,
+      currentDraft: AppConfig,
+      keys: readonly T[],
+    ): void => {
+      for (const key of keys) {
+        merged[key] = preserveIfDirty(nextConfig, currentConfig, currentDraft, key);
+      }
+    };
+
+    // advancedConnection 与 previewConfig 不走 preserve-if-dirty：
+    // 前者上方已按子字段合并，后者为后端所有（仅经 update_preview_config 写入）。
+    applyPreserved(
+      merged,
+      nextConfig,
+      currentConfig,
+      currentDraft,
+      DRAFT_PRESERVED_KEYS.filter(
+        (key): key is Exclude<(typeof DRAFT_PRESERVED_KEYS)[number], 'advancedConnection' | 'previewConfig'> =>
+          key !== 'advancedConnection' && key !== 'previewConfig',
+      ),
+    );
+
+    return merged;
   };
 
   const runWholeConfigSave = async (config: AppConfig, savedRevision: number) => {

@@ -6,7 +6,7 @@
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AppConfig, PreviewWindowConfig } from '../../types';
-import { useConfigStore } from '../configStore';
+import { useConfigStore, DRAFT_PRESERVED_KEYS } from '../configStore';
 
 const { invokeMock, toastErrorMock } = vi.hoisted(() => ({
   invokeMock: vi.fn(),
@@ -236,6 +236,77 @@ describe('configStore coordination', () => {
     expect(useConfigStore.getState().draft?.advancedConnection.auth.username).toBe('draft-user');
   });
 
+  it('preserves dirty autoColorGrading draft across backend resync', async () => {
+    const draftAutoColorGrading: NonNullable<AppConfig['autoColorGrading']> = {
+      enabled: true,
+      presetId: 'kodak-vision-2383',
+      meteringMode: 'average',
+      evOffset: 3,
+    };
+    const backendConfig: AppConfig = {
+      ...baseConfig,
+      autoColorGrading: null,
+    };
+
+    invokeMock.mockImplementation(async (command: string) => {
+      if (command === 'update_preview_config') return {
+        ...baseConfig.previewConfig,
+        autoBringToFront: true,
+      };
+      if (command === 'load_config') return backendConfig;
+      return null;
+    });
+
+    useConfigStore.setState((state) => ({
+      ...state,
+      config: baseConfig,
+      draft: {
+        ...baseConfig,
+        autoColorGrading: draftAutoColorGrading,
+      },
+    }));
+
+    await useConfigStore.getState().updatePreviewConfig({ autoBringToFront: true });
+
+    expect(useConfigStore.getState().draft?.autoColorGrading).toEqual(draftAutoColorGrading);
+    expect(useConfigStore.getState().config?.autoColorGrading).toBeNull();
+  });
+
+  it('preserves dirty colorGradingLastUsed draft across backend resync', async () => {
+    const draftLastUsed: NonNullable<AppConfig['colorGradingLastUsed']> = {
+      presetId: 'fujifilm-velvia',
+      meteringMode: 'matrix',
+      evOffset: 1.5,
+    };
+    const backendConfig: AppConfig = {
+      ...baseConfig,
+      colorGradingLastUsed: null,
+    };
+
+    invokeMock.mockImplementation(async (command: string) => {
+      if (command === 'update_preview_config') return {
+        ...baseConfig.previewConfig,
+        autoBringToFront: true,
+      };
+      if (command === 'load_config') return backendConfig;
+      return null;
+    });
+
+    useConfigStore.setState((state) => ({
+      ...state,
+      config: baseConfig,
+      draft: {
+        ...baseConfig,
+        colorGradingLastUsed: draftLastUsed,
+      },
+    }));
+
+    await useConfigStore.getState().updatePreviewConfig({ autoBringToFront: true });
+
+    expect(useConfigStore.getState().draft?.colorGradingLastUsed).toEqual(draftLastUsed);
+    expect(useConfigStore.getState().config?.colorGradingLastUsed).toBeNull();
+  });
+
   it('serializes overlapping preview saves to avoid clobbering', async () => {
     const firstPreviewSaveDeferred = createDeferred();
     let previewConfig = { ...baseConfig.previewConfig };
@@ -354,4 +425,18 @@ describe('configStore coordination', () => {
     expect(useConfigStore.getState().draft?.androidImageViewer?.autoOpenLatestWhenVisible).toBe(true);
   });
 
+});
+
+describe('DRAFT_PRESERVED_KEYS coverage', () => {
+  it('contains exactly the business keys of AppConfig', () => {
+    // baseConfig is a fully-populated AppConfig fixture: adding a required
+    // field to AppConfig breaks compilation until the fixture is updated, and
+    // this test then fails until DRAFT_PRESERVED_KEYS catches up — so a new
+    // backend field can never be silently dropped from the resync merge.
+    const appConfigKeys = Object.keys(baseConfig).sort();
+    const preservedKeys = [...DRAFT_PRESERVED_KEYS].sort();
+
+    expect(preservedKeys).toEqual(appConfigKeys);
+    expect(new Set(DRAFT_PRESERVED_KEYS).size).toBe(DRAFT_PRESERVED_KEYS.length);
+  });
 });

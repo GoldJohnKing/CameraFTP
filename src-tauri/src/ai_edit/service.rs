@@ -530,43 +530,15 @@ mod tests {
     // ---- Worker-loop tests (mock AppHandle via tauri::test) ----
 
     use crate::ai_edit::progress::AiEditProgressEvent;
+    use crate::utils::test_support::{event_collector, wait_until};
     use std::sync::Mutex;
     use std::time::Duration;
-    use tauri::Listener;
 
     fn make_task(name: &str) -> AiEditTask {
         AiEditTask {
             file_path: PathBuf::from(name),
             override_prompt: None,
             override_model: None,
-        }
-    }
-
-    /// Collects deserialized `ai-edit-progress` events from the mock app.
-    fn event_collector(handle: &tauri::AppHandle<tauri::test::MockRuntime>) -> Arc<Mutex<Vec<AiEditProgressEvent>>> {
-        let events: Arc<Mutex<Vec<AiEditProgressEvent>>> = Arc::new(Mutex::new(Vec::new()));
-        let sink = Arc::clone(&events);
-        handle.listen("ai-edit-progress", move |e| {
-            if let Ok(ev) = serde_json::from_str::<AiEditProgressEvent>(e.payload()) {
-                sink.lock().unwrap().push(ev);
-            }
-        });
-        events
-    }
-
-    /// Polls `probe` until it returns `Some` or the timeout elapses (panics).
-    async fn wait_until<T>(timeout: Duration, mut probe: impl FnMut() -> Option<T>) -> T {
-        let deadline = tokio::time::Instant::now() + timeout;
-        loop {
-            if let Some(value) = probe() {
-                return value;
-            }
-            assert!(
-                tokio::time::Instant::now() < deadline,
-                "timed out after {:?} waiting for condition",
-                timeout
-            );
-            tokio::time::sleep(Duration::from_millis(10)).await;
         }
     }
 
@@ -667,7 +639,8 @@ mod tests {
     async fn worker_loop_processes_tasks_and_emits_done_when_queue_drains() {
         let app = tauri::test::mock_app();
         let handle = app.handle().clone();
-        let events = event_collector(&handle);
+        let events: Arc<Mutex<Vec<AiEditProgressEvent>>> =
+            event_collector(&handle, "ai-edit-progress");
 
         let (manual_tx, manual_rx) = mpsc::channel::<AiEditTask>(4);
         let (auto_tx, auto_rx) = mpsc::channel::<AiEditTask>(32);
@@ -741,7 +714,8 @@ mod tests {
     async fn worker_loop_cancel_drains_pending_tasks_and_recovers_with_fresh_token() {
         let app = tauri::test::mock_app();
         let handle = app.handle().clone();
-        let events = event_collector(&handle);
+        let events: Arc<Mutex<Vec<AiEditProgressEvent>>> =
+            event_collector(&handle, "ai-edit-progress");
 
         let (manual_tx, manual_rx) = mpsc::channel::<AiEditTask>(4);
         let (auto_tx, auto_rx) = mpsc::channel::<AiEditTask>(32);

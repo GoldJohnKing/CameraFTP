@@ -22,7 +22,7 @@ import { VirtualGalleryGrid, type VirtualGalleryGridHandle } from './VirtualGall
 import { RefreshButton } from './ui';
 import { PromptDialog } from './PromptDialog';
 import { ColorGradingDialog } from './ColorGradingDialog';
-import { enqueueColorGrading } from '../hooks/useColorGradingProgress';
+import { enqueueColorGrading } from '../services/color-grading-tasks';
 import { useColorGradingPresets } from '../hooks/useColorGradingPresets';
 import { isRawFile } from '../utils/raw';
 import { getAiEditCallContext } from '../utils/ai-edit';

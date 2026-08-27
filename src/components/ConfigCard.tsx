@@ -5,11 +5,11 @@
  */
 
 import { useEffect, useState, useCallback, memo } from 'react';
-import { invoke } from '@tauri-apps/api/core';
 import { Settings, Wifi, Shield, Image } from 'lucide-react';
 import { useConfigStore, useDraftConfig } from '../stores/configStore';
 import { usePermissionStore } from '../stores/permissionStore';
 import { useServerStore } from '../stores/serverStore';
+import { getAutostartStatus, selectSaveDirectory } from '../services/system';
 import { Card, CardHeader, ToggleSwitch, RefreshButton } from './ui';
 import { PermissionList } from './PermissionList';
 import { PathSelector } from './PathSelector';
@@ -48,7 +48,7 @@ export const ConfigCard = memo(function ConfigCard() {
   const [isCheckingPermissions, setIsCheckingPermissions] = useState(false);
 
   useEffect(() => {
-    invoke<boolean>('get_autostart_status')
+    getAutostartStatus()
       .then(setAutostartEnabled)
       .catch(() => {});
   }, []);
@@ -76,7 +76,7 @@ export const ConfigCard = memo(function ConfigCard() {
   }, [checkPermissions]);
 
   const handleSelectDirectory = async () => {
-    const result = await invoke<string | null>('select_save_directory');
+    const result = await selectSaveDirectory();
     if (result && draft) {
       // 直接更新 draft（触发防抖保存）
       updateDraft(d => ({ ...d, savePath: result }));

@@ -6,9 +6,9 @@
 
 import { memo, useCallback } from 'react';
 import { Home, Settings, Images } from 'lucide-react';
-import { invoke } from '@tauri-apps/api/core';
 import { useConfigStore } from '../stores/configStore';
 import { usePlatform } from '../hooks/usePlatform';
+import { openSaveDirectory } from '../services/system';
 
 export const BottomNav = memo(function BottomNav() {
   const activeTab = useConfigStore((state) => state.activeTab);
@@ -20,7 +20,7 @@ export const BottomNav = memo(function BottomNav() {
       setActiveTab('gallery');
     } else {
       try {
-        await invoke('open_save_directory');
+        await openSaveDirectory();
       } catch {
         // Directory may not exist or drive unavailable — silently ignore
       }

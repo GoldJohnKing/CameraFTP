@@ -22,7 +22,7 @@ const TOGGLE_BUTTON_CLASS_NAME =
 const LINK_BUTTON_CLASS_NAME =
   'text-sm text-blue-600 hover:text-blue-700 inline-flex items-center gap-0.5 mt-1';
 
-export interface ApiKeyFieldProps {
+interface ApiKeyFieldProps {
   /** Current (unmasked) API key value. */
   value: string;
   /** Change handler receiving the real (unmasked) value via e.target.value. */

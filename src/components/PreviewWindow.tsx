@@ -5,10 +5,10 @@
  */
 
 import { useEffect, useState, useCallback, useMemo, memo } from 'react';
-import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { Palette } from 'lucide-react';
 import { useConfigStore } from '../stores/configStore';
+import { openFolderSelectFile } from '../services/system';
 import { PREVIEW_NAVIGATE_EVENT } from '../hooks/preview-window-events';
 import { usePreviewWindowLifecycle } from '../hooks/usePreviewWindowLifecycle';
 import { usePreviewNavigation } from '../hooks/usePreviewNavigation';
@@ -18,9 +18,9 @@ import { usePreviewToolbarAutoHide } from '../hooks/usePreviewToolbarAutoHide';
 import { useColorGradingPresets } from '../hooks/useColorGradingPresets';
 import { PromptDialog } from './PromptDialog';
 import { TaskProgressPanel } from './TaskProgressPanel';
-import { applyAndEnqueueAiEdit } from '../hooks/useAiEditProgress';
+import { applyAndEnqueueAiEdit } from '../services/ai-edit-tasks';
 import { ColorGradingDialog } from './ColorGradingDialog';
-import { enqueueColorGrading } from '../hooks/useColorGradingProgress';
+import { enqueueColorGrading } from '../services/color-grading-tasks';
 import { isRawFile as isRawFileType } from '../utils/raw';
 import { getAiEditCallContext } from '../utils/ai-edit';
 
@@ -178,7 +178,7 @@ const PreviewWindowContent = memo(function PreviewWindowContent({
 
   const handleOpenFolder = async () => {
     if (imagePath) {
-      await invoke('open_folder_select_file', { filePath: imagePath });
+      await openFolderSelectFile(imagePath);
     }
   };
 

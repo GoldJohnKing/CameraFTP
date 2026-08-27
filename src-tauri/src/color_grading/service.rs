@@ -88,20 +88,6 @@ impl ColorGradingService {
         }
     }
 
-    /// Whether NN demosaic is currently enabled. Defaults to true on all
-    /// platforms; may be flipped at runtime via `set_nn_enabled` for future
-    /// per-device gating/telemetry.
-    pub fn is_nn_enabled(&self) -> bool {
-        self.nn_enabled.load(Ordering::Relaxed)
-    }
-
-    /// Update the NN demosaic gate at runtime (e.g. per-device gating/telemetry).
-    /// The worker reads the current value on each file, so a flip takes effect
-    /// for the next enqueued task without restarting the worker.
-    pub fn set_nn_enabled(&self, enabled: bool) {
-        self.nn_enabled.store(enabled, Ordering::Relaxed);
-    }
-
     /// Lazily spawn the worker on first use, or respawn after the worker exits
     /// (panic or shutdown — detected via `sender.is_closed()`). Workers do not
     /// have an idle-timeout; they run for the app's lifetime once spawned.
@@ -507,8 +493,8 @@ mod tests {
     // before any FFI/output-path work — which still exercises the full
     // queue/progress/Done machinery deterministically without the native lib.
 
+    use crate::utils::test_support::{event_collector, wait_until};
     use std::time::Duration;
-    use tauri::Listener;
 
     fn make_task(name: &str) -> ColorGradingTask {
         ColorGradingTask {
@@ -519,39 +505,12 @@ mod tests {
         }
     }
 
-    /// Collects deserialized `color-grading-progress` events from the mock app.
-    fn event_collector(handle: &tauri::AppHandle<tauri::test::MockRuntime>) -> Arc<std::sync::Mutex<Vec<ColorGradingEvent>>> {
-        let events: Arc<std::sync::Mutex<Vec<ColorGradingEvent>>> = Arc::new(std::sync::Mutex::new(Vec::new()));
-        let sink = Arc::clone(&events);
-        handle.listen("color-grading-progress", move |e| {
-            if let Ok(ev) = serde_json::from_str::<ColorGradingEvent>(e.payload()) {
-                sink.lock().unwrap().push(ev);
-            }
-        });
-        events
-    }
-
-    /// Polls `probe` until it returns `Some` or the timeout elapses (panics).
-    async fn wait_until<T>(timeout: Duration, mut probe: impl FnMut() -> Option<T>) -> T {
-        let deadline = tokio::time::Instant::now() + timeout;
-        loop {
-            if let Some(value) = probe() {
-                return value;
-            }
-            assert!(
-                tokio::time::Instant::now() < deadline,
-                "timed out after {:?} waiting for condition",
-                timeout
-            );
-            tokio::time::sleep(Duration::from_millis(10)).await;
-        }
-    }
-
     #[tokio::test]
     async fn worker_loop_fails_unknown_lut_tasks_and_emits_done() {
         let app = tauri::test::mock_app();
         let handle = app.handle().clone();
-        let events = event_collector(&handle);
+        let events: Arc<std::sync::Mutex<Vec<ColorGradingEvent>>> =
+            event_collector(&handle, "color-grading-progress");
 
         let (sender, receiver) = mpsc::channel::<ColorGradingTask>(16);
         let queue_depth = QueueDepth::new();
@@ -622,7 +581,8 @@ mod tests {
     async fn worker_loop_cancel_drains_pending_tasks_and_recovers_with_fresh_token() {
         let app = tauri::test::mock_app();
         let handle = app.handle().clone();
-        let events = event_collector(&handle);
+        let events: Arc<std::sync::Mutex<Vec<ColorGradingEvent>>> =
+            event_collector(&handle, "color-grading-progress");
 
         let (sender, receiver) = mpsc::channel::<ColorGradingTask>(16);
         let queue_depth = QueueDepth::new();

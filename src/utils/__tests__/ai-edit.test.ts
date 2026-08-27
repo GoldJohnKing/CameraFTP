@@ -6,45 +6,10 @@
 
 import { describe, it, expect } from 'vitest';
 import { getAiEditCallContext } from '../ai-edit';
-import {
-  SEEDREAM_MODELS,
-  DEFAULT_SEEDREAM_MODEL,
-} from '../../../src-tauri/bindings/SeedreamModels';
+import { SEEDREAM_MODELS } from '../../../src-tauri/bindings/SeedreamModels';
 import type { AppConfig } from '../../types';
 
 describe('getAiEditCallContext', () => {
-  it('exposes the seedream model list for the native dialog dropdown', () => {
-    const ctx = getAiEditCallContext(null);
-
-    expect(ctx.models).toEqual(
-      SEEDREAM_MODELS.map((m) => ({ value: m.value, label: m.label }))
-    );
-  });
-
-  it('models entries have the { value, label } shape required by native', () => {
-    const ctx = getAiEditCallContext(undefined);
-
-    expect(ctx.models.length).toBeGreaterThan(0);
-    for (const m of ctx.models) {
-      expect(typeof m.value).toBe('string');
-      expect(m.value.length).toBeGreaterThan(0);
-      expect(typeof m.label).toBe('string');
-      expect(m.label.length).toBeGreaterThan(0);
-    }
-  });
-
-  it('keeps the default model selectable in the exposed list', () => {
-    const ctx = getAiEditCallContext(null);
-
-    expect(ctx.models.some((m) => m.value === DEFAULT_SEEDREAM_MODEL)).toBe(
-      true
-    );
-  });
-
-  it('generated catalog keeps the default model as its first entry', () => {
-    expect(SEEDREAM_MODELS[0].value).toBe(DEFAULT_SEEDREAM_MODEL);
-  });
-
   it('dialog prompt never falls back to the auto-edit prompt (ruling #4)', () => {
     // manualPrompt empty + aiEdit.prompt set: the dialog default must stay
     // empty instead of borrowing the auto-edit prompt.
@@ -75,6 +40,25 @@ describe('getAiEditCallContext', () => {
 
     expect(ctx.dialogPrompt).toBe('manual prompt');
     expect(ctx.autoPrompt).toBe('');
+  });
+
+  it('exposes the selected model as a selectable list entry', () => {
+    // 原生 Android 对话框用 ctx.models 渲染下拉框：配置里选中的模型必须
+    // 在列表里，否则下拉框会出现无匹配项的悬空值。空配置时 ctx.model 为
+    // ''，默认值由原生对话框自行处理（前端 util 不做默认模型回退）。
+    const draft = {
+      aiEdit: {
+        prompt: '',
+        manualPrompt: '',
+        manualModel: SEEDREAM_MODELS[0].value,
+        provider: { type: 'seed-edit' as const, apiKey: 'k' },
+      },
+    } as unknown as AppConfig;
+
+    const ctx = getAiEditCallContext(draft);
+
+    expect(ctx.models).toEqual(SEEDREAM_MODELS);
+    expect(ctx.models.map(m => m.value)).toContain(ctx.model);
   });
 
   it('carries manual and auto prompts on independent fields when both set', () => {

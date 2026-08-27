@@ -4,12 +4,19 @@
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
 
-import type { SelectOption } from '../components/ui/Select';
+import type { SelectOption } from '../types/select';
 
-export const DEFAULT_PRESET_ID = 'fujifilm-provia';
-export const DEFAULT_METERING_MODE = 'matrix';
-export const DEFAULT_EV_OFFSET = 0;
+// Defaults are generated from Rust (src-tauri/src/color_grading/presets.rs)
+// by export-bindings (`./build.sh gen-types`); re-exported here so existing
+// consumers keep a stable import path.
+export {
+  DEFAULT_PRESET_ID,
+  DEFAULT_METERING_MODE,
+  DEFAULT_EV_OFFSET,
+} from '../../src-tauri/bindings/ColorGradingDefaults';
 
+// Metering-mode display labels are frontend-only i18n strings (see the TODO
+// in presets.rs), so this option list is not generated from Rust.
 export const METERING_MODES: SelectOption[] = [
   { value: 'highlight-safe', label: '高光保护' },
   { value: 'matrix', label: '矩阵测光' },

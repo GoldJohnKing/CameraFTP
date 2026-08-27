@@ -9,6 +9,7 @@ use ts_rs::TS;
 use std::sync::Arc;
 
 use crate::config::AuthConfig;
+use crate::ftp::FtpServerHandle;
 
 pub(crate) fn normalize_ipv4_host(host: &str) -> String {
     host.parse::<std::net::Ipv4Addr>()
@@ -343,6 +344,40 @@ pub(crate) enum ServerStatus {
 impl ServerStatus {
     pub fn is_running(&self) -> bool {
         matches!(self, Self::Running)
+    }
+}
+
+/// FTP 服务器槽位（`FtpServerState` 的载体，sentinel 状态机）
+///
+/// 用于序列化并发的启动请求（UI 按钮与托盘菜单同时触发等场景）：
+/// - `None`：服务器未运行，可以认领启动权
+/// - `Starting`：启动权已被认领，Actor 创建与端口监听进行中；
+///   此窗口内其他启动请求一律按“已在运行”拒绝，
+///   防止并发启动各自绑定端口、产生无法停止的孤儿服务器
+/// - `Running`：服务器运行中，持有可用的服务器句柄
+///
+/// 状态流转：`None → Starting`（认领）→ `Running`（提交）或回滚为 `None`（失败）。
+/// 认领/提交/回滚的时序由 `ftp::server_factory` 保证。
+#[derive(Debug)]
+pub enum FtpServerSlot {
+    None,
+    Starting,
+    Running(FtpServerHandle),
+}
+
+impl Default for FtpServerSlot {
+    fn default() -> Self {
+        Self::None
+    }
+}
+
+impl FtpServerSlot {
+    /// 运行中服务器的句柄（`None`/`Starting` 时返回 `None`）
+    pub fn running_handle(&self) -> Option<&FtpServerHandle> {
+        match self {
+            Self::Running(handle) => Some(handle),
+            _ => None,
+        }
     }
 }
 

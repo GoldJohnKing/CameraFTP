@@ -142,3 +142,62 @@ impl ColorGradingPreviewState {
 fn end_session_internal(lib: &Arc<RawAlchemyLib>, active: ActiveSession) {
     lib.end_preview_session(active.session);
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // RawAlchemyCpp 原生库只会在真实应用 bootstrap（App setup）中 load_global，
+    // 单元测试进程里它始终未加载（且 Debug 构建可能内嵌空 DLL，加载结果因
+    // 构建环境而异，无法确定性驱动成功路径）。因此这里钉住"库缺失"时的
+    // 降级契约：三个生命周期方法都必须返回 Err 而不是 panic / 卡死。
+    // begin→apply→end 的成功生命周期需要真实 DLL，超出单测能力，未在此覆盖。
+
+    fn expect_lib_not_loaded(result: Result<impl std::fmt::Debug, AppError>) {
+        match result {
+            Err(AppError::ColorGradingError(message)) => {
+                assert!(message.contains("not loaded"), "unexpected error: {}", message);
+            }
+            other => panic!("expected lib-not-loaded ColorGradingError, got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn begin_returns_error_when_native_lib_is_not_loaded() {
+        let state = ColorGradingPreviewState::ensure_init();
+        expect_lib_not_loaded(
+            state
+                .begin("X:/definitely/not/a/raw.nef", None, false, 1024, 768)
+                .await,
+        );
+    }
+
+    #[tokio::test]
+    async fn apply_returns_error_when_native_lib_is_not_loaded() {
+        let state = ColorGradingPreviewState::ensure_init();
+        // 使用真实存在的 preset id：证明错误来自库加载门（get() 先于 preset 查找）
+        expect_lib_not_loaded(
+            state.apply("fujifilm-provia", "matrix", 0.0, 1024, 768).await,
+        );
+    }
+
+    #[tokio::test]
+    async fn end_returns_error_when_native_lib_is_not_loaded() {
+        let state = ColorGradingPreviewState::ensure_init();
+        expect_lib_not_loaded(state.end().await);
+    }
+
+    #[tokio::test]
+    async fn failed_begin_does_not_wedge_the_state_for_subsequent_calls() {
+        let state = ColorGradingPreviewState::ensure_init();
+
+        expect_lib_not_loaded(
+            state
+                .begin("X:/nope.nef", None, false, 1024, 768)
+                .await,
+        );
+        // 失败的 begin 不得毒化内部锁：后续 apply / end 仍能正常返回
+        expect_lib_not_loaded(state.apply("fujifilm-provia", "matrix", 0.0, 1024, 768).await);
+        expect_lib_not_loaded(state.end().await);
+    }
+}

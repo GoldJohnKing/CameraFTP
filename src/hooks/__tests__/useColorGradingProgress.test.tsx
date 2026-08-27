@@ -46,7 +46,8 @@ vi.mock('../../utils/gallery-refresh', () => ({
   LATEST_PHOTO_REFRESH_REQUESTED_EVENT: 'latest-photo-refresh-requested',
 }));
 
-import { useColorGradingProgress, dismissColorGradingDone, cancelColorGrading, enqueueColorGrading } from '../useColorGradingProgress';
+import { useColorGradingProgress } from '../useColorGradingProgress';
+import { dismissColorGradingDone, cancelColorGrading, enqueueColorGrading } from '../../services/color-grading-tasks';
 
 function Harness() {
   const state = useColorGradingProgress();

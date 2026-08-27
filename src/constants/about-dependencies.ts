@@ -10,7 +10,7 @@ interface Dependency {
   url: string;
 }
 
-export interface DependencyGroup {
+interface DependencyGroup {
   title: string;
   deps: Dependency[];
 }

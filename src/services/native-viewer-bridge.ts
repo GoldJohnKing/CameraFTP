@@ -5,8 +5,8 @@
  */
 
 import { invoke } from '@tauri-apps/api/core';
-import { applyAndEnqueueAiEdit, getCurrentAiEditProgress } from '../hooks/useAiEditProgress';
-import { getCurrentColorGradingProgress } from '../hooks/useColorGradingProgress';
+import { applyAndEnqueueAiEdit, getCurrentAiEditProgress } from './ai-edit-tasks';
+import { getCurrentColorGradingProgress } from './color-grading-tasks';
 import { getCachedColorGradingPresets } from '../hooks/useColorGradingPresets';
 import { useConfigStore } from '../stores/configStore';
 import { usePermissionStore } from '../stores/permissionStore';
@@ -48,7 +48,7 @@ export function registerNativeViewerBridges(): () => void {
   };
 
   w.__tauriCancelAiEdit = async () => {
-    const { cancelAiEdit } = await import('../hooks/useAiEditProgress');
+    const { cancelAiEdit } = await import('./ai-edit-tasks');
     await cancelAiEdit();
   };
 
@@ -67,7 +67,7 @@ export function registerNativeViewerBridges(): () => void {
   };
 
   w.__tauriTriggerColorGrading = async (filePath: string, lutId: string, meteringMode: string, evOffset: number, syncToAuto: boolean) => {
-    const { enqueueColorGrading } = await import('../hooks/useColorGradingProgress');
+    const { enqueueColorGrading } = await import('./color-grading-tasks');
     await enqueueColorGrading([filePath], lutId, meteringMode, evOffset);
 
     useConfigStore.getState().updateDraft(d => applyColorGradingLastUsed(
@@ -82,7 +82,7 @@ export function registerNativeViewerBridges(): () => void {
   };
 
   w.__tauriCancelColorGrading = async () => {
-    const { cancelColorGrading } = await import('../hooks/useColorGradingProgress');
+    const { cancelColorGrading } = await import('./color-grading-tasks');
     await cancelColorGrading();
   };
 
