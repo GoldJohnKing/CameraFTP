@@ -46,7 +46,7 @@ Rust 2021 / tauri 2.11.5 / tokio 1.49 / futures 0.3；React 18 + vitest 2（jsdo
 
 ---
 
-## 任务1：image-preview scheme 路径校验 + asset scope 收敛 + 基础 CSP
+### Task 1: image-preview scheme 路径校验 + asset scope 收敛 + 基础 CSP
 
 **Files**
 
@@ -321,7 +321,7 @@ git add -A && git commit -m "feat(security): narrow asset protocol scope and ena
 
 ---
 
-## 任务2：最小 CI 流水线（GitHub Actions）
+### Task 2: 最小 CI 流水线（GitHub Actions）
 
 **Files**
 
@@ -509,7 +509,7 @@ git add .github/workflows/ci.yml && git commit -m "ci: add minimal GitHub Action
 
 ---
 
-## 任务3：图库重渲染链稳定化
+### Task 3: 图库重渲染链稳定化
 
 **Files**
 
@@ -761,7 +761,7 @@ git add -A && git commit -m "perf(gallery): stop redundant range reports and sch
 
 ---
 
-## 任务4：索引扫描并发化 + 合并提交
+### Task 4: 索引扫描并发化 + 合并提交
 
 **Files**
 
