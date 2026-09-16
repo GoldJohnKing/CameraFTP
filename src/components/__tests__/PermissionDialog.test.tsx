@@ -232,4 +232,38 @@ describe('PermissionDialog start flow', () => {
 
     expect(onClose).toHaveBeenCalledTimes(1);
   });
+
+  it('重新打开对话框时清除上次的启动错误', async () => {
+    permissionState.allGranted = true;
+    const onAllGranted = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('boom'))
+      .mockResolvedValueOnce(undefined);
+    const onClose = vi.fn();
+
+    await renderDialog(true, { onClose, onAllGranted });
+
+    // First attempt fails → error shown, dialog stays open.
+    await act(async () => {
+      getContinueButton().click();
+      await flush();
+      await flush();
+    });
+    expect(within(getContainer()).getByText(/服务启动失败/)).toBeTruthy();
+    expect(onClose).not.toHaveBeenCalled();
+
+    // User cancels (dialog closes) then reopens: the stale error must be gone.
+    await renderDialog(false, { onClose, onAllGranted });
+    await renderDialog(true, { onClose, onAllGranted });
+    expect(within(getContainer()).queryByText(/服务启动失败/)).toBeNull();
+
+    // A successful retry still closes the dialog.
+    await act(async () => {
+      getContinueButton().click();
+      await flush();
+      await flush();
+    });
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(within(getContainer()).queryByText(/服务启动失败/)).toBeNull();
+  });
 });

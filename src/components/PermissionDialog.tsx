@@ -33,6 +33,12 @@ export function PermissionDialog({ isOpen, onClose, onAllGranted }: PermissionDi
   const [isStarting, setIsStarting] = useState(false);
   const [startError, setStartError] = useState<string | null>(null);
 
+  // The dialog stays mounted across isOpen toggles; clear the stale start
+  // error when closing so a later reopen starts from a clean state.
+  useEffect(() => {
+    if (!isOpen) setStartError(null);
+  }, [isOpen]);
+
   // Handle continue button
   const handleContinue = useCallback(async () => {
     if (!allGranted || isStarting) return;
