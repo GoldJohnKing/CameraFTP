@@ -28,7 +28,8 @@ type PortValidationError =
   | { type: 'empty' }
   | { type: 'invalid_number' }
   | { type: 'out_of_range'; min: number; max: number }
-  | { type: 'port_in_use'; port: number };
+  | { type: 'port_in_use'; port: number }
+  | { type: 'port_check_failed' };
 
 export function AdvancedConnectionConfigPanel({
   config,
@@ -85,6 +86,8 @@ export function AdvancedConnectionConfigPanel({
         return `端口号必须在 ${error.min}-${error.max} 之间`;
       case 'port_in_use':
         return `端口 ${error.port} 已被占用`;
+      case 'port_check_failed':
+        return '端口检查失败，无法确认端口状态，请重试';
     }
   };
 
@@ -155,6 +158,10 @@ export function AdvancedConnectionConfigPanel({
     if (parsedPort.port === port) return;
 
     const checkResult = await checkPort(parsedPort.port);
+    if (checkResult.error) {
+      setPortError({ type: 'port_check_failed' });
+      return;
+    }
     if (!checkResult.available) {
       setPortError({ type: 'port_in_use', port: parsedPort.port });
       return;

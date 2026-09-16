@@ -11,8 +11,14 @@ type PortSyntaxValidationResult =
   | { valid: false; reason: 'empty' | 'invalid_number' | 'out_of_range' }
   | { valid: true; port: number };
 
+export interface PortCheckResult {
+  available: boolean;
+  /** IPC/命令异常（区别于端口被占用）。存在时 available 恒为 false。 */
+  error?: string;
+}
+
 interface UsePortCheckResult {
-  checkPort: (port: number) => Promise<{ available: boolean }>;
+  checkPort: (port: number) => Promise<PortCheckResult>;
   isChecking: boolean;
 }
 
@@ -46,8 +52,8 @@ export function usePortCheck(): UsePortCheckResult {
     try {
       const available = await invoke<boolean>('check_port_available', { port });
       return { available };
-    } catch {
-      return { available: false };
+    } catch (e) {
+      return { available: false, error: e instanceof Error ? e.message : String(e) };
     } finally {
       setIsChecking(false);
     }

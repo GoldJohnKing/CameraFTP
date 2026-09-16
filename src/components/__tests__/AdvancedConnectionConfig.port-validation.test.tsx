@@ -122,6 +122,35 @@ describe('AdvancedConnectionConfigPanel port validation', () => {
   });
 });
 
+describe('AdvancedConnectionConfigPanel port check errors', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('检查异常时显示检查失败而非占用', async () => {
+    checkPortMock.mockResolvedValueOnce({ available: false, error: 'ipc down' });
+    renderPanel();
+    const portInput = screen.getByPlaceholderText('1-65535');
+
+    fireEvent.change(portInput, { target: { value: '3000' } });
+    fireEvent.blur(portInput);
+
+    expect(await screen.findByText(/端口检查失败/)).toBeTruthy();
+    expect(screen.queryByText(/已被占用/)).toBeNull();
+  });
+
+  it('真实占用仍显示占用文案', async () => {
+    checkPortMock.mockResolvedValueOnce({ available: false });
+    renderPanel();
+    const portInput = screen.getByPlaceholderText('1-65535');
+
+    fireEvent.change(portInput, { target: { value: '3000' } });
+    fireEvent.blur(portInput);
+
+    expect(await screen.findByText(/端口 3000 已被占用/)).toBeTruthy();
+  });
+});
+
 describe('AdvancedConnectionConfigPanel password save failure', () => {
   beforeEach(() => {
     vi.clearAllMocks();
