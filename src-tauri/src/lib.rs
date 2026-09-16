@@ -288,12 +288,19 @@ pub fn run() {
                 .state::<Arc<ImagePreviewCache>>()
                 .inner()
                 .clone();
-            // 每个 preview 请求都必须位于当前配置的 save_path 之下
-            let save_root = ctx
-                .app_handle()
-                .state::<Arc<ConfigService>>()
-                .get_or_default()
-                .save_path;
+            // 每个 preview 请求都必须位于当前配置的 save_path 之下。
+            // 用 Arc 快照读取（避免每请求整份 AppConfig 深拷贝）；读取失败
+            // 回落默认配置并记录（旧 get_or_default 静默吞掉了失败）。
+            let save_root = match ctx.app_handle().state::<Arc<ConfigService>>().get() {
+                Ok(config) => config.save_path.clone(),
+                Err(e) => {
+                    tracing::warn!(
+                        error = %e,
+                        "image-preview: config read failed, falling back to default save_path"
+                    );
+                    crate::config::AppConfig::default().save_path
+                }
+            };
             let path_encoded = request
                 .uri()
                 .path()
