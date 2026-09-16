@@ -1,0 +1,50 @@
+#!/bin/bash
+# CameraFTP - A Cross-platform FTP companion for camera photo transfer
+# Copyright (C) 2026 GoldJohnKing <GoldJohnKing@Live.cn>
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# Usage: ./scripts/bump-version.sh <X.Y.Z>
+# Updates the version in ALL FOUR canonical files (see AGENTS.md), refreshes
+# src-tauri/Cargo.lock via gen-types, then prints the new values for review.
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR/.."
+
+NEW_VERSION="${1:-}"
+if [[ ! "$NEW_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    echo "ERROR: invalid or missing version '${NEW_VERSION}' (expected X.Y.Z, e.g. 1.9.3)" >&2
+    exit 1
+fi
+
+OLD_VERSION="$(sed -n 's/^  "version": "\(.*\)",$/\1/p' package.json | head -1)"
+if [[ -z "$OLD_VERSION" ]]; then
+    echo "ERROR: failed to read current version from package.json" >&2
+    exit 1
+fi
+if [[ "$OLD_VERSION" == "$NEW_VERSION" ]]; then
+    echo "Version already $NEW_VERSION — nothing to do"
+    exit 0
+fi
+
+# Fail fast on pre-existing drift between the canonical files
+./scripts/check-versions.sh
+
+echo "Bumping version: $OLD_VERSION -> $NEW_VERSION"
+
+sed -i "s/^  \"version\": \"$OLD_VERSION\",/  \"version\": \"$NEW_VERSION\",/" package.json
+sed -i "s/^version = \"$OLD_VERSION\"/version = \"$NEW_VERSION\"/" src-tauri/Cargo.toml
+sed -i "s/\"version\": \"$OLD_VERSION\"/\"version\": \"$NEW_VERSION\"/" src-tauri/tauri.conf.json
+sed -i "s/version-$OLD_VERSION-blue/version-$NEW_VERSION-blue/" README.md
+
+# Refresh src-tauri/Cargo.lock's cameraftp entry (runs cargo.exe via build.sh)
+./build.sh gen-types
+
+echo ""
+echo "Updated version references:"
+echo "  package.json              : $(sed -n 's/^  "version": "\(.*\)",$/\1/p' package.json | head -1)"
+echo "  src-tauri/Cargo.toml      : $(sed -n 's/^version = "\(.*\)"$/\1/p' src-tauri/Cargo.toml | head -1)"
+echo "  src-tauri/tauri.conf.json : $(sed -n 's/.*"version": "\(.*\)",$/\1/p' src-tauri/tauri.conf.json | head -1)"
+echo "  README.md badge           : version-$(sed -n 's/.*version-\([0-9][0-9.]*\)-blue.*/\1/p' README.md | head -1)-blue"
+echo "  src-tauri/Cargo.lock      : $(sed -n '/^name = "cameraftp"$/{n;s/^version = "\(.*\)"$/\1/p;}' src-tauri/Cargo.lock)"
