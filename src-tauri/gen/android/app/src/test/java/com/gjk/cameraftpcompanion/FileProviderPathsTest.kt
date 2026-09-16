@@ -7,6 +7,7 @@
 package com.gjk.cameraftpcompanion
 
 import android.content.Context
+import android.content.pm.ApplicationInfo
 import android.os.Environment
 import androidx.core.content.FileProvider
 import androidx.test.core.app.ApplicationProvider
@@ -54,7 +55,49 @@ class FileProviderPathsTest {
         val uri = FileProvider.getUriForFile(context(), authority, photo)
 
         assertNotNull(uri)
+        // Pin the exact root hit: if a broader root (e.g. <external-path>)
+        // were re-added and matched first, the URI would still resolve but
+        // under a different root name.
+        assertEquals("external_files", uri.pathSegments.firstOrNull())
         assertEquals("content", uri.scheme)
+    }
+
+    @Test
+    fun files_dir_file_is_shareable() {
+        // Positive pin: the <files-path> root must keep resolving so
+        // internal app files remain shareable.
+        val file = File(context().filesDir, "x.bin")
+        file.writeBytes(byteArrayOf(0x00))
+
+        val uri = FileProvider.getUriForFile(context(), authority, file)
+
+        assertNotNull(uri)
+        assertEquals("app_files", uri.pathSegments.firstOrNull())
+        assertEquals("content", uri.scheme)
+    }
+
+    @Test
+    fun cache_dir_file_is_shareable() {
+        // Positive pin: the <cache-path> root must keep resolving.
+        val file = File(context().cacheDir, "x.bin")
+        file.writeBytes(byteArrayOf(0x00))
+
+        val uri = FileProvider.getUriForFile(context(), authority, file)
+
+        assertNotNull(uri)
+        assertEquals("cache", uri.pathSegments.firstOrNull())
+        assertEquals("content", uri.scheme)
+    }
+
+    @Test
+    fun manifest_disallows_backup() {
+        // Robolectric reads the merged manifest: the APK must not opt into
+        // auto-backup of app data (including any cached transfer state).
+        // ApplicationInfo.FLAG_ALLOW_BACKUP is a constant since API 1.
+        assertEquals(
+            0,
+            context().applicationInfo.flags and ApplicationInfo.FLAG_ALLOW_BACKUP,
+        )
     }
 
     @Test

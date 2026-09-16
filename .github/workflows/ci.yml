@@ -13,6 +13,10 @@ on:
     branches: [main]
   pull_request:
 
+# Least privilege: CI only needs to read the repo (also applies to fork PRs).
+permissions:
+  contents: read
+
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
@@ -22,6 +26,10 @@ env:
 
 jobs:
   lint:
+    # NOTE: the former `windows-build` job (dead config, `if: false`) was
+    # removed on 2026-09-16 — its TODO rationale (full Windows build needs
+    # the standalone LLVM/clang-cl FFI pipeline; build-raw-alchemy.sh's
+    # windows path is WSL2-only) lives in git history and the batch-2 plan.
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -50,10 +58,14 @@ jobs:
       # has windows/android impls), so clippy runs against the Android target.
       # clippy does not link -> no NDK required.
       - name: clippy (android target)
-        run: cargo clippy --lib --target aarch64-linux-android -- -D warnings
+        run: cargo clippy --lib --locked --target aarch64-linux-android -- -D warnings
         working-directory: src-tauri
       - name: shellcheck
         run: shellcheck build.sh scripts/*.sh
+      - name: Install actionlint
+        run: bash <(curl https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash)
+      - name: actionlint
+        run: actionlint
 
   test:
     # Windows host: the lib only compiles for windows/android cfg paths, and
@@ -126,6 +138,10 @@ jobs:
           rm -f "$jni_dir"/*.so
           cp src-tauri/lib/rawalchemy/build-android-arm64/libraw_alchemy.so "$jni_dir/libraw_alchemy_core.so"
           omp="$(find "$NDK_HOME/toolchains/llvm/prebuilt" -path "*/aarch64/libomp.so" | head -1)"
+          if [ -z "$omp" ]; then
+            echo "ERROR: libomp.so not found under $NDK_HOME toolchains" >&2
+            exit 1
+          fi
           cp "$omp" "$jni_dir/libomp.so"
       - name: Build debug APK (legacy)
         run: bunx tauri android build --debug --apk --target aarch64
@@ -141,16 +157,3 @@ jobs:
         with:
           name: debug-legacy-apk
           path: src-tauri/gen/android/app/build/outputs/apk/universal/debug/*.apk
-
-  windows-build:
-    # TODO: full Windows build needs the standalone LLVM/clang-cl FFI pipeline
-    # (lib/rawalchemy/CMakeLists.txt pins OpenMP to standalone LLVM libomp and
-    # FATAL_ERRORs without it) and scripts/build-raw-alchemy.sh's windows path
-    # is WSL2-only (wslpath/cmd.exe bridges). Revisit by porting
-    # build_windows.bat to a windows runner + `choco install llvm ninja`.
-    if: false
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: recursive

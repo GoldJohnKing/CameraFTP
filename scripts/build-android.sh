@@ -244,13 +244,14 @@ setup_android_env() {
 }
 
 # 签名密钥
-# 口令解析优先级：KEYSTORE_PASSWORD 环境变量 > 本地未跟踪文件 scripts/.keystore-pass
-# （首次现场生成随机口令时写入，避免明文口令进仓库）> 现场生成（openssl rand -base64 18）。
+# 口令解析优先级：KEYSTORE_PASSWORD 环境变量 > 仓库外口令文件
+# ${HOME}/.cameraftp/keystore-pass（首次现场生成随机口令时写入，目录权限 700、
+# 文件权限 600，彻底避免明文口令出现在仓库工作树内）> 现场生成（openssl rand -base64 18）。
 # 不存在任何默认口令。
 check_or_create_keystore() {
     local keystore_path="src-tauri/gen/android/keystore.properties"
     local keystore_file="cameraftp.keystore"
-    local pass_file="$SCRIPT_DIR/.keystore-pass"
+    local pass_file="${HOME}/.cameraftp/keystore-pass"
 
     if [ -f "$keystore_path" ]; then
         return 0
@@ -270,9 +271,11 @@ check_or_create_keystore() {
             return 1
         fi
         key_store_pass="$(openssl rand -base64 18)"
+        mkdir -p "$(dirname "$pass_file")"
+        chmod 700 "$(dirname "$pass_file")"
         printf '%s\n' "$key_store_pass" > "$pass_file"
         chmod 600 "$pass_file"
-        success "已生成随机签名口令并保存到 $pass_file（已被 .gitignore 忽略）"
+        success "已生成随机签名口令并保存到 $pass_file（位于仓库外的用户目录，不会进入 git）"
         warn "请妥善备份 $pass_file：口令丢失后该 keystore 无法再用于签名"
     fi
     local key_pass="${KEY_PASSWORD:-$key_store_pass}"

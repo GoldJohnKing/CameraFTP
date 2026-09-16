@@ -58,7 +58,6 @@ coverage/
 *.aab
 *.keystore
 *.jks
-scripts/.keystore-pass
 src-tauri/gen/schemas/
 *.backup.*/
 src-tauri/gen/android/.*
