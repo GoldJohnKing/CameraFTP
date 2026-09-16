@@ -255,10 +255,30 @@ impl FileIndexService {
         }).await.ok()?
     }
 
-    /// 添加新文件（FTP上传时调用）
+    /// 添加新文件（FTP 上传/watcher 事件调用）
+    ///
+    /// watcher（Created，经稳定性探测放行）与 FTP Put 监听器（文件完全
+    /// 写入后触发）会对同一上传文件各调一次，因此：
+    /// 1. EXIF 解析（spawn_blocking 全文件扫描）之前先做廉价查重；
+    /// 2. 已存在但缺 EXIF 的陈旧条目（写入中途索引的遗留）重新解析回填。
     pub async fn add_file(&self, path: PathBuf) -> Result<(), AppError> {
         if !crate::image_utils::is_supported_image(&path) {
             return Ok(()); // 跳过非图片文件
+        }
+
+        // 廉价查重前置：已索引且不缺 EXIF → 直接返回，避免重复解析
+        {
+            let index = self.index.read().await;
+            if index.contains_path(&path) {
+                let needs_backfill = index
+                    .files()
+                    .iter()
+                    .any(|f| f.path == path && f.exif_time.is_none());
+                if !needs_backfill {
+                    trace!("File already indexed, skipping: {:?}", path);
+                    return Ok(());
+                }
+            }
         }
 
         let metadata = tokio::fs::metadata(&path).await
@@ -266,12 +286,23 @@ impl FileIndexService {
 
         let file_info = self.get_file_info(&path, &metadata).await?;
 
-        // Atomic check-and-insert under write lock to prevent TOCTOU race
+        // 原子检查-插入（写锁内防 TOCTOU 竞态）
         let mut index = self.index.write().await;
 
-        if index.contains_path(&path) {
-            trace!("File already indexed, skipping: {:?}", path);
-            return Ok(());
+        if let Some(pos) = index.files().iter().position(|f| f.path == path) {
+            let existing_has_exif = index.files()[pos].exif_time.is_some();
+            if existing_has_exif || file_info.exif_time.is_none() {
+                // 已有条目不劣于新解析结果：跳过（并发重复，或新解析失败）
+                trace!("File already indexed, skipping: {:?}", path);
+                return Ok(());
+            }
+            // 回填：移除缺 EXIF 的陈旧条目，让新 file_info 按排序位置重新插入
+            let files: &mut Vec<FileInfo> = Arc::make_mut(&mut index.files);
+            files.remove(pos);
+            let new_len = files.len();
+            Self::adjust_current_index_after_removal(&mut index.current_index, pos, new_len);
+            index.path_set.remove(&path);
+            info!("Backfilled EXIF for stale index entry: {:?}", path);
         }
 
         // Insert into sorted position using copy-on-write (Arc::make_mut)
@@ -660,6 +691,62 @@ mod tests {
         // Add again — should be skipped as duplicate
         service.add_file(file_path.clone()).await.expect("second add");
         assert_eq!(service.get_file_count().await, 1);
+    }
+
+    #[tokio::test]
+    async fn add_file_backfills_exif_for_stale_entry() {
+        let temp_dir = tempdir().expect("failed to create temp dir");
+        let config_path = temp_dir.path().join("config.json");
+        let save_path = temp_dir.path().join("images");
+        std::fs::create_dir_all(&save_path).expect("create dir");
+
+        let config_service = ConfigService::new_with_path(config_path);
+        config_service
+            .mutate_and_persist(|config| {
+                config.save_path = save_path.clone();
+            })
+            .expect("persist config");
+
+        let service = FileIndexService::new(Arc::new(config_service));
+
+        let file_path = save_path.join("backfill.jpg");
+
+        // 1) 无 EXIF 的普通 JPEG 先入索引（模拟"写入中途索引"的陈旧条目）
+        let plain = image::RgbImage::from_pixel(2, 2, image::Rgb([64u8, 64, 64]));
+        let mut buf: Vec<u8> = Vec::new();
+        image::DynamicImage::ImageRgb8(plain)
+            .write_to(&mut std::io::Cursor::new(&mut buf), image::ImageFormat::Jpeg)
+            .expect("encode plain jpeg");
+        std::fs::write(&file_path, &buf).expect("write plain jpeg");
+        // mtime 拨到一年前，确保陈旧条目与回填后的 sort_time 差异明显
+        let old_system = std::time::SystemTime::now()
+            - std::time::Duration::from_secs(365 * 24 * 3600);
+        filetime::set_file_mtime(
+            &file_path,
+            filetime::FileTime::from_system_time(old_system),
+        )
+        .expect("set old mtime");
+
+        service.add_file(file_path.clone()).await.expect("first add");
+        let files = service.get_files().await;
+        assert_eq!(files.len(), 1);
+        assert!(files[0].exif_time.is_none(), "plain jpeg entry has no exif");
+
+        // 2) 文件补上 EXIF（等价于完整写入后 Put 事件再次触发 add_file）
+        std::fs::write(
+            &file_path,
+            crate::image_utils::build_exif_jpeg("2024:06:01 12:00:00", 1),
+        )
+        .expect("overwrite with exif jpeg");
+
+        service.add_file(file_path.clone()).await.expect("second add");
+
+        let files = service.get_files().await;
+        assert_eq!(files.len(), 1, "backfill must replace, not duplicate");
+        assert!(
+            files[0].exif_time.is_some(),
+            "stale entry must be backfilled with EXIF time"
+        );
     }
 
     #[tokio::test]
