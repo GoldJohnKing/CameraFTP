@@ -26,6 +26,13 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+      - name: Version consistency
+        run: ./scripts/check-versions.sh
+      # tauri::generate_context! in lib.rs reads frontendDist (../dist,
+      # gitignored) at compile time — same stub as the test job below.
+      - name: Stub frontend dist for generate_context!
+        shell: bash
+        run: mkdir -p dist
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, rustfmt
