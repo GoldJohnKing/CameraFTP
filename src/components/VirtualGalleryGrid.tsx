@@ -8,9 +8,9 @@ import { type TouchEvent, forwardRef, useCallback, useEffect, useImperativeHandl
 import { Check, Loader2 } from 'lucide-react';
 import type { MediaItemDto } from '../types';
 import { classifyFile } from '../utils/gallery-filter';
+import { DEFAULT_GRID_METRICS, measureGridMetrics, type GridMetrics } from '../utils/grid-metrics';
 
 const COLUMNS = 3;
-const ROW_HEIGHT = 120;
 const OVERSCAN_ROWS = 3;
 const NEAR_END_THRESHOLD = 5;
 const SCROLL_END_DELAY = 150;
@@ -67,10 +67,36 @@ export const VirtualGalleryGrid = forwardRef<VirtualGalleryGridHandle, VirtualGa
   const containerRef = useRef<HTMLDivElement>(null);
   const itemsRef = useRef(items);
   itemsRef.current = items;
+  const innerRef = useRef<HTMLDivElement>(null);
+  // 行距来自实测（cell 是 aspect-square，行高随容器宽度变化；曾硬编码 120
+  // 导致非 390dp 视口底部不可达/日期跳转偏移）。测量失败回退默认值。
+  const [metrics, setMetrics] = useState<GridMetrics>(DEFAULT_GRID_METRICS);
+  const metricsRef = useRef<GridMetrics>(DEFAULT_GRID_METRICS);
+
+  useEffect(() => {
+    const el = innerRef.current;
+    if (!el) return;
+    const apply = () => {
+      const next = measureGridMetrics(el);
+      const drifted =
+        Math.abs(next.pitch - metricsRef.current.pitch) > 0.5 ||
+        Math.abs(next.padTop - metricsRef.current.padTop) > 0.5 ||
+        Math.abs(next.padBottom - metricsRef.current.padBottom) > 0.5;
+      if (drifted) {
+        metricsRef.current = next;
+        setMetrics(next);
+      }
+    };
+    apply();
+    const observer = new ResizeObserver(apply);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
   useImperativeHandle(ref, () => ({
     scrollToIndex(index: number) {
       const row = Math.floor(index / COLUMNS);
-      containerRef.current?.scrollTo({ top: row * ROW_HEIGHT });
+      containerRef.current?.scrollTo({ top: metricsRef.current.padTop + row * metricsRef.current.pitch });
     },
   }), [containerRef]);
   const [scrollTop, setScrollTop] = useState(0);
@@ -94,7 +120,7 @@ export const VirtualGalleryGrid = forwardRef<VirtualGalleryGridHandle, VirtualGa
   const lastArmedHighlightRef = useRef<string | null>(null);
 
   const totalRows = Math.ceil(items.length / COLUMNS);
-  const totalHeight = totalRows * ROW_HEIGHT;
+  const totalHeight = metrics.padTop + totalRows * metrics.pitch + metrics.padBottom;
 
   // Observe container height
   useEffect(() => {
@@ -188,17 +214,17 @@ export const VirtualGalleryGrid = forwardRef<VirtualGalleryGridHandle, VirtualGa
 
   // Calculate visible range
   const { startRow, endRow, visibleStartRow, visibleEndRow } = useMemo(() => {
-    const visibleStartRow = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT));
+    const visibleStartRow = Math.max(0, Math.floor(scrollTop / metrics.pitch));
     const visibleEndRow = Math.min(
       totalRows - 1,
-      Math.floor((scrollTop + containerHeight) / ROW_HEIGHT)
+      Math.floor((scrollTop + containerHeight) / metrics.pitch)
     );
 
     const startRow = Math.max(0, visibleStartRow - OVERSCAN_ROWS);
     const endRow = Math.min(totalRows - 1, visibleEndRow + OVERSCAN_ROWS);
 
     return { startRow, endRow, visibleStartRow, visibleEndRow };
-  }, [scrollTop, containerHeight, totalRows]);
+  }, [scrollTop, containerHeight, totalRows, metrics]);
 
   // Build visible items slice
   const visibleItems = useMemo(() => {
@@ -280,7 +306,7 @@ export const VirtualGalleryGrid = forwardRef<VirtualGalleryGridHandle, VirtualGa
   // Clear the highlight pulse timer on unmount.
   useEffect(() => () => clearTimeout(highlightClearRef.current ?? undefined), []);
 
-  const offsetY = startRow * ROW_HEIGHT;
+  const offsetY = metrics.padTop + startRow * metrics.pitch;
 
   return (
     <div
@@ -291,6 +317,7 @@ export const VirtualGalleryGrid = forwardRef<VirtualGalleryGridHandle, VirtualGa
     >
       <div className="relative" style={{ height: totalHeight }}>
         <div
+          ref={innerRef}
           className="grid grid-cols-3 gap-1.5 px-0.5 pt-1 pb-1.5"
           style={{
             position: 'absolute',

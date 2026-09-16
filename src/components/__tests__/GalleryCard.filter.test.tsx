@@ -238,8 +238,9 @@ describe('GalleryCard extension filter', () => {
       await flush();
     });
 
-    // png-a is the sole filtered item → index 0 → row 0 → scrollTop 0.
-    expect(capturedTop).toBe(0);
+    // png-a is the sole filtered item → index 0 → row 0 → scrollTop = padTop(4) + 0 * pitch = 4
+    // （jsdom 下测量回退 DEFAULT_GRID_METRICS：pitch 120、padTop 4）
+    expect(capturedTop).toBe(4);
     expect(c.querySelector('[data-testid="date-jump-dialog"]')).toBeNull();
   });
 
