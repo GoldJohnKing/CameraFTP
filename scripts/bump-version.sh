@@ -38,10 +38,21 @@ fi
 
 echo "Bumping version: $OLD_VERSION -> $NEW_VERSION"
 
+# Safety: the trap below rolls back to HEAD, which would also wipe any
+# uncommitted local edits in these files. Refuse to run if they are dirty.
+# (Staged edits are safe: git checkout -- restores from the index, not HEAD.)
+if ! git diff --quiet -- package.json src-tauri/Cargo.toml src-tauri/tauri.conf.json README.md src-tauri/Cargo.lock; then
+    echo "ERROR: 这五个文件存在未提交改动，bump 会破坏它们；先提交或暂存后再运行" >&2
+    exit 1
+fi
+
 # Atomicity: if anything between here and the successful gen-types run fails
-# (set -e aborts), restore the four files to their pre-bump (committed) state.
+# (set -e aborts), restore the five files to their pre-bump (committed) state.
+# src-tauri/Cargo.lock is included because a failed gen-types may have already
+# partially updated it; in this flow the lock file is only ever touched by
+# gen-types, so rolling it back with the rest is safe.
 # Cleared on the success path right after gen-types completes.
-trap 'git checkout -- package.json src-tauri/Cargo.toml src-tauri/tauri.conf.json README.md; echo "bump aborted, files restored" >&2' EXIT
+trap 'git checkout -- package.json src-tauri/Cargo.toml src-tauri/tauri.conf.json README.md src-tauri/Cargo.lock; echo "bump aborted, files restored" >&2' EXIT
 
 sed -i "s/^  \"version\": \"$OLD_VERSION\",/  \"version\": \"$NEW_VERSION\",/" package.json
 sed -i "s/^version = \"$OLD_VERSION\"/version = \"$NEW_VERSION\"/" src-tauri/Cargo.toml
