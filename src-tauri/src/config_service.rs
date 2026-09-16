@@ -22,6 +22,14 @@ static GLOBAL_CONFIG_SERVICE: OnceLock<Arc<ConfigService>> = OnceLock::new();
 pub struct ConfigService {
     config: Arc<RwLock<AppConfig>>,
     config_path: PathBuf,
+    /// Serializes the whole mutate→persist sequence of both the sync
+    /// ([`ConfigService::mutate_and_persist`]) and async
+    /// ([`ConfigService::mutate_and_persist_async`]) variants. The in-memory
+    /// RwLock is only held for the fast phases (clone+mutate+validate / swap
+    /// in), so concurrent writers must not interleave between "read current
+    /// state" and "persist next state" — otherwise two-phase interleaving
+    /// could lose updates.
+    persist_lock: Arc<std::sync::Mutex<()>>,
 }
 
 impl ConfigService {
@@ -46,6 +54,7 @@ impl ConfigService {
         Self {
             config: Arc::new(RwLock::new(AppConfig::default())),
             config_path,
+            persist_lock: Arc::new(std::sync::Mutex::new(())),
         }
     }
 
@@ -79,20 +88,52 @@ impl ConfigService {
     where
         F: FnOnce(&mut AppConfig) -> R,
     {
-        let mut guard = lock_result(self.config.write())?;
+        // Serialize the whole mutate→persist sequence; see persist_lock docs.
+        // 失败语义：validate 失败或落盘失败时内存保持旧值（`?` 先于换入）。
+        let _persist_guard = lock_result(self.persist_lock.lock())?;
 
-        let mut next_config = guard.clone();
-        let result = mutate(&mut next_config);
-        next_config = next_config.normalized_for_current_platform();
+        let (next_config, result) = {
+            let guard = lock_result(self.config.write())?;
+            let mut next_config = guard.clone();
+            let result = mutate(&mut next_config);
+            next_config = next_config.normalized_for_current_platform();
 
-        if let Err(e) = next_config.validate() {
-            return Err(AppError::Other(format!("Invalid configuration: {}", e)));
-        }
+            if let Err(e) = next_config.validate() {
+                return Err(AppError::Other(format!("Invalid configuration: {}", e)));
+            }
+
+            (next_config, result)
+        }; // write guard released here — disk I/O below no longer blocks get()
 
         Self::save_to_path(&self.config_path, &next_config)?;
+
+        let mut guard = lock_result(self.config.write())?;
         *guard = next_config;
 
         Ok(result)
+    }
+
+    /// Async variant of [`ConfigService::mutate_and_persist`]: identical
+    /// semantics (the in-memory config is only swapped in after the persist
+    /// succeeded), but the whole mutate→persist sequence — including the
+    /// fsync-heavy `save_to_path` — runs on tokio's blocking pool so Tauri
+    /// async commands get a `Send` future and do not stall worker threads.
+    // Delegating to the sync version on the blocking pool (instead of holding
+    // the std MutexGuard across `spawn_blocking().await`, which would make
+    // the future !Send and fail Tauri's command bound) also gives strictly
+    // better cancellation semantics: the blocking task owns the full
+    // save+swap-in sequence and runs it to completion, so disk and memory
+    // cannot diverge; the persist_lock still guarantees mutual exclusion
+    // between the sync (JNI) and async (command) paths. See the field docs.
+    pub async fn mutate_and_persist_async<F, R>(&self, mutate: F) -> Result<R, AppError>
+    where
+        F: FnOnce(&mut AppConfig) -> R + Send + 'static,
+        R: Send + 'static,
+    {
+        let service = self.clone();
+        tokio::task::spawn_blocking(move || service.mutate_and_persist(mutate))
+            .await
+            .map_err(|e| AppError::Other(format!("Config persist task failed: {}", e)))?
     }
 
     fn load_from_path(path: &Path) -> Result<AppConfig, AppError> {
@@ -230,6 +271,74 @@ mod tests {
         let reloaded_service = ConfigService::new_with_path(config_path);
         let reloaded = reloaded_service.load().expect("failed to reload config");
         verify(&reloaded);
+    }
+
+    #[test]
+    fn mutate_and_persist_failure_leaves_memory_unchanged() {
+        // 语义钉死：save_to_path 在 blocked-parent（文件而非目录）上
+        // create_dir_all 失败 → 落盘失败 ⇒ 内存保持旧值。同步/异步两版
+        // 都必须维护这一契约（mutate_and_persist 的 `?` 先于 `*guard` 换入）。
+        let temp_dir = tempdir().expect("failed to create temp dir");
+        let blocked_parent = temp_dir.path().join("blocked-parent");
+        std::fs::write(&blocked_parent, "not a directory").expect("failed to create blocker file");
+
+        let service = ConfigService::new_with_path(blocked_parent.join("config.json"));
+
+        let result = service.mutate_and_persist(|config| config.port = 7073);
+
+        assert!(result.is_err());
+        assert_eq!(
+            service.get().expect("failed to get config").port,
+            AppConfig::default().port
+        );
+    }
+
+    #[tokio::test]
+    async fn mutate_and_persist_async_keeps_memory_unchanged_on_persist_failure() {
+        let temp_dir = tempdir().expect("failed to create temp dir");
+        let blocked_parent = temp_dir.path().join("blocked-parent");
+        std::fs::write(&blocked_parent, "not a directory").expect("failed to create blocker file");
+
+        let service = ConfigService::new_with_path(blocked_parent.join("config.json"));
+
+        let result = service
+            .mutate_and_persist_async(|config| config.port = 7074)
+            .await;
+
+        assert!(result.is_err());
+        assert_eq!(
+            service.get().expect("failed to get config").port,
+            AppConfig::default().port
+        );
+    }
+
+    #[tokio::test]
+    async fn concurrent_gets_do_not_deadlock_with_mutate_and_persist_async() {
+        // 正确性冒烟（非时延断言）：100 个并发 get 与一次落盘变更共存，
+        // 全部完成且最终 get 看到新值（耗时阈值断言在 CI 上过于 flaky）。
+        let temp_dir = tempdir().expect("failed to create temp dir");
+        let config_path = temp_dir.path().join("config.json");
+        let service = Arc::new(ConfigService::new_with_path(config_path));
+        service.load().expect("failed to load config");
+
+        let mut readers = Vec::new();
+        for _ in 0..100 {
+            let reader = Arc::clone(&service);
+            readers.push(tokio::spawn(async move {
+                reader.get().expect("concurrent get must not fail")
+            }));
+        }
+
+        service
+            .mutate_and_persist_async(|config| config.port = 7075)
+            .await
+            .expect("failed to mutate and persist config");
+
+        for handle in readers {
+            handle.await.expect("reader task must not deadlock");
+        }
+
+        assert_eq!(service.get().expect("failed to get config").port, 7075);
     }
 
     #[test]

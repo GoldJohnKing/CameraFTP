@@ -279,6 +279,7 @@ pub unsafe extern "C" fn Java_com_gjk_cameraftpcompanion_bridges_ColorGradingJni
     };
 
     let config_service = crate::config_service::ConfigService::get_global();
+    // JNI 同步上下文（无 tokio runtime），用同步版；persist_lock 保证与 async 命令互斥
     match config_service.mutate_and_persist(|c| {
         c.color_grading_last_used = Some(crate::config::ColorGradingLastUsed {
             preset_id: preset_id_str,

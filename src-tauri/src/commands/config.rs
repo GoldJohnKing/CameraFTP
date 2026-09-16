@@ -14,7 +14,7 @@ use crate::error::AppError;
 use crate::file_index::FileIndexService;
 use std::sync::Arc;
 
-fn save_auth_config_with_service(
+async fn save_auth_config_with_service(
     config_service: &ConfigService,
     anonymous: bool,
     username: String,
@@ -22,19 +22,25 @@ fn save_auth_config_with_service(
 ) -> Result<(), AppError> {
     use crate::config::AuthConfig;
 
+    // Argon2id(m=64MB,t=3,p=4) 是重 CPU 计算：放在 blocking 池执行，
+    // 不占用 tokio worker 线程（与 FTP 认证路径 ftp/server.rs 一致）。
     let password_hash = if anonymous || password.is_empty() {
         String::new()
     } else {
-        crypto::hash_password(password).hash
+        tokio::task::spawn_blocking(move || crypto::hash_password(password).hash)
+            .await
+            .map_err(|e| AppError::Other(format!("hash task failed: {}", e)))?
     };
 
-    config_service.mutate_and_persist(move |config| {
-        config.advanced_connection.auth = AuthConfig {
-            anonymous,
-            username,
-            password_hash,
-        };
-    })?;
+    config_service
+        .mutate_and_persist_async(move |config| {
+            config.advanced_connection.auth = AuthConfig {
+                anonymous,
+                username,
+                password_hash,
+            };
+        })
+        .await?;
 
     tracing::info!("Auth config saved with Argon2id hash");
     Ok(())
@@ -72,16 +78,18 @@ fn merge_backend_owned_fields(mut incoming: AppConfig, current: &AppConfig) -> A
     incoming
 }
 
-fn update_preview_config_with_service(
+async fn update_preview_config_with_service(
     config_service: &ConfigService,
     patch: PreviewWindowConfigPatch,
 ) -> Result<PreviewWindowConfig, AppError> {
-    config_service.mutate_and_persist(move |app_config| {
-        let current = app_config.preview_config.clone().unwrap_or_default();
-        let merged = patch.apply_to(current);
-        app_config.preview_config = Some(merged.clone());
-        merged
-    })
+    config_service
+        .mutate_and_persist_async(move |app_config| {
+            let current = app_config.preview_config.clone().unwrap_or_default();
+            let merged = patch.apply_to(current);
+            app_config.preview_config = Some(merged.clone());
+            merged
+        })
+        .await
 }
 
 #[command]
@@ -98,11 +106,13 @@ pub async fn save_config(
     config_service: State<'_, Arc<ConfigService>>,
     file_index: State<'_, Arc<FileIndexService>>,
 ) -> Result<(), AppError> {
-    let old_save_path = config_service.mutate_and_persist(move |current| {
-        let old_save_path = current.save_path.clone();
-        *current = merge_backend_owned_fields(config, current);
-        old_save_path
-    })?;
+    let old_save_path = config_service
+        .mutate_and_persist_async(move |current| {
+            let old_save_path = current.save_path.clone();
+            *current = merge_backend_owned_fields(config, current);
+            old_save_path
+        })
+        .await?;
     let new_save_path = config_service.get()?.save_path;
 
     tracing::info!("Configuration saved successfully");
@@ -128,16 +138,16 @@ pub async fn save_auth_config(
     username: String,
     password: String,
 ) -> Result<(), AppError> {
-    // Argon2id(m=64MB,t=3,p=4) 是重 CPU 计算：同步命令在桌面端跑在主线程
-    // （Tauri v2 语义）会阻塞 UI 事件循环，Android 端跑在 WebView 请求
-    // 线程会串行化其它 IPC。与 FTP 认证路径（ftp/server.rs）保持一致，
-    // 使用 spawn_blocking。
-    let service = Arc::clone(config_service.inner());
-    tokio::task::spawn_blocking(move || {
-        save_auth_config_with_service(service.as_ref(), anonymous, username, password)
-    })
+    // Argon2 哈希在 helper 内部走 spawn_blocking、落盘走
+    // mutate_and_persist_async（blocking 池），命令层无需再包裹
+    // spawn_blocking——直接 await 即可。
+    save_auth_config_with_service(
+        config_service.inner(),
+        anonymous,
+        username,
+        password,
+    )
     .await
-    .map_err(|e| AppError::Other(format!("save_auth_config worker panicked: {}", e)))?
 }
 
 /// 选择保存目录
@@ -156,7 +166,8 @@ pub async fn update_preview_config(
     config_service: State<'_, Arc<ConfigService>>,
     patch: PreviewWindowConfigPatch,
 ) -> Result<PreviewWindowConfig, AppError> {
-    let persisted = update_preview_config_with_service(config_service.inner().as_ref(), patch)?;
+    let persisted = update_preview_config_with_service(config_service.inner().as_ref(), patch)
+        .await?;
     auto_open.broadcast_config_changed(persisted.clone()).await;
     Ok(persisted)
 }
@@ -268,8 +279,8 @@ mod tests {
         assert_eq!(loaded.port, 3777);
     }
 
-    #[test]
-    fn helper_save_auth_persists_via_service() {
+    #[tokio::test]
+    async fn helper_save_auth_persists_via_service() {
         let temp_dir = tempdir().expect("failed to create temp dir");
         let config_path = temp_dir.path().join("config.json");
         let service = ConfigService::new_with_path(config_path.clone());
@@ -281,6 +292,7 @@ mod tests {
             "camera-user".to_string(),
             "secret-pass".to_string(),
         )
+        .await
         .expect("failed to save auth config");
 
         let persisted_service = ConfigService::new_with_path(config_path);
@@ -338,8 +350,8 @@ mod tests {
         assert!(merged.auto_bring_to_front);
     }
 
-    #[test]
-    fn helper_update_preview_patch_merges_against_latest_persisted_config() {
+    #[tokio::test]
+    async fn helper_update_preview_patch_merges_against_latest_persisted_config() {
         let temp_dir = tempdir().expect("failed to create temp dir");
         let config_path = temp_dir.path().join("config.json");
         let service = ConfigService::new_with_path(config_path.clone());
@@ -354,6 +366,7 @@ mod tests {
                 auto_bring_to_front: Some(false),
             },
         )
+        .await
         .expect("failed to initialize preview config");
 
         assert!(!updated.enabled);
@@ -368,6 +381,7 @@ mod tests {
                 auto_bring_to_front: Some(true),
             },
         )
+        .await
         .expect("failed to update preview config");
 
         assert!(updated.enabled);
@@ -387,8 +401,8 @@ mod tests {
         assert!(matches!(persisted.method, ImageOpenMethod::WindowsPhotos));
     }
 
-    #[test]
-    fn helper_update_preview_patch_returns_error_when_persistence_fails() {
+    #[tokio::test]
+    async fn helper_update_preview_patch_returns_error_when_persistence_fails() {
         let temp_dir = tempdir().expect("failed to create temp dir");
         let blocked_parent = temp_dir.path().join("blocked-parent");
         std::fs::write(&blocked_parent, "not a directory").expect("failed to create blocker file");
@@ -402,7 +416,8 @@ mod tests {
                 custom_path: None,
                 auto_bring_to_front: None,
             },
-        );
+        )
+        .await;
 
         assert!(result.is_err());
     }
