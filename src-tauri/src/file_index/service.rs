@@ -5,6 +5,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::SystemTime;
+use futures::StreamExt;
 use tokio::sync::RwLock;
 #[cfg(target_os = "windows")]
 use tokio::sync::Mutex;
@@ -19,6 +20,10 @@ use super::types::{FileIndex, FileInfo};
 use tauri::Emitter;
 #[cfg(target_os = "windows")]
 use super::watcher::FileWatcher;
+
+/// 扫描期 get_file_info 并发度。EXIF 解析在 tokio spawn_blocking 池上执行，
+/// 池大小天然限流；此值只限制同时在飞的 future 数，避免瞬时占满阻塞池。
+const SCAN_CONCURRENCY: usize = 6;
 
 pub struct FileIndexService {
     index: RwLock<FileIndex>,
@@ -156,21 +161,44 @@ impl FileIndexService {
     pub async fn scan_directory(&self) -> Result<(), AppError> {
         let save_path = self.save_path.read().await.clone();
         info!("Starting directory scan: {:?}", save_path);
-        
-        let mut files = Vec::new();
-        self.scan_directory_iterative(&save_path, &mut files).await?;
-        
+
+        let paths = self.collect_image_paths(&save_path).await?;
+
+        // 并发获取文件信息（EXIF 解析经 spawn_blocking，见 read_exif_time）
+        let infos = {
+            futures::stream::iter(paths)
+                .map(|path| async move {
+                    let metadata = tokio::fs::metadata(&path).await
+                        .map_err(|e| AppError::Other(format!("Failed to get metadata: {}", e)))?;
+                    self.get_file_info(&path, &metadata).await
+                })
+                .buffer_unordered(SCAN_CONCURRENCY)
+                .collect::<Vec<Result<FileInfo, AppError>>>()
+                .await
+        };
+
+        let mut files: Vec<FileInfo> = infos
+            .into_iter()
+            .filter_map(|r| match r {
+                Ok(file_info) => Some(file_info),
+                Err(e) => {
+                    warn!("Failed to get file info during scan: {}", e);
+                    None
+                }
+            })
+            .collect();
+
         // 按 sort_time 降序，相同则按 modified_time 降序（新文件优先）
         files.sort_by(|a, b| {
             b.sort_time.cmp(&a.sort_time)
                 .then_with(|| b.modified_time.cmp(&a.modified_time))
         });
-        
+
         let mut index = self.index.write().await;
         index.current_index = files.first().map(|_| 0);
         let count = files.len();
         index.set_files(files);
-        
+
         info!("Directory scan complete: {} files found", count);
 
         drop(index);
@@ -179,9 +207,10 @@ impl FileIndexService {
         Ok(())
     }
 
-    /// Scan directories iteratively using a work stack
-    async fn scan_directory_iterative(&self, root: &Path, files: &mut Vec<FileInfo>) -> Result<(), AppError> {
+    /// 迭代遍历目录（工作栈），收集受支持的图片路径
+    async fn collect_image_paths(&self, root: &Path) -> Result<Vec<PathBuf>, AppError> {
         let mut dirs_to_process = vec![root.to_path_buf()];
+        let mut paths = Vec::new();
 
         while let Some(dir) = dirs_to_process.pop() {
             let mut entries = tokio::fs::read_dir(&dir).await
@@ -191,9 +220,7 @@ impl FileIndexService {
                 .map_err(|e| AppError::Other(format!("Failed to read entry: {}", e)))?
             {
                 let path = entry.path();
-                let metadata = entry.metadata().await;
-
-                let metadata = match metadata {
+                let metadata = match entry.metadata().await {
                     Ok(m) => m,
                     Err(_) => continue,
                 };
@@ -202,16 +229,13 @@ impl FileIndexService {
                     dirs_to_process.push(path);
                 } else if metadata.is_file() {
                     if crate::image_utils::is_supported_image(&path) {
-                        match self.get_file_info(&path, &metadata).await {
-                            Ok(file_info) => files.push(file_info),
-                            Err(e) => warn!("Failed to get file info for {:?}: {}", path, e),
-                        }
+                        paths.push(path);
                     }
                 }
             }
         }
 
-        Ok(())
+        Ok(paths)
     }
 
 
@@ -874,5 +898,43 @@ mod tests {
         assert!(files[0].exif_time.is_some(), "EXIF time must be recorded for the EXIF file");
         assert!(files[1].exif_time.is_none(), "no EXIF file must fall back to mtime");
         assert!(files[0].sort_time > files[1].sort_time);
+    }
+
+    // ---- 并发扫描 ----
+
+    #[tokio::test]
+    async fn scan_directory_concurrent_finds_all_images_in_nested_dirs() {
+        let temp_dir = tempdir().expect("failed to create temp dir");
+        let save_path = temp_dir.path().join("images");
+        std::fs::create_dir_all(save_path.join("sub_a/sub_b")).expect("create nested dirs");
+
+        let mut expected = std::collections::HashSet::new();
+        for i in 0..12 {
+            let name = format!("img_{:02}.jpg", i);
+            std::fs::write(save_path.join("sub_a").join(&name), b"jpeg").expect("write file");
+            expected.insert(name);
+        }
+        for i in 12..20 {
+            let name = format!("img_{:02}.jpg", i);
+            std::fs::write(save_path.join("sub_a/sub_b").join(&name), b"jpeg").expect("write file");
+            expected.insert(name);
+        }
+        std::fs::write(save_path.join("notes.txt"), b"not an image").expect("write file");
+
+        let config_service = ConfigService::new_with_path(temp_dir.path().join("config.json"));
+        config_service
+            .mutate_and_persist(|config| {
+                config.save_path = save_path.clone();
+            })
+            .expect("persist config");
+
+        let service = FileIndexService::new(Arc::new(config_service));
+        service.scan_directory().await.expect("scan");
+
+        let files = service.get_files().await;
+        assert_eq!(files.len(), 20, "all supported images must be indexed");
+        let names: std::collections::HashSet<String> =
+            files.iter().map(|f| f.filename.clone()).collect();
+        assert_eq!(names, expected);
     }
 }
