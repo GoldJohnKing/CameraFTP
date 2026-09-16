@@ -191,7 +191,7 @@ impl FileIndexService {
                 .await
         };
 
-        let mut files: Vec<FileInfo> = infos
+        let files: Vec<FileInfo> = infos
             .into_iter()
             .filter_map(|r| match r {
                 Ok(file_info) => Some(file_info),
