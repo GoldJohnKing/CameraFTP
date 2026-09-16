@@ -2,6 +2,7 @@
 // Copyright (C) 2026 GoldJohnKing <GoldJohnKing@Live.cn>
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::SystemTime;
@@ -162,6 +163,13 @@ impl FileIndexService {
         let save_path = self.save_path.read().await.clone();
         info!("Starting directory scan: {:?}", save_path);
 
+        // 提交前快照：识别"扫描期间通过 FTP Put 通道新进入索引"的文件，
+        // 提交时保留它们（见 merge_scan_result）
+        let pre_scan_paths: HashSet<PathBuf> = {
+            let index = self.index.read().await;
+            index.path_set.clone()
+        };
+
         let paths = self.collect_image_paths(&save_path).await?;
 
         // 并发获取文件信息（EXIF 解析经 spawn_blocking，见 read_exif_time）
@@ -195,9 +203,11 @@ impl FileIndexService {
         });
 
         let mut index = self.index.write().await;
-        index.current_index = files.first().map(|_| 0);
-        let count = files.len();
-        index.set_files(files);
+        let existing: Vec<FileInfo> = index.files().as_ref().clone();
+        let merged = Self::merge_scan_result(files, &existing, &pre_scan_paths);
+        index.current_index = merged.first().map(|_| 0);
+        let count = merged.len();
+        index.set_files(merged);
 
         info!("Directory scan complete: {} files found", count);
 
@@ -236,6 +246,40 @@ impl FileIndexService {
         }
 
         Ok(paths)
+    }
+
+    /// 合并扫描结果与索引中"扫描期间新增"的条目。
+    ///
+    /// FTP Put 监听（ftp/listeners.rs）独立 spawn 调 add_file，可在扫描的
+    /// readdir 与 set_files 提交之间插入。保留规则：
+    /// - existing 中路径不在 scanned 结果、也不在 pre_scan_paths 快照中
+    ///   → 扫描开始后才进入索引的新文件，保留；
+    /// - 在 pre_scan_paths 中但不在 scanned 中 → 扫描期间已删除，丢弃
+    ///   （与旧 set_files 整体覆盖行为一致）；
+    /// - 同一路径以 scanned 的新元数据为准。
+    fn merge_scan_result(
+        scanned: Vec<FileInfo>,
+        existing: &[FileInfo],
+        pre_scan_paths: &HashSet<PathBuf>,
+    ) -> Vec<FileInfo> {
+        // 先在借用期内完成过滤（scanned_paths 持有对 scanned 的借用）
+        let added_during_scan: Vec<FileInfo> = {
+            let scanned_paths: HashSet<&PathBuf> = scanned.iter().map(|f| &f.path).collect();
+            existing
+                .iter()
+                .filter(|f| !scanned_paths.contains(&f.path) && !pre_scan_paths.contains(&f.path))
+                .cloned()
+                .collect()
+        };
+
+        let mut merged = scanned;
+        merged.extend(added_during_scan);
+
+        merged.sort_by(|a, b| {
+            b.sort_time.cmp(&a.sort_time)
+                .then_with(|| b.modified_time.cmp(&a.modified_time))
+        });
+        merged
     }
 
 
@@ -555,6 +599,7 @@ impl FileIndexService {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashSet;
     use std::path::{Path, PathBuf};
     use std::sync::Arc;
     use std::time::SystemTime;
@@ -900,7 +945,54 @@ mod tests {
         assert!(files[0].sort_time > files[1].sort_time);
     }
 
-    // ---- 并发扫描 ----
+    // ---- 并发扫描与合并提交 ----
+
+    #[test]
+    fn merge_scan_result_preserves_files_added_during_scan() {
+        let scanned = vec![make_file_info("/images/a.jpg", 3000)];
+        let existing = vec![
+            make_file_info("/images/a.jpg", 3000),
+            // FTP Put 通道在 readdir 之后、提交之前插入
+            make_file_info("/images/new_from_ftp.jpg", 5000),
+        ];
+        let pre_scan_paths: HashSet<PathBuf> =
+            [PathBuf::from("/images/a.jpg")].into_iter().collect();
+
+        let merged = FileIndexService::merge_scan_result(scanned, &existing, &pre_scan_paths);
+
+        assert_eq!(merged.len(), 2);
+        // 排序：sort_time 降序 → new_from_ftp(5000) 在前
+        assert_eq!(merged[0].filename, "new_from_ftp.jpg");
+    }
+
+    #[test]
+    fn merge_scan_result_drops_files_deleted_during_scan() {
+        let scanned = vec![make_file_info("/images/a.jpg", 3000)];
+        let existing = vec![
+            make_file_info("/images/a.jpg", 3000),
+            make_file_info("/images/deleted.jpg", 1000),
+        ];
+        let pre_scan_paths: HashSet<PathBuf> =
+            existing.iter().map(|f| f.path.clone()).collect();
+
+        let merged = FileIndexService::merge_scan_result(scanned, &existing, &pre_scan_paths);
+
+        assert_eq!(merged.len(), 1);
+        assert_eq!(merged[0].filename, "a.jpg");
+    }
+
+    #[test]
+    fn merge_scan_result_prefers_scanned_metadata_for_same_path() {
+        let scanned = vec![make_file_info("/images/a.jpg", 9000)];
+        let existing = vec![make_file_info("/images/a.jpg", 3000)];
+        let pre_scan_paths: HashSet<PathBuf> =
+            [PathBuf::from("/images/a.jpg")].into_iter().collect();
+
+        let merged = FileIndexService::merge_scan_result(scanned, &existing, &pre_scan_paths);
+
+        assert_eq!(merged.len(), 1);
+        assert_eq!(merged[0].sort_time, 9000);
+    }
 
     #[tokio::test]
     async fn scan_directory_concurrent_finds_all_images_in_nested_dirs() {
