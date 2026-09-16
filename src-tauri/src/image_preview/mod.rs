@@ -99,6 +99,8 @@ impl ImagePreviewCache {
     }
 
     pub fn get_or_load(&self, path: &Path) -> Result<Arc<Vec<u8>>, String> {
+        // 键契约：缓存键 = 调用方传入的原始路径字符串（不做 canonicalize）。
+        // invalidate 也按原始字符串精确匹配——见 lib.rs scheme handler 注释。
         let key = path.to_string_lossy().to_string();
 
         {
@@ -348,5 +350,60 @@ mod tests {
         let missing = std::env::temp_dir().join("cameraftp_test_preview_missing/none.jpg");
         let result = validate_preview_path(&missing, &std::env::temp_dir());
         assert!(result.is_err(), "missing path should surface an io error");
+    }
+
+    // 回归：缓存键 = 调用方传入的原始路径字符串（非 canonical）。
+    // handler 用原始请求路径 get_or_load，失效点（file_index 删除 / exif 注入）
+    // 也传原始字符串——两边必须精确匹配，否则失效变 no-op（spec review finding）。
+    #[test]
+    fn invalidate_raw_path_removes_entry_loaded_via_same_raw_path() {
+        let dir = std::env::temp_dir().join("cameraftp_test_cache_raw_key");
+        std::fs::create_dir_all(&dir).unwrap();
+        let file_path = dir.join("test.jpg");
+        let mut f = std::fs::File::create(&file_path).unwrap();
+        f.write_all(&[0xFF, 0xD8, 0x00, 0x01]).unwrap();
+
+        let cache = ImagePreviewCache::new();
+        // 模拟 handler：以原始请求路径为键加载
+        cache.get_or_load(&file_path).unwrap();
+
+        // 模拟失效调用点：以同一原始字符串失效
+        cache.invalidate(&file_path);
+
+        let inner = cache.inner.read().unwrap();
+        assert!(
+            !inner.data.contains_key(&file_path.to_string_lossy().to_string()),
+            "invalidate with the raw request path must remove the entry"
+        );
+        assert_eq!(inner.total_bytes, 0);
+
+        drop(inner);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn invalidate_still_works_after_underlying_file_is_deleted() {
+        // 键不依赖文件存在性：文件删除后 invalidate（file_index 删除路径的真实
+        // 时序——先删文件再失效）仍必须移除条目，防止已删文件的陈旧预览。
+        let dir = std::env::temp_dir().join("cameraftp_test_cache_deleted_key");
+        std::fs::create_dir_all(&dir).unwrap();
+        let file_path = dir.join("gone.jpg");
+        std::fs::write(&file_path, b"bytes").unwrap();
+
+        let cache = ImagePreviewCache::new();
+        cache.get_or_load(&file_path).unwrap();
+
+        std::fs::remove_file(&file_path).unwrap();
+        cache.invalidate(&file_path);
+
+        let inner = cache.inner.read().unwrap();
+        assert!(
+            !inner.data.contains_key(&file_path.to_string_lossy().to_string()),
+            "invalidate must work even after the file is deleted from disk"
+        );
+        assert_eq!(inner.total_bytes, 0);
+
+        drop(inner);
+        std::fs::remove_dir_all(&dir).ok();
     }
 }
