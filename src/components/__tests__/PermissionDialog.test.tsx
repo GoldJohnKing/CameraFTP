@@ -168,3 +168,68 @@ describe('PermissionDialog gating', () => {
     expect(stopPollingMock).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('PermissionDialog start flow', () => {
+  const { getContainer, getRoot } = setupReactRoot();
+
+  const renderDialog = async (
+    isOpen: boolean,
+    props: { onClose: () => void; onAllGranted: () => void | Promise<void> },
+  ) => {
+    await act(async () => {
+      getRoot().render(
+        <PermissionDialog isOpen={isOpen} onClose={props.onClose} onAllGranted={props.onAllGranted} />,
+      );
+      await flush();
+    });
+  };
+
+  const getContinueButton = (): HTMLButtonElement => {
+    const buttons = within(getContainer()).getAllByRole('button');
+    const continueBtn = buttons.find(
+      (b) => b.textContent === '请授予权限' || b.textContent === '开始服务' || b.textContent === '启动中…',
+    );
+    if (!continueBtn) throw new Error('continue button not found');
+    return continueBtn as HTMLButtonElement;
+  };
+
+  beforeEach(() => {
+    permissionState.allGranted = false;
+    checkPermissionsMock.mockReset();
+    startPollingMock.mockReset();
+    stopPollingMock.mockReset();
+  });
+
+  it('启动失败时保持打开并显示错误，不调用 onClose', async () => {
+    permissionState.allGranted = true;
+    const onAllGranted = vi.fn().mockRejectedValue(new Error('boom'));
+    const onClose = vi.fn();
+
+    await renderDialog(true, { onClose, onAllGranted });
+
+    await act(async () => {
+      getContinueButton().click();
+      await flush();
+      await flush();
+    });
+
+    expect(within(getContainer()).getByText(/服务启动失败/)).toBeTruthy();
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it('启动成功后关闭对话框', async () => {
+    permissionState.allGranted = true;
+    const onAllGranted = vi.fn().mockResolvedValue(undefined);
+    const onClose = vi.fn();
+
+    await renderDialog(true, { onClose, onAllGranted });
+
+    await act(async () => {
+      getContinueButton().click();
+      await flush();
+      await flush();
+    });
+
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+});

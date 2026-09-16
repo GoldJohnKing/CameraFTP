@@ -177,4 +177,11 @@ describe('serverStore characterization', () => {
     expect(useServerStore.getState().serverInfo).toBeNull();
   });
 
+  it('启动进行中时忽略并发调用（防 UI+托盘双触发）', async () => {
+    useServerStore.setState({ isLoading: true, showPermissionDialog: false });
+    const result = await useServerStore.getState().startServer();
+    expect(result).toBe(false);
+    expect(useServerStore.getState().showPermissionDialog).toBe(false);
+  });
+
 });

@@ -69,6 +69,10 @@ export const useServerStore = create<ServerState>((set, get) => ({
   showPermissionDialog: false,
 
   startServer: async () => {
+    // 防重：UI 按钮与托盘事件可能并发触发；后端 start_server 幂等，
+    // 但并发调用会让第二个调用者收到误导性的 ServerAlreadyRunning 错误。
+    if (get().isLoading) return false;
+
     const permissions = await permissionBridge.checkAll();
 
     if (permissions !== null) {
@@ -100,6 +104,7 @@ export const useServerStore = create<ServerState>((set, get) => ({
   closePermissionDialog: () => set({ showPermissionDialog: false }),
 
   continueAfterPermissionsGranted: async () => {
+    if (get().isLoading) return;
     set({ showPermissionDialog: false });
     await doStartServer(set, get);
   },
