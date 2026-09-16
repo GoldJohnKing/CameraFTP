@@ -23,11 +23,11 @@
       }
     ],
     "security": {
-      "csp": null,
+      "csp": "default-src 'self' ipc: http://ipc.localhost; img-src 'self' asset: http://asset.localhost http://image-preview.localhost data:; style-src 'self' 'unsafe-inline'",
       "assetProtocol": {
         "enable": true,
         "scope": {
-          "allow": ["**"],
+          "allow": ["$APPCACHE/**", "$APPDATA/**"],
           "deny": []
         }
       }

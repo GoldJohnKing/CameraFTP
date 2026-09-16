@@ -91,8 +91,9 @@ pub fn load_config(config_service: State<'_, Arc<ConfigService>>) -> AppConfig {
 }
 
 #[command]
-#[instrument(skip(config, config_service, file_index))]
+#[instrument(skip(app, config, config_service, file_index))]
 pub async fn save_config(
+    app: AppHandle,
     config: AppConfig,
     config_service: State<'_, Arc<ConfigService>>,
     file_index: State<'_, Arc<FileIndexService>>,
@@ -108,7 +109,11 @@ pub async fn save_config(
 
     if old_save_path != new_save_path {
         tracing::info!("save_path changed from {:?} to {:?}, triggering rescan", old_save_path, new_save_path);
-        Arc::clone(&file_index).update_save_path(new_save_path).await?;
+        Arc::clone(&file_index).update_save_path(new_save_path.clone()).await?;
+        // 运行时扩展 asset protocol scope，使新保存目录无需重启即可用
+        if let Err(e) = app.asset_protocol_scope().allow_directory(&new_save_path, true) {
+            tracing::warn!(error = %e, "Failed to extend asset protocol scope for new save_path");
+        }
     }
 
     Ok(())
