@@ -117,13 +117,22 @@ pub async fn save_config(
 /// 保存认证配置（使用 Argon2id 哈希密码）
 #[command]
 #[instrument(skip(config_service, password))]
-pub fn save_auth_config(
+pub async fn save_auth_config(
     config_service: State<'_, Arc<ConfigService>>,
     anonymous: bool,
     username: String,
     password: String,
 ) -> Result<(), AppError> {
-    save_auth_config_with_service(config_service.inner().as_ref(), anonymous, username, password)
+    // Argon2id(m=64MB,t=3,p=4) 是重 CPU 计算：同步命令在桌面端跑在主线程
+    // （Tauri v2 语义）会阻塞 UI 事件循环，Android 端跑在 WebView 请求
+    // 线程会串行化其它 IPC。与 FTP 认证路径（ftp/server.rs）保持一致，
+    // 使用 spawn_blocking。
+    let service = Arc::clone(config_service.inner());
+    tokio::task::spawn_blocking(move || {
+        save_auth_config_with_service(service.as_ref(), anonymous, username, password)
+    })
+    .await
+    .map_err(|e| AppError::Other(format!("save_auth_config worker panicked: {}", e)))?
 }
 
 /// 选择保存目录
