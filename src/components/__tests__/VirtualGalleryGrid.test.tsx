@@ -434,4 +434,54 @@ describe('VirtualGalleryGrid', () => {
       vi.useRealTimers();
     }
   });
+
+  it('does not re-report the range when only callback identities change', async () => {
+    const items = makeItems(90); // 30 rows — same array instance for both renders
+    const onRangeChange1 = vi.fn();
+
+    await act(async () => {
+      getRoot().render(
+        <VirtualGalleryGrid
+          items={items}
+          thumbnails={new Map()}
+          loadingThumbs={new Set()}
+          onItemClick={vi.fn()}
+          onRangeChange={onRangeChange1}
+        />
+      );
+      await flush();
+    });
+
+    const gridContainer = getContainer().querySelector('[data-testid="virtual-grid-container"]');
+    expect(gridContainer).toBeTruthy();
+    if (gridContainer) {
+      act(() => {
+        resizeMock.triggerResize(gridContainer, 360);
+      });
+    }
+    await flush();
+
+    const callsAfterMount = onRangeChange1.mock.calls.length;
+    expect(callsAfterMount).toBeGreaterThanOrEqual(1);
+
+    // Same items/scroll, brand-new callback identities — exactly what happens
+    // on every GalleryCard render while thumbnails stream in.
+    const onRangeChange2 = vi.fn();
+    await act(async () => {
+      getRoot().render(
+        <VirtualGalleryGrid
+          items={items}
+          thumbnails={new Map()}
+          loadingThumbs={new Set()}
+          onItemClick={vi.fn()}
+          onRangeChange={onRangeChange2}
+          onNearEnd={vi.fn()}
+        />
+      );
+      await flush();
+    });
+
+    expect(onRangeChange2).not.toHaveBeenCalled();
+    expect(onRangeChange1.mock.calls.length).toBe(callsAfterMount);
+  });
 });

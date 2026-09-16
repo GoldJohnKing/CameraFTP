@@ -304,4 +304,22 @@ describe('useGalleryPager', () => {
     expect(getContainer().querySelector('[data-testid="loading"]')?.textContent).toBe('no');
     expect(getContainer().querySelector('[data-testid="count"]')?.textContent).toBe('1');
   });
+
+  it('returns a stable object reference across rerenders without new data', async () => {
+    listMediaPageMock.mockResolvedValueOnce(
+      makePage([makeItem('media-1')], null, 'rev-1'),
+    );
+
+    await renderHarness();
+    await clickLoadNext(getContainer);
+
+    const first = latestResult!;
+
+    await act(async () => {
+      getRoot().render(<PagerHarness />);
+      await flush();
+    });
+
+    expect(latestResult).toBe(first);
+  });
 });

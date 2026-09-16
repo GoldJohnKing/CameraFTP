@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
 
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import type { MediaItemDto, MediaCursor } from '../types';
 import { listMediaPage, GALLERY_PAGE_SIZE } from '../services/gallery-media-v2';
 
@@ -176,16 +176,19 @@ export function useGalleryPager(): UseGalleryPagerResult {
     }
   }, []);
 
-  return {
-    items,
-    cursor,
-    totalCount,
-    isLoading,
-    error,
-    loadNextPage,
-    reload,
-    loadAll,
-    removeItems,
-    addItems,
-  };
+  return useMemo(
+    () => ({
+      items,
+      cursor,
+      totalCount,
+      isLoading,
+      error,
+      loadNextPage,
+      reload,
+      loadAll,
+      removeItems,
+      addItems,
+    }),
+    [items, cursor, totalCount, isLoading, error, loadNextPage, reload, loadAll, removeItems, addItems],
+  );
 }
