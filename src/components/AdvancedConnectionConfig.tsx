@@ -6,10 +6,12 @@
 
 import { useState, useMemo } from 'react';
 import { Loader2, Eye, EyeOff, AlertCircle } from 'lucide-react';
+import { toast } from 'sonner';
 import { ToggleSwitch } from './ui';
 import type { AdvancedConnectionConfig, AppConfig } from '../types';
 import { parsePortInput, usePortCheck } from '../hooks/usePortCheck';
 import { useConfigStore } from '../stores/configStore';
+import { formatError } from '../utils/error';
 
 const PASSWORD_PLACEHOLDER = '••••••••';
 
@@ -203,7 +205,9 @@ export function AdvancedConnectionConfigPanel({
       setShowPassword(false);
     } catch (error) {
       console.error('Failed to save auth config:', error);
-      setIsEditingPassword(false);
+      toast.error('密码保存失败：' + formatError(error));
+      // 保持编辑模式与已输入内容，用户可修改后重试失焦保存；
+      // 清空输入再失焦即可放弃修改退出编辑。
     }
   };
 
