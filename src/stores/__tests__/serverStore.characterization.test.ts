@@ -184,4 +184,60 @@ describe('serverStore characterization', () => {
     expect(useServerStore.getState().showPermissionDialog).toBe(false);
   });
 
+  it('同步防重窗口：checkAll in-flight 期间并发 startServer 恰好触发一次 start_server', async () => {
+    // isLoading 要到 checkAll 之后才置位，唯一防线是模块级同步 flag。
+    // checkAll 用手动控制的 pending Promise 模拟慢 IPC，窗口未关闭期间
+    // 第二次 startServer 必须同步早退（返回 false、不产生额外 invoke）。
+    type Permissions = { storage: boolean; notification: boolean; batteryOptimization: boolean };
+    let resolveCheckAll!: (value: Permissions | null) => void;
+    checkAndroidPermissionsMock.mockImplementation(
+      () => new Promise<Permissions | null>((resolve) => { resolveCheckAll = resolve; }),
+    );
+
+    const first = useServerStore.getState().startServer();
+    const second = useServerStore.getState().startServer();
+
+    expect(await second).toBe(false);
+
+    resolveCheckAll({ storage: true, notification: true, batteryOptimization: true });
+    expect(await first).toBe(true);
+
+    const startCalls = invokeMock.mock.calls.filter(([command]) => command === 'start_server');
+    expect(startCalls).toHaveLength(1);
+  });
+
+  it('同步防重窗口：startServer in-flight 期间 continueAfterPermissionsGranted 早退且不翻转弹窗状态', async () => {
+    // 场景：首次 startServer 因权限缺失弹出权限对话框（返回 false、flag 复位）；
+    // 用户重开触发第二次 startServer（checkAll 挂起）时又点了对话框的"继续"——
+    // continueAfterPermissionsGranted 必须同步早退：不重复调用 start_server，
+    // 也不把 showPermissionDialog 错误翻转为 false。
+    type Permissions = { storage: boolean; notification: boolean; batteryOptimization: boolean };
+    let resolveCheckAll!: (value: Permissions | null) => void;
+    checkAndroidPermissionsMock.mockResolvedValue({
+      storage: false,
+      notification: true,
+      batteryOptimization: true,
+    });
+
+    // 第一步：权限缺失 → 弹出对话框，未启动。
+    expect(await useServerStore.getState().startServer()).toBe(false);
+    expect(useServerStore.getState().showPermissionDialog).toBe(true);
+
+    // 第二步：新的 startServer 挂在 checkAll 上（窗口开启）。
+    checkAndroidPermissionsMock.mockImplementation(
+      () => new Promise<Permissions | null>((resolve) => { resolveCheckAll = resolve; }),
+    );
+    const second = useServerStore.getState().startServer();
+
+    // 窗口未关闭期间点击"继续"——必须早退，弹窗保持打开。
+    await useServerStore.getState().continueAfterPermissionsGranted();
+    expect(useServerStore.getState().showPermissionDialog).toBe(true);
+
+    resolveCheckAll({ storage: true, notification: true, batteryOptimization: true });
+    expect(await second).toBe(true);
+
+    const startCalls = invokeMock.mock.calls.filter(([command]) => command === 'start_server');
+    expect(startCalls).toHaveLength(1);
+  });
+
 });

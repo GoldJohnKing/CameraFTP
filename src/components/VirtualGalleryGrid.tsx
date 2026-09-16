@@ -117,9 +117,10 @@ export const VirtualGalleryGrid = forwardRef<VirtualGalleryGridHandle, VirtualGa
   // the next pulse still fires.
   const lastArmedHighlightRef = useRef<string | null>(null);
 
-  // 上次 range 上报的（items 引用 + 范围 key）。回调引用（onRangeChange/
-  // onNearEnd）在父组件每次渲染都可能变化，但 items 与可见范围未变时跳过
-  // 上报 — 否则缩略图批量到达期间每次渲染都重置 scheduler 的 60ms debounce。
+  // 上次 range 上报的（items 引用 + 范围 key）。回调引用（onRangeChange）
+  // 在父组件每次渲染都可能变化，但 items 与可见范围未变时跳过上报 — 否则
+  // 缩略图批量到达期间每次渲染都重置 scheduler 的 60ms debounce。
+  // （near-end 翻页触发在独立 effect 中评估，不受此短路影响。）
   const lastReportedRangeRef = useRef<{ items: MediaItemDto[]; key: string } | null>(null);
 
   const totalRows = Math.ceil(items.length / COLUMNS);
@@ -239,8 +240,10 @@ export const VirtualGalleryGrid = forwardRef<VirtualGalleryGridHandle, VirtualGa
     return items.slice(startIdx, endIdx);
   }, [items, startRow, endRow]);
 
-  // Report range changes and trigger infinite scroll
+  // Report range changes (near-end 翻页触发已拆分到下方独立 effect 评估)
   useEffect(() => {
+    // 下方几个早退只作用于 range 上报（防抖重置语义）：!onRangeChange /
+    // 空 items / 容器高未测量时直接跳过上报，不拦截其它职责。
     if (!onRangeChange) return;
     if (items.length === 0) return;
     // Skip if container height is not yet measured - prevents incorrect range calculation
@@ -257,17 +260,6 @@ export const VirtualGalleryGrid = forwardRef<VirtualGalleryGridHandle, VirtualGa
       visibleIds[visibleIds.length - 1] ?? ''
     }`;
 
-    // Trigger infinite scroll when near the end — 每次 effect 运行都评估
-    // （loadNextPage 在 pager 侧有幂等/游标保护，重复调用无害）；下面的
-    // 短路只作用于 range 上报（防抖重置语义），不能拦截 near-end 重试，
-    // 否则回调身份变化（父组件重渲染）期间恰好临近底部会丢失翻页触发。
-    if (onNearEnd && totalRows > 0) {
-      const rowsRemaining = totalRows - visibleEndRow - 1;
-      if (rowsRemaining <= NEAR_END_THRESHOLD) {
-        onNearEnd();
-      }
-    }
-
     const last = lastReportedRangeRef.current;
     if (last && last.items === items && last.key === rangeKey) return;
     lastReportedRangeRef.current = { items, key: rangeKey };
@@ -280,7 +272,23 @@ export const VirtualGalleryGrid = forwardRef<VirtualGalleryGridHandle, VirtualGa
       .filter((id) => !visibleIds.includes(id));
 
     onRangeChange(visibleIds, nearbyIds);
-  }, [items, visibleStartRow, visibleEndRow, startRow, endRow, onRangeChange, onNearEnd, containerHeight, totalRows]);
+  }, [items, visibleStartRow, visibleEndRow, startRow, endRow, onRangeChange, containerHeight]);
+
+  // Trigger infinite scroll when near the end — 独立于 range 上报单独评估：
+  // loadNextPage 在 pager 侧有幂等/游标保护，重复调用无害，因此每次 effect
+  // 运行都评估（不做 range 那样的同范围短路），否则回调身份变化（父组件
+  // 重渲染）期间恰好临近底部会丢失翻页触发。
+  useEffect(() => {
+    if (items.length === 0) return;
+    // Skip if container height is not yet measured - prevents incorrect range calculation
+    if (containerHeight === 0) return;
+    if (!onNearEnd || totalRows <= 0) return;
+
+    const rowsRemaining = totalRows - visibleEndRow - 1;
+    if (rowsRemaining <= NEAR_END_THRESHOLD) {
+      onNearEnd();
+    }
+  }, [items, visibleEndRow, totalRows, onNearEnd, containerHeight]);
 
   // When the parent requests a highlight, arm it only once the target cell is in
   // the render window. This decouples the pulse from scroll timing: on a big

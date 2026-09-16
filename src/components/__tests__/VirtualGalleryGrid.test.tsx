@@ -702,6 +702,81 @@ describe('VirtualGalleryGrid', () => {
     }
   });
 
+  it('renders the window derived from the measured pitch after a real scroll', async () => {
+    // 虚拟化主修复（实测行距 × 滚动）的首个回归保护：render window 必须由
+    // 实测 pitch 推导，而非硬编码 fallback。精确推导（stub 样式 width=380、
+    // padding 左右 2/2、上下 4/6、gap 6/6 → 与 measureGridMetrics 一致）：
+    //   pitch           = (380 − 2 − 2 − 2×6)/3 + 6 = 364/3 + 6 = 127⅓ ≈ 127.3333
+    //   visibleStartRow = floor(1300 / 127⅓)          = floor(10.2105…) = 10
+    //   visibleEndRow   = floor((1300+360) / 127⅓)    = floor(13.0367…) = 13
+    //   startRow        = max(0, 10 − OVERSCAN_ROWS)  = 7
+    //   endRow          = min(100−1, 13 + OVERSCAN_ROWS) = 16
+    //   → 渲染行 7..16（10 行 × 3 列）= data-grid-index 集合 {21..50}
+    const restore = stubInnerGridComputedStyle();
+    try {
+      const CONTAINER_HEIGHT = 360;
+      const items = makeItems(300); // 100 rows
+      const COLUMNS = 3;
+      const OVERSCAN_ROWS = 3;
+
+      await act(async () => {
+        getRoot().render(
+          <VirtualGalleryGrid
+            items={items}
+            thumbnails={new Map()}
+            loadingThumbs={new Set()}
+            onItemClick={vi.fn()}
+          />
+        );
+        await flush();
+      });
+
+      const gridContainer = getContainer().querySelector('[data-testid="virtual-grid-container"]');
+      expect(gridContainer).toBeTruthy();
+      if (gridContainer) {
+        act(() => {
+          resizeMock.triggerResize(gridContainer, CONTAINER_HEIGHT);
+        });
+      }
+      await flush();
+
+      // Real scroll to 1300px with the measured pitch in force.
+      Object.defineProperty(gridContainer!, 'scrollTop', {
+        value: 1300,
+        writable: true,
+        configurable: true,
+      });
+      act(() => {
+        gridContainer!.dispatchEvent(new Event('scroll'));
+      });
+      await flush();
+
+      // Expected window = visible rows ± OVERSCAN_ROWS, all × COLUMNS per row.
+      const pitch = (380 - 2 - 2 - 2 * 6) / 3 + 6; // 127.3333…
+      const expectedStartRow = Math.max(0, Math.floor(1300 / pitch) - OVERSCAN_ROWS);
+      const expectedEndRow = Math.min(
+        Math.ceil(items.length / COLUMNS) - 1,
+        Math.floor((1300 + CONTAINER_HEIGHT) / pitch) + OVERSCAN_ROWS,
+      );
+      const expected = new Set<number>();
+      for (let row = expectedStartRow; row <= expectedEndRow; row++) {
+        for (let col = 0; col < COLUMNS; col++) {
+          expected.add(row * COLUMNS + col);
+        }
+      }
+
+      const rendered = Array.from(
+        getContainer().querySelectorAll('[data-grid-index]'),
+      ).map((el) => Number(el.getAttribute('data-grid-index')));
+      expect(new Set(rendered)).toEqual(expected);
+      expect(rendered).toHaveLength(expected.size);
+      expect(expectedStartRow).toBe(7);
+      expect(expectedEndRow).toBe(16);
+    } finally {
+      restore();
+    }
+  });
+
   it('remeasures row metrics when the ResizeObserver fires', async () => {
     const items = makeItems(300); // 100 rows
     await act(async () => {

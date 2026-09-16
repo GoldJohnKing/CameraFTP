@@ -213,13 +213,25 @@ describe('PermissionDialog start flow', () => {
 
   it('启动成功后关闭对话框', async () => {
     permissionState.allGranted = true;
-    const onAllGranted = vi.fn().mockResolvedValue(undefined);
+    // 手动控制 onAllGranted 的完成时机，以便在 isStarting 期间检查按钮。
+    let releaseStart!: () => void;
+    const onAllGranted = vi.fn().mockImplementation(
+      () => new Promise<void>((resolve) => { releaseStart = resolve; }),
+    );
     const onClose = vi.fn();
 
     await renderDialog(true, { onClose, onAllGranted });
 
     await act(async () => {
       getContinueButton(getContainer()).click();
+      await flush();
+    });
+
+    // isStarting 期间按钮必须禁用（防双击重复启动）。
+    expect(getContinueButton(getContainer()).disabled).toBe(true);
+
+    await act(async () => {
+      releaseStart();
       await flush();
       await flush();
     });
