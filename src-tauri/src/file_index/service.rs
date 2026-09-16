@@ -172,16 +172,21 @@ impl FileIndexService {
 
         let paths = self.collect_image_paths(&save_path).await?;
 
-        // 并发获取文件信息（EXIF 解析经 spawn_blocking，见 read_exif_time）
+        // 并发获取文件信息（EXIF 解析经 spawn_blocking，见 read_exif_time）。
+        // 错误携带源路径，日志可定位到具体文件。
         let infos = {
             futures::stream::iter(paths)
                 .map(|path| async move {
-                    let metadata = tokio::fs::metadata(&path).await
-                        .map_err(|e| AppError::Other(format!("Failed to get metadata: {}", e)))?;
-                    self.get_file_info(&path, &metadata).await
+                    let metadata = match tokio::fs::metadata(&path).await {
+                        Ok(m) => m,
+                        Err(e) => {
+                            return Err((path, AppError::Other(format!("Failed to get metadata: {}", e))))
+                        }
+                    };
+                    self.get_file_info(&path, &metadata).await.map_err(|e| (path, e))
                 })
                 .buffer_unordered(SCAN_CONCURRENCY)
-                .collect::<Vec<Result<FileInfo, AppError>>>()
+                .collect::<Vec<Result<FileInfo, (PathBuf, AppError)>>>()
                 .await
         };
 
@@ -189,8 +194,8 @@ impl FileIndexService {
             .into_iter()
             .filter_map(|r| match r {
                 Ok(file_info) => Some(file_info),
-                Err(e) => {
-                    warn!("Failed to get file info during scan: {}", e);
+                Err((path, e)) => {
+                    warn!("Failed to get file info during scan {:?}: {}", path, e);
                     None
                 }
             })
