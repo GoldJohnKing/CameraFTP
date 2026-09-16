@@ -16,7 +16,9 @@
 read_versions() {
     pkg="$(sed -n 's/^  "version": "\(.*\)",$/\1/p' package.json | head -1)"
     cargo="$(sed -n 's/^version = "\(.*\)"$/\1/p' src-tauri/Cargo.toml | head -1)"
-    tauri="$(sed -n 's/.*"version": "\(.*\)",$/\1/p' src-tauri/tauri.conf.json | head -1)"
+    # Same anchor (^  "version": ..., 2-space top-level key) as the
+    # bump-version.sh rewrite — keeps read and write symmetric.
+    tauri="$(sed -n 's/^  "version": "\(.*\)",$/\1/p' src-tauri/tauri.conf.json | head -1)"
     badge="$(sed -n 's/.*version-\([0-9][0-9.]*\)-blue.*/\1/p' README.md | head -1)"
     lock="$(sed -n '/^name = "cameraftp"$/{n;s/^version = "\(.*\)"$/\1/p;}' src-tauri/Cargo.lock)"
 }

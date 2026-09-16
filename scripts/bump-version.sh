@@ -38,6 +38,11 @@ fi
 
 echo "Bumping version: $OLD_VERSION -> $NEW_VERSION"
 
+# Atomicity: if anything between here and the successful gen-types run fails
+# (set -e aborts), restore the four files to their pre-bump (committed) state.
+# Cleared on the success path right after gen-types completes.
+trap 'git checkout -- package.json src-tauri/Cargo.toml src-tauri/tauri.conf.json README.md; echo "bump aborted, files restored" >&2' EXIT
+
 sed -i "s/^  \"version\": \"$OLD_VERSION\",/  \"version\": \"$NEW_VERSION\",/" package.json
 sed -i "s/^version = \"$OLD_VERSION\"/version = \"$NEW_VERSION\"/" src-tauri/Cargo.toml
 # Anchored to the top-level key (2-space indent): a nested "version" key —
@@ -47,6 +52,9 @@ sed -i "s/version-$OLD_VERSION-blue/version-$NEW_VERSION-blue/" README.md
 
 # Refresh src-tauri/Cargo.lock's cameraftp entry (runs cargo.exe via build.sh)
 ./build.sh gen-types
+
+# Success: disarm the restore trap.
+trap - EXIT
 
 echo ""
 echo "Updated version references:"

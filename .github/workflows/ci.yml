@@ -63,7 +63,8 @@ jobs:
       - name: shellcheck
         run: shellcheck build.sh scripts/*.sh
       - name: Install actionlint
-        run: bash <(curl https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash)
+        # pinned to release tag; the script self-verifies downloaded binaries against the release's checksums.txt（main 分支可变，不可用于 fork PR 信任边界）
+        run: curl -fsSL https://raw.githubusercontent.com/rhysd/actionlint/v1.7.7/scripts/download-actionlint.bash | bash
       - name: actionlint
         run: actionlint
 

@@ -58,6 +58,8 @@ coverage/
 *.aab
 *.keystore
 *.jks
+# legacy location (now ~/.cameraftp/keystore-pass); keep ignoring stray copies on existing machines
+scripts/.keystore-pass
 src-tauri/gen/schemas/
 *.backup.*/
 src-tauri/gen/android/.*
