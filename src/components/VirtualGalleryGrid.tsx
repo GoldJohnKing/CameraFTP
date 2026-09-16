@@ -119,6 +119,11 @@ export const VirtualGalleryGrid = forwardRef<VirtualGalleryGridHandle, VirtualGa
   // the next pulse still fires.
   const lastArmedHighlightRef = useRef<string | null>(null);
 
+  // 上次 range 上报的（items 引用 + 范围 key）。回调引用（onRangeChange/
+  // onNearEnd）在父组件每次渲染都可能变化，但 items 与可见范围未变时跳过
+  // 上报 — 否则缩略图批量到达期间每次渲染都重置 scheduler 的 60ms debounce。
+  const lastReportedRangeRef = useRef<{ items: MediaItemDto[]; key: string } | null>(null);
+
   const totalRows = Math.ceil(items.length / COLUMNS);
   const totalHeight = metrics.padTop + totalRows * metrics.pitch + metrics.padBottom;
 
@@ -243,6 +248,16 @@ export const VirtualGalleryGrid = forwardRef<VirtualGalleryGridHandle, VirtualGa
     const visibleStartIdx = visibleStartRow * COLUMNS;
     const visibleEndIdx = Math.min(items.length, (visibleEndRow + 1) * COLUMNS);
     const visibleIds = items.slice(visibleStartIdx, visibleEndIdx).map((item) => item.mediaId);
+
+    // 索引范围 + 首尾 mediaId 构成 key：范围相同但数据变了（删除/刷新/
+    // 追加换页）仍需上报；items 数组引用同时参与比较，保证 reload 后同
+    // 位置也会重新上报（触发缩略图重新请求）。
+    const rangeKey = `${visibleStartIdx}:${visibleEndIdx}:${visibleIds[0] ?? ''}:${
+      visibleIds[visibleIds.length - 1] ?? ''
+    }`;
+    const last = lastReportedRangeRef.current;
+    if (last && last.items === items && last.key === rangeKey) return;
+    lastReportedRangeRef.current = { items, key: rangeKey };
 
     const nearbyStartIdx = startRow * COLUMNS;
     const nearbyEndIdx = Math.min(items.length, (endRow + 1) * COLUMNS);

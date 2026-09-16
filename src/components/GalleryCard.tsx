@@ -37,6 +37,11 @@ export const GalleryCard = memo(function GalleryCard() {
   const pager = useGalleryPager();
   const scheduler = useThumbnailScheduler();
 
+  // scheduler 对象随 thumbnails 变化而变化（见 useThumbnailScheduler 的
+  // useMemo 依赖），用 ref 持有以避免 items 未变时重跑 O(n) 注册
+  const schedulerRef = useRef(scheduler);
+  schedulerRef.current = scheduler;
+
   useAndroidAutoOpenLatestPhoto({
     galleryItems: pager.items,
     openMethod: draft?.androidImageViewer?.openMethod,
@@ -90,9 +95,9 @@ export const GalleryCard = memo(function GalleryCard() {
   // Register media metadata with scheduler when items change
   useEffect(() => {
     if (pager.items.length > 0) {
-      scheduler.registerMedia(pager.items);
+      schedulerRef.current.registerMedia(pager.items);
     }
-  }, [pager.items, scheduler]);
+  }, [pager.items]);
   // ===== Extension filter =====
   const [filterMode, setFilterMode] = useState<GalleryFilterMode>('all');
   // Categories that actually have at least one loaded item; drives which
