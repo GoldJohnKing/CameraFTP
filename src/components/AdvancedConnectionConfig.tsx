@@ -158,7 +158,7 @@ export function AdvancedConnectionConfigPanel({
     if (parsedPort.port === port) return;
 
     const checkResult = await checkPort(parsedPort.port);
-    if (checkResult.error) {
+    if (checkResult.error !== undefined) {
       setPortError({ type: 'port_check_failed' });
       return;
     }
