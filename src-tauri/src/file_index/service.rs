@@ -40,11 +40,12 @@ impl FileIndexService {
             warn!(error = %e, "Failed to read config from ConfigService, using defaults");
             Arc::new(AppConfig::default())
         });
+        let save_path = config.save_path.clone();
         Self {
             index: RwLock::new(FileIndex::new()),
-            save_path: RwLock::new(config.save_path.clone()),
+            save_path: RwLock::new(save_path.clone()),
             #[cfg(target_os = "windows")]
-            watcher: Mutex::new(Some(FileWatcher::new(config.save_path.clone()))),
+            watcher: Mutex::new(Some(FileWatcher::new(save_path))),
             app_handle: Arc::new(RwLock::new(None)),
         }
     }
@@ -201,14 +202,10 @@ impl FileIndexService {
             })
             .collect();
 
-        // 按 sort_time 降序，相同则按 modified_time 降序（新文件优先）
-        files.sort_by(|a, b| {
-            b.sort_time.cmp(&a.sort_time)
-                .then_with(|| b.modified_time.cmp(&a.modified_time))
-        });
-
         let mut index = self.index.write().await;
-        let existing: Vec<FileInfo> = index.files().as_ref().clone();
+        // merge_scan_result 内部会整体排序，此处无需预排序；
+        // existing 只被只读借用，克隆外层 Arc 即可，避免整份 Vec 深拷贝
+        let existing = Arc::clone(index.files());
         let merged = Self::merge_scan_result(files, &existing, &pre_scan_paths);
         index.current_index = merged.first().map(|_| 0);
         let count = merged.len();
@@ -362,8 +359,12 @@ impl FileIndexService {
         // 原子检查-插入（写锁内防 TOCTOU 竞态）
         let mut index = self.index.write().await;
 
-        if let Some(pos) = index.files().iter().position(|f| f.path == path) {
-            let existing_has_exif = index.files()[pos].exif_time.is_some();
+        // 单次遍历定位：同时携带位置、既有 EXIF 状态与"是否为当前查看项"，
+        // 避免对 files() 的重复索引访问
+        let mut was_current = false;
+        if let Some((pos, existing)) = index.files().iter().enumerate().find(|(_, f)| f.path == path) {
+            let existing_has_exif = existing.exif_time.is_some();
+            was_current = index.current_index == Some(pos);
             if existing_has_exif || file_info.exif_time.is_none() {
                 // 已有条目不劣于新解析结果：跳过（并发重复，或新解析失败）
                 trace!("File already indexed, skipping: {:?}", path);
@@ -395,6 +396,11 @@ impl FileIndexService {
                 if insert_pos <= current {
                     index.current_index = Some(current + 1);
                 }
+            }
+            // 回填重插的正是当前查看项：remove+adjust 后的通用位移不再适用，
+            // 无论条目前移/后移，直接把 current_index 指回该文件的新位置
+            if was_current {
+                index.current_index = Some(insert_pos);
             }
         }
 
@@ -821,6 +827,72 @@ mod tests {
             files[0].exif_time.is_some(),
             "stale entry must be backfilled with EXIF time"
         );
+    }
+
+    #[tokio::test]
+    async fn add_file_backfill_keeps_current_index_when_exif_moves_newer() {
+        // 当前查看项回填后 EXIF 变新 → 条目前移到列表头（位置 0），
+        // current_index 必须仍指向该文件，而不是指向顶替其旧位置的邻居
+        let temp_dir = tempdir().expect("failed to create temp dir");
+        let config_service = ConfigService::new_with_path(temp_dir.path().join("config.json"));
+        let service = FileIndexService::new(Arc::new(config_service));
+
+        // [a(3000), b(2000), c(1000)] 按 mtime 排序
+        service.add_file(create_file_with_mtime(temp_dir.path(), "a.jpg", 3000)).await.unwrap();
+        service.add_file(create_file_with_mtime(temp_dir.path(), "b.jpg", 2000)).await.unwrap();
+        service.add_file(create_file_with_mtime(temp_dir.path(), "c.jpg", 1000)).await.unwrap();
+
+        // 目标文件：无 EXIF、mtime 1500 → 落在 b 与 c 之间（索引位置 2），设为当前查看项
+        let target = create_file_with_mtime(temp_dir.path(), "target.jpg", 1500);
+        service.add_file(target.clone()).await.unwrap();
+        let current = service.find_file_index(&target).await.expect("target must be indexed");
+        assert_eq!(current, 2);
+        service.navigate_to(current).await.expect("navigate to target");
+        assert_eq!(service.get_current_index().await, Some(2));
+
+        // 补上"远新于一切 mtime"的 EXIF（2030）→ 回填后 sort_time 最大，前移到位置 0
+        std::fs::write(&target, crate::image_utils::build_exif_jpeg("2030:06:15 12:00:00", 1))
+            .expect("overwrite with exif jpeg");
+        service.add_file(target.clone()).await.unwrap();
+
+        let files = service.get_files().await;
+        assert_eq!(files.len(), 4, "backfill must replace, not duplicate");
+        assert_eq!(files[0].path, target, "newer EXIF must move the entry to the front");
+        let current_index = service.get_current_index().await.expect("current must stay set");
+        assert_eq!(current_index, 0);
+        assert_eq!(files[current_index].path, target, "current index must follow the backfilled file");
+    }
+
+    #[tokio::test]
+    async fn add_file_backfill_keeps_current_index_when_exif_moves_older() {
+        // 当前查看项回填后 EXIF 变旧 → 条目后移到列表尾（位置 3），
+        // current_index 必须仍指向该文件
+        let temp_dir = tempdir().expect("failed to create temp dir");
+        let config_service = ConfigService::new_with_path(temp_dir.path().join("config.json"));
+        let service = FileIndexService::new(Arc::new(config_service));
+
+        service.add_file(create_file_with_mtime(temp_dir.path(), "a.jpg", 3000)).await.unwrap();
+        service.add_file(create_file_with_mtime(temp_dir.path(), "b.jpg", 2000)).await.unwrap();
+        service.add_file(create_file_with_mtime(temp_dir.path(), "c.jpg", 1000)).await.unwrap();
+
+        // 无 EXIF、mtime 1500 → 落在 b 与 c 之间（索引位置 2），设为当前查看项
+        let target = create_file_with_mtime(temp_dir.path(), "target.jpg", 1500);
+        service.add_file(target.clone()).await.unwrap();
+        let current = service.find_file_index(&target).await.expect("target must be indexed");
+        assert_eq!(current, 2);
+        service.navigate_to(current).await.expect("navigate to target");
+
+        // 补上"远旧于一切 mtime"的 EXIF（epoch+30s）→ 回填后 sort_time 最小，后移到末尾
+        std::fs::write(&target, crate::image_utils::build_exif_jpeg("1970:01:01 00:00:30", 1))
+            .expect("overwrite with exif jpeg");
+        service.add_file(target.clone()).await.unwrap();
+
+        let files = service.get_files().await;
+        assert_eq!(files.len(), 4, "backfill must replace, not duplicate");
+        assert_eq!(files[3].path, target, "older EXIF must move the entry to the back");
+        let current_index = service.get_current_index().await.expect("current must stay set");
+        assert_eq!(current_index, 3);
+        assert_eq!(files[current_index].path, target, "current index must follow the backfilled file");
     }
 
     #[tokio::test]

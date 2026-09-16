@@ -149,15 +149,8 @@ pub async fn inject_exif_orientation(
     .await
     .map_err(|e| AppError::Io(format!("Task join error: {}", e)))??;
 
-    #[cfg(target_os = "windows")]
-    {
-        use tauri::Manager;
-        if let Some(cache) = app.try_state::<std::sync::Arc<crate::image_preview::ImagePreviewCache>>() {
-            let path = std::path::PathBuf::from(&thumbnail_path);
-            cache.invalidate(&path);
-        }
-    }
-    #[cfg(not(target_os = "windows"))]
+    // 预览缓存失效块已删除：inject_exif_orientation 仅由 Android bridge 调用
+    // （缩略图管线 Android-only），Windows 永无缩略图消费者，不存在需要失效的缓存。
     let _ = app;
 
     Ok(true)

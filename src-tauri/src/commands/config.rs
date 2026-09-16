@@ -106,14 +106,15 @@ pub async fn save_config(
     config_service: State<'_, Arc<ConfigService>>,
     file_index: State<'_, Arc<FileIndexService>>,
 ) -> Result<(), AppError> {
-    let old_save_path = config_service
+    let (old_save_path, new_save_path) = config_service
         .mutate_and_persist_async(move |current| {
             let old_save_path = current.save_path.clone();
             *current = merge_backend_owned_fields(config, current);
-            old_save_path
+            // 新路径从 mutate 后的状态直接携带，避免落盘后再 get() 二次读取
+            let new_save_path = current.save_path.clone();
+            (old_save_path, new_save_path)
         })
         .await?;
-    let new_save_path = config_service.get()?.save_path.clone();
 
     tracing::info!("Configuration saved successfully");
 
@@ -277,6 +278,26 @@ mod tests {
 
         let loaded = service.get_or_default();
         assert_eq!(loaded.port, 3777);
+    }
+
+    #[test]
+    fn tauri_conf_csp_covers_preview_and_asset_origins() {
+        // 回归：Windows 预览窗口依赖 image-preview scheme 与 asset protocol，
+        // CSP 缺失任一来源会导致 <img> 加载失败（测试 CWD = src-tauri）
+        let raw = std::fs::read_to_string("tauri.conf.json").expect("read tauri.conf.json");
+        let conf: serde_json::Value =
+            serde_json::from_str(&raw).expect("parse tauri.conf.json");
+        let csp = conf["app"]["security"]["csp"]
+            .as_str()
+            .expect("csp must be a string");
+        for required in [
+            "http://image-preview.localhost",
+            "asset:",
+            "http://asset.localhost",
+            "default-src 'self'",
+        ] {
+            assert!(csp.contains(required), "CSP must contain {:?}", required);
+        }
     }
 
     #[tokio::test]

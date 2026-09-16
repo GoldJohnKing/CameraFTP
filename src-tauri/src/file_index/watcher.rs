@@ -172,15 +172,15 @@ impl FileWatcher {
         match event {
             FileSystemEvent::Created(path) => {
                 debug!("File created: {:?}", path);
-                // 等待文件就绪（而非固定延迟）
-                if wait_for_file_ready(&path, Duration::from_secs(FILE_READY_TIMEOUT_SECS)).await {
-                    if let Err(e) = file_index.add_file(path.clone()).await {
-                        warn!("Failed to add file to index: {}", e);
-                    } else {
-                        info!("File added to index via watcher: {:?}", path);
-                    }
+                // 等待文件就绪（而非固定延迟）；超时不再丢弃事件，降级为
+                // 尽力而为索引——陈旧/半写条目由 add_file 的 EXIF 回填机制善后
+                if !wait_for_file_ready(&path, Duration::from_secs(FILE_READY_TIMEOUT_SECS)).await {
+                    warn!("File not ready after timeout, indexing best-effort: {:?}", path);
+                }
+                if let Err(e) = file_index.add_file(path.clone()).await {
+                    warn!("Failed to add file to index: {}", e);
                 } else {
-                    warn!("File not ready after timeout: {:?}", path);
+                    info!("File added to index via watcher: {:?}", path);
                 }
             }
             FileSystemEvent::Deleted(path) => {
@@ -210,15 +210,14 @@ impl FileWatcher {
                     _ => {}
                 }
                 
-                // 等待新路径文件就绪（而非固定延迟）
-                if wait_for_file_ready(&to, Duration::from_secs(FILE_READY_TIMEOUT_SECS)).await {
-                    if let Err(e) = file_index.add_file(to.clone()).await {
-                        warn!("Failed to add renamed file to index: {}", e);
-                    } else {
-                        info!("Added renamed file to index: {:?}", to);
-                    }
+                // 等待新路径文件就绪；超时同样降级为尽力而为索引（EXIF 回填善后）
+                if !wait_for_file_ready(&to, Duration::from_secs(FILE_READY_TIMEOUT_SECS)).await {
+                    warn!("Renamed file not ready after timeout, indexing best-effort: {:?}", to);
+                }
+                if let Err(e) = file_index.add_file(to.clone()).await {
+                    warn!("Failed to add renamed file to index: {}", e);
                 } else {
-                    warn!("Renamed file not ready after timeout: {:?}", to);
+                    info!("Added renamed file to index: {:?}", to);
                 }
             }
         }
@@ -444,9 +443,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn process_created_for_missing_file_times_out_without_indexing() {
+    async fn process_created_for_missing_file_times_out_but_attempts_best_effort_index() {
         // 文件始终不落地 → wait_for_file_ready 在 FILE_READY_TIMEOUT_SECS（5s）后放弃，
-        // 事件被丢弃而非无限等待或 panic（钉住就绪等待的超时兜底分支，测试耗时 ~5s）
+        // 超时分支不再丢弃事件而是 best-effort 调 add_file；add_file 因 metadata Err
+        // 返回 Err（warn 路径），索引保持干净——无 panic、无 ghost 条目（~5s）
         let temp_dir = tempfile::tempdir().expect("create temp dir");
         let file_index = make_file_index();
         let ghost = temp_dir.path().join("ghost.jpg");
@@ -454,6 +454,45 @@ mod tests {
         FileWatcher::process_event(FileSystemEvent::Created(ghost), Arc::clone(&file_index)).await;
 
         assert_eq!(file_index.get_file_count().await, 0);
+    }
+
+    #[tokio::test]
+    async fn process_created_times_out_for_changing_file_but_still_indexes_it() {
+        // 探测超时但文件真实存在（mtime 在整个探测窗口内持续变化，模拟极慢写入）：
+        // 降级路径必须仍调用 add_file 尽力索引，而不是跳过事件（钉住 R1 的
+        // best-effort 语义——陈旧条目交由 EXIF 回填机制善后，测试耗时 ~6s）
+        let temp_dir = tempfile::tempdir().expect("create temp dir");
+        let file_index = make_file_index();
+        let path = write_image(temp_dir.path(), "slow-write.jpg");
+
+        // 后台持续拨动 mtime（len 不变），让 (len, mtime) 签名在整个 5s 探测窗口内
+        // 永不稳定 → wait_for_file_ready 必然走超时分支
+        let touch_path = path.clone();
+        let bumper = tokio::spawn(async move {
+            for i in 0..80u32 {
+                tokio::time::sleep(Duration::from_millis(80)).await;
+                let bumped = std::time::SystemTime::now()
+                    + std::time::Duration::from_secs(1)
+                    + std::time::Duration::from_millis(u64::from(i));
+                let _ = filetime::set_file_mtime(
+                    &touch_path,
+                    filetime::FileTime::from_system_time(bumped),
+                );
+            }
+        });
+
+        FileWatcher::process_event(FileSystemEvent::Created(path.clone()), Arc::clone(&file_index))
+            .await;
+
+        assert_eq!(
+            file_index.get_file_count().await, 1,
+            "timeout must degrade to best-effort add_file, not skip the event"
+        );
+        let files = file_index.get_files().await;
+        assert_eq!(files[0].path, path, "degraded index must contain the slow file");
+
+        // 收尾后台拨动任务，避免 tempdir 清理与句柄竞争
+        bumper.abort();
     }
 
     // ---- 生命周期 ----

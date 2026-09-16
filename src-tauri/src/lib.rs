@@ -174,6 +174,31 @@ pub fn run() {
             let config_service = Arc::new(ConfigService::new()?);
             config_service.set_global();
             app.manage(Arc::clone(&config_service));
+
+            // 启动时扩展 asset protocol scope：save_config 在运行期对新保存目录
+            // allow_directory，但重启后 tauri.conf.json 的静态 scope 不含该目录；
+            // 此处按持久化配置补齐，使重启后语义与 save_config 路径一致
+            // （默认路径无需扩展；失败仅 warn，不阻断启动）
+            match config_service.get() {
+                Ok(config) => {
+                    let save_path = config.save_path.clone();
+                    if save_path != crate::config::AppConfig::default().save_path {
+                        if let Err(e) = app.asset_protocol_scope().allow_directory(&save_path, true) {
+                            tracing::warn!(
+                                error = %e,
+                                path = ?save_path,
+                                "Failed to extend asset protocol scope for configured save_path"
+                            );
+                        }
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        error = %e,
+                        "Failed to read config for startup asset scope extension"
+                    );
+                }
+            }
             let file_index = Arc::new(FileIndexService::new(Arc::clone(&config_service)));
             tauri::async_runtime::block_on(file_index.set_app_handle(app.handle().clone()));
             app.manage(file_index);
@@ -344,14 +369,16 @@ pub fn run() {
                         }
                     }
                     Ok(None) => {
+                        // 统一 404（与 Err 分支同响应）：403 会构成存在性 oracle，
+                        // 让调用方能区分"路径存在但越界"与"路径不存在"
                         tracing::warn!(
                             requested = %path_encoded,
                             "image-preview request outside save_path rejected"
                         );
                         responder.respond(
                             tauri::http::Response::builder()
-                                .status(403)
-                                .body(b"Forbidden".to_vec())
+                                .status(404)
+                                .body(b"Not Found".to_vec())
                                 .unwrap(),
                         );
                     }

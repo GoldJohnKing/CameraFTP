@@ -352,6 +352,30 @@ mod tests {
         assert!(result.is_err(), "missing path should surface an io error");
     }
 
+    // Windows 创建 symlink 需要开发者模式/管理员权限，故仅在 unix 验证
+    // （canonicalize 语义一致：都解析符号链接后再判包含关系）
+    #[cfg(unix)]
+    #[test]
+    fn validate_preview_path_rejects_symlink_escaping_save_root() {
+        use std::os::unix::fs::symlink;
+
+        let base = std::env::temp_dir().join("cameraftp_test_preview_symlink");
+        let _ = std::fs::remove_dir_all(&base);
+        let root = base.join("root");
+        std::fs::create_dir_all(&root).unwrap();
+        let outside = base.join("outside.jpg");
+        std::fs::write(&outside, b"secret").unwrap();
+
+        // 根内 symlink 指向根外文件：canonicalize 解析后位于 root 之外 → Ok(None)
+        let link = root.join("link.jpg");
+        symlink(&outside, &link).unwrap();
+
+        let resolved = validate_preview_path(&link, &root).expect("canonicalize should succeed");
+        assert!(resolved.is_none(), "symlink escaping save_root must be rejected");
+
+        std::fs::remove_dir_all(&base).ok();
+    }
+
     // 回归：缓存键 = 调用方传入的原始路径字符串（非 canonical）。
     // handler 用原始请求路径 get_or_load，失效点（file_index 删除 / exif 注入）
     // 也传原始字符串——两边必须精确匹配，否则失效变 no-op（spec review finding）。

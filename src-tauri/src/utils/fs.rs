@@ -47,9 +47,10 @@ pub async fn wait_for_file_ready(path: &Path, max_wait: Duration) -> bool {
                 }
             }
             Err(_) => {
-                // 文件尚未创建（或刚被删除）：重置稳定性基准
+                // 文件尚未创建（或刚被删除）：重置签名基准即可。last_change 无需
+                // 重置——文件重新可见时签名必然异于 None，会走 else 分支统一重置；
+                // 在此重置只会白白拉长稳定性窗口。
                 last_sig = None;
-                last_change = Instant::now();
             }
         }
         tokio::time::sleep(poll_interval).await;
@@ -157,6 +158,38 @@ mod tests {
         assert!(
             elapsed >= Duration::from_millis(600),
             "must not report ready while file is growing (took {:?})",
+            elapsed
+        );
+    }
+
+    #[tokio::test]
+    async fn wait_for_file_ready_mtime_only_change_resets_stability_window() {
+        // len 不变、仅 mtime 推后：签名变化必须重置稳定性窗口，
+        // 不能沿用旧基准提前判稳（若 mtime 不计入签名，~200ms 即就绪）
+        let temp_dir = tempfile::tempdir().expect("create temp dir");
+        let path = temp_dir.path().join("mtime_only.jpg");
+        std::fs::write(&path, b"stable-length").expect("write file");
+
+        // 探测开始 ~100ms 后仅推后 mtime（len 保持不变）
+        let bump_path = path.clone();
+        let bumper = tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            let bumped = SystemTime::now() + Duration::from_secs(2);
+            filetime::set_file_mtime(&bump_path, filetime::FileTime::from_system_time(bumped))
+                .expect("bump mtime");
+        });
+
+        let start = Instant::now();
+        let result = wait_for_file_ready(&path, Duration::from_secs(2)).await;
+        let elapsed = start.elapsed();
+        bumper.await.expect("bumper task finishes");
+
+        assert!(result, "file must eventually become ready");
+        // 正确行为：就绪不早于 探测内变化点(~100ms) + 稳定窗口(200ms) ≈ 300ms；
+        // 若 mtime-only 变化未重置窗口，则 ~200ms 就绪。阈值取 270ms 区分两者。
+        assert!(
+            elapsed >= Duration::from_millis(270),
+            "mtime-only change must reset the stability window (took {:?})",
             elapsed
         );
     }

@@ -58,6 +58,10 @@ impl ConfigService {
         }
     }
 
+    /// Load the config from disk and swap it into memory.
+    ///
+    /// 仅在初始化阶段（ConfigService::new）调用；不持 persist_lock，
+    /// 与运行期 mutate 并发调用会产生竞争。
     pub fn load(&self) -> Result<AppConfig, AppError> {
         let loaded_config = Self::load_from_path(&self.config_path)?;
         let mut guard = lock_result(self.config.write())?;
@@ -573,5 +577,65 @@ mod tests {
         let reloaded_service = ConfigService::new_with_path(config_path);
         let reloaded = reloaded_service.load().expect("reload recovered config");
         assert_eq!(reloaded.port, 7777);
+    }
+
+    #[tokio::test]
+    async fn concurrent_mutates_do_not_lose_updates() {
+        // N=8 并发 mutate_and_persist_async：persist_lock 序列化整个
+        // mutate→persist 序列，最终磁盘 config.json 必须是某一次完整写入的
+        // 结果（port 与 username 来自同一次 mutate），无字段丢失或交叉。
+        let temp_dir = tempdir().expect("failed to create temp dir");
+        let config_path = temp_dir.path().join("config.json");
+        let service = Arc::new(ConfigService::new_with_path(config_path.clone()));
+        service.load().expect("failed to load config");
+
+        const N: u16 = 8;
+        let base_port: u16 = 7100;
+        let mut handles = Vec::new();
+        for i in 0..N {
+            let service = Arc::clone(&service);
+            let port = base_port + i;
+            let username = format!("concurrent-user-{i}");
+            handles.push(tokio::spawn(async move {
+                service
+                    .mutate_and_persist_async(move |config| {
+                        config.port = port;
+                        config.advanced_connection.auth.username = username;
+                    })
+                    .await
+                    .expect("concurrent mutate must succeed");
+            }));
+        }
+        for handle in handles {
+            handle.await.expect("mutate task must not panic");
+        }
+
+        // 磁盘序列化结果：可解析、port ∈ 写入集合、username 为最后写入者之一且非空
+        let content = fs::read_to_string(&config_path).expect("config.json should exist");
+        let parsed: AppConfig =
+            serde_json::from_str(&content).expect("config.json should be valid JSON");
+        let expected_ports: std::collections::HashSet<u16> =
+            (0..N).map(|i| base_port + i).collect();
+        let expected_usernames: std::collections::HashSet<String> =
+            (0..N).map(|i| format!("concurrent-user-{i}")).collect();
+        assert!(
+            expected_ports.contains(&parsed.port),
+            "persisted port {} must be one of the written values",
+            parsed.port
+        );
+        assert!(
+            expected_usernames.contains(&parsed.advanced_connection.auth.username),
+            "persisted username {:?} must be one of the written values",
+            parsed.advanced_connection.auth.username
+        );
+        assert!(
+            !parsed.advanced_connection.auth.username.is_empty(),
+            "username must never be lost to a torn write"
+        );
+
+        // 内存快照与磁盘一致（最后一次落盘的结果）
+        let in_memory = service.get().expect("failed to get config");
+        assert_eq!(in_memory.port, parsed.port);
+        assert_eq!(in_memory.advanced_connection.auth.username, parsed.advanced_connection.auth.username);
     }
 }
