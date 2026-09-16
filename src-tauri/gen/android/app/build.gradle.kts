@@ -156,11 +156,8 @@ android {
             packaging {
                 jniLibs.keepDebugSymbols.add("*/arm64-v8a/*.so")
             }
-            // Debug 也使用 Release 签名，便于测试
-            val keystorePropertiesFile = rootProject.file("keystore.properties")
-            if (keystorePropertiesFile.exists()) {
-                signingConfig = signingConfigs.getByName("release")
-            }
+            // Debug 构建回落 AGP 默认 debug keystore（~/.android/debug.keystore），
+            // 不再复用 release 签名：避免 release 私钥进入日常调试产物分发链路。
         }
         getByName("release") {
             isMinifyEnabled = true
