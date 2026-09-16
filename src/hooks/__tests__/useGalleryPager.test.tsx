@@ -243,6 +243,27 @@ describe('useGalleryPager', () => {
     expect(latestResult!.items.map((i) => i.mediaId)).toEqual(['media-1', 'media-3']);
   });
 
+  it('does not call listMediaPage when cursor is exhausted but items exist', async () => {
+    // 游标早退：cursor=null 且已有数据（分页到底）时 loadNextPage 不应再
+    // 发起 bridge 请求 —— 否则已耗尽游标会被当作"首载"，被响应中的第一页
+    // nextCursor 重新续流。
+    listMediaPageMock.mockResolvedValueOnce(
+      makePage([makeItem('media-1'), makeItem('media-2')], null, 'rev-1', 2),
+    );
+
+    await renderHarness();
+    await clickLoadNext(getContainer);
+
+    expect(listMediaPageMock).toHaveBeenCalledTimes(1);
+    expect(getContainer().querySelector('[data-testid="cursor"]')?.textContent).toBe('null');
+    expect(getContainer().querySelector('[data-testid="count"]')?.textContent).toBe('2');
+
+    await clickLoadNext(getContainer);
+    await clickLoadNext(getContainer);
+
+    expect(listMediaPageMock).toHaveBeenCalledTimes(1);
+  });
+
   it('does not decrement totalCount below zero when removing extra ids', async () => {
     listMediaPageMock.mockResolvedValueOnce(
       makePage([makeItem('media-1')], null, 'rev-1', 1),

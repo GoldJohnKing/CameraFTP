@@ -240,4 +240,68 @@ describe('serverStore characterization', () => {
     expect(startCalls).toHaveLength(1);
   });
 
+  it('setServerRunning 清除残留的权限对话框', async () => {
+    // 服务启动成功后对话框不应挂在运行中的服务上（另一入口启动时清残留）。
+    useServerStore.setState({ showPermissionDialog: true });
+
+    useServerStore.getState().setServerRunning({
+      isRunning: true,
+      ip: '127.0.0.1',
+      port: 2221,
+      url: 'ftp://127.0.0.1:2221',
+      username: 'anonymous',
+      passwordInfo: '(任意密码)',
+    });
+
+    expect(useServerStore.getState().isRunning).toBe(true);
+    expect(useServerStore.getState().showPermissionDialog).toBe(false);
+  });
+
+  it('startInFlight 异常复位：start_server 失败后紧接重试可正常执行', async () => {
+    // 钉住 finally 复位可重试语义：第一次 startServer 抛出后，同步 flag
+    // 必须已复位 —— 第二次调用（mock 改 resolve）正常走完流程且产生一次
+    // 新的 start_server invoke。
+    checkAndroidPermissionsMock.mockResolvedValue({
+      storage: true,
+      notification: true,
+      batteryOptimization: true,
+    });
+    invokeMock.mockImplementation(async (command: string) => {
+      if (command === 'start_server') {
+        throw new Error('start_server failed');
+      }
+      return null;
+    });
+
+    await expect(useServerStore.getState().startServer()).rejects.toThrow('start_server failed');
+
+    // 后端恢复：重试应成功。
+    invokeMock.mockImplementation(async (command: string) => {
+      if (command === 'start_server') {
+        return {
+          isRunning: true,
+          ip: '127.0.0.1',
+          port: 2221,
+          url: 'ftp://127.0.0.1:2221',
+          username: 'anonymous',
+          passwordInfo: '(任意密码)',
+        };
+      }
+      return null;
+    });
+
+    const startCallsBefore = invokeMock.mock.calls.filter(
+      ([command]) => command === 'start_server',
+    ).length;
+
+    const started = await useServerStore.getState().startServer();
+
+    expect(started).toBe(true);
+    expect(useServerStore.getState().isRunning).toBe(true);
+    const startCallsAfter = invokeMock.mock.calls.filter(
+      ([command]) => command === 'start_server',
+    ).length;
+    expect(startCallsAfter).toBe(startCallsBefore + 1);
+  });
+
 });

@@ -36,6 +36,9 @@ export function useGalleryPager(): UseGalleryPagerResult {
   const seenMediaIdsRef = useRef<Set<string>>(new Set());
   const inflightRef = useRef(false);
   const cursorRef = useRef<MediaCursor>(null);
+  // `items` 状态的 ref 镜像：稳定回调（loadNextPage 守卫等）需读"当前值"，
+  // 避免闭包里的陈旧快照。所有 items 变更点同步维护此 ref。
+  const itemsRef = useRef<MediaItemDto[]>([]);
 
   const fetchPage = useCallback(async (pageCursor: MediaCursor): Promise<void> => {
     const response = await listMediaPage({
@@ -57,11 +60,22 @@ export function useGalleryPager(): UseGalleryPagerResult {
       return true;
     });
 
-    setItems((prev) => [...prev, ...newItems]);
+    const nextItems = [...itemsRef.current, ...newItems];
+    itemsRef.current = nextItems;
+    setItems(nextItems);
   }, []);
 
   const loadNextPage = useCallback(async () => {
     if (isLoading || inflightRef.current) {
+      return;
+    }
+
+    // 游标早退：数据已到底（cursor 耗尽）且已加载过数据时不再发起分页请求
+    // （cursor=null 且 items 为空才是首载）。经 ref 读当前值避免闭包陈旧。
+    // 防止未来消费者绕过 UI 直连 loadNextPage 时，把已耗尽的 cursor 当作
+    // "从第一页开始"，被响应里的第一页 nextCursor 重新续流成自续循环。
+    // reload / loadAll 各自显式管理游标，不受此守卫影响。
+    if (cursorRef.current === null && itemsRef.current.length > 0) {
       return;
     }
 
@@ -74,7 +88,9 @@ export function useGalleryPager(): UseGalleryPagerResult {
     } catch (err) {
       if (isStaleCursorError(err)) {
         setCursor(null);
+        cursorRef.current = null;
         setItems([]);
+        itemsRef.current = [];
 
         try {
           await fetchPage(null);
@@ -99,6 +115,7 @@ export function useGalleryPager(): UseGalleryPagerResult {
     setIsLoading(true);
     setError(null);
     setItems([]);
+    itemsRef.current = [];
     setCursor(null);
     cursorRef.current = null;
     setTotalCount(0);
@@ -143,14 +160,14 @@ export function useGalleryPager(): UseGalleryPagerResult {
       return;
     }
 
-    setItems((prev) => {
-      const next = prev.filter((item) => !mediaIds.has(item.mediaId));
-      const removedCount = prev.length - next.length;
-      if (removedCount > 0) {
-        setTotalCount((total) => Math.max(0, total - removedCount));
-      }
-      return next;
-    });
+    const previous = itemsRef.current;
+    const next = previous.filter((item) => !mediaIds.has(item.mediaId));
+    const removedCount = previous.length - next.length;
+    itemsRef.current = next;
+    setItems(next);
+    if (removedCount > 0) {
+      setTotalCount((total) => Math.max(0, total - removedCount));
+    }
 
     const seen = seenMediaIdsRef.current;
     mediaIds.forEach((id) => seen.delete(id));
@@ -171,7 +188,9 @@ export function useGalleryPager(): UseGalleryPagerResult {
     });
 
     if (itemsToAdd.length > 0) {
-      setItems((prev) => [...itemsToAdd, ...prev]);
+      const next = [...itemsToAdd, ...itemsRef.current];
+      itemsRef.current = next;
+      setItems(next);
       setTotalCount((prev) => prev + itemsToAdd.length);
     }
   }, []);

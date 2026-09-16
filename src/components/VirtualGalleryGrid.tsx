@@ -275,9 +275,10 @@ export const VirtualGalleryGrid = forwardRef<VirtualGalleryGridHandle, VirtualGa
   }, [items, visibleStartRow, visibleEndRow, startRow, endRow, onRangeChange, containerHeight]);
 
   // Trigger infinite scroll when near the end — 独立于 range 上报单独评估：
-  // loadNextPage 在 pager 侧有幂等/游标保护，重复调用无害，因此每次 effect
-  // 运行都评估（不做 range 那样的同范围短路），否则回调身份变化（父组件
-  // 重渲染）期间恰好临近底部会丢失翻页触发。
+  // loadNextPage 在 pager 侧有幂等（in-flight 去重）+ 游标早退（cursor 耗尽
+  // 即不再发请求），GalleryCard 侧另有 cursor 门槛，重复调用无害，因此每次
+  // effect 运行都评估（不做 range 那样的同范围短路），否则回调身份变化（父
+  // 组件重渲染）期间恰好临近底部会丢失翻页触发。
   useEffect(() => {
     if (items.length === 0) return;
     // Skip if container height is not yet measured - prevents incorrect range calculation

@@ -135,6 +135,9 @@ export const useServerStore = create<ServerState>((set, get) => ({
       isRunning: true,
       serverInfo,
       stats,
+      // 服务已确认运行，权限对话框不应继续挂在运行中的服务上（另一入口
+      // 启动成功时清除残留的对话框状态）。
+      showPermissionDialog: false,
     });
   },
 
