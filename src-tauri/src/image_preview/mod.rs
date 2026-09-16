@@ -5,7 +5,7 @@
 pub(crate) mod extract;
 
 use std::collections::{HashMap, VecDeque};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 
 use crate::image_utils::is_raw_file;
@@ -35,6 +35,31 @@ pub fn content_type_for(path: &Path) -> &'static str {
         "heif" | "hif" | "heic" => "image/heic",
         _ => "application/octet-stream",
     }
+}
+
+/// 校验 image-preview 请求的路径是否位于保存目录之内。
+///
+/// 返回:
+/// - `Ok(Some(canonical))`: 路径存在、是文件、且位于 `save_root` 之下，
+///   返回规范化后的绝对路径（解析 `..`、符号链接与 Windows `\\?\` 前缀）
+/// - `Ok(None)`: 路径越界或不是文件，调用方应回 403
+/// - `Err(e)`: 路径不存在/无法访问，调用方应回 404
+///
+/// 两端各自 `canonicalize` 后用 `starts_with` 判断包含关系，可抵御目录穿越。
+pub(crate) fn validate_preview_path(
+    requested: &Path,
+    save_root: &Path,
+) -> std::io::Result<Option<PathBuf>> {
+    let canonical_requested = requested.canonicalize()?;
+    let canonical_root = save_root.canonicalize()?;
+
+    if !canonical_requested.starts_with(&canonical_root) {
+        return Ok(None);
+    }
+    if !canonical_requested.is_file() {
+        return Ok(None);
+    }
+    Ok(Some(canonical_requested))
 }
 
 struct CacheInner {
@@ -271,5 +296,57 @@ mod tests {
         assert!(inner.data.is_empty());
         assert!(inner.order.is_empty());
         assert_eq!(inner.total_bytes, 0);
+    }
+
+    #[test]
+    fn validate_preview_path_accepts_file_inside_save_root() {
+        let dir = std::env::temp_dir().join("cameraftp_test_preview_validate");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("nested")).unwrap();
+        let file = dir.join("nested/photo.jpg");
+        std::fs::write(&file, b"jpeg-bytes").unwrap();
+
+        let resolved = validate_preview_path(&file, &dir).expect("canonicalize should succeed");
+        assert!(resolved.is_some(), "file inside save_root must be accepted");
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn validate_preview_path_rejects_escape_via_dotdot() {
+        let base = std::env::temp_dir().join("cameraftp_test_preview_escape");
+        let _ = std::fs::remove_dir_all(&base);
+        let root = base.join("root");
+        let outside = base.join("secret.jpg");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(&outside, b"secret").unwrap();
+
+        // 请求 root/../secret.jpg — canonicalize 后位于 root 之外
+        let requested = root.join("../secret.jpg");
+        let resolved = validate_preview_path(&requested, &root).expect("canonicalize should succeed");
+        assert!(resolved.is_none(), "path escaping save_root must be rejected");
+
+        std::fs::remove_dir_all(&base).ok();
+    }
+
+    #[test]
+    fn validate_preview_path_rejects_directory() {
+        let base = std::env::temp_dir().join("cameraftp_test_preview_dir");
+        let _ = std::fs::remove_dir_all(&base);
+        let sub = base.join("sub");
+        std::fs::create_dir_all(&sub).unwrap();
+
+        let resolved =
+            validate_preview_path(&sub, &base).expect("canonicalize should succeed");
+        assert!(resolved.is_none(), "directory targets must be rejected");
+
+        std::fs::remove_dir_all(&base).ok();
+    }
+
+    #[test]
+    fn validate_preview_path_errors_for_missing_file() {
+        let missing = std::env::temp_dir().join("cameraftp_test_preview_missing/none.jpg");
+        let result = validate_preview_path(&missing, &std::env::temp_dir());
+        assert!(result.is_err(), "missing path should surface an io error");
     }
 }

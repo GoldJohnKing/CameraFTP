@@ -288,6 +288,12 @@ pub fn run() {
                 .state::<Arc<ImagePreviewCache>>()
                 .inner()
                 .clone();
+            // 每个 preview 请求都必须位于当前配置的 save_path 之下
+            let save_root = ctx
+                .app_handle()
+                .state::<Arc<ConfigService>>()
+                .get_or_default()
+                .save_path;
             let path_encoded = request
                 .uri()
                 .path()
@@ -295,27 +301,58 @@ pub fn run() {
                 .unwrap_or("")
                 .to_string();
 
-            std::thread::spawn(move || {
-                let path = PathBuf::from(utils::percent_decode(&path_encoded));
-                let content_type = image_preview::content_type_for(&path);
-                match cache.get_or_load(&path) {
-                    Ok(bytes) => responder.respond(
-                        tauri::http::Response::builder()
-                            .status(200)
-                            .header("Content-Type", content_type)
-                            .body(bytes.to_vec())
-                            .unwrap(),
-                    ),
-                    Err(e) => {
-                        tracing::error!(
-                            "Failed to load image preview for {}: {}",
-                            path_encoded,
-                            e
+            // 每请求一个无上限 OS 线程改为走 tokio blocking 池（天然限流）。
+            // responder 满足 Send + 'static，可在 blocking 任务内应答。
+            let _ = tauri::async_runtime::spawn_blocking(move || {
+                let requested = PathBuf::from(utils::percent_decode(&path_encoded));
+                match image_preview::validate_preview_path(&requested, &save_root) {
+                    Ok(Some(path)) => {
+                        let content_type = image_preview::content_type_for(&path);
+                        match cache.get_or_load(&path) {
+                            Ok(bytes) => responder.respond(
+                                tauri::http::Response::builder()
+                                    .status(200)
+                                    .header("Content-Type", content_type)
+                                    .body(bytes.to_vec())
+                                    .unwrap(),
+                            ),
+                            Err(e) => {
+                                tracing::error!(
+                                    "Failed to load image preview for {}: {}",
+                                    path_encoded,
+                                    e
+                                );
+                                responder.respond(
+                                    tauri::http::Response::builder()
+                                        .status(500)
+                                        .body(b"Failed to load image".to_vec())
+                                        .unwrap(),
+                                );
+                            }
+                        }
+                    }
+                    Ok(None) => {
+                        tracing::warn!(
+                            requested = %path_encoded,
+                            "image-preview request outside save_path rejected"
                         );
                         responder.respond(
                             tauri::http::Response::builder()
-                                .status(500)
-                                .body(b"Failed to load image".to_vec())
+                                .status(403)
+                                .body(b"Forbidden".to_vec())
+                                .unwrap(),
+                        );
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            requested = %path_encoded,
+                            error = %e,
+                            "image-preview request path not found"
+                        );
+                        responder.respond(
+                            tauri::http::Response::builder()
+                                .status(404)
+                                .body(b"Not Found".to_vec())
                                 .unwrap(),
                         );
                     }
