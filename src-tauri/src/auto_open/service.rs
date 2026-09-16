@@ -11,7 +11,7 @@ use tauri::AppHandle;
 use tracing::error;
 
 #[cfg(target_os = "windows")]
-use crate::config::{AppConfig, ImageOpenMethod};
+use crate::config::ImageOpenMethod;
 use crate::config::PreviewWindowConfig;
 use crate::config_service::ConfigService;
 use crate::error::AppError;
@@ -229,8 +229,7 @@ impl AutoOpenService {
     fn current_config(&self) -> PreviewWindowConfig {
         self.config_service
             .get()
-            .unwrap_or_else(|_| AppConfig::default())
-            .preview_config
+            .map(|c| c.preview_config.clone().unwrap_or_default())
             .unwrap_or_default()
     }
 }

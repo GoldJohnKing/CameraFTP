@@ -38,13 +38,13 @@ impl FileIndexService {
     pub fn new(config_service: Arc<ConfigService>) -> Self {
         let config = config_service.get().unwrap_or_else(|e| {
             warn!(error = %e, "Failed to read config from ConfigService, using defaults");
-            AppConfig::default()
+            Arc::new(AppConfig::default())
         });
         Self {
             index: RwLock::new(FileIndex::new()),
             save_path: RwLock::new(config.save_path.clone()),
             #[cfg(target_os = "windows")]
-            watcher: Mutex::new(Some(FileWatcher::new(config.save_path))),
+            watcher: Mutex::new(Some(FileWatcher::new(config.save_path.clone()))),
             app_handle: Arc::new(RwLock::new(None)),
         }
     }

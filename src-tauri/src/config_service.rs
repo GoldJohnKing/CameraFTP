@@ -20,7 +20,7 @@ static GLOBAL_CONFIG_SERVICE: OnceLock<Arc<ConfigService>> = OnceLock::new();
 
 #[derive(Clone)]
 pub struct ConfigService {
-    config: Arc<RwLock<AppConfig>>,
+    config: Arc<RwLock<Arc<AppConfig>>>,
     config_path: PathBuf,
     /// Serializes the whole mutate→persist sequence of both the sync
     /// ([`ConfigService::mutate_and_persist`]) and async
@@ -52,7 +52,7 @@ impl ConfigService {
 
     pub fn new_with_path(config_path: PathBuf) -> Self {
         Self {
-            config: Arc::new(RwLock::new(AppConfig::default())),
+            config: Arc::new(RwLock::new(Arc::new(AppConfig::default()))),
             config_path,
             persist_lock: Arc::new(std::sync::Mutex::new(())),
         }
@@ -62,13 +62,16 @@ impl ConfigService {
         let loaded_config = Self::load_from_path(&self.config_path)?;
         let mut guard = lock_result(self.config.write())?;
         let result = loaded_config.clone();
-        *guard = loaded_config;
+        *guard = Arc::new(loaded_config);
         Ok(result)
     }
 
-    pub fn get(&self) -> Result<AppConfig, AppError> {
+    /// Cheap snapshot: clones only an `Arc`, not the whole `AppConfig`.
+    /// The snapshot is immutable — later mutations replace the inner Arc
+    /// and never mutate an outstanding snapshot in place.
+    pub fn get(&self) -> Result<Arc<AppConfig>, AppError> {
         let guard = lock_result(self.config.read())?;
-        Ok(guard.clone())
+        Ok(Arc::clone(&guard))
     }
 
     /// Fault-tolerant read: returns the in-memory config, or defaults when the
@@ -76,7 +79,7 @@ impl ConfigService {
     /// so platform/commands code does not depend on each other for it.
     pub fn get_or_default(&self) -> AppConfig {
         match self.get() {
-            Ok(config) => config,
+            Ok(config) => (*config).clone(),
             Err(e) => {
                 error!(error = %e, "Failed to read config from ConfigService, returning defaults");
                 AppConfig::default()
@@ -94,7 +97,9 @@ impl ConfigService {
 
         let (next_config, result) = {
             let guard = lock_result(self.config.write())?;
-            let mut next_config = guard.clone();
+            // 双重解引用：克隆内层 AppConfig（(*guard).clone() 只会浅克隆外层 Arc，
+            // 导致下方 mutate(&mut …) 与 normalized_for_current_platform() 类型不符）。
+            let mut next_config = (**guard).clone();
             let result = mutate(&mut next_config);
             next_config = next_config.normalized_for_current_platform();
 
@@ -108,7 +113,7 @@ impl ConfigService {
         Self::save_to_path(&self.config_path, &next_config)?;
 
         let mut guard = lock_result(self.config.write())?;
-        *guard = next_config;
+        *guard = Arc::new(next_config);
 
         Ok(result)
     }
@@ -339,6 +344,30 @@ mod tests {
         }
 
         assert_eq!(service.get().expect("failed to get config").port, 7075);
+    }
+
+    #[test]
+    fn get_snapshot_is_stable_across_mutation() {
+        // get() 返回不可变快照：后续 mutate 通过替换内部 Arc 生效，
+        // 绝不原地修改旧快照。若实现退化为原地 patch，本测试失败。
+        let temp_dir = tempdir().expect("failed to create temp dir");
+        let config_path = temp_dir.path().join("config.json");
+        let service = ConfigService::new_with_path(config_path);
+        service.load().expect("failed to load config");
+
+        let default_port = service.get().expect("failed to get config").port;
+        let snapshot = service.get().expect("failed to get snapshot");
+
+        service
+            .mutate_and_persist(|config| config.port = 7076)
+            .expect("failed to mutate and persist config");
+
+        assert_eq!(snapshot.port, default_port, "old snapshot must be immutable");
+        assert_eq!(
+            service.get().expect("failed to get config").port,
+            7076,
+            "new snapshot must reflect the mutation"
+        );
     }
 
     #[test]

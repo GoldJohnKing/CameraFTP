@@ -113,7 +113,7 @@ pub async fn save_config(
             old_save_path
         })
         .await?;
-    let new_save_path = config_service.get()?.save_path;
+    let new_save_path = config_service.get()?.save_path.clone();
 
     tracing::info!("Configuration saved successfully");
 
@@ -396,6 +396,7 @@ mod tests {
             .get()
             .expect("failed to read persisted config")
             .preview_config
+            .clone()
             .expect("preview config should exist");
         assert!(persisted.enabled);
         assert!(matches!(persisted.method, ImageOpenMethod::WindowsPhotos));
