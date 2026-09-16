@@ -44,7 +44,11 @@
         android:label="@string/app_name"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher_round"
-        android:theme="@style/Theme.MaterialComponents.DayNight.NoActionBar">
+        android:theme="@style/Theme.MaterialComponents.DayNight.NoActionBar"
+        android:allowBackup="false"
+        android:fullBackupContent="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:usesCleartextTraffic="${usesCleartextTraffic}">
 
         <!-- QNN HTP transport: libcdsprpc.so is a Qualcomm vendor lib (/vendor/lib64/)
              that libQnnHtpV*Stub.so depends on for the FastRPC channel to the cDSP.
