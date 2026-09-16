@@ -97,3 +97,7 @@ config.json
 
 # Deepwork session state (local only, kept readable for OpenCode)
 .slim/deepwork/
+
+# SDD worktrees & scratch
+.worktrees/
+.superpowers/
