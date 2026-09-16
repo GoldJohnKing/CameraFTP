@@ -13,7 +13,12 @@ use crate::config::AppConfig;
 use crate::error::AppError;
 
 fn lock_result<T>(result: std::sync::LockResult<T>) -> Result<T, AppError> {
-    result.map_err(|e| AppError::Other(format!("Config lock poisoned: {}", e)))
+    // 锁中毒恢复：config 是纯值数据（Arc<AppConfig> 不可变快照 +
+    // Mutex<()> 纯互斥），守卫本身没有结构性破坏——某次持锁 panic 后
+    // 若持续报错，会让之后所有 get/mutate/persist 路径永久瘫痪。
+    // 恢复守卫（into_inner）优于永久失效；签名保持 Result 不变，
+    // 调用方（read/write/persist_lock）语义照旧。
+    Ok(result.unwrap_or_else(|e| e.into_inner()))
 }
 
 static GLOBAL_CONFIG_SERVICE: OnceLock<Arc<ConfigService>> = OnceLock::new();
@@ -79,8 +84,10 @@ impl ConfigService {
     }
 
     /// Fault-tolerant read: returns the in-memory config, or defaults when the
-    /// read fails (e.g. poisoned lock). Lives here — next to the config state —
-    /// so platform/commands code does not depend on each other for it.
+    /// read fails. Lives here — next to the config state — so platform/commands
+    /// code does not depend on each other for it. Note: lock poisoning no
+    /// longer fails reads (see `lock_result` — the guard is recovered), so the
+    /// fallback is purely defensive.
     pub fn get_or_default(&self) -> AppConfig {
         match self.get() {
             Ok(config) => (*config).clone(),
@@ -372,6 +379,33 @@ mod tests {
             7076,
             "new snapshot must reflect the mutation"
         );
+    }
+
+    #[test]
+    fn poisoned_config_lock_recovers_instead_of_failing_forever() {
+        // X4 语义钉住：锁中毒恢复。旧行为：某次持锁 panic 后，get/mutate
+        // 永久返回 "Config lock poisoned" 错误；新行为：恢复守卫，配置
+        // 读写继续可用（config 是纯值数据，中毒无结构性破坏）。
+        let temp_dir = tempdir().expect("failed to create temp dir");
+        let service = ConfigService::new_with_path(temp_dir.path().join("config.json"));
+        service.load().expect("failed to load config");
+
+        // 持写锁 panic → 守卫在 unwind 中被丢弃，锁进入中毒状态
+        let lock = Arc::clone(&service.config);
+        let _ = std::thread::spawn(move || {
+            let _guard = lock.write().unwrap();
+            panic!("poison the config lock");
+        })
+        .join();
+
+        assert!(
+            service.get().is_ok(),
+            "get must recover after lock poisoning"
+        );
+        service
+            .mutate_and_persist(|config| config.port = 7321)
+            .expect("mutate must recover after lock poisoning");
+        assert_eq!(service.get().expect("get after recovery").port, 7321);
     }
 
     #[test]

@@ -8,10 +8,13 @@
 // 并发模型：notify 回调线程只做事件分类，把事件 try_send 进 mpsc 通道
 //（容量 1000；满时告警并丢弃该事件，索引最终一致，下次扫描可补）。
 // 事件循环对 Created/Renamed 重事件（wait_for_file_ready 秒级等待 +
-// EXIF 全文件解析）每事件独立 tokio::spawn 并发处理，避免一个慢文件
-// 阻塞整批事件；Deleted 轻事件保持串行 await。正确性不依赖处理顺序：
-// add_file 在写锁内做查重-回填幂等处理，并发重复的 Created 对同一
-// 文件第二次进入时直接跳过或回填，不会产生重复条目。
+// EXIF 全文件解析）每事件独立 tokio::spawn 并发处理（信号量限流，见
+// run_event_loop），避免一个慢文件阻塞整批事件；Deleted 轻事件保持
+// 串行 await。处理顺序存在真实的乱序窗口：串行的 Deleted 可能赶在
+// 并发 spawn 的 Created 提交之前被处理（remove_file 落空 Ok(false)），
+// 随后该 Created 提交即成幽灵条目——由提交后的存在性复查兜底（见
+// index_with_recheck）；并发重复的 Created 则由 add_file 写锁内的
+// 查重-回填幂等吸收，不会产生重复条目。
 #![cfg(target_os = "windows")]
 
 use std::path::PathBuf;
@@ -116,20 +119,35 @@ impl FileWatcher {
     }
 
     /// 事件循环：重事件（Created/Renamed，需 wait_for_file_ready 秒级
-    /// 等待 + EXIF 全文件解析）每事件独立 tokio::spawn 并发处理，防止
-    /// 一个慢文件阻塞整批事件；轻事件（Deleted，仅索引写锁内移除）
-    /// 保持串行 await。
+    /// 等待 + EXIF 全文件解析）每事件独立 tokio::spawn 并发处理（信号量
+    /// 限流），防止一个慢文件阻塞整批事件；轻事件（Deleted，仅索引写锁
+    /// 内移除）保持串行 await。
     async fn run_event_loop(
         mut rx: tokio::sync::mpsc::Receiver<FileSystemEvent>,
         file_index: Arc<FileIndexService>,
     ) {
+        // 重事件并发上限：与扫描侧 SCAN_CONCURRENCY=6 同族（取 2 倍）。
+        // 重事件任务各自经 spawn_blocking 做 EXIF 全文件解析，若千级
+        // 文件批量到达（相机连拍导入）时无上限 spawn，会占满 tokio 阻塞
+        // 池——EXIF 解析排队反而拖慢包括本批在内的一切阻塞任务。
+        let semaphore = Arc::new(tokio::sync::Semaphore::new(12));
         while let Some(event) = rx.recv().await {
             match event {
                 FileSystemEvent::Deleted(_) => {
                     Self::process_event(event, Arc::clone(&file_index)).await;
                 }
                 FileSystemEvent::Created(_) | FileSystemEvent::Renamed { .. } => {
-                    tokio::spawn(Self::process_event(event, Arc::clone(&file_index)));
+                    let semaphore = Arc::clone(&semaphore);
+                    let file_index = Arc::clone(&file_index);
+                    tokio::spawn(async move {
+                        // 先取许可再处理；permit guard 随任务结束自动释放。
+                        // 信号量从不 close，Err 分支不可达。
+                        let _permit = semaphore
+                            .acquire_owned()
+                            .await
+                            .expect("watcher semaphore is never closed");
+                        Self::process_event(event, file_index).await;
+                    });
                 }
             }
         }
@@ -205,21 +223,69 @@ impl FileWatcher {
         }
     }
 
+    /// 重事件（Created / Renamed-to）的公共索引收尾：
+    /// 1. best-effort `add_file`；
+    /// 2. 提交后存在性复查——Deleted 轻事件在事件循环中串行处理，可能
+    ///    赶在本任务（并发 spawn，EXIF 解析在 spawn_blocking 排队）提交
+    ///    之前送达，remove_file 落空后这里的提交即成幽灵条目；提交一完成
+    ///    立即复查存在性，把 Created→Deleted 乱序窗口从秒级缩到微秒级，
+    ///    文件确已消失则撤销刚提交的条目；
+    /// 3. timed_out（wait_for_file_ready 超时降级）时延迟 30s 重试一次
+    ///    add_file——纯 watcher 单事件场景没有第二次触发点，重试让
+    ///    add_file 的 EXIF 回填机制有机会善后半写/陈旧条目（失败仅 warn）。
+    async fn index_with_recheck(
+        file_index: &Arc<FileIndexService>,
+        path: PathBuf,
+        timed_out: bool,
+    ) {
+        match file_index.add_file(path.clone()).await {
+            Err(e) => warn!("Failed to add file to index: {}", e),
+            Ok(()) => {
+                info!("File added to index via watcher: {:?}", path);
+                match tokio::fs::try_exists(&path).await {
+                    Ok(true) => {}
+                    Ok(false) => {
+                        warn!(
+                            "File vanished right after indexing (out-of-order Deleted?), dropping ghost entry: {:?}",
+                            path
+                        );
+                        if let Err(e) = file_index.remove_file(&path).await {
+                            warn!("Failed to drop ghost entry from index: {}", e);
+                        }
+                    }
+                    // 存在性未知（瞬时 I/O 错误等）：不撤销条目，交由后续
+                    // Deleted 事件/下次扫描兜底
+                    Err(e) => {
+                        warn!("Existence recheck failed for {:?}: {} (keeping entry)", path, e);
+                    }
+                }
+            }
+        }
+        if timed_out {
+            let retry_index = Arc::clone(file_index);
+            tokio::spawn(async move {
+                tokio::time::sleep(Duration::from_secs(30)).await;
+                if let Err(e) = retry_index.add_file(path).await {
+                    warn!("Delayed re-index retry failed: {}", e);
+                }
+            });
+        }
+    }
+
     /// 处理文件系统事件并同步到索引
     async fn process_event(event: FileSystemEvent, file_index: Arc<FileIndexService>) {
         match event {
             FileSystemEvent::Created(path) => {
                 debug!("File created: {:?}", path);
                 // 等待文件就绪（而非固定延迟）；超时不再丢弃事件，降级为
-                // 尽力而为索引——陈旧/半写条目由 add_file 的 EXIF 回填机制善后
-                if !wait_for_file_ready(&path, Duration::from_secs(FILE_READY_TIMEOUT_SECS)).await {
+                // 尽力而为索引——陈旧/半写条目由 add_file 的 EXIF 回填机制
+                // 善后（index_with_recheck 内含超时延迟重试）
+                let timed_out =
+                    !wait_for_file_ready(&path, Duration::from_secs(FILE_READY_TIMEOUT_SECS)).await;
+                if timed_out {
                     warn!("File not ready after timeout, indexing best-effort: {:?}", path);
                 }
-                if let Err(e) = file_index.add_file(path.clone()).await {
-                    warn!("Failed to add file to index: {}", e);
-                } else {
-                    info!("File added to index via watcher: {:?}", path);
-                }
+                Self::index_with_recheck(&file_index, path, timed_out).await;
             }
             FileSystemEvent::Deleted(path) => {
                 debug!("File deleted: {:?}", path);
@@ -245,15 +311,14 @@ impl FileWatcher {
                     info!("Removed old path from index: {:?}", from);
                 }
                 
-                // 等待新路径文件就绪；超时同样降级为尽力而为索引（EXIF 回填善后）
-                if !wait_for_file_ready(&to, Duration::from_secs(FILE_READY_TIMEOUT_SECS)).await {
+                // 等待新路径文件就绪；超时同样降级为尽力而为索引
+                //（EXIF 回填善后 + index_with_recheck 内的超时延迟重试）
+                let timed_out =
+                    !wait_for_file_ready(&to, Duration::from_secs(FILE_READY_TIMEOUT_SECS)).await;
+                if timed_out {
                     warn!("Renamed file not ready after timeout, indexing best-effort: {:?}", to);
                 }
-                if let Err(e) = file_index.add_file(to.clone()).await {
-                    warn!("Failed to add renamed file to index: {}", e);
-                } else {
-                    info!("Added renamed file to index: {:?}", to);
-                }
+                Self::index_with_recheck(&file_index, to, timed_out).await;
             }
         }
     }
@@ -536,6 +601,124 @@ mod tests {
         );
         let files = file_index.get_files().await;
         assert_eq!(files[0].path, to);
+    }
+
+    // ---- Created-vs-Deleted 乱序窗口（X1）----
+
+    #[tokio::test]
+    async fn deleted_before_created_completion_leaves_no_ghost_entry() {
+        // X1 交错语义钉住：Deleted 在 Created 完成之前被处理
+        //（remove_file 落空 Ok(false)）时，最终索引不得残留已消失文件。
+        //
+        // 交错构造：mtime 持续拨动（间隔 80ms < 200ms 稳定窗口）让
+        // Created 任务确定性地停在 wait_for_file_ready（在飞、文件在盘），
+        // 此刻处理 Deleted；随后停拨并删除磁盘文件，放行 Created 走完
+        // 超时降级（~5s）。
+        //
+        // 注：本交错下 Created 的 add_file 在文件消失后才执行
+        //（metadata Err），幽灵不会真正产生——它钉住的是"乱序送达时
+        // 最终态无幽灵"这一不变量；"提交后才消失"的窄窗（幽灵真正
+        // 产生后被复查清除）由下方 created_commit_recheck_drops_ghost
+        // 以写锁卡点确定性钉住。两个测试合起来覆盖乱序的两个相位。
+        let temp_dir = tempfile::tempdir().expect("create temp dir");
+        let file_index = make_file_index();
+        let path = write_image(temp_dir.path(), "ghost-race.jpg");
+
+        let bumper_path = path.clone();
+        let bumper = tokio::spawn(async move {
+            for i in 0..200u32 {
+                tokio::time::sleep(Duration::from_millis(80)).await;
+                let bumped = std::time::SystemTime::now()
+                    + std::time::Duration::from_secs(1)
+                    + std::time::Duration::from_millis(u64::from(i));
+                let _ = filetime::set_file_mtime(
+                    &bumper_path,
+                    filetime::FileTime::from_system_time(bumped),
+                );
+            }
+        });
+
+        // ① Created 先发（任务在飞）
+        let created = tokio::spawn(FileWatcher::process_event(
+            FileSystemEvent::Created(path.clone()),
+            Arc::clone(&file_index),
+        ));
+        // 给 Created 任务时间进入探测循环（首个轮询 20ms 内完成）
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        assert!(!created.is_finished(), "Created task must still be in flight");
+
+        // ② 立刻处理 Deleted：索引此刻为空，remove_file 落空（Ok(false)）
+        FileWatcher::process_event(
+            FileSystemEvent::Deleted(path.clone()),
+            Arc::clone(&file_index),
+        )
+        .await;
+        assert_eq!(file_index.get_file_count().await, 0);
+
+        // ③ 磁盘文件消失（Deleted 事件的真实前因），放行 Created
+        bumper.abort();
+        std::fs::remove_file(&path).expect("remove file from disk");
+
+        // ④ 等 Created 任务完成：探测对已消失文件超时 → best-effort
+        // add_file 返回 Err → 无条目
+        created.await.expect("created task must complete");
+
+        assert_eq!(
+            file_index.get_file_count().await, 0,
+            "no ghost entry may survive the out-of-order Deleted"
+        );
+        let files = file_index.get_files().await;
+        assert!(files.iter().all(|f| f.path != path));
+    }
+
+    #[tokio::test]
+    async fn created_commit_recheck_drops_ghost_when_file_vanishes() {
+        // X1 兜底路径直达钉住（修复前必红）：读锁守卫把 Created 任务
+        // 确定性卡在 add_file 的提交点（写锁获取处——位于元数据读取与
+        // EXIF 解析之后、提交之前），此刻删除磁盘文件。放行后 add_file
+        // 仍会提交出条目（元数据早已读到），紧随的提交后存在性复查
+        // 必须发现文件已消失并撤销条目——这正是"Deleted 在提交前送达"
+        // 交错里幽灵的唯一善后窗口。
+        let temp_dir = tempfile::tempdir().expect("create temp dir");
+        let file_index = make_file_index();
+        let path = write_image(temp_dir.path(), "ghost-window.jpg");
+
+        // 持读锁：add_file 前段的廉价查重（读锁）不受影响，任务会推进
+        // 过元数据读取与 EXIF 解析，然后卡在 index.write() 提交点
+        let guard = file_index.test_hold_index_read().await;
+
+        let created = tokio::spawn(FileWatcher::process_event(
+            FileSystemEvent::Created(path.clone()),
+            Arc::clone(&file_index),
+        ));
+
+        // 越过 wait_for_file_ready（稳定窗口 200ms）与元数据/EXIF
+        //（本地临时目录毫秒级）。写锁被持有 ⇒ 任务不可能经任何路径完成
+        //（索引为空、文件在盘、扩展名受支持），is_finished 断言免于时序
+        // 假设；唯一的时序要求是删除文件前任务已越过元数据读取
+        //（800ms ≫ ~220ms 探测窗口，见上注）
+        tokio::time::sleep(Duration::from_millis(800)).await;
+        assert!(
+            !created.is_finished(),
+            "Created task must be parked at the index write lock (commit point)"
+        );
+
+        // 磁盘文件在提交落地前消失（Deleted 事件的真实前因）
+        std::fs::remove_file(&path).expect("remove file from disk");
+
+        // 放行：提交照常发生，随后存在性复查必须撤销幽灵条目
+        drop(guard);
+        created.await.expect("created task must complete");
+
+        assert_eq!(
+            file_index.get_file_count().await, 0,
+            "post-commit existence recheck must drop the ghost entry"
+        );
+        let files = file_index.get_files().await;
+        assert!(
+            files.iter().all(|f| f.path != path),
+            "the vanished path must not remain indexed"
+        );
     }
 
     #[tokio::test]

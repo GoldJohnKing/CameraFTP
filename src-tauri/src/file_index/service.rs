@@ -361,6 +361,9 @@ impl FileIndexService {
         // 单次遍历定位：同时携带位置、既有 EXIF 状态与"是否为当前查看项"，
         // 避免对 files() 的重复索引访问
         let mut was_current = false;
+        // 回填发生标记：条目被替换意味着文件内容与索引认知不符，
+        // 提交后需同步失效预览缓存（见下方 drop(index) 之后）
+        let mut backfilled = false;
         if let Some((pos, existing)) = index.files().iter().enumerate().find(|(_, f)| f.path == path) {
             let existing_has_exif = existing.exif_time.is_some();
             was_current = index.current_index == Some(pos);
@@ -375,6 +378,7 @@ impl FileIndexService {
             let new_len = files.len();
             Self::adjust_current_index_after_removal(&mut index.current_index, pos, new_len);
             index.path_set.remove(&path);
+            backfilled = true;
             info!("Backfilled EXIF for stale index entry: {:?}", path);
         }
 
@@ -406,6 +410,14 @@ impl FileIndexService {
         index.path_set.insert(path.clone());
         drop(index);
         info!("Added file to index: {:?}", path);
+
+        if backfilled {
+            // 回填意味着文件内容与索引认知不符（半写期索引到的旧字节），
+            // 预览缓存同样可能滞留旧数据——与 remove_file 的失效处理一致
+            //（invalidate_preview_cache 在非 Windows 平台为 no-op）。
+            // 写锁已释放，此处不延长锁持有时间。
+            self.invalidate_preview_cache(&path).await;
+        }
 
         // 发射文件索引变化事件
         self.emit_file_index_changed().await;
@@ -585,6 +597,17 @@ impl FileIndexService {
         let mut index = self.index.write().await;
         index.set_files(files);
         index.current_index = if !index.files().is_empty() { Some(0) } else { None };
+    }
+
+    /// 测试专用：持有索引读锁守卫。watcher 的乱序窗口测试用它把
+    /// add_file 确定性卡在提交点（写锁获取处，位于元数据读取与 EXIF
+    /// 解析之后、提交之前）。守卫随 Drop 释放；读锁不阻塞其他读方，
+    /// 只阻塞写提交。
+    #[cfg(test)]
+    pub(crate) async fn test_hold_index_read(
+        &self,
+    ) -> tokio::sync::RwLockReadGuard<'_, FileIndex> {
+        self.index.read().await
     }
 
     pub async fn update_save_path(self: Arc<Self>, new_path: PathBuf) -> Result<(), AppError> {

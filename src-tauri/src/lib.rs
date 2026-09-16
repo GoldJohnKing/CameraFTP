@@ -350,10 +350,10 @@ pub fn run() {
                     Ok(Some(path)) => {
                         // content_type 用 canonical 路径判 RAW 扩展名；缓存键必须用
                         // 原始（percent-decode 后）请求路径经分隔符归一（cache_key）：
-                        // invalidate 调用点（file_index 删除、exif orientation 注入）
-                        // 传的都是原始字符串，键若用 canonical（Windows `\\?\`
-                        // verbatim）会永不匹配导致失效变 no-op。不同拼写的重复
-                        // 条目由 LRU 有界。
+                        // invalidate 调用点（file_index 的 remove_file 删除、
+                        // add_file 的 EXIF 回填替换条目）传的都是原始字符串，
+                        // 键若用 canonical（Windows `\\?\` verbatim）会永不匹配
+                        // 导致失效变 no-op。不同拼写的重复条目由 LRU 有界。
                         let content_type = image_preview::content_type_for(&path);
                         match cache.get_or_load(&requested) {
                             Ok(bytes) => tauri::http::Response::builder()

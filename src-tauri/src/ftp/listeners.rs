@@ -61,9 +61,21 @@ async fn run_put_pipeline<R: tauri::Runtime>(
         );
         // 尽力索引（成功路径的索引步骤），然后 return——不进入钩子
         if let Some(file_index) = handle.try_state::<Arc<FileIndexService>>() {
-            if let Err(e) = file_index.add_file(full_path).await {
+            if let Err(e) = file_index.add_file(full_path.clone()).await {
                 tracing::warn!("Failed to add file to index: {}", e);
             }
+            // 延迟重试：纯 watcher/单事件场景下降级索引后没有第二次触发
+            // 点（此 Put 事件不会重发），30s 后再调一次 add_file，让 EXIF
+            // 回填机制有机会善后半写/陈旧条目；重试失败仅 warn。
+            //（try_state 返回的 State 借用 handle，spawn 需要 'static，
+            // 先克隆出 Arc）
+            let retry_index: Arc<FileIndexService> = file_index.inner().clone();
+            tokio::spawn(async move {
+                tokio::time::sleep(Duration::from_secs(30)).await;
+                if let Err(e) = retry_index.add_file(full_path).await {
+                    tracing::warn!("Delayed re-index retry failed: {}", e);
+                }
+            });
         }
         return;
     }
