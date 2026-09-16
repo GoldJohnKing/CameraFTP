@@ -8,7 +8,7 @@ import { type TouchEvent, forwardRef, useCallback, useEffect, useImperativeHandl
 import { Check, Loader2 } from 'lucide-react';
 import type { MediaItemDto } from '../types';
 import { classifyFile } from '../utils/gallery-filter';
-import { DEFAULT_GRID_METRICS, measureGridMetrics, type GridMetrics } from '../utils/grid-metrics';
+import { DEFAULT_GRID_METRICS, measureGridMetrics, sameGridMetrics, type GridMetrics } from '../utils/grid-metrics';
 
 const COLUMNS = 3;
 const OVERSCAN_ROWS = 3;
@@ -78,11 +78,7 @@ export const VirtualGalleryGrid = forwardRef<VirtualGalleryGridHandle, VirtualGa
     if (!el) return;
     const apply = () => {
       const next = measureGridMetrics(el);
-      const drifted =
-        Math.abs(next.pitch - metricsRef.current.pitch) > 0.5 ||
-        Math.abs(next.padTop - metricsRef.current.padTop) > 0.5 ||
-        Math.abs(next.padBottom - metricsRef.current.padBottom) > 0.5;
-      if (drifted) {
+      if (!sameGridMetrics(next, metricsRef.current)) {
         metricsRef.current = next;
         setMetrics(next);
       }
@@ -98,7 +94,9 @@ export const VirtualGalleryGrid = forwardRef<VirtualGalleryGridHandle, VirtualGa
       const row = Math.floor(index / COLUMNS);
       containerRef.current?.scrollTo({ top: metricsRef.current.padTop + row * metricsRef.current.pitch });
     },
-  }), [containerRef]);
+    // containerRef 来自 useRef，恒为稳定引用无需列入 deps；行距经
+    // metricsRef 在调用时读取，无需重建 handle。
+  }), []);
   const [scrollTop, setScrollTop] = useState(0);
   const [containerHeight, setContainerHeight] = useState(0);
   const [isScrolling, setIsScrolling] = useState(false);
@@ -219,6 +217,9 @@ export const VirtualGalleryGrid = forwardRef<VirtualGalleryGridHandle, VirtualGa
 
   // Calculate visible range
   const { startRow, endRow, visibleStartRow, visibleEndRow } = useMemo(() => {
+    // 刻意不减 padTop：visibleStartRow 最多偏晚 1 行（padTop < pitch），
+    // ≤1 行的误差由 OVERSCAN_ROWS=3 吸收；而 scrollToIndex 用完整公式
+    // （padTop + row × pitch）精确补偿，跳转落点不受此简化影响。
     const visibleStartRow = Math.max(0, Math.floor(scrollTop / metrics.pitch));
     const visibleEndRow = Math.min(
       totalRows - 1,
@@ -255,6 +256,18 @@ export const VirtualGalleryGrid = forwardRef<VirtualGalleryGridHandle, VirtualGa
     const rangeKey = `${visibleStartIdx}:${visibleEndIdx}:${visibleIds[0] ?? ''}:${
       visibleIds[visibleIds.length - 1] ?? ''
     }`;
+
+    // Trigger infinite scroll when near the end — 每次 effect 运行都评估
+    // （loadNextPage 在 pager 侧有幂等/游标保护，重复调用无害）；下面的
+    // 短路只作用于 range 上报（防抖重置语义），不能拦截 near-end 重试，
+    // 否则回调身份变化（父组件重渲染）期间恰好临近底部会丢失翻页触发。
+    if (onNearEnd && totalRows > 0) {
+      const rowsRemaining = totalRows - visibleEndRow - 1;
+      if (rowsRemaining <= NEAR_END_THRESHOLD) {
+        onNearEnd();
+      }
+    }
+
     const last = lastReportedRangeRef.current;
     if (last && last.items === items && last.key === rangeKey) return;
     lastReportedRangeRef.current = { items, key: rangeKey };
@@ -267,14 +280,6 @@ export const VirtualGalleryGrid = forwardRef<VirtualGalleryGridHandle, VirtualGa
       .filter((id) => !visibleIds.includes(id));
 
     onRangeChange(visibleIds, nearbyIds);
-
-    // Trigger infinite scroll when near the end
-    if (onNearEnd && totalRows > 0) {
-      const rowsRemaining = totalRows - visibleEndRow - 1;
-      if (rowsRemaining <= NEAR_END_THRESHOLD) {
-        onNearEnd();
-      }
-    }
   }, [items, visibleStartRow, visibleEndRow, startRow, endRow, onRangeChange, onNearEnd, containerHeight, totalRows]);
 
   // When the parent requests a highlight, arm it only once the target cell is in

@@ -129,7 +129,8 @@ describe('GalleryCard (virtualized)', () => {
       await flush();
     });
 
-    // Simulate container height = 360px (3 visible rows at 120px each)
+    // Simulate container height = 360px (3 visible rows at the jsdom fallback
+    // pitch 120 = DEFAULT_GRID_METRICS)
     const gridContainer = getContainer().querySelector('[data-testid="virtual-grid-container"]');
     expect(gridContainer).toBeTruthy();
 

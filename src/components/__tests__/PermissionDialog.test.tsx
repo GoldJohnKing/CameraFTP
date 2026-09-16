@@ -38,6 +38,16 @@ vi.mock('../PermissionList', () => ({ PermissionList: () => <div>PermissionList<
 
 import { PermissionDialog } from '../PermissionDialog';
 
+/** 继续按钮文案随状态变化（请授予权限/开始服务/启动中…），按内容定位。 */
+function getContinueButton(container: HTMLElement): HTMLButtonElement {
+  const buttons = within(container).getAllByRole('button');
+  const continueBtn = buttons.find(
+    (b) => b.textContent === '请授予权限' || b.textContent === '开始服务' || b.textContent === '启动中…',
+  );
+  if (!continueBtn) throw new Error('continue button not found');
+  return continueBtn as HTMLButtonElement;
+}
+
 describe('PermissionDialog gating', () => {
   const { getContainer, getRoot } = setupReactRoot();
 
@@ -53,13 +63,6 @@ describe('PermissionDialog gating', () => {
     });
   };
 
-  const getContinueButton = (): HTMLButtonElement => {
-    const buttons = within(getContainer()).getAllByRole('button');
-    const continueBtn = buttons.find((b) => b.textContent === '请授予权限' || b.textContent === '开始服务');
-    if (!continueBtn) throw new Error('continue button not found');
-    return continueBtn as HTMLButtonElement;
-  };
-
   beforeEach(() => {
     permissionState.allGranted = false;
     checkPermissionsMock.mockReset();
@@ -72,14 +75,14 @@ describe('PermissionDialog gating', () => {
   it('disables the continue button until all permissions are granted', async () => {
     await renderDialog(true);
 
-    const button = getContinueButton();
+    const button = getContinueButton(getContainer());
     expect(button.textContent).toBe('请授予权限');
     expect(button.disabled).toBe(true);
 
     permissionState.allGranted = true;
     await renderDialog(true);
 
-    const enabled = getContinueButton();
+    const enabled = getContinueButton(getContainer());
     expect(enabled.textContent).toBe('开始服务');
     expect(enabled.disabled).toBe(false);
   });
@@ -133,7 +136,7 @@ describe('PermissionDialog gating', () => {
     await renderDialog(true);
 
     await act(async () => {
-      getContinueButton().click();
+      getContinueButton(getContainer()).click();
       await flush();
     });
 
@@ -145,7 +148,7 @@ describe('PermissionDialog gating', () => {
     await renderDialog(true);
 
     await act(async () => {
-      getContinueButton().click();
+      getContinueButton(getContainer()).click();
       await flush();
     });
 
@@ -158,7 +161,7 @@ describe('PermissionDialog gating', () => {
     await renderDialog(true);
 
     await act(async () => {
-      getContinueButton().click();
+      getContinueButton(getContainer()).click();
       await flush();
     });
     expect(onClose).toHaveBeenCalledTimes(1);
@@ -184,15 +187,6 @@ describe('PermissionDialog start flow', () => {
     });
   };
 
-  const getContinueButton = (): HTMLButtonElement => {
-    const buttons = within(getContainer()).getAllByRole('button');
-    const continueBtn = buttons.find(
-      (b) => b.textContent === '请授予权限' || b.textContent === '开始服务' || b.textContent === '启动中…',
-    );
-    if (!continueBtn) throw new Error('continue button not found');
-    return continueBtn as HTMLButtonElement;
-  };
-
   beforeEach(() => {
     permissionState.allGranted = false;
     checkPermissionsMock.mockReset();
@@ -208,7 +202,7 @@ describe('PermissionDialog start flow', () => {
     await renderDialog(true, { onClose, onAllGranted });
 
     await act(async () => {
-      getContinueButton().click();
+      getContinueButton(getContainer()).click();
       await flush();
       await flush();
     });
@@ -225,7 +219,7 @@ describe('PermissionDialog start flow', () => {
     await renderDialog(true, { onClose, onAllGranted });
 
     await act(async () => {
-      getContinueButton().click();
+      getContinueButton(getContainer()).click();
       await flush();
       await flush();
     });
@@ -245,7 +239,7 @@ describe('PermissionDialog start flow', () => {
 
     // First attempt fails → error shown, dialog stays open.
     await act(async () => {
-      getContinueButton().click();
+      getContinueButton(getContainer()).click();
       await flush();
       await flush();
     });
@@ -259,7 +253,7 @@ describe('PermissionDialog start flow', () => {
 
     // A successful retry still closes the dialog.
     await act(async () => {
-      getContinueButton().click();
+      getContinueButton(getContainer()).click();
       await flush();
       await flush();
     });

@@ -6,11 +6,40 @@
 
 import { act } from 'react';
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
-import { VirtualGalleryGrid } from '../VirtualGalleryGrid';
+import { VirtualGalleryGrid, type VirtualGalleryGridHandle } from '../VirtualGalleryGrid';
 import { flush } from '../../test-utils/flush';
 import { makeItems } from '../../test-utils/media-factory';
 import { createMockRectObserver } from '../../test-utils/mock-resize-observer';
 import { setupReactRoot } from '../../test-utils/react-root';
+
+/** inner grid 元素的“真实布局”计算样式（380px 宽 + 实际 padding/gap）。 */
+const INNER_GRID_STYLE = {
+  width: '380px',
+  paddingLeft: '2px',
+  paddingRight: '2px',
+  paddingTop: '4px',
+  paddingBottom: '6px',
+  columnGap: '6px',
+  rowGap: '6px',
+} as const;
+
+/**
+ * 仅替换对 virtual-grid-inner 元素的 getComputedStyle（其余元素走 jsdom 原
+ * 实现），用于模拟浏览器完成布局后 measureGridMetrics 读到的真实值。
+ * 返回还原函数（务必在 finally 中调用，避免污染其它用例）。
+ */
+function stubInnerGridComputedStyle(): () => void {
+  const original = window.getComputedStyle;
+  window.getComputedStyle = ((elt: Element, pseudoElt?: string | null) => {
+    if ((elt as HTMLElement).dataset?.testid === 'virtual-grid-inner') {
+      return { ...INNER_GRID_STYLE } as unknown as CSSStyleDeclaration;
+    }
+    return original(elt, pseudoElt ?? undefined);
+  }) as typeof window.getComputedStyle;
+  return () => {
+    window.getComputedStyle = original;
+  };
+}
 
 describe('VirtualGalleryGrid', () => {
   const { getContainer, getRoot } = setupReactRoot();
@@ -29,7 +58,8 @@ describe('VirtualGalleryGrid', () => {
 
   it('renders only visible + overscan cells, not all items', async () => {
     const CONTAINER_HEIGHT = 360;
-    // ROW_HEIGHT=120, COLUMNS=3, OVERSCAN_ROWS=3 (component-internal constants)
+    // jsdom 无法解析网格宽度 → 回退 pitch = DEFAULT_GRID_METRICS.pitch = 120；
+    // COLUMNS=3, OVERSCAN_ROWS=3（组件内部常量）
     // visibleRows = ceil(360/120) = 3, overscan=3, renderedRows = 3+3+1 = 7
     const COLUMNS = 3;
     const expectedCellCount = 7 * COLUMNS; // 21
@@ -61,7 +91,8 @@ describe('VirtualGalleryGrid', () => {
 
     await flush();
 
-    // With 360px height and 120px rowHeight: visibleEndRow = floor(360/120) = 3 (rows 0-3)
+    // With 360px height and jsdom fallback pitch 120 (DEFAULT_GRID_METRICS):
+    // visibleEndRow = floor(360/120) = 3 (rows 0-3)
     // With 3 overscan rows below: endRow = min(99, 3+3) = 6
     // At scrollTop=0, startRow = max(0, 0-3) = 0, so rows 0-6 = 7 rows = 21 cells
     const renderedCells = getContainer().querySelectorAll('[data-media-id]');
@@ -483,5 +514,232 @@ describe('VirtualGalleryGrid', () => {
 
     expect(onRangeChange2).not.toHaveBeenCalled();
     expect(onRangeChange1.mock.calls.length).toBe(callsAfterMount);
+  });
+
+  it('retries onNearEnd when the effect re-runs on callback identity change (same items/range)', async () => {
+    // Regression: the near-end check used to sit AFTER the "same items+range"
+    // short-circuit. When the parent re-rendered with fresh callback
+    // identities while the viewport was near the end, the effect returned
+    // early and the pagination trigger was silently dropped.
+    const CONTAINER_HEIGHT = 360; // 3 visible rows at fallback pitch 120
+    const items = makeItems(27); // 9 rows → rowsRemaining = 9 - 3 - 1 = 5 ≤ threshold
+    const onNearEnd1 = vi.fn();
+
+    await act(async () => {
+      getRoot().render(
+        <VirtualGalleryGrid
+          items={items}
+          thumbnails={new Map()}
+          loadingThumbs={new Set()}
+          onItemClick={vi.fn()}
+          onRangeChange={vi.fn()}
+          onNearEnd={onNearEnd1}
+        />
+      );
+      await flush();
+    });
+
+    const gridContainer = getContainer().querySelector('[data-testid="virtual-grid-container"]');
+    expect(gridContainer).toBeTruthy();
+    if (gridContainer) {
+      act(() => {
+        resizeMock.triggerResize(gridContainer, CONTAINER_HEIGHT);
+      });
+    }
+    await flush();
+
+    // Near-end fired with the initial range report.
+    expect(onNearEnd1).toHaveBeenCalledTimes(1);
+
+    // Same items/same visible range, brand-new callback identities — exactly
+    // what a GalleryCard re-render produces while thumbnails stream in. The
+    // range report is deduped, but near-end must still be evaluated on every
+    // effect run (loadNextPage is idempotent on the pager side).
+    const onNearEnd2 = vi.fn();
+    const onRangeChange2 = vi.fn();
+    await act(async () => {
+      getRoot().render(
+        <VirtualGalleryGrid
+          items={items}
+          thumbnails={new Map()}
+          loadingThumbs={new Set()}
+          onItemClick={vi.fn()}
+          onRangeChange={onRangeChange2}
+          onNearEnd={onNearEnd2}
+        />
+      );
+      await flush();
+    });
+
+    expect(onNearEnd2).toHaveBeenCalledTimes(1);
+    expect(onRangeChange2).not.toHaveBeenCalled(); // range itself is unchanged
+  });
+
+  it('re-reports the range when items reload (new array identity, same range)', async () => {
+    // The dedupe key is (items identity + range key): a gallery refresh
+    // rebuilds the items array at the same scroll position, and the grid must
+    // re-report so the scheduler re-requests thumbnails for the viewport.
+    const CONTAINER_HEIGHT = 360;
+    const onRangeChange = vi.fn();
+
+    await act(async () => {
+      getRoot().render(
+        <VirtualGalleryGrid
+          items={makeItems(27)}
+          thumbnails={new Map()}
+          loadingThumbs={new Set()}
+          onItemClick={vi.fn()}
+          onRangeChange={onRangeChange}
+        />
+      );
+      await flush();
+    });
+
+    const gridContainer = getContainer().querySelector('[data-testid="virtual-grid-container"]');
+    expect(gridContainer).toBeTruthy();
+    if (gridContainer) {
+      act(() => {
+        resizeMock.triggerResize(gridContainer, CONTAINER_HEIGHT);
+      });
+    }
+    await flush();
+
+    const callsAfterFirst = onRangeChange.mock.calls.length;
+    expect(callsAfterFirst).toBeGreaterThanOrEqual(1);
+    const firstVisible = onRangeChange.mock.calls[callsAfterFirst - 1][0];
+
+    // Reload: same content, same range key — but a fresh items array.
+    await act(async () => {
+      getRoot().render(
+        <VirtualGalleryGrid
+          items={makeItems(27)}
+          thumbnails={new Map()}
+          loadingThumbs={new Set()}
+          onItemClick={vi.fn()}
+          onRangeChange={onRangeChange}
+        />
+      );
+      await flush();
+    });
+
+    expect(onRangeChange.mock.calls.length).toBe(callsAfterFirst + 1);
+    const reloadedVisible = onRangeChange.mock.calls[callsAfterFirst][0];
+    expect(reloadedVisible).toEqual(firstVisible);
+  });
+
+  it('sizes the spacer from measured row-gap-aware metrics', async () => {
+    // Wiring check: measureGridMetrics feeds padTop/pitch/padBottom into the
+    // spacer height. With a resolved width of 380px the pitch is
+    // (380-2-2-12)/3 + 6 = 127⅓ (NOT the hardcoded 120 fallback).
+    const restore = stubInnerGridComputedStyle();
+    try {
+      const items = makeItems(300); // 100 rows
+      await act(async () => {
+        getRoot().render(
+          <VirtualGalleryGrid
+            items={items}
+            thumbnails={new Map()}
+            loadingThumbs={new Set()}
+            onItemClick={vi.fn()}
+          />
+        );
+        await flush();
+      });
+
+      const gridContainer = getContainer().querySelector('[data-testid="virtual-grid-container"]');
+      expect(gridContainer).toBeTruthy();
+      if (gridContainer) {
+        act(() => {
+          resizeMock.triggerResize(gridContainer, 360);
+        });
+      }
+      await flush();
+
+      const spacer = gridContainer!.querySelector(':scope > div') as HTMLElement | null;
+      expect(spacer).toBeTruthy();
+      const pitch = (380 - 2 - 2 - 2 * 6) / 3 + 6;
+      expect(parseFloat(spacer!.style.height)).toBeCloseTo(4 + 100 * pitch + 6, 1);
+    } finally {
+      restore();
+    }
+  });
+
+  it('scrollToIndex compensates with the measured padTop and pitch', async () => {
+    const restore = stubInnerGridComputedStyle();
+    try {
+      const handleRef: { current: VirtualGalleryGridHandle | null } = { current: null };
+      await act(async () => {
+        getRoot().render(
+          <VirtualGalleryGrid
+            ref={handleRef}
+            items={makeItems(27)}
+            thumbnails={new Map()}
+            loadingThumbs={new Set()}
+            onItemClick={vi.fn()}
+          />
+        );
+        await flush();
+      });
+
+      const gridContainer = getContainer().querySelector('[data-testid="virtual-grid-container"]');
+      expect(gridContainer).toBeTruthy();
+
+      // jsdom lacks Element.scrollTo; stub it to capture the target.
+      let capturedTop = -1;
+      gridContainer!.scrollTo = ((opts: { top?: number }) => {
+        capturedTop = opts?.top ?? -1;
+      }) as Element['scrollTo'];
+
+      act(() => {
+        handleRef.current?.scrollToIndex(3);
+      });
+
+      // index 3 → row 1 → top = padTop(4) + 1 × pitch(127⅓)
+      const pitch = (380 - 2 - 2 - 2 * 6) / 3 + 6;
+      expect(capturedTop).toBeCloseTo(4 + 1 * pitch, 1);
+    } finally {
+      restore();
+    }
+  });
+
+  it('remeasures row metrics when the ResizeObserver fires', async () => {
+    const items = makeItems(300); // 100 rows
+    await act(async () => {
+      getRoot().render(
+        <VirtualGalleryGrid
+          items={items}
+          thumbnails={new Map()}
+          loadingThumbs={new Set()}
+          onItemClick={vi.fn()}
+        />
+      );
+      await flush();
+    });
+
+    const gridContainer = getContainer().querySelector('[data-testid="virtual-grid-container"]');
+    const innerGrid = getContainer().querySelector('[data-testid="virtual-grid-inner"]');
+    expect(gridContainer).toBeTruthy();
+    expect(innerGrid).toBeTruthy();
+    const spacerHeight = () =>
+      parseFloat((gridContainer!.querySelector(':scope > div') as HTMLElement).style.height);
+
+    // jsdom cannot resolve the grid width at mount → fallback pitch
+    // 120 (DEFAULT_GRID_METRICS).
+    expect(spacerHeight()).toBeCloseTo(4 + 100 * 120 + 6, 5);
+
+    // The real layout arrives (width becomes resolvable): the observer must
+    // remeasure and re-render the spacer with the row-gap-aware pitch.
+    const restore = stubInnerGridComputedStyle();
+    try {
+      act(() => {
+        resizeMock.triggerResize(innerGrid!, 0);
+      });
+      await flush();
+
+      const pitch = (380 - 2 - 2 - 2 * 6) / 3 + 6;
+      expect(spacerHeight()).toBeCloseTo(4 + 100 * pitch + 6, 1);
+    } finally {
+      restore();
+    }
   });
 });

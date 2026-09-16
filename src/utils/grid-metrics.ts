@@ -21,17 +21,29 @@ export const DEFAULT_GRID_METRICS: GridMetrics = { pitch: 120, padTop: 4, padBot
  * 单元格宽 = (contentWidth − 左右 padding − 2 × 列间距) / 3
  * pitch    = 单元格高（= 宽） + 行间距
  */
-export function computeGridMetrics(
-  contentWidth: number,
-  padLeft: number,
-  padRight: number,
-  colGap: number,
-  rowGap: number,
-  padTop: number,
-  padBottom: number,
-): GridMetrics {
-  const cellWidth = (contentWidth - padLeft - padRight - 2 * colGap) / 3;
-  return { pitch: cellWidth + rowGap, padTop, padBottom };
+export function computeGridMetrics(metrics: {
+  width: number;
+  padLeft: number;
+  padRight: number;
+  colGap: number;
+  rowGap: number;
+  padTop: number;
+  padBottom: number;
+}): GridMetrics {
+  const cellWidth = (metrics.width - metrics.padLeft - metrics.padRight - 2 * metrics.colGap) / 3;
+  return { pitch: cellWidth + metrics.rowGap, padTop: metrics.padTop, padBottom: metrics.padBottom };
+}
+
+/**
+ * 两份 GridMetrics 是否可视为相同（各字段差 ≤ 0.5px）。
+ * 用于 ResizeObserver 重测时过滤亚像素抖动，避免无意义重渲染。
+ */
+export function sameGridMetrics(a: GridMetrics, b: GridMetrics): boolean {
+  return (
+    Math.abs(a.pitch - b.pitch) <= 0.5 &&
+    Math.abs(a.padTop - b.padTop) <= 0.5 &&
+    Math.abs(a.padBottom - b.padBottom) <= 0.5
+  );
 }
 
 /**
@@ -46,13 +58,13 @@ export function measureGridMetrics(el: HTMLElement): GridMetrics {
   if (!(width > 0)) {
     return DEFAULT_GRID_METRICS;
   }
-  return computeGridMetrics(
+  return computeGridMetrics({
     width,
-    num(cs.paddingLeft),
-    num(cs.paddingRight),
-    num(cs.columnGap),
-    num(cs.rowGap),
-    num(cs.paddingTop),
-    num(cs.paddingBottom),
-  );
+    padLeft: num(cs.paddingLeft),
+    padRight: num(cs.paddingRight),
+    colGap: num(cs.columnGap),
+    rowGap: num(cs.rowGap),
+    padTop: num(cs.paddingTop),
+    padBottom: num(cs.paddingBottom),
+  });
 }

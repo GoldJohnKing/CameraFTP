@@ -79,7 +79,7 @@ export function PermissionDialog({ isOpen, onClose, onAllGranted }: PermissionDi
               取消
             </button>
             <button
-              onClick={() => { void handleContinue(); }}
+              onClick={handleContinue}
               disabled={!allGranted || isStarting}
               className={`flex-1 px-4 py-3 rounded-xl font-medium ${
                 allGranted

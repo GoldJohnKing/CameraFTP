@@ -316,7 +316,9 @@ export const GalleryCard = memo(function GalleryCard() {
       if (mediaIds?.length > 0) {
         const idsToDelete = new Set(mediaIds);
         pager.removeItems(idsToDelete);
-        scheduler.removeThumbs(idsToDelete);
+        // 对齐 registerMedia effect 的做法：经 schedulerRef 读取，避免
+        // scheduler 对象身份变化导致监听器无谓重挂/卸载。
+        schedulerRef.current.removeThumbs(idsToDelete);
         // Invalidate disk cache for deleted media IDs
         void invalidateMediaIds([...idsToDelete]);
       }
@@ -326,7 +328,7 @@ export const GalleryCard = memo(function GalleryCard() {
     return () => {
       window.removeEventListener('gallery-items-deleted', handleItemsDeleted as EventListener);
     };
-  }, [pager, scheduler]);
+  }, [pager]);
 
   // Listen for incremental add events from FTP upload (preserves scroll position)
   useEffect(() => {

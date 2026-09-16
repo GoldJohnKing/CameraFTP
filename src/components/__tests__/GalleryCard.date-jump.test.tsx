@@ -8,6 +8,7 @@ import { act } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { GalleryCard } from '../GalleryCard';
 import type { MediaItemDto } from '../../types';
+import { DEFAULT_GRID_METRICS } from '../../utils/grid-metrics';
 import { flush } from '../../test-utils/flush';
 import { createMockRectObserver } from '../../test-utils/mock-resize-observer';
 import { setupReactRoot } from '../../test-utils/react-root';
@@ -237,9 +238,9 @@ describe('GalleryCard date-jump', () => {
       await flush();
     });
 
-    // index 3 → row floor(3/3) = 1 → scrollTop = padTop(4) + 1 * pitch(120) = 124
-    // （jsdom 下测量回退 DEFAULT_GRID_METRICS：pitch 120、padTop 4）
-    expect(capturedTop).toBe(124);
+    // index 3 → row floor(3/3) = 1 → scrollTop = padTop + row × pitch
+    // （jsdom 下测量回退 DEFAULT_GRID_METRICS）
+    expect(capturedTop).toBe(DEFAULT_GRID_METRICS.padTop + 1 * DEFAULT_GRID_METRICS.pitch);
 
     // The highlight request is deferred to the next animation frame (real
     // timers here, so flush() won't drain it). Wait one frame, then let the

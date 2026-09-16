@@ -40,8 +40,8 @@ const baseConfig = {
   auth: { anonymous: false, username: 'user', passwordHash: '' },
 } as unknown as AdvancedConnectionConfigType;
 
-/** 可复用的面板渲染 harness（后续端口检查等 describe 复用） */
-export function renderPanel(
+/** 可复用的面板渲染 harness（本文件内复用） */
+function renderPanel(
   overrides: Partial<Parameters<typeof AdvancedConnectionConfigPanel>[0]> = {},
 ) {
   return render(
@@ -184,6 +184,25 @@ describe('AdvancedConnectionConfigPanel password save failure', () => {
     await waitFor(() =>
       expect((input as HTMLInputElement).value).toBe('••••••••'),
     );
+    expect(toast.error).not.toHaveBeenCalled();
+  });
+
+  it('清空输入再失焦=放弃修改：退出编辑态且不保存、无 toast', async () => {
+    renderPanel();
+    const input = screen.getByPlaceholderText('输入密码');
+
+    // 进入编辑 → 输入 → 清空 → 失焦
+    fireEvent.focus(input);
+    fireEvent.change(input, { target: { value: 'secret123' } });
+    fireEvent.change(input, { target: { value: '' } });
+    fireEvent.blur(input);
+
+    // 退出编辑态：无已存密码（baseConfig passwordHash 为空）→ 显示值回到
+    // 空串（而非占位符或明文）。
+    await waitFor(() =>
+      expect((input as HTMLInputElement).value).toBe(''),
+    );
+    expect(saveAuthConfigMock).not.toHaveBeenCalled();
     expect(toast.error).not.toHaveBeenCalled();
   });
 });
