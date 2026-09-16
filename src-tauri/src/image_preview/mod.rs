@@ -42,7 +42,9 @@ pub fn content_type_for(path: &Path) -> &'static str {
 /// 返回:
 /// - `Ok(Some(canonical))`: 路径存在、是文件、且位于 `save_root` 之下，
 ///   返回规范化后的绝对路径（解析 `..`、符号链接与 Windows `\\?\` 前缀）
-/// - `Ok(None)`: 路径越界或不是文件，调用方应回 403
+/// - `Ok(None)`: 路径越界或不是文件，调用方应回 404（与 `Err` 分支统一，
+///   避免 403 构成存在性 oracle——否则调用方可区分"路径存在但越界"与
+///   "路径不存在"）
 /// - `Err(e)`: 路径不存在/无法访问，调用方应回 404
 ///
 /// 两端各自 `canonicalize` 后用 `starts_with` 判断包含关系，可抵御目录穿越。
@@ -60,6 +62,19 @@ pub(crate) fn validate_preview_path(
         return Ok(None);
     }
     Ok(Some(canonical_requested))
+}
+
+/// 统一缓存键：路径分隔符归一（反斜杠 → 正斜杠）。
+///
+/// 索引有两个 raw 路径生产者：scan/watcher 走 `PathBuf`（Windows 上通常
+/// 带反斜杠），FTP 事件路径是正斜杠字符串拼出来的 `save_path.join(&path)`。
+/// 字符串键若不做归一，同一路径会因拼写不同而 miss/失效变 no-op，因此
+/// `get_or_load` 与 `invalidate` 双边必须同用本函数。
+/// 不可用 `canonicalize`：invalidate 常在文件已删除后调用（canonicalize
+/// 对已删路径失败），且 canonical 形态（Windows `\\?\` verbatim）与请求
+/// 路径永不匹配。
+fn cache_key(path: &Path) -> String {
+    path.to_string_lossy().replace('\\', "/")
 }
 
 struct CacheInner {
@@ -87,6 +102,12 @@ pub struct ImagePreviewCache {
     inner: RwLock<CacheInner>,
 }
 
+impl Default for ImagePreviewCache {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ImagePreviewCache {
     pub fn new() -> Self {
         Self {
@@ -99,9 +120,10 @@ impl ImagePreviewCache {
     }
 
     pub fn get_or_load(&self, path: &Path) -> Result<Arc<Vec<u8>>, String> {
-        // 键契约：缓存键 = 调用方传入的原始路径字符串（不做 canonicalize）。
-        // invalidate 也按原始字符串精确匹配——见 lib.rs scheme handler 注释。
-        let key = path.to_string_lossy().to_string();
+        // 键契约：缓存键 = 调用方传入的原始路径字符串经分隔符归一（见
+        // cache_key）。invalidate 也按同一规则归一——见 lib.rs scheme
+        // handler 注释与 cache_key doc。
+        let key = cache_key(path);
 
         {
             let inner = self.inner.read().map_err(|e| e.to_string())?;
@@ -134,7 +156,8 @@ impl ImagePreviewCache {
     }
 
     pub fn invalidate(&self, path: &Path) {
-        let key = path.to_string_lossy().to_string();
+        // 与 get_or_load 同规则归一（cache_key），保证跨生产者命中
+        let key = cache_key(path);
         // 与 get_or_load 一致容忍锁中毒：失效操作不应 panic
         let Ok(mut inner) = self.inner.write() else {
             tracing::warn!("Image preview cache lock poisoned, skipping invalidation");
@@ -280,8 +303,9 @@ mod tests {
         cache.invalidate(&drop_path);
 
         let inner = cache.inner.read().unwrap();
-        assert!(!inner.data.contains_key(&drop_path.to_string_lossy().to_string()));
-        assert!(inner.data.contains_key(&keep_path.to_string_lossy().to_string()));
+        // 键已归一（cache_key）：内部断言也用归一键，避免空洞通过
+        assert!(!inner.data.contains_key(&cache_key(&drop_path)));
+        assert!(inner.data.contains_key(&cache_key(&keep_path)));
         assert_eq!(inner.total_bytes, 4);
         assert_eq!(inner.order.len(), 1);
 
@@ -380,8 +404,7 @@ mod tests {
     // handler 用原始请求路径 get_or_load，失效点（file_index 删除 / exif 注入）
     // 也传原始字符串——两边必须精确匹配，否则失效变 no-op（spec review finding）。
     #[test]
-    fn invalidate_raw_path_removes_entry_loaded_via_same_raw_path() {
-        let dir = std::env::temp_dir().join("cameraftp_test_cache_raw_key");
+    fn invalidate_raw_path_removes_entry_loaded_via_same_raw_path() {        let dir = std::env::temp_dir().join("cameraftp_test_cache_raw_key");
         std::fs::create_dir_all(&dir).unwrap();
         let file_path = dir.join("test.jpg");
         let mut f = std::fs::File::create(&file_path).unwrap();
@@ -396,7 +419,7 @@ mod tests {
 
         let inner = cache.inner.read().unwrap();
         assert!(
-            !inner.data.contains_key(&file_path.to_string_lossy().to_string()),
+            !inner.data.contains_key(&cache_key(&file_path)),
             "invalidate with the raw request path must remove the entry"
         );
         assert_eq!(inner.total_bytes, 0);
@@ -422,10 +445,48 @@ mod tests {
 
         let inner = cache.inner.read().unwrap();
         assert!(
-            !inner.data.contains_key(&file_path.to_string_lossy().to_string()),
+            !inner.data.contains_key(&cache_key(&file_path)),
             "invalidate must work even after the file is deleted from disk"
         );
         assert_eq!(inner.total_bytes, 0);
+
+        drop(inner);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    // 回归：缓存键做分隔符归一（cache_key）。索引的两个 raw 路径生产者
+    // 拼写不同——scan/watcher 的 Windows PathBuf 反斜杠 vs FTP 正斜杠——
+    // 若 get_or_load/invalidate 不用同一归一规则，跨生产者的失效会变
+    // no-op，已删/已改文件的陈旧预览继续命中（spec review finding）。
+    #[test]
+    fn invalidate_cross_producer_separator_spelling_removes_entry() {
+        let dir = std::env::temp_dir().join("cameraftp_test_cache_key_norm");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        // dir.join 产生平台原生分隔符（Windows 为反斜杠）
+        let backslash_path = dir.join("norm.jpg");
+        std::fs::write(&backslash_path, b"jpeg-bytes").unwrap();
+
+        let cache = ImagePreviewCache::new();
+        // 生产者 A（scan/watcher）：PathBuf 原生拼写装载
+        cache.get_or_load(&backslash_path).unwrap();
+        assert_eq!(cache.inner.read().unwrap().total_bytes, b"jpeg-bytes".len());
+
+        // 生产者 B（FTP）：正斜杠拼写失效——归一后必须命中同一键
+        let forward_path = backslash_path.to_string_lossy().replace('\\', "/");
+        cache.invalidate(std::path::Path::new(&forward_path));
+
+        let inner = cache.inner.read().unwrap();
+        assert!(
+            !inner.data.contains_key(&cache_key(&backslash_path)),
+            "forward-slash invalidate must remove the backslash-loaded entry"
+        );
+        assert!(
+            !inner.data.contains_key(&cache_key(std::path::Path::new(&forward_path))),
+            "no separator-variant residue may survive"
+        );
+        assert_eq!(inner.total_bytes, 0, "byte accounting must drop to zero");
+        assert_eq!(inner.order.len(), 0, "LRU order must drop to zero");
 
         drop(inner);
         std::fs::remove_dir_all(&dir).ok();

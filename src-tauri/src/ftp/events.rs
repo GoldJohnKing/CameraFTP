@@ -125,14 +125,9 @@ impl EventProcessor {
     }
 
     async fn run_loop(&mut self) {
-        loop {
-            match self.state_rx.changed().await {
-                Ok(()) => {
-                    let snapshot = self.state_rx.borrow_and_update().clone();
-                    self.replay_state_to_handlers(&snapshot).await;
-                }
-                Err(_) => break,
-            }
+        while let Ok(()) = self.state_rx.changed().await {
+            let snapshot = self.state_rx.borrow_and_update().clone();
+            self.replay_state_to_handlers(&snapshot).await;
         }
     }
 

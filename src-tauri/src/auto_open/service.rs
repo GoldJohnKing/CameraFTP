@@ -2,7 +2,7 @@
 // Copyright (C) 2026 GoldJohnKing <GoldJohnKing@Live.cn>
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 #[cfg(target_os = "windows")]
 use tauri::{Emitter, Manager};
@@ -69,7 +69,7 @@ impl AutoOpenService {
     }
 
     /// 根据配置打开图片（用于手动触发）
-    pub async fn open_image(&self, _file_path: &PathBuf) -> Result<(), AppError> {
+    pub async fn open_image(&self, _file_path: &Path) -> Result<(), AppError> {
         #[cfg(target_os = "windows")]
         {
             let config = self.current_config();
@@ -82,7 +82,7 @@ impl AutoOpenService {
     #[cfg(target_os = "windows")]
     async fn dispatch_open(
         &self,
-        file_path: &PathBuf,
+        file_path: &Path,
         config: &PreviewWindowConfig,
         bring_to_front: bool,
     ) -> Result<(), AppError> {
@@ -110,7 +110,7 @@ impl AutoOpenService {
     #[cfg(target_os = "windows")]
     async fn open_or_update_preview_window(
         &self, 
-        file_path: &PathBuf, 
+        file_path: &Path, 
         bring_to_front: bool
     ) -> Result<(), AppError> {
         let event = PreviewEvent {

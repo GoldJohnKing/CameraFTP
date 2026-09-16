@@ -710,6 +710,9 @@ impl RawAlchemyLib {
         })
     }
 
+    // 既有公共签名镜像 C++ core 入参，重构参数结构（引入 options struct）
+    // 超出本次清理范围，显式放宽参数数量
+    #[allow(clippy::too_many_arguments)]
     pub fn process_file_with_lut(
         &self,
         input_path: &Path,
@@ -888,6 +891,9 @@ impl RawAlchemyLib {
         }
     }
 
+    // 既有签名一一对应 C++ core 的 preview 入参，重构参数结构超出本次
+    // 清理范围，显式放宽参数数量
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn apply_preview_grading(
         &self,
         session: &RaPreviewSession,

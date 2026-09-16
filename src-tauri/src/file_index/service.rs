@@ -239,11 +239,10 @@ impl FileIndexService {
 
                 if metadata.is_dir() {
                     dirs_to_process.push(path);
-                } else if metadata.is_file() {
-                    if crate::image_utils::is_supported_image(&path) {
+                } else if metadata.is_file()
+                    && crate::image_utils::is_supported_image(&path) {
                         paths.push(path);
                     }
-                }
             }
         }
 
@@ -294,7 +293,7 @@ impl FileIndexService {
             .to_string();
         
         let modified_time = metadata.modified()
-            .unwrap_or_else(|_| SystemTime::UNIX_EPOCH);
+            .unwrap_or(SystemTime::UNIX_EPOCH);
         
         // 尝试读取EXIF时间
         let exif_time = self.read_exif_time(path).await;
@@ -321,7 +320,7 @@ impl FileIndexService {
         tokio::task::spawn_blocking(move || -> Option<SystemTime> {
             crate::image_utils::parse_exif(&path).ok()??
                 .datetime_original
-                .map(|ndt| ndt.and_utc().try_into().ok())?
+                .map(|ndt| ndt.and_utc().into())
         }).await.ok()?
     }
 
@@ -1105,5 +1104,86 @@ mod tests {
         let names: std::collections::HashSet<String> =
             files.iter().map(|f| f.filename.clone()).collect();
         assert_eq!(names, expected);
+    }
+
+    // ---- 语义钉住（spec review findings）----
+
+    #[tokio::test]
+    async fn scan_directory_commit_resets_current_index_to_latest() {
+        // 语义钉住（当前实际行为）：扫描提交把 current_index 重置到最新一张
+        //（位置 0，实现为 merged.first().map(|_| 0)），不保留扫描前的查看
+        // 位置；空目录提交后为 None。
+        let temp_dir = tempdir().expect("failed to create temp dir");
+        let save_path = temp_dir.path().join("images");
+        std::fs::create_dir_all(&save_path).expect("create dir");
+
+        let config_service = ConfigService::new_with_path(temp_dir.path().join("config.json"));
+        config_service
+            .mutate_and_persist(|config| {
+                config.save_path = save_path.clone();
+            })
+            .expect("persist config");
+        let service = FileIndexService::new(Arc::new(config_service));
+
+        let newest = create_file_with_mtime(&save_path, "newest.jpg", 3000);
+        let oldest = create_file_with_mtime(&save_path, "oldest.jpg", 1000);
+        service.add_file(newest.clone()).await.unwrap();
+        service.add_file(oldest).await.unwrap();
+        // 先查看较旧的一张（位置 1），扫描提交后必须回到最新（位置 0）
+        service.navigate_to(1).await.expect("navigate to the older entry");
+        assert_eq!(service.get_current_index().await, Some(1));
+
+        service.scan_directory().await.expect("rescan");
+
+        assert_eq!(
+            service.get_current_index().await,
+            Some(0),
+            "scan commit must reset current_index to the latest (first) entry"
+        );
+        let files = service.get_files().await;
+        assert_eq!(files[0].path, newest, "first entry must be the newest by sort_time");
+    }
+
+    #[tokio::test]
+    async fn add_file_keeps_existing_exif_entry_unchanged() {
+        // 语义钉住：对"已存在且带 EXIF"的条目再次 add_file（watcher/FTP 双
+        // 通道并发的常态）→ 条目原样保留：sort_time 不变、无重复。这是
+        // watcher 事件并发化（file_index/watcher.rs）正确性的根基。
+        let temp_dir = tempdir().expect("failed to create temp dir");
+        let save_path = temp_dir.path().join("images");
+        std::fs::create_dir_all(&save_path).expect("create dir");
+
+        let config_service = ConfigService::new_with_path(temp_dir.path().join("config.json"));
+        config_service
+            .mutate_and_persist(|config| {
+                config.save_path = save_path.clone();
+            })
+            .expect("persist config");
+        let service = FileIndexService::new(Arc::new(config_service));
+
+        let file_path = save_path.join("exif.jpg");
+        std::fs::write(&file_path, crate::image_utils::build_exif_jpeg("2024:06:01 12:00:00", 1))
+            .expect("write exif jpeg");
+        filetime::set_file_mtime(&file_path, filetime::FileTime::from_unix_time(5000, 0))
+            .expect("set mtime");
+
+        service.add_file(file_path.clone()).await.expect("first add");
+        let before = service.get_files().await;
+        assert_eq!(before.len(), 1);
+        let sort_time_before = before[0].sort_time;
+        let exif_before = before[0].exif_time;
+        assert!(exif_before.is_some(), "seed entry must carry EXIF");
+
+        // 即便之后 mtime 拨到远新于原值，已带 EXIF 的条目也不得被重写
+        //（重解析会得到不同的 sort_time，可用本断言检出）
+        filetime::set_file_mtime(&file_path, filetime::FileTime::from_unix_time(9000, 0))
+            .expect("bump mtime");
+
+        service.add_file(file_path.clone()).await.expect("second add");
+
+        let after = service.get_files().await;
+        assert_eq!(after.len(), 1, "repeated add must not duplicate the entry");
+        assert_eq!(after[0].sort_time, sort_time_before, "sort_time must stay untouched");
+        assert_eq!(after[0].exif_time, exif_before, "exif_time must stay untouched");
     }
 }

@@ -140,9 +140,9 @@ fn parse_cube_text(text: &str) -> Result<LutData, AppError> {
 }
 
 fn parse_three_floats(s: &str, out: &mut [f32; 3]) -> Result<(), AppError> {
-    let mut parts = s.trim().split_whitespace();
-    for i in 0..3 {
-        out[i] = parts
+    let mut parts = s.split_whitespace();
+    for slot in out.iter_mut() {
+        *slot = parts
             .next()
             .ok_or_else(|| AppError::ColorGradingError("Expected 3 float values".into()))?
             .parse()

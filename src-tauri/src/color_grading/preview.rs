@@ -54,7 +54,7 @@ impl ColorGradingPreviewState {
 
         if let Some(active) = guard.take() {
             tracing::info!(old_image = %active.image_path, "Ending previous preview session");
-            end_session_internal(&lib, active);
+            end_session_internal(lib, active);
         }
 
         tracing::info!(image = image_path, half_size, max_w = max_preview_width, max_h = max_preview_height, "Beginning preview session (decoding RAW)...");
@@ -132,7 +132,7 @@ impl ColorGradingPreviewState {
 
         if let Some(active) = guard.take() {
             tracing::info!(image = %active.image_path, "Ending preview session");
-            end_session_internal(&lib, active);
+            end_session_internal(lib, active);
         }
 
         Ok(())

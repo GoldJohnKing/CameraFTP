@@ -73,8 +73,10 @@ pub fn init(app: &tauri::AppHandle, config_service: &std::sync::Arc<ConfigServic
                     }
                 };
 
-                let mut cfg = RaNnConfig::default();
-                cfg.app_version = cstr(env!("CARGO_PKG_VERSION"));
+                let mut cfg = RaNnConfig {
+                    app_version: cstr(env!("CARGO_PKG_VERSION")),
+                    ..Default::default()
+                };
 
                 // QNN context-cache dir (Android only) — the one NN artifact
                 // still on disk (the compiled graph), distinct from the
@@ -137,7 +139,7 @@ pub fn init(app: &tauri::AppHandle, config_service: &std::sync::Arc<ConfigServic
 
     let cg_service = std::sync::Arc::new(color_grading::ColorGradingService::new(
         app.clone(),
-        std::sync::Arc::clone(&config_service),
+        std::sync::Arc::clone(config_service),
     ));
     app.manage(cg_service.clone());
     cg_service.set_global();

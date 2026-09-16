@@ -220,7 +220,7 @@ async fn worker_loop<R: tauri::Runtime>(
         receiver: &mut mpsc::Receiver<ColorGradingTask>,
         queue_depth: &QueueDepth,
     ) {
-        while let Ok(_) = receiver.try_recv() {
+        while receiver.try_recv().is_ok() {
             queue_depth.sub(1);
         }
     }
@@ -337,9 +337,9 @@ enum FallbackDecision {
 /// session on a spurious "not ready". `NN_INIT_DONE` distinguishes "warming up"
 /// (no latch) from "init attempted and failed" (latch).
 fn classify_nn_failure(nn_ready: bool) -> FallbackDecision {
-    if nn_ready {
-        FallbackDecision::UseClassicalNoLatch
-    } else if !NN_INIT_DONE.load(Ordering::Relaxed) {
+    // 两种"不 latch"情形合并：会话已就绪（结构性故障，与 init 无关），
+    // 或 init 尚未完成（后台预热中，见上方 doc——此时不 latch）
+    if nn_ready || !NN_INIT_DONE.load(Ordering::Relaxed) {
         FallbackDecision::UseClassicalNoLatch
     } else {
         FallbackDecision::UseClassicalAndLatch
@@ -365,7 +365,7 @@ async fn process_single_file(
 
     // First attempt: NN if enabled, else skip straight to classical.
     if nn_enabled.load(Ordering::Relaxed) {
-        match decode_once(lib, task, &output_path, &preset, &lut_data, lensfun_path.as_deref(), true).await {
+        match decode_once(lib, task, &output_path, preset, &lut_data, lensfun_path.as_deref(), true).await {
             Ok(()) => return Ok(result_path),
             Err(nn_err) => {
                 match classify_nn_failure(super::ffi::is_nn_ready()) {
@@ -389,7 +389,7 @@ async fn process_single_file(
     }
 
     // Classical attempt (always last resort). An error here is a real failure.
-    decode_once(lib, task, &output_path, &preset, &lut_data, lensfun_path.as_deref(), false)
+    decode_once(lib, task, &output_path, preset, &lut_data, lensfun_path.as_deref(), false)
         .await
         .map(|_| result_path)
 }

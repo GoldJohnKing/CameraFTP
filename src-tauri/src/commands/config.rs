@@ -120,11 +120,13 @@ pub async fn save_config(
 
     if old_save_path != new_save_path {
         tracing::info!("save_path changed from {:?} to {:?}, triggering rescan", old_save_path, new_save_path);
-        Arc::clone(&file_index).update_save_path(new_save_path.clone()).await?;
-        // 运行时扩展 asset protocol scope，使新保存目录无需重启即可用
+        // 先扩展 asset protocol scope（幂等且廉价）：若放在 update_save_path
+        // 之后，其内部 scan_directory 失败经 ? 短路返回会让本会话的 scope
+        // 永远缺失新目录（预览窗口直到重启都不可用）
         if let Err(e) = app.asset_protocol_scope().allow_directory(&new_save_path, true) {
             tracing::warn!(error = %e, "Failed to extend asset protocol scope for new save_path");
         }
+        Arc::clone(&file_index).update_save_path(new_save_path.clone()).await?;
     }
 
     Ok(())
@@ -210,7 +212,7 @@ pub async fn select_executable_file(app: AppHandle) -> Result<Option<String>, Ap
         .await
         .map_err(|e| AppError::Other(format!("Task failed: {}", e)))?;
 
-        return Ok(file_path.and_then(|p| p.as_path().map(|path| path.to_string_lossy().to_string())));
+        Ok(file_path.and_then(|p| p.as_path().map(|path| path.to_string_lossy().to_string())))
     }
 
     #[cfg(target_os = "android")]

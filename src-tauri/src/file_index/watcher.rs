@@ -4,6 +4,14 @@
 
 // 文件系统监听仅在 Windows 平台启用
 // Android 不使用文件系统监听
+//
+// 并发模型：notify 回调线程只做事件分类，把事件 try_send 进 mpsc 通道
+//（容量 1000；满时告警并丢弃该事件，索引最终一致，下次扫描可补）。
+// 事件循环对 Created/Renamed 重事件（wait_for_file_ready 秒级等待 +
+// EXIF 全文件解析）每事件独立 tokio::spawn 并发处理，避免一个慢文件
+// 阻塞整批事件；Deleted 轻事件保持串行 await。正确性不依赖处理顺序：
+// add_file 在写锁内做查重-回填幂等处理，并发重复的 Created 对同一
+// 文件第二次进入时直接跳过或回填，不会产生重复条目。
 #![cfg(target_os = "windows")]
 
 use std::path::PathBuf;
@@ -60,7 +68,7 @@ impl FileWatcher {
             return Ok(true);
         }
 
-        let (tx, mut rx) = channel::<FileSystemEvent>(100);
+        let (tx, rx) = channel::<FileSystemEvent>(1000);
         self.event_sender = Some(tx.clone());
 
         // 创建 notify watcher
@@ -76,6 +84,8 @@ impl FileWatcher {
                     }
                 }
             },
+            // 仅 PollWatcher 生效；Windows ReadDirectoryChangesW 后端忽略
+            //（保留供非 Windows 调试场景）
             notify::Config::default()
                 .with_poll_interval(Duration::from_secs(2))
                 .with_compare_contents(true),
@@ -87,12 +97,10 @@ impl FileWatcher {
 
         info!("File watcher started for: {:?}", self.watch_path);
 
-        // 启动事件处理任务
+        // 启动事件处理任务（并发模型见文件顶部注释）
         let file_index_clone = file_index.clone();
         tokio::spawn(async move {
-            while let Some(event) = rx.recv().await {
-                Self::process_event(event, file_index_clone.clone()).await;
-            }
+            Self::run_event_loop(rx, file_index_clone).await;
         });
 
         Ok(true)
@@ -107,6 +115,26 @@ impl FileWatcher {
         self.event_sender = None;
     }
 
+    /// 事件循环：重事件（Created/Renamed，需 wait_for_file_ready 秒级
+    /// 等待 + EXIF 全文件解析）每事件独立 tokio::spawn 并发处理，防止
+    /// 一个慢文件阻塞整批事件；轻事件（Deleted，仅索引写锁内移除）
+    /// 保持串行 await。
+    async fn run_event_loop(
+        mut rx: tokio::sync::mpsc::Receiver<FileSystemEvent>,
+        file_index: Arc<FileIndexService>,
+    ) {
+        while let Some(event) = rx.recv().await {
+            match event {
+                FileSystemEvent::Deleted(_) => {
+                    Self::process_event(event, Arc::clone(&file_index)).await;
+                }
+                FileSystemEvent::Created(_) | FileSystemEvent::Renamed { .. } => {
+                    tokio::spawn(Self::process_event(event, Arc::clone(&file_index)));
+                }
+            }
+        }
+    }
+
     /// 处理 notify 事件，转换为内部事件格式
     fn handle_notify_event(event: Event, tx: &Sender<FileSystemEvent>) {
         use notify::event::{EventKind, ModifyKind, RenameMode};
@@ -116,25 +144,28 @@ impl FileWatcher {
         match event.kind {
             EventKind::Create(_) => {
                 for path in &event.paths {
-                    if crate::image_utils::is_supported_image(path) {
-                        let _ = tx.try_send(FileSystemEvent::Created(path.clone()));
-                    }
+                    if crate::image_utils::is_supported_image(path)
+                        && tx.try_send(FileSystemEvent::Created(path.clone())).is_err() {
+                            warn!("file watcher channel full, event dropped: {:?}", path);
+                        }
                 }
             }
             // 重命名旧路径（From）→ 等同于删除
             EventKind::Modify(ModifyKind::Name(RenameMode::From)) => {
                 for path in &event.paths {
-                    if crate::image_utils::is_supported_image(path) {
-                        let _ = tx.try_send(FileSystemEvent::Deleted(path.clone()));
-                    }
+                    if crate::image_utils::is_supported_image(path)
+                        && tx.try_send(FileSystemEvent::Deleted(path.clone())).is_err() {
+                            warn!("file watcher channel full, event dropped: {:?}", path);
+                        }
                 }
             }
             // 重命名新路径（To）→ 等同于创建
             EventKind::Modify(ModifyKind::Name(RenameMode::To)) => {
                 for path in &event.paths {
-                    if crate::image_utils::is_supported_image(path) {
-                        let _ = tx.try_send(FileSystemEvent::Created(path.clone()));
-                    }
+                    if crate::image_utils::is_supported_image(path)
+                        && tx.try_send(FileSystemEvent::Created(path.clone())).is_err() {
+                            warn!("file watcher channel full, event dropped: {:?}", path);
+                        }
                 }
             }
             // 单事件同时携带 from + to（某些后端）
@@ -142,23 +173,30 @@ impl FileWatcher {
                 if event.paths.len() == 2 {
                     let from = &event.paths[0];
                     let to = &event.paths[1];
-                    if crate::image_utils::is_supported_image(from)
-                        || crate::image_utils::is_supported_image(to)
-                    {
-                        let _ = tx.try_send(FileSystemEvent::Renamed {
-                            from: from.clone(),
-                            to: to.clone(),
-                        });
-                    }
+                    if (crate::image_utils::is_supported_image(from)
+                        || crate::image_utils::is_supported_image(to))
+                        && tx
+                            .try_send(FileSystemEvent::Renamed {
+                                from: from.clone(),
+                                to: to.clone(),
+                            })
+                            .is_err()
+                        {
+                            warn!(
+                                "file watcher channel full, event dropped: {:?} -> {:?}",
+                                from, to
+                            );
+                        }
                 }
             }
             // 其他修改事件（内容/属性/时间戳）不需要索引更新
             EventKind::Modify(_) => {}
             EventKind::Remove(_) => {
                 for path in &event.paths {
-                    if crate::image_utils::is_supported_image(path) {
-                        let _ = tx.try_send(FileSystemEvent::Deleted(path.clone()));
-                    }
+                    if crate::image_utils::is_supported_image(path)
+                        && tx.try_send(FileSystemEvent::Deleted(path.clone())).is_err() {
+                            warn!("file watcher channel full, event dropped: {:?}", path);
+                        }
                 }
             }
             _ => {
@@ -203,11 +241,8 @@ impl FileWatcher {
                 debug!("File renamed: {:?} -> {:?}", from, to);
                 
                 // 先移除旧路径
-                match file_index.remove_file(&from).await {
-                    Ok(true) => {
-                        info!("Removed old path from index: {:?}", from);
-                    }
-                    _ => {}
+                if let Ok(true) = file_index.remove_file(&from).await {
+                    info!("Removed old path from index: {:?}", from);
                 }
                 
                 // 等待新路径文件就绪；超时同样降级为尽力而为索引（EXIF 回填善后）
@@ -388,6 +423,67 @@ mod tests {
         let path = dir.join(name);
         std::fs::write(&path, b"fake-jpeg-content").expect("write image file");
         path
+    }
+
+    /// 事件循环将重事件 spawn 到独立任务后，测试无法直接 await 其完成，
+    /// 必须以最终状态轮询代替固定 sleep：50ms 间隔，10s 超时断言。
+    async fn wait_for_count(service: &Arc<FileIndexService>, n: usize) {
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+        loop {
+            let count = service.get_file_count().await;
+            if count >= n {
+                return;
+            }
+            assert!(
+                tokio::time::Instant::now() < deadline,
+                "timed out waiting for file count to reach {} (current: {})",
+                n,
+                count
+            );
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    }
+
+    #[tokio::test]
+    async fn event_loop_dispatches_created_concurrently_and_deleted_serially() {
+        // 钉住事件循环的并发模型：Created/Renamed 经独立 spawn 并发进入
+        // 索引（两个重事件不再串行等待彼此），Deleted 串行移除。用轮询
+        // 等待最终状态，避免对 spawn 调度的时序假设。
+        let temp_dir = tempfile::tempdir().expect("create temp dir");
+        let file_index = make_file_index();
+        let (tx, rx) = channel::<FileSystemEvent>(16);
+
+        let loop_service = Arc::clone(&file_index);
+        tokio::spawn(FileWatcher::run_event_loop(rx, loop_service));
+
+        let a = write_image(temp_dir.path(), "a.jpg");
+        let b = write_image(temp_dir.path(), "b.jpg");
+
+        tx.send(FileSystemEvent::Created(a.clone())).await.unwrap();
+        tx.send(FileSystemEvent::Created(b.clone())).await.unwrap();
+        wait_for_count(&file_index, 2).await;
+
+        // 轻事件（Deleted）在两个重事件入索引之后送达：串行移除必须生效
+        tx.send(FileSystemEvent::Deleted(b.clone())).await.unwrap();
+        drop(tx);
+
+        // 轮询直到 b 确实被移除（count >= 1 不足以证明删除已发生）
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+        loop {
+            let files = file_index.get_files().await;
+            if !files.iter().any(|f| f.path == b) {
+                break;
+            }
+            assert!(
+                tokio::time::Instant::now() < deadline,
+                "timed out waiting for Deleted event to remove the file"
+            );
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+
+        let files = file_index.get_files().await;
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].path, a, "only the surviving file may remain indexed");
     }
 
     #[tokio::test]

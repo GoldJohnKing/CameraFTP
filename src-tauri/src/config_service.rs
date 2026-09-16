@@ -632,6 +632,14 @@ mod tests {
             !parsed.advanced_connection.auth.username.is_empty(),
             "username must never be lost to a torn write"
         );
+        // 配对断言：port 与 username 必须来自同一次完整 mutate（persist_lock
+        // 序列化保证）——若出现交叉写（port 来自 A、username 来自 B），
+        // 下式将得不到任何合法的 concurrent-user-{i} 值
+        assert_eq!(
+            parsed.advanced_connection.auth.username,
+            format!("concurrent-user-{}", parsed.port - base_port),
+            "port and username must originate from the same serialized mutate"
+        );
 
         // 内存快照与磁盘一致（最后一次落盘的结果）
         let in_memory = service.get().expect("failed to get config");

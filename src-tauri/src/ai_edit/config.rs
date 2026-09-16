@@ -9,6 +9,7 @@ use ts_rs::TS;
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export)]
 #[serde(rename_all = "camelCase", default)]
+#[derive(Default)]
 pub struct AiEditConfig {
     /// 接收图片后自动触发
     pub auto_edit: bool,
@@ -22,17 +23,6 @@ pub struct AiEditConfig {
     pub provider: ProviderConfig,
 }
 
-impl Default for AiEditConfig {
-    fn default() -> Self {
-        Self {
-            auto_edit: false,
-            prompt: String::new(),
-            manual_prompt: String::new(),
-            manual_model: String::new(),
-            provider: ProviderConfig::default(),
-        }
-    }
-}
 
 /// Provider 配置枚举（预留扩展）
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]

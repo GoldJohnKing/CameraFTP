@@ -38,8 +38,10 @@ pub(crate) struct ServerStats {
 /// 两种互斥状态：匿名访问 或 认证访问
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "mode", content = "credentials")]
+#[derive(Default)]
 pub enum FtpAuthConfig {
     /// 允许匿名访问
+    #[default]
     Anonymous,
     /// 需要用户名和密码认证
     Authenticated {
@@ -48,11 +50,6 @@ pub enum FtpAuthConfig {
     },
 }
 
-impl Default for FtpAuthConfig {
-    fn default() -> Self {
-        Self::Anonymous
-    }
-}
 
 impl From<&AuthConfig> for FtpAuthConfig {
     fn from(auth: &AuthConfig) -> Self {
@@ -95,6 +92,7 @@ pub(crate) struct ServerConfig {
 #[derive(Debug, Clone, PartialEq, serde::Serialize, ts_rs::TS)]
 #[ts(export)]
 #[serde(rename_all = "camelCase")]
+#[derive(Default)]
 pub struct ServerStateSnapshot {
     pub is_running: bool,
     pub connected_clients: usize,
@@ -107,17 +105,6 @@ pub struct ServerStateSnapshot {
     pub last_file: Option<String>,
 }
 
-impl Default for ServerStateSnapshot {
-    fn default() -> Self {
-        Self {
-            is_running: false,
-            connected_clients: 0,
-            files_received: 0,
-            bytes_received: 0,
-            last_file: None,
-        }
-    }
-}
 
 
 
@@ -359,17 +346,14 @@ impl ServerStatus {
 /// 状态流转：`None → Starting`（认领）→ `Running`（提交）或回滚为 `None`（失败）。
 /// 认领/提交/回滚的时序由 `ftp::server_factory` 保证。
 #[derive(Debug)]
+#[derive(Default)]
 pub enum FtpServerSlot {
+    #[default]
     None,
     Starting,
     Running(FtpServerHandle),
 }
 
-impl Default for FtpServerSlot {
-    fn default() -> Self {
-        Self::None
-    }
-}
 
 impl FtpServerSlot {
     /// 运行中服务器的句柄（`None`/`Starting` 时返回 `None`）

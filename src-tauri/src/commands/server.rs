@@ -84,7 +84,7 @@ pub async fn stop_server(
                     Ok(())
                 } else {
                     error!(error = %e, "Error stopping server");
-                    Err(e.into())
+                    Err(e)
                 }
             }
         }

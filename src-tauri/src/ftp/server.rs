@@ -493,7 +493,7 @@ impl FtpServerActor {
         // desktop-generic (not android-specific)
 #[cfg(not(target_os = "android"))]
         {
-            return unftp_sbe_fs::Filesystem::new(root_path.to_path_buf())
+            unftp_sbe_fs::Filesystem::new(root_path.to_path_buf())
                 .unwrap_or_else(|e| {
                     tracing::error!(
                         path = %root_path.display(),
@@ -501,7 +501,7 @@ impl FtpServerActor {
                         "Filesystem creation failed — path validated at startup but may have been removed"
                     );
                     panic!("Filesystem creation failed for {}: {e}", root_path.display())
-                });
+                })
         }
     }
 

@@ -874,7 +874,6 @@ impl StorageBackend<DefaultUser> for AndroidMediaStoreBackend {
             let display_name = display_name.clone();
             let parent_path = effective_parent_path.clone();
             let mime_type = mime_type.to_string();
-            let collection = collection;
             async move {
                 bridge
                     .open_fd_for_write(&display_name, &mime_type, &parent_path, collection)

@@ -65,7 +65,7 @@ pub async fn get_image_exif(file_path: String) -> Result<Option<ExifInfo>, AppEr
     })
     .await
     .map_err(|e| AppError::Io(format!("Task join error: {}", e)))?
-    .map_err(|e| AppError::Io(e))?;
+    .map_err(AppError::Io)?;
 
     let parsed = match parsed {
         Some(p) => p,
@@ -116,7 +116,7 @@ pub async fn get_raw_orientation(file_path: String) -> Result<u8, AppError> {
     })
     .await
     .map_err(|e| AppError::Io(format!("Task join error: {}", e)))?
-    .map_err(|e| AppError::Io(e))?;
+    .map_err(AppError::Io)?;
     Ok(parsed.and_then(|p| p.orientation).unwrap_or(0))
 }
 
@@ -126,7 +126,6 @@ pub async fn get_raw_orientation(file_path: String) -> Result<u8, AppError> {
 /// orientation is 0 or 1 (no rotation needed).
 #[command]
 pub async fn inject_exif_orientation(
-    app: tauri::AppHandle,
     thumbnail_path: String,
     orientation: u8,
 ) -> Result<bool, AppError> {
@@ -149,9 +148,9 @@ pub async fn inject_exif_orientation(
     .await
     .map_err(|e| AppError::Io(format!("Task join error: {}", e)))??;
 
-    // 预览缓存失效块已删除：inject_exif_orientation 仅由 Android bridge 调用
-    // （缩略图管线 Android-only），Windows 永无缩略图消费者，不存在需要失效的缓存。
-    let _ = app;
+    // 预览缓存失效块已删除：inject_exif_orientation 的唯一前端消费者是
+    // useThumbnailScheduler.ts，仅在 GalleryAndroidV2 存在（Android）时激活；
+    // Windows 不产生缩略图路径，不存在需要失效的缓存。
 
     Ok(true)
 }

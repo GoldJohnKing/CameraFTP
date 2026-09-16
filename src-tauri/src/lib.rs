@@ -177,19 +177,19 @@ pub fn run() {
 
             // 启动时扩展 asset protocol scope：save_config 在运行期对新保存目录
             // allow_directory，但重启后 tauri.conf.json 的静态 scope 不含该目录；
-            // 此处按持久化配置补齐，使重启后语义与 save_config 路径一致
-            // （默认路径无需扩展；失败仅 warn，不阻断启动）
+            // 此处按持久化配置补齐，使重启后语义与 save_config 路径一致。
+            // 无条件扩展（含默认路径）：消除"默认路径必已含于静态 scope"的
+            // 隐式假设——allow_directory 幂等且廉价，重复添加无害；
+            // 失败仅 warn，不阻断启动
             match config_service.get() {
                 Ok(config) => {
                     let save_path = config.save_path.clone();
-                    if save_path != crate::config::AppConfig::default().save_path {
-                        if let Err(e) = app.asset_protocol_scope().allow_directory(&save_path, true) {
-                            tracing::warn!(
-                                error = %e,
-                                path = ?save_path,
-                                "Failed to extend asset protocol scope for configured save_path"
-                            );
-                        }
+                    if let Err(e) = app.asset_protocol_scope().allow_directory(&save_path, true) {
+                        tracing::warn!(
+                            error = %e,
+                            path = ?save_path,
+                            "Failed to extend asset protocol scope for configured save_path"
+                        );
                     }
                 }
                 Err(e) => {
@@ -335,52 +335,55 @@ pub fn run() {
 
             // 每请求一个无上限 OS 线程改为走 tokio blocking 池（天然限流）。
             // responder 满足 Send + 'static，可在 blocking 任务内应答。
-            let _ = tauri::async_runtime::spawn_blocking(move || {
+            // JoinHandle 刻意丢弃（fire-and-forget，同 bootstrap.rs 的用法）。
+            tauri::async_runtime::spawn_blocking(move || {
+                fn not_found_response() -> tauri::http::Response<Vec<u8>> {
+                    tauri::http::Response::builder()
+                        .status(404)
+                        .body(b"Not Found".to_vec())
+                        .unwrap()
+                }
+
                 let requested = PathBuf::from(utils::percent_decode(&path_encoded));
-                match image_preview::validate_preview_path(&requested, &save_root) {
+                let response = match image_preview::validate_preview_path(&requested, &save_root)
+                {
                     Ok(Some(path)) => {
                         // content_type 用 canonical 路径判 RAW 扩展名；缓存键必须用
-                        // 原始（percent-decode 后）请求路径：invalidate 调用点
-                        // （file_index 删除、exif orientation 注入）传的都是原始
-                        // 字符串，键若用 canonical（Windows `\\?\` verbatim）会
-                        // 永不匹配导致失效变 no-op。不同拼写的重复条目由 LRU 有界。
+                        // 原始（percent-decode 后）请求路径经分隔符归一（cache_key）：
+                        // invalidate 调用点（file_index 删除、exif orientation 注入）
+                        // 传的都是原始字符串，键若用 canonical（Windows `\\?\`
+                        // verbatim）会永不匹配导致失效变 no-op。不同拼写的重复
+                        // 条目由 LRU 有界。
                         let content_type = image_preview::content_type_for(&path);
                         match cache.get_or_load(&requested) {
-                            Ok(bytes) => responder.respond(
-                                tauri::http::Response::builder()
-                                    .status(200)
-                                    .header("Content-Type", content_type)
-                                    .body(bytes.to_vec())
-                                    .unwrap(),
-                            ),
+                            Ok(bytes) => tauri::http::Response::builder()
+                                .status(200)
+                                .header("Content-Type", content_type)
+                                .body(bytes.to_vec())
+                                .unwrap(),
                             Err(e) => {
                                 tracing::error!(
                                     "Failed to load image preview for {}: {}",
                                     path_encoded,
                                     e
                                 );
-                                responder.respond(
-                                    tauri::http::Response::builder()
-                                        .status(500)
-                                        .body(b"Failed to load image".to_vec())
-                                        .unwrap(),
-                                );
+                                tauri::http::Response::builder()
+                                    .status(500)
+                                    .body(b"Failed to load image".to_vec())
+                                    .unwrap()
                             }
                         }
                     }
+                    // Ok(None)（越界/非文件）与 Err（不存在/不可访问）响应必须
+                    // 一致（统一 404 "Not Found"）：若以 403 区分"存在但越界"，
+                    // 状态码本身就构成存在性 oracle。两种失败仅在 warn 日志中
+                    // 可区分（原因不同），响应体不泄露差异。
                     Ok(None) => {
-                        // 统一 404（与 Err 分支同响应）：403 会构成存在性 oracle，
-                        // 让调用方能区分"路径存在但越界"与"路径不存在"
                         tracing::warn!(
                             requested = %path_encoded,
                             "image-preview request outside save_path rejected"
                         );
-                        responder.respond(
-                            tauri::http::Response::builder()
-                                .status(404)
-                                .body(b"Not Found".to_vec())
-                                .unwrap(),
-                        );
+                        not_found_response()
                     }
                     Err(e) => {
                         tracing::warn!(
@@ -388,14 +391,10 @@ pub fn run() {
                             error = %e,
                             "image-preview request path not found"
                         );
-                        responder.respond(
-                            tauri::http::Response::builder()
-                                .status(404)
-                                .body(b"Not Found".to_vec())
-                                .unwrap(),
-                        );
+                        not_found_response()
                     }
-                }
+                };
+                responder.respond(response);
             });
         },
     );
