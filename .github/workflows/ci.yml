@@ -65,6 +65,13 @@ jobs:
       - name: Install actionlint
         # pinned to release tag; the script self-verifies downloaded binaries against the release's checksums.txt（main 分支可变，不可用于 fork PR 信任边界）
         run: curl -fsSL https://raw.githubusercontent.com/rhysd/actionlint/v1.7.7/scripts/download-actionlint.bash | bash
+      - name: Verify pinned action SHAs are 40-hex
+        run: |
+          if grep -nE 'uses: \S+@[0-9a-f]{41,}' .github/workflows/*.yml; then
+            echo "ERROR: pinned action SHA is not 40-hex (see above)" >&2
+            exit 1
+          fi
+
       - name: actionlint
         run: actionlint
 
@@ -115,7 +122,7 @@ jobs:
           distribution: temurin
           java-version: 21
       - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3.2.2
-      - uses: gradle/actions/setup-gradle@748248ddd2a24f49513d8f472f81c3a4d07d4d50e1 # v4.4.4
+      - uses: gradle/actions/setup-gradle@748248ddd2a24f49513d8f472f81c3a07d4d50e1 # v4.4.4
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: 1.4.0
