@@ -30,7 +30,7 @@
 
 ---
 
-## 任务 1：FileProvider 收窄（Android）
+### Task 1: FileProvider 收窄（Android）
 
 ### Files
 - `src-tauri/gen/android/app/src/main/res/xml/file_paths.xml:2-20`（`:4` `<external-path name="external_files" path="." />`、`:7` `pictures`、`:10` `dcim` 三个共享存储根）
@@ -160,7 +160,7 @@ rg -n "external-path" src-tauri/gen/android/app/src/main/res/xml/file_paths.xml
 
 ---
 
-## 任务 2：Vite 5→6 + vitest 3 + jsdom 升级
+### Task 2: Vite 5→6 + vitest 3 + jsdom 升级
 
 ⚠️ **与预期不符（细节修正，不改变结论）**：`@vitejs/plugin-react` 已解析到 4.7.0（非 4.2），peer range `^4.2.0 || ^5.0.0 || ^6.0.0 || ^7.0.0` 已支持 Vite 6/7——**无需升级**，保持 `^4.2.1` range 不动。vite 被钉 5.x 的直接原因是 `vitest@2.1.9` 的 peer `"vite": "^5.0.0"`，故两者必须一起升。
 
@@ -193,7 +193,7 @@ bun add -d vite@^6 vitest@^3 jsdom@latest
 
 ---
 
-## 任务 3：NN 依赖下载完整性校验（sha256）
+### Task 3: NN 依赖下载完整性校验（sha256）
 
 ### Files
 - `scripts/fetch-nn-deps.sh`（五处无校验下载：`:42` DirectML ORT nupkg、`:59` DirectML.dll nupkg、`:66` Linux ORT tgz、`:79` Android ORT-QNN aar、`:85` QNN runtime aar）
@@ -337,7 +337,7 @@ curl -sL "https://repo1.maven.org/maven2/com/qualcomm/qti/qnn-runtime/2.42.0/qnn
 
 ---
 
-## 任务 4：版本四文件同步脚本（bump + check）
+### Task 4: 版本四文件同步脚本（bump + check）
 
 ### Files
 - 新建 `scripts/bump-version.sh`、`scripts/check-versions.sh`
@@ -460,7 +460,7 @@ echo "  src-tauri/Cargo.lock      : $(sed -n '/^name = "cameraftp"$/{n;s/^versio
 
 ---
 
-## 任务 5：Android 签名卫生
+### Task 5: Android 签名卫生
 
 ### Files
 - `src-tauri/gen/android/app/build.gradle.kts:150-164`（debug buildType；删除 `:159-163` release signingConfig 复用块；release 侧不动）
@@ -564,7 +564,7 @@ EOF
 
 ---
 
-## 任务 6：`mutate_and_persist` 落盘出锁（写路径）
+### Task 6: `mutate_and_persist` 落盘出锁（写路径）
 
 ⚠️ **与预期不符（两处，已按代码为准修正，发起方已复核确认）**：
 1. 原任务书称"内存已更新、落盘失败报错"。实际代码（`config_service.rs:92-93`）是 `save_to_path(...)?` **先于** `*guard = next_config`——**落盘失败时内存未更新**。本计划严格保留这一真实语义。
@@ -777,7 +777,7 @@ pub async fn save_auth_config_with_service(
 
 ---
 
-## 任务 7：`ConfigService::get()` 返回 `Arc` 快照（读路径）
+### Task 7: `ConfigService::get()` 返回 `Arc` 快照（读路径）
 
 在任务 6 之后实施（同一文件，基于任务 6 完成后的代码）。
 
