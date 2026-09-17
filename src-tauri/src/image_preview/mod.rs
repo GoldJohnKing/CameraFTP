@@ -404,7 +404,8 @@ mod tests {
     // handler 用原始请求路径 get_or_load，失效点（file_index 删除 / exif 注入）
     // 也传原始字符串——两边必须精确匹配，否则失效变 no-op（spec review finding）。
     #[test]
-    fn invalidate_raw_path_removes_entry_loaded_via_same_raw_path() {        let dir = std::env::temp_dir().join("cameraftp_test_cache_raw_key");
+    fn invalidate_raw_path_removes_entry_loaded_via_same_raw_path() {
+        let dir = std::env::temp_dir().join("cameraftp_test_cache_raw_key");
         std::fs::create_dir_all(&dir).unwrap();
         let file_path = dir.join("test.jpg");
         let mut f = std::fs::File::create(&file_path).unwrap();
