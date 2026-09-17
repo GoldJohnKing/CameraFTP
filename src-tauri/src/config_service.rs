@@ -46,7 +46,9 @@ impl ConfigService {
     /// Get the global ConfigService instance (set during app setup).
     /// Panics if called before `set_global()`.
     pub fn get_global() -> &'static Arc<Self> {
-        GLOBAL_CONFIG_SERVICE.get().expect("ConfigService global not initialized")
+        GLOBAL_CONFIG_SERVICE
+            .get()
+            .expect("ConfigService global not initialized")
     }
 
     pub fn new() -> Result<Self, AppError> {
@@ -373,7 +375,10 @@ mod tests {
             .mutate_and_persist(|config| config.port = 7076)
             .expect("failed to mutate and persist config");
 
-        assert_eq!(snapshot.port, default_port, "old snapshot must be immutable");
+        assert_eq!(
+            snapshot.port, default_port,
+            "old snapshot must be immutable"
+        );
         assert_eq!(
             service.get().expect("failed to get config").port,
             7076,
@@ -474,7 +479,10 @@ mod tests {
 
         // Should use defaults for missing fields
         assert_eq!(loaded.port, AppConfig::default().port);
-        assert_eq!(service.get().expect("failed to get config").port, AppConfig::default().port);
+        assert_eq!(
+            service.get().expect("failed to get config").port,
+            AppConfig::default().port
+        );
     }
 
     #[test]
@@ -574,7 +582,8 @@ mod tests {
         );
 
         // ...但文件既不删除也不覆盖：原始字节原样保留，下次启动可重读。
-        let preserved = fs::read(&config_path).expect("config.json must be preserved on read failure");
+        let preserved =
+            fs::read(&config_path).expect("config.json must be preserved on read failure");
         assert_eq!(preserved, raw);
     }
 
@@ -587,7 +596,9 @@ mod tests {
 
         // First load: falls back to defaults and deletes the corrupt file
         let service = ConfigService::new_with_path(config_path.clone());
-        let loaded = service.load().expect("corrupt config must load with defaults");
+        let loaded = service
+            .load()
+            .expect("corrupt config must load with defaults");
         assert_eq!(loaded.port, AppConfig::default().port);
 
         // A persisted mutation after the corrupt-load must recover the file:
@@ -678,6 +689,9 @@ mod tests {
         // 内存快照与磁盘一致（最后一次落盘的结果）
         let in_memory = service.get().expect("failed to get config");
         assert_eq!(in_memory.port, parsed.port);
-        assert_eq!(in_memory.advanced_connection.auth.username, parsed.advanced_connection.auth.username);
+        assert_eq!(
+            in_memory.advanced_connection.auth.username,
+            parsed.advanced_connection.auth.username
+        );
     }
 }

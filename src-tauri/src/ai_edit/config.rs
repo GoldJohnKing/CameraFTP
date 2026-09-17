@@ -23,7 +23,6 @@ pub struct AiEditConfig {
     pub provider: ProviderConfig,
 }
 
-
 /// Provider 配置枚举（预留扩展）
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export)]
@@ -111,8 +110,16 @@ mod tests {
         for model in SEEDREAM_MODELS {
             assert!(!model.value.is_empty(), "empty value in catalog");
             assert!(!model.label.is_empty(), "empty label in catalog");
-            assert!(values.insert(model.value), "duplicate value: {}", model.value);
-            assert!(labels.insert(model.label), "duplicate label: {}", model.label);
+            assert!(
+                values.insert(model.value),
+                "duplicate value: {}",
+                model.value
+            );
+            assert!(
+                labels.insert(model.label),
+                "duplicate label: {}",
+                model.label
+            );
         }
     }
 

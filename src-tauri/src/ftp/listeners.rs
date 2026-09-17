@@ -13,6 +13,12 @@ use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager};
 use tracing::{info, warn};
 
+/// Put 侧超时降级后的再探测延迟：给极慢写入收尾留出时间
+const PUT_REINDEX_RETRY_DELAY: Duration = Duration::from_secs(30);
+
+/// Put 侧再探测轮数上限（每轮 = 一次延迟 + 一次就绪探测）
+const PUT_REINDEX_RETRY_ATTEMPTS: u32 = 2;
+
 /// 上传文件的自动处理分类
 ///
 /// 决定 Put 事件是否进入文件索引 / AI 修图 / 自动调色管线。
@@ -64,17 +70,19 @@ async fn run_put_pipeline<R: tauri::Runtime>(
             if let Err(e) = file_index.add_file(full_path.clone()).await {
                 tracing::warn!("Failed to add file to index: {}", e);
             }
-            // 延迟重试：纯 watcher/单事件场景下降级索引后没有第二次触发
-            // 点（此 Put 事件不会重发），30s 后再调一次 add_file，让 EXIF
-            // 回填机制有机会善后半写/陈旧条目；重试失败仅 warn。
-            //（try_state 返回的 State 借用 handle，spawn 需要 'static，
-            // 先克隆出 Arc）
+            // 有界再探测：此 Put 事件不会重发，降级索引后延迟再探一次
+            // 就绪，就绪则补一次 add_file——EXIF 回填的收敛点（至多 2 轮，
+            // 就绪即返回）。try_state 返回的 State 借用 handle，spawn
+            // 需要 'static，先克隆出 Arc。
             let retry_index: Arc<FileIndexService> = file_index.inner().clone();
             tokio::spawn(async move {
-                tokio::time::sleep(Duration::from_secs(30)).await;
-                if let Err(e) = retry_index.add_file(full_path).await {
-                    tracing::warn!("Delayed re-index retry failed: {}", e);
-                }
+                FileIndexService::retry_index_if_stable(
+                    &retry_index,
+                    full_path,
+                    PUT_REINDEX_RETRY_DELAY,
+                    PUT_REINDEX_RETRY_ATTEMPTS,
+                )
+                .await;
             });
         }
         return;
@@ -93,7 +101,10 @@ async fn run_put_pipeline<R: tauri::Runtime>(
 
     // Auto color grading (RAW files only)
     if is_raw {
-        let color_grading: tauri::State<'_, std::sync::Arc<crate::color_grading::ColorGradingService>> = handle.state();
+        let color_grading: tauri::State<
+            '_,
+            std::sync::Arc<crate::color_grading::ColorGradingService>,
+        > = handle.state();
         color_grading.on_file_uploaded(full_path.clone()).await;
     }
 
@@ -118,8 +129,16 @@ pub struct FtpDataListener {
 }
 
 impl FtpDataListener {
-    pub fn new(stats: StatsActor, save_path: std::path::PathBuf, app_handle: Option<AppHandle>) -> Self {
-        Self { stats, save_path: Arc::new(save_path), app_handle }
+    pub fn new(
+        stats: StatsActor,
+        save_path: std::path::PathBuf,
+        app_handle: Option<AppHandle>,
+    ) -> Self {
+        Self {
+            stats,
+            save_path: Arc::new(save_path),
+            app_handle,
+        }
     }
 }
 
@@ -162,15 +181,17 @@ impl DataListener for FtpDataListener {
                 DataEvent::Deleted { path } => {
                     info!(file = %path, "File deleted");
 
-                    let is_image =
-                        classify_uploaded_file(std::path::Path::new(&path)) != UploadedFileKind::Other;
+                    let is_image = classify_uploaded_file(std::path::Path::new(&path))
+                        != UploadedFileKind::Other;
 
                     // 从文件索引中移除
                     if let Some(handle) = app_handle.as_ref() {
                         let full_path = save_path.join(&path);
                         let handle_clone = handle.clone();
                         tokio::spawn(async move {
-                            if let Some(file_index) = handle_clone.try_state::<Arc<FileIndexService>>() {
+                            if let Some(file_index) =
+                                handle_clone.try_state::<Arc<FileIndexService>>()
+                            {
                                 if let Err(e) = file_index.remove_file(&full_path).await {
                                     tracing::warn!("Failed to remove file from index: {}", e);
                                 }
@@ -360,11 +381,15 @@ mod tests {
         bumper.abort();
 
         assert_eq!(
-            file_index.get_file_count().await, 1,
+            file_index.get_file_count().await,
+            1,
             "timeout must degrade to best-effort add_file, not skip the event"
         );
         let files = file_index.get_files().await;
-        assert_eq!(files[0].path, path, "degraded index must contain the slow file");
+        assert_eq!(
+            files[0].path, path,
+            "degraded index must contain the slow file"
+        );
     }
 
     #[tokio::test]
@@ -379,13 +404,19 @@ mod tests {
 
         listener
             .receive_data_event(
-                DataEvent::Put { path: "photo.jpg".to_string(), bytes: 2048 },
+                DataEvent::Put {
+                    path: "photo.jpg".to_string(),
+                    bytes: 2048,
+                },
                 event_meta("t-put-1"),
             )
             .await;
         listener
             .receive_data_event(
-                DataEvent::Put { path: "notes.txt".to_string(), bytes: 32 },
+                DataEvent::Put {
+                    path: "notes.txt".to_string(),
+                    bytes: 32,
+                },
                 event_meta("t-put-2"),
             )
             .await;
@@ -451,17 +482,28 @@ mod tests {
 
         // Got/Deleted/MadeDir/RemovedDir/Renamed 都不产生上传统计
         let events = [
-            DataEvent::Got { path: "photo.jpg".to_string(), bytes: 10 },
-            DataEvent::Deleted { path: "photo.jpg".to_string() },
-            DataEvent::MadeDir { path: "subdir".to_string() },
-            DataEvent::RemovedDir { path: "subdir".to_string() },
+            DataEvent::Got {
+                path: "photo.jpg".to_string(),
+                bytes: 10,
+            },
+            DataEvent::Deleted {
+                path: "photo.jpg".to_string(),
+            },
+            DataEvent::MadeDir {
+                path: "subdir".to_string(),
+            },
+            DataEvent::RemovedDir {
+                path: "subdir".to_string(),
+            },
             DataEvent::Renamed {
                 from: "a.jpg".to_string(),
                 to: "b.jpg".to_string(),
             },
         ];
         for event in events {
-            listener.receive_data_event(event, event_meta("t-other")).await;
+            listener
+                .receive_data_event(event, event_meta("t-other"))
+                .await;
         }
 
         tokio::time::sleep(Duration::from_millis(100)).await;
@@ -501,7 +543,9 @@ mod tests {
             .receive_presence_event(PresenceEvent::LoggedIn, event_meta("trace-1"))
             .await;
         assert_eq!(
-            connection_count_becomes(&stats_probe, 1).await.active_connections,
+            connection_count_becomes(&stats_probe, 1)
+                .await
+                .active_connections,
             1
         );
         assert!(sessions.contains("trace-1"));
@@ -519,7 +563,8 @@ mod tests {
             .await;
         tokio::time::sleep(Duration::from_millis(100)).await;
         assert_eq!(
-            stats_probe.get_stats_direct().await.active_connections, 2,
+            stats_probe.get_stats_direct().await.active_connections,
+            2,
             "duplicate LoggedIn for a known session must not bump the count"
         );
         assert_eq!(sessions.len(), 2);

@@ -62,12 +62,13 @@ impl JniMediaStoreBridge {
         MediaStoreError::BridgeError(e.user_message())
     }
 
-    fn with_env<T>(f: impl FnOnce(&mut JNIEnv<'_>) -> Result<T, MediaStoreError>) -> Result<T, MediaStoreError> {
+    fn with_env<T>(
+        f: impl FnOnce(&mut JNIEnv<'_>) -> Result<T, MediaStoreError>,
+    ) -> Result<T, MediaStoreError> {
         // JVM attach 走共享助手（crate::utils::jni，含统一异常清理）；
         // f 的 MediaStoreError 变体（如 NotFound）经 Ok 通道透传，
         // 不经过 AppError 往返以避免丢失变体。
-        crate::utils::jni::with_env(move |env| Ok(f(env)))
-            .map_err(Self::bridge_err)?
+        crate::utils::jni::with_env(move |env| Ok(f(env))).map_err(Self::bridge_err)?
     }
 
     /// 在 `spawn_blocking` 线程中执行同步 JNI 调用，避免阻塞 tokio 异步运行时线程
@@ -163,7 +164,11 @@ impl JniMediaStoreBridge {
         Ok(entries)
     }
 
-    fn parse_create_result(json: &str, display_name: &str, relative_path: &str) -> Result<FileDescriptorInfo, MediaStoreError> {
+    fn parse_create_result(
+        json: &str,
+        display_name: &str,
+        relative_path: &str,
+    ) -> Result<FileDescriptorInfo, MediaStoreError> {
         #[derive(Debug, Deserialize)]
         struct CreateResult {
             fd: i32,
@@ -172,7 +177,9 @@ impl JniMediaStoreBridge {
         }
 
         let response: CreateResult = serde_json::from_str(json).map_err(|e| {
-            MediaStoreError::InsertFailed(format!("Failed to parse createEntryNative response: {e}"))
+            MediaStoreError::InsertFailed(format!(
+                "Failed to parse createEntryNative response: {e}"
+            ))
         })?;
 
         if response.fd < 0 {
@@ -182,9 +189,9 @@ impl JniMediaStoreBridge {
             return Err(MediaStoreError::OpenFdFailed(message));
         }
 
-        let content_uri = response
-            .uri
-            .ok_or_else(|| MediaStoreError::InsertFailed("Missing URI in createEntryNative response".to_string()))?;
+        let content_uri = response.uri.ok_or_else(|| {
+            MediaStoreError::InsertFailed("Missing URI in createEntryNative response".to_string())
+        })?;
 
         Ok(FileDescriptorInfo {
             #[cfg(unix)]
@@ -638,7 +645,11 @@ impl MediaStoreBridgeClient for MockMediaStoreBridge {
                 .await
                 .map_err(MediaStoreError::IoError)?;
 
-            while let Some(entry) = entries.next_entry().await.map_err(MediaStoreError::IoError)? {
+            while let Some(entry) = entries
+                .next_entry()
+                .await
+                .map_err(MediaStoreError::IoError)?
+            {
                 let metadata = entry.metadata().await.map_err(MediaStoreError::IoError)?;
 
                 if metadata.is_dir() {
@@ -667,7 +678,11 @@ impl MediaStoreBridgeClient for MockMediaStoreBridge {
                     size: metadata.len(),
                     date_modified: metadata
                         .modified()
-                        .map(|t| t.duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis() as u64)
+                        .map(|t| {
+                            t.duration_since(std::time::UNIX_EPOCH)
+                                .unwrap_or_default()
+                                .as_millis() as u64
+                        })
                         .unwrap_or(0),
                     mime_type: mime_type_from_filename(&name).to_string(),
                     relative_path: relative_dir,
@@ -704,7 +719,11 @@ impl MediaStoreBridgeClient for MockMediaStoreBridge {
             size: metadata.len(),
             date_modified: metadata
                 .modified()
-                .map(|t| t.duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis() as u64)
+                .map(|t| {
+                    t.duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_millis() as u64
+                })
                 .unwrap_or(0),
             mime_type: if metadata.is_dir() {
                 "inode/directory".to_string()
@@ -750,9 +769,18 @@ mod tests {
     #[test]
     fn test_normalize_relative_path_for_match() {
         assert_eq!(normalize_relative_path_for_match(""), "");
-        assert_eq!(normalize_relative_path_for_match("DCIM/CameraFTP"), "DCIM/CameraFTP/");
-        assert_eq!(normalize_relative_path_for_match("DCIM/CameraFTP/"), "DCIM/CameraFTP/");
-        assert_eq!(normalize_relative_path_for_match("/DCIM/CameraFTP//"), "DCIM/CameraFTP/");
+        assert_eq!(
+            normalize_relative_path_for_match("DCIM/CameraFTP"),
+            "DCIM/CameraFTP/"
+        );
+        assert_eq!(
+            normalize_relative_path_for_match("DCIM/CameraFTP/"),
+            "DCIM/CameraFTP/"
+        );
+        assert_eq!(
+            normalize_relative_path_for_match("/DCIM/CameraFTP//"),
+            "DCIM/CameraFTP/"
+        );
     }
 
     #[cfg(all(not(target_os = "android"), unix))]
@@ -762,12 +790,20 @@ mod tests {
         let bridge = MockMediaStoreBridge::new(temp_dir.path().to_path_buf());
 
         let fd_info = bridge
-            .open_fd_for_write("test.jpg", "image/jpeg", "DCIM/", MediaStoreCollection::Images)
+            .open_fd_for_write(
+                "test.jpg",
+                "image/jpeg",
+                "DCIM/",
+                MediaStoreCollection::Images,
+            )
             .await
             .expect("open fd for write");
         assert!(fd_info.path.exists());
 
-        let result = bridge.query_file("DCIM/test.jpg").await.expect("query file");
+        let result = bridge
+            .query_file("DCIM/test.jpg")
+            .await
+            .expect("query file");
         assert_eq!(result.display_name, "test.jpg");
         assert_eq!(result.mime_type, "image/jpeg");
     }

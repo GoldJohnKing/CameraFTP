@@ -13,11 +13,11 @@ use tauri::AppHandle;
 use tracing::{debug, error, info};
 
 #[cfg(target_os = "android")]
-use jni::objects::{JObject, JValue};
-#[cfg(target_os = "android")]
 use crate::utils::jni::{
     android_context, clear_pending_exception, jni_ok, load_app_class, with_env,
 };
+#[cfg(target_os = "android")]
+use jni::objects::{JObject, JValue};
 
 #[cfg(target_os = "android")]
 const ANDROID_SERVICE_COORDINATOR_CLASS: &str =
@@ -241,8 +241,7 @@ fn sync_android_service_state(snapshot: &ServerStateSnapshot) -> Result<(), Stri
 
     with_env(|env| {
         let context = android_context(env)?;
-        let coordinator_class =
-            load_app_class(env, &context, ANDROID_SERVICE_COORDINATOR_CLASS)?;
+        let coordinator_class = load_app_class(env, &context, ANDROID_SERVICE_COORDINATOR_CLASS)?;
         let stats_json = match serde_json::to_string(snapshot) {
             Ok(value) if snapshot.is_running => Some(value),
             Ok(_) => None,
@@ -253,11 +252,11 @@ fn sync_android_service_state(snapshot: &ServerStateSnapshot) -> Result<(), Stri
             }
         };
         let stats_arg = match stats_json.as_deref() {
-            Some(value) => JObject::from(jni_ok(
-                env,
-                "Failed to create stats JSON string",
-                |env| env.new_string(value),
-            )?),
+            Some(value) => {
+                JObject::from(jni_ok(env, "Failed to create stats JSON string", |env| {
+                    env.new_string(value)
+                })?)
+            }
             None => JObject::null(),
         };
         let connected_clients = i32::try_from(snapshot.connected_clients).map_err(|_| {

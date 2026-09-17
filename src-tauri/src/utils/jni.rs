@@ -98,19 +98,15 @@ pub fn load_app_class<'a>(
         env.new_string(class_name)
     })?;
     let class_name_obj = JObject::from(class_name_str);
-    let class_obj = jni_ok(
-        env,
-        &format!("Failed to load class {class_name}"),
-        |env| {
-            env.call_method(
-                loader,
-                "loadClass",
-                "(Ljava/lang/String;)Ljava/lang/Class;",
-                &[JValue::Object(&class_name_obj)],
-            )
-            .and_then(|v| v.l())
-        },
-    )?;
+    let class_obj = jni_ok(env, &format!("Failed to load class {class_name}"), |env| {
+        env.call_method(
+            loader,
+            "loadClass",
+            "(Ljava/lang/String;)Ljava/lang/Class;",
+            &[JValue::Object(&class_name_obj)],
+        )
+        .and_then(|v| v.l())
+    })?;
 
     Ok(JClass::from(class_obj))
 }

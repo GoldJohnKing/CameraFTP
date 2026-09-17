@@ -36,7 +36,8 @@ pub fn extract_preview_jpeg(path: &Path) -> Result<Vec<u8>, String> {
     let path_str = path.to_string_lossy();
     tracing::debug!("Extracting RAW preview from: {}", path_str);
 
-    let metadata = std::fs::metadata(path).map_err(|e| format!("Failed to stat {}: {}", path_str, e))?;
+    let metadata =
+        std::fs::metadata(path).map_err(|e| format!("Failed to stat {}: {}", path_str, e))?;
     const MAX_RAW_SIZE: u64 = 100 * 1024 * 1024; // 100 MB
     if metadata.len() > MAX_RAW_SIZE {
         tracing::warn!(
@@ -111,7 +112,8 @@ enum RafPathError {
 /// region. Reads O(header + jpeg) bytes instead of O(file size), which matters
 /// for RAFs whose CFA payload is tens of MB.
 fn extract_raf_jpeg_fast(path: &Path, file_len: u64) -> Result<Vec<u8>, RafPathError> {
-    let mut file = std::fs::File::open(path).map_err(|e| RafPathError::HeaderInvalid(format!("open: {}", e)))?;
+    let mut file = std::fs::File::open(path)
+        .map_err(|e| RafPathError::HeaderInvalid(format!("open: {}", e)))?;
 
     // A real RAF always has a full 148-byte header. A short read here means the
     // file is not RAF (or is truncated); treat both as NotRaf so the caller scans.
@@ -134,7 +136,10 @@ fn extract_raf_jpeg_fast(path: &Path, file_len: u64) -> Result<Vec<u8>, RafPathE
     ]) as u64;
 
     if len < 8 {
-        return Err(RafPathError::HeaderInvalid(format!("jpeg length too small: {}", len)));
+        return Err(RafPathError::HeaderInvalid(format!(
+            "jpeg length too small: {}",
+            len
+        )));
     }
     let end = off
         .checked_add(len)
@@ -253,7 +258,10 @@ mod tests {
         // Type = SHORT (3)
         assert_eq!(u16::from_le_bytes([app1[22], app1[23]]), 3);
         // Count = 1
-        assert_eq!(u32::from_le_bytes([app1[24], app1[25], app1[26], app1[27]]), 1);
+        assert_eq!(
+            u32::from_le_bytes([app1[24], app1[25], app1[26], app1[27]]),
+            1
+        );
         // Value = 8
         assert_eq!(app1[28], 8);
     }

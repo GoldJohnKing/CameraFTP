@@ -2,8 +2,8 @@
 // Copyright (C) 2026 GoldJohnKing <GoldJohnKing@Live.cn>
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-pub mod ffi;
 pub mod bootstrap;
+pub mod ffi;
 pub mod jni_bridge;
 pub mod lensfun_db;
 pub mod lut_data;

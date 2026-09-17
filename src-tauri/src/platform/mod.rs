@@ -2,11 +2,11 @@
 // Copyright (C) 2026 GoldJohnKing <GoldJohnKing@Live.cn>
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-mod types;
 mod traits;
+mod types;
 
-pub use types::{StorageInfo, PermissionStatus, ServerStartCheckResult};
 pub use traits::PlatformService;
+pub use types::{PermissionStatus, ServerStartCheckResult, StorageInfo};
 
 #[cfg(target_os = "windows")]
 pub mod windows;

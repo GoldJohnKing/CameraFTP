@@ -3,20 +3,20 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::sync::OnceLock;
-use std::sync::atomic::{AtomicBool, Ordering};
-use tokio::sync::mpsc;
 use tauri::{AppHandle, Emitter};
+use tokio::sync::mpsc;
 
+use super::presets::find_preset;
+use super::progress::ColorGradingEvent;
 use crate::config::AutoColorGradingConfig;
 use crate::config_service::ConfigService;
 use crate::error::AppError;
 use crate::image_utils;
 use crate::utils::batch_state::BatchState;
 use crate::utils::task_worker::{CancelGate, QueueDepth};
-use super::progress::ColorGradingEvent;
-use super::presets::find_preset;
 
 static GLOBAL_CG_SERVICE: OnceLock<Arc<ColorGradingService>> = OnceLock::new();
 
@@ -74,7 +74,9 @@ impl ColorGradingService {
     }
 
     pub fn get_global() -> &'static Arc<Self> {
-        GLOBAL_CG_SERVICE.get().expect("ColorGradingService global not initialized")
+        GLOBAL_CG_SERVICE
+            .get()
+            .expect("ColorGradingService global not initialized")
     }
 
     pub fn new(app_handle: AppHandle, config_service: Arc<ConfigService>) -> Self {
@@ -106,7 +108,14 @@ impl ColorGradingService {
             let cancel_gate_clone = self.cancel_gate.clone();
             let nn_enabled_clone = Arc::clone(&self.nn_enabled);
             let join = tauri::async_runtime::spawn(async move {
-                worker_loop(receiver, app_handle_clone, queue_depth_clone, cancel_gate_clone, nn_enabled_clone).await;
+                worker_loop(
+                    receiver,
+                    app_handle_clone,
+                    queue_depth_clone,
+                    cancel_gate_clone,
+                    nn_enabled_clone,
+                )
+                .await;
             });
             *guard = Some(ColorGradingWorkerHandle {
                 sender: sender.clone(),
@@ -118,9 +127,16 @@ impl ColorGradingService {
         }
     }
 
-    pub async fn enqueue(&self, file_paths: Vec<PathBuf>, lut_id: String, metering_mode: String, ev_offset: f32) -> Result<(), AppError> {
-        let preset = find_preset(&lut_id)
-            .ok_or_else(|| AppError::ColorGradingError(format!("Unknown LUT preset: {}", lut_id)))?;
+    pub async fn enqueue(
+        &self,
+        file_paths: Vec<PathBuf>,
+        lut_id: String,
+        metering_mode: String,
+        ev_offset: f32,
+    ) -> Result<(), AppError> {
+        let preset = find_preset(&lut_id).ok_or_else(|| {
+            AppError::ColorGradingError(format!("Unknown LUT preset: {}", lut_id))
+        })?;
 
         let sender = self.ensure_worker().await;
         let total = file_paths.len() as u32;
@@ -128,22 +144,30 @@ impl ColorGradingService {
 
         let mut sent = 0u32;
         for path in file_paths {
-            match sender.send(ColorGradingTask {
-                input_path: path,
-                lut_id: preset.id.clone(),
-                metering_mode: metering_mode.clone(),
-                ev_offset,
-            }).await {
+            match sender
+                .send(ColorGradingTask {
+                    input_path: path,
+                    lut_id: preset.id.clone(),
+                    metering_mode: metering_mode.clone(),
+                    ev_offset,
+                })
+                .await
+            {
                 Ok(()) => sent += 1,
                 Err(_) => {
                     self.queue_depth.sub(total - sent);
-                    return Err(AppError::ColorGradingError("Failed to enqueue task".to_string()));
+                    return Err(AppError::ColorGradingError(
+                        "Failed to enqueue task".to_string(),
+                    ));
                 }
             }
         }
 
         let depth = self.queue_depth.get();
-        let _ = self.app_handle.emit("color-grading-progress", &ColorGradingEvent::Queued { queue_depth: depth });
+        let _ = self.app_handle.emit(
+            "color-grading-progress",
+            &ColorGradingEvent::Queued { queue_depth: depth },
+        );
 
         Ok(())
     }
@@ -157,21 +181,27 @@ impl ColorGradingService {
     /// Auto-trigger: check config + RAW extension, then enqueue.
     pub async fn on_file_uploaded(&self, file_path: PathBuf) {
         let config = self.config_service.get().ok();
-        let auto_cg = config.as_ref()
-            .and_then(|c| c.auto_color_grading.as_ref());
+        let auto_cg = config.as_ref().and_then(|c| c.auto_color_grading.as_ref());
 
         if !should_auto_color_grade(auto_cg, &file_path) {
             return;
         }
 
         let cg = auto_cg.unwrap();
-        if let Err(e) = self.enqueue(
-            vec![file_path.clone()],
-            cg.preset_id.clone(),
-            cg.metering_mode.clone(),
-            cg.ev_offset,
-        ).await {
-            tracing::warn!("Auto color grading enqueue failed for {}: {}", file_path.display(), e);
+        if let Err(e) = self
+            .enqueue(
+                vec![file_path.clone()],
+                cg.preset_id.clone(),
+                cg.metering_mode.clone(),
+                cg.ev_offset,
+            )
+            .await
+        {
+            tracing::warn!(
+                "Auto color grading enqueue failed for {}: {}",
+                file_path.display(),
+                e
+            );
         }
     }
 }
@@ -206,13 +236,16 @@ async fn worker_loop<R: tauri::Runtime>(
         app_handle: &AppHandle<R>,
         cancelled: bool,
     ) {
-        let _ = app_handle.emit("color-grading-progress", &ColorGradingEvent::Done {
-            total: state.processed_count(),
-            failed_count: state.failed_count,
-            failed_files: std::mem::take(&mut state.failed_files),
-            output_files: std::mem::take(&mut state.output_files),
-            cancelled,
-        });
+        let _ = app_handle.emit(
+            "color-grading-progress",
+            &ColorGradingEvent::Done {
+                total: state.processed_count(),
+                failed_count: state.failed_count,
+                failed_files: std::mem::take(&mut state.failed_files),
+                output_files: std::mem::take(&mut state.output_files),
+                cancelled,
+            },
+        );
         state.reset();
     }
 
@@ -255,17 +288,21 @@ async fn worker_loop<R: tauri::Runtime>(
         let remaining = queue_depth.get();
         let current = state.processed_count() + 1;
         let total = current + remaining;
-        let file_name = task.input_path
+        let file_name = task
+            .input_path
             .file_name()
             .map(|n| n.to_string_lossy().to_string())
             .unwrap_or_default();
 
-        let _ = app_handle.emit("color-grading-progress", &ColorGradingEvent::Progress {
-            current,
-            total,
-            file_name: file_name.clone(),
-            failed_count: state.failed_count,
-        });
+        let _ = app_handle.emit(
+            "color-grading-progress",
+            &ColorGradingEvent::Progress {
+                current,
+                total,
+                file_name: file_name.clone(),
+                failed_count: state.failed_count,
+            },
+        );
 
         let result = tokio::select! {
             r = process_single_file(&task, &nn_enabled) => Some(r),
@@ -282,13 +319,16 @@ async fn worker_loop<R: tauri::Runtime>(
                 state.output_files.push(output_path.clone());
 
                 let remaining = queue_depth.get();
-                let _ = app_handle.emit("color-grading-progress", &ColorGradingEvent::Completed {
-                    current: state.processed_count(),
-                    total: state.processed_count() + remaining,
-                    file_name: file_name.clone(),
-                    failed_count: state.failed_count,
-                    output_path,
-                });
+                let _ = app_handle.emit(
+                    "color-grading-progress",
+                    &ColorGradingEvent::Completed {
+                        current: state.processed_count(),
+                        total: state.processed_count() + remaining,
+                        file_name: file_name.clone(),
+                        failed_count: state.failed_count,
+                        output_path,
+                    },
+                );
             }
             Some(Err(ref e)) => {
                 tracing::error!(input = %task.input_path.display(), error = %e, "Color grading failed");
@@ -296,13 +336,16 @@ async fn worker_loop<R: tauri::Runtime>(
                 state.failed_files.push(file_name.clone());
 
                 let remaining = queue_depth.get();
-                let _ = app_handle.emit("color-grading-progress", &ColorGradingEvent::Failed {
-                    current: state.processed_count(),
-                    total: state.processed_count() + remaining,
-                    file_name: file_name.clone(),
-                    error: e.to_string(),
-                    failed_count: state.failed_count,
-                });
+                let _ = app_handle.emit(
+                    "color-grading-progress",
+                    &ColorGradingEvent::Failed {
+                        current: state.processed_count(),
+                        total: state.processed_count() + remaining,
+                        file_name: file_name.clone(),
+                        error: e.to_string(),
+                        failed_count: state.failed_count,
+                    },
+                );
             }
             None => {
                 drain_pending_tasks(&mut receiver, &queue_depth);
@@ -365,7 +408,17 @@ async fn process_single_file(
 
     // First attempt: NN if enabled, else skip straight to classical.
     if nn_enabled.load(Ordering::Relaxed) {
-        match decode_once(lib, task, &output_path, preset, &lut_data, lensfun_path.as_deref(), true).await {
+        match decode_once(
+            lib,
+            task,
+            &output_path,
+            preset,
+            &lut_data,
+            lensfun_path.as_deref(),
+            true,
+        )
+        .await
+        {
             Ok(()) => return Ok(result_path),
             Err(nn_err) => {
                 match classify_nn_failure(super::ffi::is_nn_ready()) {
@@ -389,9 +442,17 @@ async fn process_single_file(
     }
 
     // Classical attempt (always last resort). An error here is a real failure.
-    decode_once(lib, task, &output_path, preset, &lut_data, lensfun_path.as_deref(), false)
-        .await
-        .map(|_| result_path)
+    decode_once(
+        lib,
+        task,
+        &output_path,
+        preset,
+        &lut_data,
+        lensfun_path.as_deref(),
+        false,
+    )
+    .await
+    .map(|_| result_path)
 }
 
 /// One decode+grade attempt with a fixed NN flag. Extracted so the fallback
@@ -436,31 +497,59 @@ mod tests {
     use std::path::Path;
 
     fn enabled_cg() -> AutoColorGradingConfig {
-        AutoColorGradingConfig { enabled: true, ..Default::default() }
+        AutoColorGradingConfig {
+            enabled: true,
+            ..Default::default()
+        }
     }
 
     #[test]
     fn should_auto_color_grade_enabled_raw_file() {
-        assert!(should_auto_color_grade(Some(&enabled_cg()), Path::new("photo.nef")));
-        assert!(should_auto_color_grade(Some(&enabled_cg()), Path::new("photo.CR3")));
+        assert!(should_auto_color_grade(
+            Some(&enabled_cg()),
+            Path::new("photo.nef")
+        ));
+        assert!(should_auto_color_grade(
+            Some(&enabled_cg()),
+            Path::new("photo.CR3")
+        ));
     }
 
     #[test]
     fn should_auto_color_grade_disabled_even_for_raw() {
-        let disabled = AutoColorGradingConfig { enabled: false, ..Default::default() };
-        assert!(!should_auto_color_grade(Some(&disabled), Path::new("photo.nef")));
+        let disabled = AutoColorGradingConfig {
+            enabled: false,
+            ..Default::default()
+        };
+        assert!(!should_auto_color_grade(
+            Some(&disabled),
+            Path::new("photo.nef")
+        ));
     }
 
     #[test]
     fn should_auto_color_grade_non_raw_even_if_enabled() {
-        assert!(!should_auto_color_grade(Some(&enabled_cg()), Path::new("photo.jpg")));
-        assert!(!should_auto_color_grade(Some(&enabled_cg()), Path::new("photo.mp4")));
+        assert!(!should_auto_color_grade(
+            Some(&enabled_cg()),
+            Path::new("photo.jpg")
+        ));
+        assert!(!should_auto_color_grade(
+            Some(&enabled_cg()),
+            Path::new("photo.mp4")
+        ));
     }
 
     #[test]
     fn should_auto_color_grade_requires_nonempty_preset() {
-        let empty_preset = AutoColorGradingConfig { enabled: true, preset_id: String::new(), ..Default::default() };
-        assert!(!should_auto_color_grade(Some(&empty_preset), Path::new("photo.nef")));
+        let empty_preset = AutoColorGradingConfig {
+            enabled: true,
+            preset_id: String::new(),
+            ..Default::default()
+        };
+        assert!(!should_auto_color_grade(
+            Some(&empty_preset),
+            Path::new("photo.nef")
+        ));
     }
 
     #[test]
@@ -471,16 +560,25 @@ mod tests {
     #[test]
     fn fallback_latches_only_when_nn_structurally_unavailable() {
         // NN was up (ready) but this file errored → fall back, do NOT latch.
-        assert!(matches!(classify_nn_failure(true), FallbackDecision::UseClassicalNoLatch));
+        assert!(matches!(
+            classify_nn_failure(true),
+            FallbackDecision::UseClassicalNoLatch
+        ));
 
         // Not ready AND still warming up (background compile not finished) → fall
         // back, do NOT latch (avoid spurious session-wide disable).
         NN_INIT_DONE.store(false, Ordering::SeqCst);
-        assert!(matches!(classify_nn_failure(false), FallbackDecision::UseClassicalNoLatch));
+        assert!(matches!(
+            classify_nn_failure(false),
+            FallbackDecision::UseClassicalNoLatch
+        ));
 
         // Not ready AND init completed → structural unavailability → latch.
         NN_INIT_DONE.store(true, Ordering::SeqCst);
-        assert!(matches!(classify_nn_failure(false), FallbackDecision::UseClassicalAndLatch));
+        assert!(matches!(
+            classify_nn_failure(false),
+            FallbackDecision::UseClassicalAndLatch
+        ));
 
         // Reset so this static doesn't bleed into sibling tests.
         NN_INIT_DONE.store(false, Ordering::SeqCst);
@@ -535,7 +633,15 @@ mod tests {
             let ev = events.lock().unwrap();
             ev.iter()
                 .rev()
-                .find(|e| matches!(e, ColorGradingEvent::Done { cancelled: false, .. }))
+                .find(|e| {
+                    matches!(
+                        e,
+                        ColorGradingEvent::Done {
+                            cancelled: false,
+                            ..
+                        }
+                    )
+                })
                 .cloned()
         })
         .await;
@@ -565,12 +671,23 @@ mod tests {
         );
         let done_count = ev
             .iter()
-            .filter(|e| matches!(
-                e,
-                ColorGradingEvent::Done { cancelled: false, total: 2, failed_count: 2, .. }
-            ))
+            .filter(|e| {
+                matches!(
+                    e,
+                    ColorGradingEvent::Done {
+                        cancelled: false,
+                        total: 2,
+                        failed_count: 2,
+                        ..
+                    }
+                )
+            })
             .count();
-        assert_eq!(done_count, 1, "exactly one non-cancelled Done(2 failed) expected: {:?}", ev);
+        assert_eq!(
+            done_count, 1,
+            "exactly one non-cancelled Done(2 failed) expected: {:?}",
+            ev
+        );
         drop(ev);
 
         drop(sender);
@@ -607,7 +724,9 @@ mod tests {
         // never process them.
         queue_depth.add(2);
         for name in ["p1.nef", "p2.nef"] {
-            sender.try_send(make_task(name)).expect("channel has capacity");
+            sender
+                .try_send(make_task(name))
+                .expect("channel has capacity");
         }
 
         wait_until(Duration::from_secs(10), || {
@@ -618,7 +737,8 @@ mod tests {
         {
             let ev = events.lock().unwrap();
             assert!(
-                !ev.iter().any(|e| matches!(e, ColorGradingEvent::Failed { .. })),
+                !ev.iter()
+                    .any(|e| matches!(e, ColorGradingEvent::Failed { .. })),
                 "drained tasks must not be processed: {:?}",
                 ev
             );
@@ -637,7 +757,17 @@ mod tests {
             let ev = events.lock().unwrap();
             ev.iter()
                 .rev()
-                .find(|e| matches!(e, ColorGradingEvent::Done { cancelled: false, total: 1, failed_count: 1, .. }))
+                .find(|e| {
+                    matches!(
+                        e,
+                        ColorGradingEvent::Done {
+                            cancelled: false,
+                            total: 1,
+                            failed_count: 1,
+                            ..
+                        }
+                    )
+                })
                 .cloned()
         })
         .await;
@@ -647,4 +777,3 @@ mod tests {
         let _ = tokio::time::timeout(Duration::from_secs(5), worker).await;
     }
 }
-

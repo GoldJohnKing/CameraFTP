@@ -56,6 +56,20 @@ pub const IDLE_TIMEOUT_SECONDS: u64 = 900;
 pub const FILE_READY_TIMEOUT_SECS: u64 = 5;
 
 // ============================================================================
+// 文件索引并发常量
+// ============================================================================
+
+/// 扫描期 get_file_info 并发度（file_index/service.rs 的 buffer_unordered）。
+/// EXIF 解析在 tokio spawn_blocking 池上执行，池大小天然限流；此值只限制
+/// 同时在飞的 future 数，避免瞬时占满阻塞池。
+pub const INDEX_SCAN_CONCURRENCY: usize = 6;
+
+/// watcher 重事件（Created/Renamed）并发处理上限（信号量许可数）。
+/// 与 INDEX_SCAN_CONCURRENCY 的 2× 关系是有意的不变式：事件通道含
+/// wait_for_file_ready 等待期，吞吐上界对齐扫描。
+pub const INDEX_EVENT_CONCURRENCY: usize = 12;
+
+// ============================================================================
 // 预览窗口常量（Windows）
 // ============================================================================
 

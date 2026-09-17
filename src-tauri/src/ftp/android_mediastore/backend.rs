@@ -11,8 +11,8 @@ use super::limiter::UploadLimiter;
 use super::retry::{retry_with_backoff, RetryConfig};
 use super::types::{
     classify_file, collection_from_class, default_relative_path, display_name_from_path,
-    relative_path_from_full_path, MediaStoreBridgeClient,
-    MediaStoreError, MediaStoreCollection, QueryResult,
+    relative_path_from_full_path, MediaStoreBridgeClient, MediaStoreCollection, MediaStoreError,
+    QueryResult,
 };
 use async_trait::async_trait;
 use futures::future::join_all;
@@ -80,7 +80,8 @@ impl From<QueryResult> for MediaStoreMetadata {
     fn from(result: QueryResult) -> Self {
         Self {
             size: result.size,
-            modified: SystemTime::UNIX_EPOCH + std::time::Duration::from_millis(result.date_modified),
+            modified: SystemTime::UNIX_EPOCH
+                + std::time::Duration::from_millis(result.date_modified),
             is_dir: result.is_directory(),
             mime_type: result.mime_type,
         }
@@ -116,8 +117,10 @@ enum FileLookupResolution {
 
 impl AndroidMediaStoreBackend {
     fn is_non_directory_query_error(error: &std::io::Error) -> bool {
-        matches!(error.kind(), std::io::ErrorKind::NotFound | std::io::ErrorKind::NotADirectory)
-            || error.raw_os_error() == Some(267)
+        matches!(
+            error.kind(),
+            std::io::ErrorKind::NotFound | std::io::ErrorKind::NotADirectory
+        ) || error.raw_os_error() == Some(267)
     }
 
     /// Creates a new MediaStore backend with default settings.
@@ -159,7 +162,7 @@ impl AndroidMediaStoreBackend {
     pub(crate) fn normalize_path(&self, path: &Path) -> PathBuf {
         let path_str = path.to_string_lossy();
         let normalized = path_str.trim_start_matches('/');
-        
+
         let mut components = Vec::new();
         for part in normalized.split('/') {
             match part {
@@ -173,7 +176,7 @@ impl AndroidMediaStoreBackend {
                 _ => components.push(part),
             }
         }
-        
+
         PathBuf::from(components.join("/"))
     }
 
@@ -186,13 +189,13 @@ impl AndroidMediaStoreBackend {
             let normalized_root = root.trim_end_matches('/');
             Self::is_within_virtual_root(&normalized_str, normalized_root)
         });
-        
+
         let full_path = if preserves_explicit_root {
             normalized_str.to_string()
         } else {
             format!("{}{}", self.base_relative_path, normalized_str)
         };
-        
+
         full_path
     }
 
@@ -221,7 +224,7 @@ impl AndroidMediaStoreBackend {
     /// Validates a path for security (prevents directory traversal attacks).
     pub(crate) fn validate_path(&self, path: &Path) -> Result<(), StorageError> {
         let path_str = path.to_string_lossy();
-        
+
         if path_str.contains('\0') {
             return Err(StorageError::from(std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,
@@ -238,7 +241,7 @@ impl AndroidMediaStoreBackend {
                 )));
             }
         }
-        
+
         Ok(())
     }
 
@@ -247,7 +250,10 @@ impl AndroidMediaStoreBackend {
     }
 
     fn normalize_virtual_root(root: &str) -> String {
-        root.trim_start_matches('/').trim_end_matches('/').to_string() + "/"
+        root.trim_start_matches('/')
+            .trim_end_matches('/')
+            .to_string()
+            + "/"
     }
 
     fn listing_virtual_roots(&self) -> Vec<String> {
@@ -282,7 +288,10 @@ impl AndroidMediaStoreBackend {
 
     fn virtual_path_candidates(&self, path: &Path, for_directory: bool) -> Vec<String> {
         let normalized = self.normalize_path(path);
-        let normalized_str = normalized.to_string_lossy().trim_start_matches('/').to_string();
+        let normalized_str = normalized
+            .to_string_lossy()
+            .trim_start_matches('/')
+            .to_string();
         let roots = self.listing_virtual_roots();
 
         let preserves_explicit_root = roots.iter().any(|root| {
@@ -310,7 +319,10 @@ impl AndroidMediaStoreBackend {
                 format!("{}/", normalized.to_string_lossy().trim_end_matches('/'))
             }
         } else {
-            normalized.to_string_lossy().trim_start_matches('/').to_string()
+            normalized
+                .to_string_lossy()
+                .trim_start_matches('/')
+                .to_string()
         };
 
         roots
@@ -334,22 +346,30 @@ impl AndroidMediaStoreBackend {
         let mut found_directory_in_non_primary = false;
 
         // Query all file candidates in parallel to reduce latency
-        let results: Vec<(usize, String, Result<QueryResult, MediaStoreError>)> =
-            join_all(file_candidates.into_iter().enumerate().map(|(index, candidate_path)| {
-                let bridge = self.bridge.clone();
-                let retry_config = self.retry_config.clone();
-                async move {
-                    let operation = if index == 0 { "query_file_primary" } else { "query_file_secondary" };
-                    let result = retry_with_backoff(&retry_config, operation, || {
-                        let bridge = bridge.clone();
-                        let query_path = candidate_path.clone();
-                        async move { bridge.query_file(&query_path).await }
-                    })
-                    .await;
-                    (index, candidate_path, result)
-                }
-            }))
-            .await;
+        let results: Vec<(usize, String, Result<QueryResult, MediaStoreError>)> = join_all(
+            file_candidates
+                .into_iter()
+                .enumerate()
+                .map(|(index, candidate_path)| {
+                    let bridge = self.bridge.clone();
+                    let retry_config = self.retry_config.clone();
+                    async move {
+                        let operation = if index == 0 {
+                            "query_file_primary"
+                        } else {
+                            "query_file_secondary"
+                        };
+                        let result = retry_with_backoff(&retry_config, operation, || {
+                            let bridge = bridge.clone();
+                            let query_path = candidate_path.clone();
+                            async move { bridge.query_file(&query_path).await }
+                        })
+                        .await;
+                        (index, candidate_path, result)
+                    }
+                }),
+        )
+        .await;
 
         for (index, candidate_path, result) in results {
             match result {
@@ -381,7 +401,10 @@ impl AndroidMediaStoreBackend {
         // - secondary file collision exists, or
         // - no file was found (might be a directory-only virtual path), or
         // - a non-primary candidate resolved as a directory (could shadow the primary file)
-        if secondary_file_collision.is_some() || first_file_match.is_none() || found_directory_in_non_primary {
+        if secondary_file_collision.is_some()
+            || first_file_match.is_none()
+            || found_directory_in_non_primary
+        {
             if let Some(modified) = self.directory_modified_millis(path).await? {
                 if let Some((primary_file_path, _)) = &first_file_match {
                     warn!(
@@ -417,27 +440,31 @@ impl AndroidMediaStoreBackend {
         let bridge = self.bridge.clone();
         let retry_config = self.retry_config.clone();
 
-        let all_results: Vec<Vec<QueryResult>> = join_all(
-            directory_candidates.into_iter().map(|directory_path| {
+        let all_results: Vec<Vec<QueryResult>> =
+            join_all(directory_candidates.into_iter().map(|directory_path| {
                 let bridge = bridge.clone();
                 let retry_config = retry_config.clone();
                 async move {
                     Self::query_directory_entries_with_bridge(
-                        &bridge, &retry_config, "query_directory", &directory_path,
+                        &bridge,
+                        &retry_config,
+                        "query_directory",
+                        &directory_path,
                     )
                     .await
                     .unwrap_or_default()
                 }
-            }),
-        )
-        .await;
+            }))
+            .await;
 
         let mut found_directory = false;
         let mut max_modified = 0_u64;
         for results in all_results {
             if !results.is_empty() {
                 found_directory = true;
-                if let Some(candidate_modified) = results.iter().map(|entry| entry.date_modified).max() {
+                if let Some(candidate_modified) =
+                    results.iter().map(|entry| entry.date_modified).max()
+                {
                     max_modified = max_modified.max(candidate_modified);
                 }
             }
@@ -481,7 +508,10 @@ impl AndroidMediaStoreBackend {
         }
     }
 
-    fn synthesize_directory_info(name: String, modified: u64) -> Fileinfo<PathBuf, MediaStoreMetadata> {
+    fn synthesize_directory_info(
+        name: String,
+        modified: u64,
+    ) -> Fileinfo<PathBuf, MediaStoreMetadata> {
         Fileinfo {
             path: PathBuf::from(name),
             metadata: MediaStoreMetadata {
@@ -502,7 +532,9 @@ impl AndroidMediaStoreBackend {
         let mut files = Vec::new();
 
         for entry in results {
-            if let Some((child_name, is_directory)) = Self::direct_child_name(directory_prefix, &entry) {
+            if let Some((child_name, is_directory)) =
+                Self::direct_child_name(directory_prefix, &entry)
+            {
                 if is_directory {
                     directories
                         .entry(child_name)
@@ -616,7 +648,12 @@ impl AndroidMediaStoreBackend {
 
     /// Writes data from a reader to a file descriptor.
     #[cfg(unix)]
-    async fn write_to_fd<R>(&self, fd: i32, mut reader: R, start_pos: u64) -> Result<u64, MediaStoreError>
+    async fn write_to_fd<R>(
+        &self,
+        fd: i32,
+        mut reader: R,
+        start_pos: u64,
+    ) -> Result<u64, MediaStoreError>
     where
         R: AsyncRead + Send + Sync + Unpin,
     {
@@ -627,7 +664,7 @@ impl AndroidMediaStoreBackend {
         // SAFETY: The fd should be valid and opened for writing
         let owned_fd = unsafe { OwnedFd::from_raw_fd(fd) };
         let mut file = File::from(owned_fd);
-        
+
         // Seek to start position if needed
         if start_pos > 0 {
             file.seek(SeekFrom::Start(start_pos))
@@ -642,23 +679,28 @@ impl AndroidMediaStoreBackend {
             let bytes_read = reader.read(&mut buffer).await.map_err(|e| {
                 MediaStoreError::IoError(std::io::Error::new(std::io::ErrorKind::Other, e))
             })?;
-            
+
             if bytes_read == 0 {
                 break;
             }
-            
+
             file.write_all(&buffer[..bytes_read])?;
             total_written += bytes_read as u64;
         }
 
         file.sync_all()?;
-        
+
         Ok(total_written - start_pos)
     }
 
     #[cfg(not(unix))]
     #[allow(dead_code)]
-    async fn write_to_fd<R>(&self, _fd: i32, _reader: R, _start_pos: u64) -> Result<u64, MediaStoreError>
+    async fn write_to_fd<R>(
+        &self,
+        _fd: i32,
+        _reader: R,
+        _start_pos: u64,
+    ) -> Result<u64, MediaStoreError>
     where
         R: AsyncRead + Send + Sync + Unpin,
     {
@@ -678,7 +720,11 @@ impl Default for AndroidMediaStoreBackend {
 impl StorageBackend<DefaultUser> for AndroidMediaStoreBackend {
     type Metadata = MediaStoreMetadata;
 
-    async fn metadata<P>(&self, _user: &DefaultUser, path: P) -> Result<Self::Metadata, StorageError>
+    async fn metadata<P>(
+        &self,
+        _user: &DefaultUser,
+        path: P,
+    ) -> Result<Self::Metadata, StorageError>
     where
         P: AsRef<Path> + Send + Debug,
     {
@@ -694,7 +740,7 @@ impl StorageBackend<DefaultUser> for AndroidMediaStoreBackend {
                 mime_type: "inode/directory".to_string(),
             });
         }
-        
+
         match self.resolve_file_lookup(path).await? {
             FileLookupResolution::File { entry, .. } => Ok(MediaStoreMetadata::from(entry)),
             FileLookupResolution::Directory { modified } => Ok(Self::synthesize_directory_info(
@@ -702,13 +748,18 @@ impl StorageBackend<DefaultUser> for AndroidMediaStoreBackend {
                 modified,
             )
             .metadata),
-            FileLookupResolution::NotFound => {
-                Err(Self::file_not_available(format!("Metadata not found: {}", path.display())))
-            }
+            FileLookupResolution::NotFound => Err(Self::file_not_available(format!(
+                "Metadata not found: {}",
+                path.display()
+            ))),
         }
     }
 
-    async fn list<P>(&self, _user: &DefaultUser, path: P) -> Result<Vec<Fileinfo<PathBuf, Self::Metadata>>, StorageError>
+    async fn list<P>(
+        &self,
+        _user: &DefaultUser,
+        path: P,
+    ) -> Result<Vec<Fileinfo<PathBuf, Self::Metadata>>, StorageError>
     where
         P: AsRef<Path> + Send + Debug,
     {
@@ -720,22 +771,30 @@ impl StorageBackend<DefaultUser> for AndroidMediaStoreBackend {
         debug!(path = %path.display(), candidates = ?directory_candidates, "Listing directory");
 
         // Query all directory candidates in parallel
-        let candidate_results: Vec<(String, Vec<QueryResult>)> = join_all(
-            directory_candidates.into_iter().enumerate().map(|(index, directory_candidate)| {
-                let bridge = self.bridge.clone();
-                let retry_config = self.retry_config.clone();
-                async move {
-                    let operation = if index == 0 { "list_primary" } else { "list_secondary" };
-                    let results = Self::query_directory_entries_with_bridge(
-                        &bridge, &retry_config, operation, &directory_candidate,
-                    )
-                    .await
-                    .unwrap_or_default();
-                    (directory_candidate, results)
-                }
-            }),
-        )
-        .await;
+        let candidate_results: Vec<(String, Vec<QueryResult>)> =
+            join_all(directory_candidates.into_iter().enumerate().map(
+                |(index, directory_candidate)| {
+                    let bridge = self.bridge.clone();
+                    let retry_config = self.retry_config.clone();
+                    async move {
+                        let operation = if index == 0 {
+                            "list_primary"
+                        } else {
+                            "list_secondary"
+                        };
+                        let results = Self::query_directory_entries_with_bridge(
+                            &bridge,
+                            &retry_config,
+                            operation,
+                            &directory_candidate,
+                        )
+                        .await
+                        .unwrap_or_default();
+                        (directory_candidate, results)
+                    }
+                },
+            ))
+            .await;
 
         let mut merged_listing = Vec::new();
         let mut any_candidate_had_results = false;
@@ -757,13 +816,18 @@ impl StorageBackend<DefaultUser> for AndroidMediaStoreBackend {
         Ok(merged_listing)
     }
 
-    async fn get<P>(&self, _user: &DefaultUser, path: P, start_pos: u64) -> Result<Box<dyn AsyncRead + Send + Sync + Unpin>, StorageError>
+    async fn get<P>(
+        &self,
+        _user: &DefaultUser,
+        path: P,
+        start_pos: u64,
+    ) -> Result<Box<dyn AsyncRead + Send + Sync + Unpin>, StorageError>
     where
         P: AsRef<Path> + Send + Debug,
     {
         let path = path.as_ref();
         self.validate_path(path)?;
-        
+
         let resolved_file_path = match self.resolve_file_lookup(path).await? {
             FileLookupResolution::File { candidate_path, .. } => candidate_path,
             FileLookupResolution::Directory { .. } => {
@@ -822,14 +886,20 @@ impl StorageBackend<DefaultUser> for AndroidMediaStoreBackend {
         }
     }
 
-    async fn put<P, R>(&self, _user: &DefaultUser, reader: R, path: P, start_pos: u64) -> Result<u64, StorageError>
+    async fn put<P, R>(
+        &self,
+        _user: &DefaultUser,
+        reader: R,
+        path: P,
+        start_pos: u64,
+    ) -> Result<u64, StorageError>
     where
         P: AsRef<Path> + Send + Debug,
         R: AsyncRead + Send + Sync + Unpin + 'static,
     {
         let path = path.as_ref();
         self.validate_path(path)?;
-        
+
         let display_name = display_name_from_path(&path.to_string_lossy());
         let relative_path = self.resolve_path(path);
         let parent_path = relative_path_from_full_path(&relative_path);
@@ -866,7 +936,7 @@ impl StorageBackend<DefaultUser> for AndroidMediaStoreBackend {
 
         // Acquire upload slot (limit concurrency)
         let _permit = self.limiter.acquire().await;
-        
+
         // Open file descriptor for writing with retry
         let bridge = self.bridge.clone();
         let fd_info = retry_with_backoff(&self.retry_config, "open_fd_for_write", || {
@@ -946,7 +1016,7 @@ impl StorageBackend<DefaultUser> for AndroidMediaStoreBackend {
     {
         let path = path.as_ref();
         self.validate_path(path)?;
-        
+
         let resolved_file_path = match self.resolve_file_lookup(path).await? {
             FileLookupResolution::File { candidate_path, .. } => candidate_path,
             FileLookupResolution::Directory { .. } => {
@@ -1001,7 +1071,7 @@ impl StorageBackend<DefaultUser> for AndroidMediaStoreBackend {
         let to = to.as_ref();
         self.validate_path(from)?;
         self.validate_path(to)?;
-        
+
         // MediaStore doesn't support direct rename.
         // We would need to copy and delete.
         warn!(
@@ -1010,7 +1080,9 @@ impl StorageBackend<DefaultUser> for AndroidMediaStoreBackend {
             "Rename operation not fully supported in MediaStore"
         );
 
-        Err(Self::unsupported_command("Rename not supported in MediaStore backend"))
+        Err(Self::unsupported_command(
+            "Rename not supported in MediaStore backend",
+        ))
     }
 
     async fn rmd<P>(&self, _user: &DefaultUser, path: P) -> Result<(), StorageError>
@@ -1061,36 +1133,50 @@ impl StorageBackend<DefaultUser> for AndroidMediaStoreBackend {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::bridge::MockMediaStoreBridge;
+    use super::*;
     use unftp_core::storage::ErrorKind as StorageErrorKind;
 
     #[test]
     fn test_normalize_path() {
         let backend = AndroidMediaStoreBackend::new();
-        
-        assert_eq!(backend.normalize_path(Path::new("/foo/bar")), PathBuf::from("foo/bar"));
-        assert_eq!(backend.normalize_path(Path::new("foo/bar")), PathBuf::from("foo/bar"));
-        assert_eq!(backend.normalize_path(Path::new("/foo/../bar")), PathBuf::from("bar"));
-        assert_eq!(backend.normalize_path(Path::new("./foo")), PathBuf::from("foo"));
+
+        assert_eq!(
+            backend.normalize_path(Path::new("/foo/bar")),
+            PathBuf::from("foo/bar")
+        );
+        assert_eq!(
+            backend.normalize_path(Path::new("foo/bar")),
+            PathBuf::from("foo/bar")
+        );
+        assert_eq!(
+            backend.normalize_path(Path::new("/foo/../bar")),
+            PathBuf::from("bar")
+        );
+        assert_eq!(
+            backend.normalize_path(Path::new("./foo")),
+            PathBuf::from("foo")
+        );
     }
 
     #[test]
     fn test_validate_path() {
         let backend = AndroidMediaStoreBackend::new();
-        
+
         assert!(backend.validate_path(Path::new("test.jpg")).is_ok());
         assert!(backend.validate_path(Path::new("DCIM/test.jpg")).is_ok());
         // Benign names containing ".." as a substring should be allowed
         assert!(backend.validate_path(Path::new("photo..jpg")).is_ok());
         assert!(backend.validate_path(Path::new("my..backup.tar")).is_ok());
-        
+
         // Null bytes should fail
         assert!(backend.validate_path(Path::new("test\0.jpg")).is_err());
         // ".." as a path component should fail
         assert!(backend.validate_path(Path::new("../secret")).is_err());
         assert!(backend.validate_path(Path::new("foo/../bar")).is_err());
-        assert!(backend.validate_path(Path::new("/../../etc/passwd")).is_err());
+        assert!(backend
+            .validate_path(Path::new("/../../etc/passwd"))
+            .is_err());
     }
 
     #[test]
@@ -1098,11 +1184,20 @@ mod tests {
         let backend = AndroidMediaStoreBackend::new();
 
         // Only virtual-root paths are preserved as-is
-        assert_eq!(backend.resolve_path(Path::new("DCIM/CameraFTP/test.jpg")), "DCIM/CameraFTP/test.jpg");
-        assert_eq!(backend.resolve_path(Path::new("Download/CameraFTP/test.jpg")), "Download/CameraFTP/test.jpg");
+        assert_eq!(
+            backend.resolve_path(Path::new("DCIM/CameraFTP/test.jpg")),
+            "DCIM/CameraFTP/test.jpg"
+        );
+        assert_eq!(
+            backend.resolve_path(Path::new("Download/CameraFTP/test.jpg")),
+            "Download/CameraFTP/test.jpg"
+        );
 
         // Non-virtual-root DCIM paths get the base prefix
-        assert_eq!(backend.resolve_path(Path::new("DCIM/test.jpg")), "DCIM/CameraFTP/DCIM/test.jpg");
+        assert_eq!(
+            backend.resolve_path(Path::new("DCIM/test.jpg")),
+            "DCIM/CameraFTP/DCIM/test.jpg"
+        );
 
         // Bare filenames get the base prefix
         let resolved = backend.resolve_path(Path::new("test.jpg"));
@@ -1119,7 +1214,7 @@ mod tests {
             mime_type: "image/jpeg".to_string(),
             relative_path: "DCIM/".to_string(),
         };
-        
+
         let metadata = MediaStoreMetadata::from(result);
         assert_eq!(metadata.size, 1024);
         assert!(!metadata.is_dir);
@@ -1186,7 +1281,10 @@ mod tests {
         let backend = AndroidMediaStoreBackend::with_bridge(Arc::new(MockMediaStoreBridge::temp()));
 
         let result = backend.cwd(&DefaultUser {}, Path::new("/subdir")).await;
-        assert!(result.is_err(), "cwd subdirectory should fail when virtual directory is missing");
+        assert!(
+            result.is_err(),
+            "cwd subdirectory should fail when virtual directory is missing"
+        );
         assert_eq!(
             result.unwrap_err().kind(),
             StorageErrorKind::PermanentDirectoryNotAvailable
@@ -1280,11 +1378,16 @@ mod tests {
 
         let mkd_result = backend.mkd(&DefaultUser {}, Path::new("/newdir")).await;
         assert!(mkd_result.is_err(), "mkd should fail as unsupported");
-        assert_eq!(mkd_result.unwrap_err().kind(), StorageErrorKind::CommandNotImplemented);
+        assert_eq!(
+            mkd_result.unwrap_err().kind(),
+            StorageErrorKind::CommandNotImplemented
+        );
 
         let rmd_result = backend.rmd(&DefaultUser {}, Path::new("/newdir")).await;
         assert!(rmd_result.is_err(), "rmd should fail as unsupported");
-        assert_eq!(rmd_result.unwrap_err().kind(), StorageErrorKind::CommandNotImplemented);
+        assert_eq!(
+            rmd_result.unwrap_err().kind(),
+            StorageErrorKind::CommandNotImplemented
+        );
     }
-
 }

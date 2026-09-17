@@ -18,9 +18,7 @@ pub struct ResourcePaths {
 
 static GLOBAL_RESOURCES: OnceLock<ResourcePaths> = OnceLock::new();
 
-pub fn ensure_resources(
-    app_data_dir: &std::path::Path,
-) -> Result<(), AppError> {
+pub fn ensure_resources(app_data_dir: &std::path::Path) -> Result<(), AppError> {
     if GLOBAL_RESOURCES.get().is_some() {
         return Ok(());
     }
@@ -120,7 +118,10 @@ pub fn nn_soc_config() -> Option<NnSocConfig> {
             let numeric = sm_to_qnn_soc_model(&sm);
             let arch = sm_to_qnn_htp_arch(&sm);
             tracing::info!(soc_model = %sm, qnn_numeric = %numeric, htp_arch = %arch, "QNN soc_model + htp_arch configured");
-            Some(NnSocConfig { soc_model: numeric, htp_arch: arch })
+            Some(NnSocConfig {
+                soc_model: numeric,
+                htp_arch: arch,
+            })
         }
         None => {
             tracing::warn!("Could not read ro.soc.model; QNN will auto-detect (soc_model=0)");

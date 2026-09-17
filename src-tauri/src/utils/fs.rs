@@ -34,11 +34,7 @@ pub async fn wait_for_file_ready(path: &Path, max_wait: Duration) -> bool {
                 let sig = (md.len(), md.modified().ok());
                 if Some(sig) == last_sig {
                     if last_change.elapsed() >= FILE_READY_STABLE_WINDOW {
-                        trace!(
-                            "File stable after {:?}: {:?}",
-                            start.elapsed(),
-                            path
-                        );
+                        trace!("File stable after {:?}: {:?}", start.elapsed(), path);
                         return true;
                     }
                 } else {
@@ -218,4 +214,3 @@ mod tests {
         assert!(result.is_err(), "should fail for nonexistent directory");
     }
 }
-

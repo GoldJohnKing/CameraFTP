@@ -4,6 +4,7 @@
 
 pub mod ai_edit;
 pub mod auto_open;
+pub mod color_grading;
 pub mod commands;
 pub mod config;
 pub mod config_service;
@@ -12,17 +13,16 @@ pub mod crypto;
 pub mod error;
 pub mod file_index;
 pub mod ftp;
-pub mod image_utils;
-pub mod color_grading;
 #[cfg(target_os = "windows")]
 pub mod image_preview;
+pub mod image_utils;
 pub mod network;
 pub mod platform;
 pub mod utils;
 
 use std::sync::Arc;
-use tokio::sync::Mutex;
 use tauri::Manager;
+use tokio::sync::Mutex;
 
 #[cfg(target_os = "windows")]
 use image_preview::ImagePreviewCache;
@@ -32,45 +32,15 @@ use config_service::ConfigService;
 use file_index::FileIndexService;
 
 use commands::{
-    begin_color_grading_preview,
-    apply_color_grading_preview,
-    end_color_grading_preview,
-    check_permission_status,
-    check_port_available,
-    check_server_start_prerequisites,
-    cancel_ai_edit,
-    cancel_color_grading,
-    ensure_storage_ready,
-    enqueue_ai_edit,
-    enqueue_color_grading,
-    get_autostart_status,
-    get_color_grading_presets,
-    get_current_file_index,
-    get_file_list,
-    get_image_exif,
-    get_raw_orientation,
-    inject_exif_orientation,
-    get_latest_image,
-    get_platform,
-    get_server_runtime_state,
-    get_storage_info,
-    hide_main_window,
-    load_config,
-    navigate_to_file,
-    open_external_link,
-    open_folder_select_file,
-    open_preview_window,
-    open_save_directory,
-    quit_application,
-    save_auth_config,
-    save_config,
-    select_executable_file,
-    select_save_directory,
-    set_autostart_command,
-    show_main_window,
-    start_server,
-    stop_server,
-    update_preview_config,
+    apply_color_grading_preview, begin_color_grading_preview, cancel_ai_edit, cancel_color_grading,
+    check_permission_status, check_port_available, check_server_start_prerequisites,
+    end_color_grading_preview, enqueue_ai_edit, enqueue_color_grading, ensure_storage_ready,
+    get_autostart_status, get_color_grading_presets, get_current_file_index, get_file_list,
+    get_image_exif, get_latest_image, get_platform, get_raw_orientation, get_server_runtime_state,
+    get_storage_info, hide_main_window, inject_exif_orientation, load_config, navigate_to_file,
+    open_external_link, open_folder_select_file, open_preview_window, open_save_directory,
+    quit_application, save_auth_config, save_config, select_executable_file, select_save_directory,
+    set_autostart_command, show_main_window, start_server, stop_server, update_preview_config,
     FtpServerState,
 };
 
@@ -151,7 +121,9 @@ pub fn run() {
 
     let builder = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
-        .manage(FtpServerState(Arc::new(Mutex::new(ftp::FtpServerSlot::None))))
+        .manage(FtpServerState(Arc::new(Mutex::new(
+            ftp::FtpServerSlot::None,
+        ))))
         .setup(move |app| {
             // 统一平台初始化（托盘、权限等）
             if let Err(e) = platform.setup(app.handle()) {
@@ -204,8 +176,14 @@ pub fn run() {
             app.manage(file_index);
 
             // 在 setup 中管理 AutoOpenService
-            app.manage(AutoOpenService::new(app.handle().clone(), Arc::clone(&config_service)));
-            app.manage(ai_edit::AiEditService::new(app.handle().clone(), Arc::clone(&config_service)));
+            app.manage(AutoOpenService::new(
+                app.handle().clone(),
+                Arc::clone(&config_service),
+            ));
+            app.manage(ai_edit::AiEditService::new(
+                app.handle().clone(),
+                Arc::clone(&config_service),
+            ));
 
             // Image preview cache with memory caching (Windows only)
             #[cfg(target_os = "windows")]
@@ -241,34 +219,27 @@ pub fn run() {
             start_server,
             stop_server,
             get_server_runtime_state,
-            
             // 配置管理
             load_config,
             save_config,
             save_auth_config,
             select_save_directory,
-            
             // 网络
             check_port_available,
-            
             // 平台
             get_platform,
-            
             // 自动启动（Windows）
             set_autostart_command,
             get_autostart_status,
-            
             // 应用控制
             quit_application,
             hide_main_window,
             show_main_window,
-            
             // 存储权限（新 API）
             get_storage_info,
             check_permission_status,
             ensure_storage_ready,
             check_server_start_prerequisites,
-
             // 预览配置与文件操作（Windows）
             update_preview_config,
             open_preview_window,
@@ -276,22 +247,18 @@ pub fn run() {
             open_folder_select_file,
             open_save_directory,
             open_external_link,
-
             // 文件索引
             get_file_list,
             get_current_file_index,
             navigate_to_file,
             get_latest_image,
-
             // EXIF 信息
             get_image_exif,
             get_raw_orientation,
             inject_exif_orientation,
-
             // AI 修图
             enqueue_ai_edit,
             cancel_ai_edit,
-
             // 调色
             get_color_grading_presets,
             enqueue_color_grading,
@@ -345,8 +312,7 @@ pub fn run() {
                 }
 
                 let requested = PathBuf::from(utils::percent_decode(&path_encoded));
-                let response = match image_preview::validate_preview_path(&requested, &save_root)
-                {
+                let response = match image_preview::validate_preview_path(&requested, &save_root) {
                     Ok(Some(path)) => {
                         // content_type 用 canonical 路径判 RAW 扩展名；缓存键必须用
                         // 原始（percent-decode 后）请求路径经分隔符归一（cache_key）：
@@ -399,18 +365,17 @@ pub fn run() {
         },
     );
 
-    builder.run(tauri::generate_context!())
-        .unwrap_or_else(|e| {
-            eprintln!("Fatal error running Tauri application: {}", e);
-            std::process::exit(1);
-        });
+    builder.run(tauri::generate_context!()).unwrap_or_else(|e| {
+        eprintln!("Fatal error running Tauri application: {}", e);
+        std::process::exit(1);
+    });
 }
 
 /// 设置主窗口关闭请求处理器（桌面平台）
 #[cfg(target_os = "windows")]
 fn setup_window_close_handler(app_handle: &tauri::AppHandle) {
     use tauri::Emitter;
-    
+
     if let Some(window) = app_handle.get_webview_window("main") {
         let handle = app_handle.clone();
         window.on_window_event(move |event| {
@@ -430,7 +395,8 @@ fn spawn_background_tasks(app_handle: &tauri::AppHandle) {
 
     tauri::async_runtime::spawn(async move {
         // 1. 先执行文件扫描
-        let file_index: tauri::State<'_, Arc<FileIndexService>> = handle.state::<Arc<FileIndexService>>();
+        let file_index: tauri::State<'_, Arc<FileIndexService>> =
+            handle.state::<Arc<FileIndexService>>();
         if let Err(e) = file_index.scan_directory().await {
             tracing::error!("Failed to scan directory: {}", e);
         }

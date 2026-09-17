@@ -9,14 +9,14 @@
 //! - EXIF metadata extraction (`parse_exif`)
 //! - EXIF orientation injection into JPEG files
 
-use std::path::Path;
 use chrono::NaiveDateTime;
 use nom_exif::URational;
+use std::path::Path;
 
 /// All supported RAW image file extensions (lowercase).
 pub const RAW_EXTENSIONS: &[&str] = &[
-    "nef", "nrw", "cr2", "cr3", "arw", "sr2",
-    "raf", "orf", "rw2", "pef", "dng", "x3f", "raw", "srw",
+    "nef", "nrw", "cr2", "cr3", "arw", "sr2", "raf", "orf", "rw2", "pef", "dng", "x3f", "raw",
+    "srw",
 ];
 // NOTE: Keep in sync with src/utils/raw.ts (TypeScript side).
 
@@ -87,21 +87,26 @@ pub fn parse_exif(path: &Path) -> Result<Option<ParsedExif>, String> {
     let exif: Exif = iter.into();
 
     Ok(Some(ParsedExif {
-        iso: exif.get(ExifTag::ISOSpeedRatings)
+        iso: exif
+            .get(ExifTag::ISOSpeedRatings)
             .and_then(|v| v.as_u16())
             .map(|v| v as u32),
-        aperture: exif.get(ExifTag::FNumber)
+        aperture: exif.get(ExifTag::FNumber).and_then(|v| v.as_urational()),
+        shutter_speed: exif
+            .get(ExifTag::ExposureTime)
             .and_then(|v| v.as_urational()),
-        shutter_speed: exif.get(ExifTag::ExposureTime)
-            .and_then(|v| v.as_urational()),
-        focal_length_35mm: exif.get(ExifTag::FocalLengthIn35mmFilm)
+        focal_length_35mm: exif
+            .get(ExifTag::FocalLengthIn35mmFilm)
             .and_then(|v| v.as_u16()),
-        focal_length_raw: exif.get(ExifTag::FocalLength)
+        focal_length_raw: exif
+            .get(ExifTag::FocalLength)
             .and_then(|v| v.as_urational()),
-        datetime_original: exif.get(ExifTag::DateTimeOriginal)
+        datetime_original: exif
+            .get(ExifTag::DateTimeOriginal)
             .and_then(|v| v.as_time_components())
             .map(|(ndt, _offset)| ndt),
-        orientation: exif.get(ExifTag::Orientation)
+        orientation: exif
+            .get(ExifTag::Orientation)
             .and_then(|v| v.as_u16())
             .map(|v| v as u8),
     }))
@@ -151,18 +156,42 @@ pub fn has_exif_app1(jpeg: &[u8]) -> bool {
 ///   00000000          - Next IFD: none
 pub fn build_orientation_app1(orientation: u8) -> Vec<u8> {
     vec![
-        0xFF, 0xE1, // APP1 marker
-        0x00, 0x22, // Length: 34
-        b'E', b'x', b'i', b'f', 0x00, 0x00, // "Exif\0\0"
-        b'I', b'I', // Little-endian
-        0x2A, 0x00, // TIFF magic: 42
-        0x08, 0x00, 0x00, 0x00, // IFD0 offset: 8
-        0x01, 0x00, // 1 IFD entry
-        0x12, 0x01, // Tag: Orientation (0x0112)
-        0x03, 0x00, // Type: SHORT
-        0x01, 0x00, 0x00, 0x00, // Count: 1
-        orientation, 0x00, 0x00, 0x00, // Value
-        0x00, 0x00, 0x00, 0x00, // Next IFD: 0
+        0xFF,
+        0xE1, // APP1 marker
+        0x00,
+        0x22, // Length: 34
+        b'E',
+        b'x',
+        b'i',
+        b'f',
+        0x00,
+        0x00, // "Exif\0\0"
+        b'I',
+        b'I', // Little-endian
+        0x2A,
+        0x00, // TIFF magic: 42
+        0x08,
+        0x00,
+        0x00,
+        0x00, // IFD0 offset: 8
+        0x01,
+        0x00, // 1 IFD entry
+        0x12,
+        0x01, // Tag: Orientation (0x0112)
+        0x03,
+        0x00, // Type: SHORT
+        0x01,
+        0x00,
+        0x00,
+        0x00, // Count: 1
+        orientation,
+        0x00,
+        0x00,
+        0x00, // Value
+        0x00,
+        0x00,
+        0x00,
+        0x00, // Next IFD: 0
     ]
 }
 
@@ -191,7 +220,11 @@ pub fn inject_orientation_exif(jpeg: Vec<u8>, orientation: u8) -> Vec<u8> {
 #[cfg(test)]
 pub(crate) fn build_exif_datetime_orientation_app1(datetime: &str, orientation: u16) -> Vec<u8> {
     let dt = datetime.as_bytes();
-    assert_eq!(dt.len(), 19, "datetime must be formatted YYYY:MM:DD HH:MM:SS");
+    assert_eq!(
+        dt.len(),
+        19,
+        "datetime must be formatted YYYY:MM:DD HH:MM:SS"
+    );
 
     const IFD0_OFFSET: u32 = 8;
     const IFD0_LEN: u32 = 2 + 2 * 12 + 4; // entry count + 2 entries + next-IFD
@@ -212,7 +245,7 @@ pub(crate) fn build_exif_datetime_orientation_app1(datetime: &str, orientation: 
     tiff.extend_from_slice(&1u32.to_le_bytes());
     tiff.extend_from_slice(&orientation.to_le_bytes());
     tiff.extend_from_slice(&[0u8, 0u8]); // pad inline value to 4 bytes
-    // ExifIFDPointer (0x8769), LONG, count 1
+                                         // ExifIFDPointer (0x8769), LONG, count 1
     tiff.extend_from_slice(&0x8769u16.to_le_bytes());
     tiff.extend_from_slice(&4u16.to_le_bytes());
     tiff.extend_from_slice(&1u32.to_le_bytes());
@@ -246,7 +279,10 @@ pub(crate) fn build_exif_jpeg(datetime: &str, orientation: u16) -> Vec<u8> {
     let img = image::RgbImage::from_pixel(2, 2, image::Rgb([128u8, 128, 128]));
     let mut jpeg = Vec::new();
     image::DynamicImage::ImageRgb8(img)
-        .write_to(&mut std::io::Cursor::new(&mut jpeg), image::ImageFormat::Jpeg)
+        .write_to(
+            &mut std::io::Cursor::new(&mut jpeg),
+            image::ImageFormat::Jpeg,
+        )
         .expect("failed to encode test JPEG");
 
     let app1 = build_exif_datetime_orientation_app1(datetime, orientation);
@@ -290,16 +326,12 @@ mod tests {
     fn test_has_exif_app1() {
         // JPEG with APP1/EXIF marker including "Exif\0\0" header
         let jpeg_with_exif = vec![
-            0xFF, 0xD8, 0xFF, 0xE1, 0x00, 0x0A,
-            b'E', b'x', b'i', b'f', 0x00, 0x00, 0x00, 0x00,
+            0xFF, 0xD8, 0xFF, 0xE1, 0x00, 0x0A, b'E', b'x', b'i', b'f', 0x00, 0x00, 0x00, 0x00,
         ];
         assert!(has_exif_app1(&jpeg_with_exif));
 
         // JPEG with APP1 marker but XMP (not EXIF) — no "Exif\0\0" header
-        let jpeg_with_xmp = vec![
-            0xFF, 0xD8, 0xFF, 0xE1, 0x00, 0x04,
-            b'h', b't', b'm', b'l',
-        ];
+        let jpeg_with_xmp = vec![0xFF, 0xD8, 0xFF, 0xE1, 0x00, 0x04, b'h', b't', b'm', b'l'];
         assert!(!has_exif_app1(&jpeg_with_xmp));
 
         // JPEG without APP1 (SOI + APP0/DQT marker instead)
@@ -319,7 +351,12 @@ mod tests {
     fn test_build_orientation_app1_length() {
         for orientation in [1u8, 2, 3, 4, 5, 6, 7, 8] {
             let app1 = build_orientation_app1(orientation);
-            assert_eq!(app1.len(), 36, "APP1 segment should be 36 bytes for orientation {}", orientation);
+            assert_eq!(
+                app1.len(),
+                36,
+                "APP1 segment should be 36 bytes for orientation {}",
+                orientation
+            );
         }
     }
 
@@ -377,7 +414,10 @@ mod tests {
 
         let img = image::RgbImage::from_pixel(2, 2, image::Rgb([128u8, 128, 128]));
         image::DynamicImage::ImageRgb8(img)
-            .write_to(&mut std::fs::File::create(&path).unwrap(), image::ImageFormat::Jpeg)
+            .write_to(
+                &mut std::fs::File::create(&path).unwrap(),
+                image::ImageFormat::Jpeg,
+            )
             .unwrap();
 
         assert!(

@@ -122,9 +122,15 @@ mod tests {
 
         gate.cancel_and_rearm();
 
-        assert!(armed.is_cancelled(), "snapshots taken before re-arm must fire");
+        assert!(
+            armed.is_cancelled(),
+            "snapshots taken before re-arm must fire"
+        );
         let fresh = gate.current();
-        assert!(!fresh.is_cancelled(), "snapshots taken after re-arm must be live");
+        assert!(
+            !fresh.is_cancelled(),
+            "snapshots taken after re-arm must be live"
+        );
     }
 
     #[tokio::test]

@@ -12,7 +12,6 @@ pub(crate) struct BatchState {
     pub output_files: Vec<String>,
 }
 
-
 impl BatchState {
     pub fn processed_count(&self) -> u32 {
         self.completed_count + self.failed_count

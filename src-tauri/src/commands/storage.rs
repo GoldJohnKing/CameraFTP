@@ -6,10 +6,7 @@ use tauri::{command, AppHandle};
 
 use crate::error::AppError;
 use crate::platform::{
-    get_platform as get_platform_service,
-    PermissionStatus,
-    ServerStartCheckResult,
-    StorageInfo,
+    get_platform as get_platform_service, PermissionStatus, ServerStartCheckResult, StorageInfo,
 };
 
 // ============================================================================

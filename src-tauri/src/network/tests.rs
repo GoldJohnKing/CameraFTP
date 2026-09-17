@@ -71,7 +71,9 @@ fn public_ip_not_private_lan() {
 
 #[test]
 fn vmware_detected_as_virtual() {
-    assert!(NetworkManager::is_virtual_interface("VMware Network Adapter"));
+    assert!(NetworkManager::is_virtual_interface(
+        "VMware Network Adapter"
+    ));
 }
 
 #[test]

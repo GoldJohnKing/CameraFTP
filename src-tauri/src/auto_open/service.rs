@@ -4,9 +4,9 @@
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use tauri::AppHandle;
 #[cfg(target_os = "windows")]
 use tauri::{Emitter, Manager};
-use tauri::AppHandle;
 #[cfg(target_os = "windows")]
 use tracing::error;
 
@@ -14,12 +14,12 @@ use tracing::error;
 use crate::config::ImageOpenMethod;
 use crate::config::PreviewWindowConfig;
 use crate::config_service::ConfigService;
-use crate::error::AppError;
 #[cfg(target_os = "windows")]
 use crate::constants::{
-    PREVIEW_WINDOW_WIDTH, PREVIEW_WINDOW_HEIGHT, PREVIEW_EMIT_DELAY_MS,
-    PREVIEW_ON_TOP_DURATION_SECS,
+    PREVIEW_EMIT_DELAY_MS, PREVIEW_ON_TOP_DURATION_SECS, PREVIEW_WINDOW_HEIGHT,
+    PREVIEW_WINDOW_WIDTH,
 };
+use crate::error::AppError;
 
 /// Macro to wrap errors with context message
 #[cfg(target_os = "windows")]
@@ -61,8 +61,7 @@ impl AutoOpenService {
             if !config.enabled {
                 return Ok(());
             }
-            self
-                .dispatch_open(&_file_path, &config, config.auto_bring_to_front)
+            self.dispatch_open(&_file_path, &config, config.auto_bring_to_front)
                 .await?;
         }
         Ok(())
@@ -88,7 +87,8 @@ impl AutoOpenService {
     ) -> Result<(), AppError> {
         match &config.method {
             ImageOpenMethod::BuiltInPreview => {
-                self.open_or_update_preview_window(file_path, bring_to_front).await?;
+                self.open_or_update_preview_window(file_path, bring_to_front)
+                    .await?;
             }
             ImageOpenMethod::SystemDefault => {
                 crate::auto_open::windows::open_with_default(file_path)?;
@@ -109,9 +109,9 @@ impl AutoOpenService {
     /// 创建或更新预览窗口（仅 Windows）
     #[cfg(target_os = "windows")]
     async fn open_or_update_preview_window(
-        &self, 
-        file_path: &Path, 
-        bring_to_front: bool
+        &self,
+        file_path: &Path,
+        bring_to_front: bool,
     ) -> Result<(), AppError> {
         let event = PreviewEvent {
             file_path: file_path.to_string_lossy().to_string(),
@@ -127,7 +127,7 @@ impl AutoOpenService {
                 window.emit::<serde_json::Value>("preview-image", event_json),
                 "Failed to emit preview event"
             );
-            
+
             // 如果需要置顶
             if bring_to_front {
                 self.setup_window_on_top(&window).await?;
@@ -135,10 +135,10 @@ impl AutoOpenService {
         } else {
             // 创建新窗口
             let window = self.create_preview_window().await?;
-            
+
             // 设置事件监听和超时
             self.setup_preview_event_handling(&window, event).await;
-            
+
             // 如果需要置顶
             if bring_to_front {
                 self.setup_window_on_top(&window).await?;
@@ -165,7 +165,7 @@ impl AutoOpenService {
             .build(),
             "Failed to create preview window"
         );
-        
+
         Ok(window)
     }
 
@@ -175,11 +175,11 @@ impl AutoOpenService {
     async fn setup_preview_event_handling(
         &self,
         window: &tauri::WebviewWindow,
-        event: PreviewEvent
+        event: PreviewEvent,
     ) {
         let event_clone = event.clone();
         let window_clone = window.clone();
-        
+
         // 延迟发送事件，确保窗口已加载
         tokio::spawn(async move {
             tokio::time::sleep(tokio::time::Duration::from_millis(PREVIEW_EMIT_DELAY_MS)).await;
@@ -192,15 +192,21 @@ impl AutoOpenService {
     #[cfg(target_os = "windows")]
     async fn setup_window_on_top(&self, window: &tauri::WebviewWindow) -> Result<(), AppError> {
         wrap_err!(window.set_focus(), "Failed to focus window");
-        wrap_err!(window.set_always_on_top(true), "Failed to set always on top");
-        
+        wrap_err!(
+            window.set_always_on_top(true),
+            "Failed to set always on top"
+        );
+
         // 短暂置顶后恢复
         let window_clone = window.clone();
         tokio::spawn(async move {
-            tokio::time::sleep(tokio::time::Duration::from_secs(PREVIEW_ON_TOP_DURATION_SECS)).await;
+            tokio::time::sleep(tokio::time::Duration::from_secs(
+                PREVIEW_ON_TOP_DURATION_SECS,
+            ))
+            .await;
             let _ = window_clone.set_always_on_top(false);
         });
-        
+
         Ok(())
     }
 
@@ -208,9 +214,7 @@ impl AutoOpenService {
     #[cfg(target_os = "windows")]
     pub async fn broadcast_config_changed(&self, config: PreviewWindowConfig) {
         // 广播配置变化事件给所有窗口
-        let event = ConfigChangedEvent {
-            config,
-        };
+        let event = ConfigChangedEvent { config };
         if let Err(e) = self.app_handle.emit("preview-config-changed", event) {
             error!("Failed to emit config changed event: {}", e);
         }
@@ -221,7 +225,6 @@ impl AutoOpenService {
     pub async fn broadcast_config_changed(&self, _config: PreviewWindowConfig) {
         // Android 上暂时不支持
     }
-
 }
 
 #[cfg(target_os = "windows")]

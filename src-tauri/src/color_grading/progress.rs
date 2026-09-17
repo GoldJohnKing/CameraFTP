@@ -80,9 +80,21 @@ mod tests {
         let json = serde_json::to_value(&event).unwrap();
         let obj = json.as_object().unwrap();
         assert_eq!(obj.get("type").unwrap(), "done");
-        assert!(obj.contains_key("failedCount"), "expected camelCase 'failedCount', got: {:?}", obj.keys().collect::<Vec<_>>());
-        assert!(obj.contains_key("failedFiles"), "expected camelCase 'failedFiles', got: {:?}", obj.keys().collect::<Vec<_>>());
-        assert!(obj.contains_key("outputFiles"), "expected camelCase 'outputFiles', got: {:?}", obj.keys().collect::<Vec<_>>());
+        assert!(
+            obj.contains_key("failedCount"),
+            "expected camelCase 'failedCount', got: {:?}",
+            obj.keys().collect::<Vec<_>>()
+        );
+        assert!(
+            obj.contains_key("failedFiles"),
+            "expected camelCase 'failedFiles', got: {:?}",
+            obj.keys().collect::<Vec<_>>()
+        );
+        assert!(
+            obj.contains_key("outputFiles"),
+            "expected camelCase 'outputFiles', got: {:?}",
+            obj.keys().collect::<Vec<_>>()
+        );
         assert!(obj.contains_key("cancelled"));
     }
 
@@ -91,19 +103,31 @@ mod tests {
         let events: Vec<ColorGradingEvent> = vec![
             ColorGradingEvent::Queued { queue_depth: 2 },
             ColorGradingEvent::Progress {
-                current: 1, total: 2, file_name: "a.nef".into(), failed_count: 0,
+                current: 1,
+                total: 2,
+                file_name: "a.nef".into(),
+                failed_count: 0,
             },
             ColorGradingEvent::Completed {
-                current: 1, total: 2, file_name: "a.nef".into(), failed_count: 0,
+                current: 1,
+                total: 2,
+                file_name: "a.nef".into(),
+                failed_count: 0,
                 output_path: "/out/a_lut.jpg".into(),
             },
             ColorGradingEvent::Failed {
-                current: 2, total: 2, file_name: "b.nef".into(), error: "decode failed".into(),
+                current: 2,
+                total: 2,
+                file_name: "b.nef".into(),
+                error: "decode failed".into(),
                 failed_count: 1,
             },
             ColorGradingEvent::Done {
-                total: 2, failed_count: 1, failed_files: vec!["b.nef".into()],
-                output_files: vec!["/out/a_lut.jpg".into()], cancelled: false,
+                total: 2,
+                failed_count: 1,
+                failed_files: vec!["b.nef".into()],
+                output_files: vec!["/out/a_lut.jpg".into()],
+                cancelled: false,
             },
         ];
         for event in &events {

@@ -15,8 +15,7 @@ pub struct LutData {
     pub table: Arc<Vec<f32>>,
 }
 
-static LUT_ZIP: &[u8] =
-    include_bytes!(concat!(env!("OUT_DIR"), "/luts.zip"));
+static LUT_ZIP: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/luts.zip"));
 
 // Fixed-size cache for the 20 built-in LUT presets — no eviction needed.
 static LUT_CACHE: LazyLock<DashMap<String, Arc<LutData>>> = LazyLock::new(DashMap::new);
@@ -59,7 +58,10 @@ fn extract_and_parse(cube_filename: &str) -> Result<LutData, AppError> {
 
     let mut text = String::new();
     std::io::Read::read_to_string(&mut file, &mut text).map_err(|e| {
-        AppError::ColorGradingError(format!("Failed to read LUT entry '{}': {}", cube_filename, e))
+        AppError::ColorGradingError(format!(
+            "Failed to read LUT entry '{}': {}",
+            cube_filename, e
+        ))
     })?;
 
     parse_cube_text(&text)
@@ -107,15 +109,15 @@ fn parse_cube_text(text: &str) -> Result<LutData, AppError> {
 
         let parts: Vec<&str> = trimmed.split_whitespace().collect();
         if parts.len() >= 3 {
-            let r: f32 = parts[0].parse().map_err(|e| {
-                AppError::ColorGradingError(format!("Invalid LUT value: {}", e))
-            })?;
-            let g: f32 = parts[1].parse().map_err(|e| {
-                AppError::ColorGradingError(format!("Invalid LUT value: {}", e))
-            })?;
-            let b: f32 = parts[2].parse().map_err(|e| {
-                AppError::ColorGradingError(format!("Invalid LUT value: {}", e))
-            })?;
+            let r: f32 = parts[0]
+                .parse()
+                .map_err(|e| AppError::ColorGradingError(format!("Invalid LUT value: {}", e)))?;
+            let g: f32 = parts[1]
+                .parse()
+                .map_err(|e| AppError::ColorGradingError(format!("Invalid LUT value: {}", e)))?;
+            let b: f32 = parts[2]
+                .parse()
+                .map_err(|e| AppError::ColorGradingError(format!("Invalid LUT value: {}", e)))?;
             table.push(r);
             table.push(g);
             table.push(b);
@@ -281,9 +283,7 @@ mod tests {
     #[test]
     fn parse_three_floats_too_few_values() {
         let mut out = [0.0f32; 3];
-        if let Err(AppError::ColorGradingError(msg)) =
-            parse_three_floats("0.1 0.2", &mut out)
-        {
+        if let Err(AppError::ColorGradingError(msg)) = parse_three_floats("0.1 0.2", &mut out) {
             assert!(
                 msg.contains("Expected 3 float values"),
                 "Should report missing values: {}",
@@ -297,9 +297,7 @@ mod tests {
     #[test]
     fn parse_three_floats_non_numeric() {
         let mut out = [0.0f32; 3];
-        if let Err(AppError::ColorGradingError(msg)) =
-            parse_three_floats("abc def ghi", &mut out)
-        {
+        if let Err(AppError::ColorGradingError(msg)) = parse_three_floats("abc def ghi", &mut out) {
             assert!(
                 msg.contains("Invalid float"),
                 "Should report parse failure: {}",

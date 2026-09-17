@@ -4,9 +4,9 @@
 
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
+use std::sync::Arc;
 use tokio::sync::{watch, RwLock};
 use ts_rs::TS;
-use std::sync::Arc;
 
 use crate::config::AuthConfig;
 use crate::ftp::FtpServerHandle;
@@ -49,7 +49,6 @@ pub enum FtpAuthConfig {
         password_hash: String,
     },
 }
-
 
 impl From<&AuthConfig> for FtpAuthConfig {
     fn from(auth: &AuthConfig) -> Self {
@@ -104,9 +103,6 @@ pub struct ServerStateSnapshot {
     pub bytes_received: u64,
     pub last_file: Option<String>,
 }
-
-
-
 
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct ServerRuntimeSnapshot {
@@ -235,9 +231,7 @@ mod tests {
             .await;
         runtime_state.record_server_stopped().await;
         // late-arriving stats after stop should be silently discarded
-        runtime_state
-            .record_stats(test_stats(2, 0, 0, None))
-            .await;
+        runtime_state.record_stats(test_stats(2, 0, 0, None)).await;
 
         let snapshot = runtime_state.current_snapshot().await;
 
@@ -345,15 +339,13 @@ impl ServerStatus {
 ///
 /// 状态流转：`None → Starting`（认领）→ `Running`（提交）或回滚为 `None`（失败）。
 /// 认领/提交/回滚的时序由 `ftp::server_factory` 保证。
-#[derive(Debug)]
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub enum FtpServerSlot {
     #[default]
     None,
     Starting,
     Running(FtpServerHandle),
 }
-
 
 impl FtpServerSlot {
     /// 运行中服务器的句柄（`None`/`Starting` 时返回 `None`）
@@ -401,7 +393,12 @@ impl ServerInfo {
 pub(crate) mod test_utils {
     use super::ServerStats;
 
-    pub(crate) fn test_stats(active: u64, uploads: u64, bytes: u64, last_file: Option<&str>) -> ServerStats {
+    pub(crate) fn test_stats(
+        active: u64,
+        uploads: u64,
+        bytes: u64,
+        last_file: Option<&str>,
+    ) -> ServerStats {
         ServerStats {
             active_connections: active,
             total_uploads: uploads,

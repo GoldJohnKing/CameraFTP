@@ -20,7 +20,9 @@ pub(crate) static NN_LOG_FILE: std::sync::OnceLock<std::path::PathBuf> = std::sy
 
 /// 调色 / NN 引导入口，由 `lib.rs` 的 setup 闭包调用一次。
 pub fn init(app: &tauri::AppHandle, config_service: &std::sync::Arc<ConfigService>) {
-    let app_data_dir = app.path().app_data_dir()
+    let app_data_dir = app
+        .path()
+        .app_data_dir()
         .expect("Failed to resolve app data dir");
     if let Err(e) = color_grading::resources::ensure_resources(&app_data_dir) {
         tracing::warn!("Color grading resource extraction failed: {}", e);
@@ -66,7 +68,8 @@ pub fn init(app: &tauri::AppHandle, config_service: &std::sync::Arc<ConfigServic
                         Err(e) => {
                             tracing::warn!(
                                 "NN config string {:?} had interior NUL ({}); passing as NULL",
-                                s, e
+                                s,
+                                e
                             );
                             std::ptr::null()
                         }
@@ -128,10 +131,8 @@ pub fn init(app: &tauri::AppHandle, config_service: &std::sync::Arc<ConfigServic
                 color_grading::ffi::warmup_nn_session();
                 // Init attempted (success or failure): the router may latch
                 // structural unavailability from here on.
-                color_grading::service::NN_INIT_DONE.store(
-                    true,
-                    std::sync::atomic::Ordering::Release,
-                );
+                color_grading::service::NN_INIT_DONE
+                    .store(true, std::sync::atomic::Ordering::Release);
             });
         }
         Err(e) => tracing::error!("Failed to load RawAlchemyCpp: {}", e),
@@ -189,10 +190,16 @@ fn resolve_raw_alchemy_lib_path() -> ResolvedLibPath {
                 // NN runtime DLLs (DirectML + onnxruntime) are only embedded by
                 // the neural variant; preload_nn_runtime is a no-op for legacy.
                 let directml_path = color_grading::ffi::embedded_dll::preload_nn_runtime();
-                ResolvedLibPath { lib_path: path, directml_path }
+                ResolvedLibPath {
+                    lib_path: path,
+                    directml_path,
+                }
             }
             Err(e) => {
-                tracing::error!("Failed to extract embedded DLL: {}. Falling back to exe dir.", e);
+                tracing::error!(
+                    "Failed to extract embedded DLL: {}. Falling back to exe dir.",
+                    e
+                );
                 let exe_dir = std::env::current_exe()
                     .ok()
                     .and_then(|p| p.parent().map(|d| d.to_path_buf()))

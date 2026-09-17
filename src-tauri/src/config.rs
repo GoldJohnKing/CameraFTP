@@ -48,7 +48,6 @@ pub struct AdvancedConnectionConfig {
     pub auth: AuthConfig,
 }
 
-
 /// 图片打开方式枚举
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export)]
@@ -61,7 +60,6 @@ pub enum ImageOpenMethod {
     WindowsPhotos,
     Custom,
 }
-
 
 /// 预览窗口配置
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -97,7 +95,6 @@ pub enum AndroidImageOpenMethod {
     ExternalApp,
 }
 
-
 /// Android 图片查看器配置
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export)]
@@ -108,7 +105,6 @@ pub struct AndroidImageViewerConfig {
     #[serde(default)]
     pub auto_open_latest_when_visible: bool,
 }
-
 
 /// 自动调色配置
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -317,7 +313,7 @@ impl AppConfig {
         }
 
         // desktop-generic (not android-specific)
-#[cfg(not(target_os = "android"))]
+        #[cfg(not(target_os = "android"))]
         {
             self
         }
@@ -480,7 +476,7 @@ mod tests {
         );
 
         // desktop-generic (not android-specific)
-#[cfg(not(target_os = "android"))]
+        #[cfg(not(target_os = "android"))]
         assert_eq!(normalized.save_path, PathBuf::from("/tmp/custom-cameraftp"));
     }
 }

@@ -6,8 +6,8 @@
 //!
 //! 提供跨平台的通用辅助函数和 trait。
 
-pub mod fs;
 pub(crate) mod batch_state;
+pub mod fs;
 pub(crate) mod task_worker;
 
 // 测试共享辅助（仅测试编译）：ai_edit / color_grading 测试模块共用的
@@ -56,7 +56,10 @@ mod tests {
         let encoded = r"C%3A%5Cphotos%5C%E6%96%B0%E5%BB%BA%20(1).jpg";
 
         let decoded = percent_decode(encoded);
-        assert_eq!(decoded, original, "percent_decode must invert encodeURIComponent");
+        assert_eq!(
+            decoded, original,
+            "percent_decode must invert encodeURIComponent"
+        );
         // 与 image-preview handler 的用法一致：PathBuf::from(decoded).to_string_lossy()
         // 必须无损还原（覆盖缓存键与磁盘路径的一致性）
         assert_eq!(

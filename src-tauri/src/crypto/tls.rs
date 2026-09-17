@@ -7,9 +7,9 @@
 //! 负责自签名证书的生成、存储和轮换。
 
 use rcgen::{CertificateParams, KeyPair};
-use time::{OffsetDateTime, Duration};
 use std::fs;
 use std::path::{Path, PathBuf};
+use time::{Duration, OffsetDateTime};
 use tracing::{info, warn};
 
 /// 证书文件名
@@ -102,14 +102,14 @@ fn check_certificate_validity(cert_path: &Path) -> Result<u64, Box<dyn std::erro
     let timestamp_path = cert_path.with_extension(CERT_TIMESTAMP_EXT);
 
     let created_epoch = if timestamp_path.exists() {
-        fs::read_to_string(&timestamp_path)?
-            .trim()
-            .parse::<u64>()?
+        fs::read_to_string(&timestamp_path)?.trim().parse::<u64>()?
     } else {
         // Fallback for certs generated before this update
         let metadata = fs::metadata(cert_path)?;
         let created = metadata.created().or_else(|_| metadata.modified())?;
-        created.duration_since(std::time::SystemTime::UNIX_EPOCH)?.as_secs()
+        created
+            .duration_since(std::time::SystemTime::UNIX_EPOCH)?
+            .as_secs()
     };
 
     let now_epoch = std::time::SystemTime::now()
@@ -130,17 +130,13 @@ fn generate_and_save_certificates(
 
     // 显式设置有效期（rcgen 默认 not_after=4096，与 CERT_VALIDITY_DAYS 不符）
     let now = OffsetDateTime::now_utc();
-    let mut params = CertificateParams::new(vec![
-        "CameraFTP".to_string(),
-        "localhost".to_string(),
-    ])
-    .map_err(|e| crate::error::AppError::Other(e.to_string()))?;
+    let mut params = CertificateParams::new(vec!["CameraFTP".to_string(), "localhost".to_string()])
+        .map_err(|e| crate::error::AppError::Other(e.to_string()))?;
     // 回拨 1 天以容忍客户端时钟偏移
     params.not_before = now - Duration::days(1);
     params.not_after = now + Duration::days(CERT_VALIDITY_DAYS as i64);
 
-    let key_pair = KeyPair::generate()
-        .map_err(|e| crate::error::AppError::Other(e.to_string()))?;
+    let key_pair = KeyPair::generate().map_err(|e| crate::error::AppError::Other(e.to_string()))?;
     let cert = params
         .self_signed(&key_pair)
         .map_err(|e| crate::error::AppError::Other(e.to_string()))?;
@@ -226,7 +222,10 @@ mod tests {
 
         let remaining = check_certificate_validity(&cert_path).expect("check validity");
         // 10 year cert - 9 years elapsed = ~1 year remaining, less than 365+30 day buffer
-        assert!(remaining < 400, "should be within rotation buffer: got {remaining}");
+        assert!(
+            remaining < 400,
+            "should be within rotation buffer: got {remaining}"
+        );
         assert!(remaining > 0, "should still have some days remaining");
     }
 
@@ -240,6 +239,9 @@ mod tests {
 
         let remaining = check_certificate_validity(&cert_path).expect("check validity");
         // Just created, should be near CERT_VALIDITY_DAYS
-        assert!(remaining >= CERT_VALIDITY_DAYS - 1, "fresh cert should have near-full validity: got {remaining}");
+        assert!(
+            remaining >= CERT_VALIDITY_DAYS - 1,
+            "fresh cert should have near-full validity: got {remaining}"
+        );
     }
 }

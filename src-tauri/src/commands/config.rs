@@ -2,9 +2,9 @@
 // Copyright (C) 2026 GoldJohnKing <GoldJohnKing@Live.cn>
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+use serde::Deserialize;
 use tauri::{command, AppHandle, Manager, State};
 use tracing::instrument;
-use serde::Deserialize;
 
 use crate::auto_open::AutoOpenService;
 use crate::config::{AppConfig, PreviewWindowConfig};
@@ -119,14 +119,23 @@ pub async fn save_config(
     tracing::info!("Configuration saved successfully");
 
     if old_save_path != new_save_path {
-        tracing::info!("save_path changed from {:?} to {:?}, triggering rescan", old_save_path, new_save_path);
+        tracing::info!(
+            "save_path changed from {:?} to {:?}, triggering rescan",
+            old_save_path,
+            new_save_path
+        );
         // 先扩展 asset protocol scope（幂等且廉价）：若放在 update_save_path
         // 之后，其内部 scan_directory 失败经 ? 短路返回会让本会话的 scope
         // 永远缺失新目录（预览窗口直到重启都不可用）
-        if let Err(e) = app.asset_protocol_scope().allow_directory(&new_save_path, true) {
+        if let Err(e) = app
+            .asset_protocol_scope()
+            .allow_directory(&new_save_path, true)
+        {
             tracing::warn!(error = %e, "Failed to extend asset protocol scope for new save_path");
         }
-        Arc::clone(&file_index).update_save_path(new_save_path.clone()).await?;
+        Arc::clone(&file_index)
+            .update_save_path(new_save_path.clone())
+            .await?;
     }
 
     Ok(())
@@ -144,19 +153,15 @@ pub async fn save_auth_config(
     // Argon2 哈希在 helper 内部走 spawn_blocking、落盘走
     // mutate_and_persist_async（blocking 池），命令层无需再包裹
     // spawn_blocking——直接 await 即可。
-    save_auth_config_with_service(
-        config_service.inner(),
-        anonymous,
-        username,
-        password,
-    )
-    .await
+    save_auth_config_with_service(config_service.inner(), anonymous, username, password).await
 }
 
 /// 选择保存目录
 #[command]
 pub async fn select_save_directory(app: AppHandle) -> Result<Option<String>, String> {
-    crate::platform::get_platform().select_save_directory(&app).await
+    crate::platform::get_platform()
+        .select_save_directory(&app)
+        .await
 }
 
 // ============================================================================
@@ -169,26 +174,23 @@ pub async fn update_preview_config(
     config_service: State<'_, Arc<ConfigService>>,
     patch: PreviewWindowConfigPatch,
 ) -> Result<PreviewWindowConfig, AppError> {
-    let persisted = update_preview_config_with_service(config_service.inner().as_ref(), patch)
-        .await?;
+    let persisted =
+        update_preview_config_with_service(config_service.inner().as_ref(), patch).await?;
     auto_open.broadcast_config_changed(persisted.clone()).await;
     Ok(persisted)
 }
 
 /// 手动打开预览窗口（遵循用户配置的打开方式）
 #[command]
-pub async fn open_preview_window(
-    app: AppHandle,
-    file_path: String,
-) -> Result<(), AppError> {
+pub async fn open_preview_window(app: AppHandle, file_path: String) -> Result<(), AppError> {
     let path = std::path::PathBuf::from(&file_path);
-    
+
     // 先在 FileIndexService 中查找并设置索引
     let file_index = app.state::<Arc<FileIndexService>>();
     if let Some(index) = file_index.find_file_index(&path).await {
         file_index.navigate_to(index).await?;
     }
-    
+
     // 使用 AutoOpenService 来处理，它会根据配置决定打开方式
     let auto_open = app.state::<AutoOpenService>();
     auto_open.open_image(&path).await
@@ -202,15 +204,16 @@ pub async fn select_executable_file(app: AppHandle) -> Result<Option<String>, Ap
     {
         use tauri_plugin_dialog::DialogExt;
 
-        let file_path: Option<tauri_plugin_dialog::FilePath> = tokio::task::spawn_blocking(move || {
-            app.dialog()
-                .file()
-                .set_title("选择程序")
-                .add_filter("可执行文件", &["exe"])
-                .blocking_pick_file()
-        })
-        .await
-        .map_err(|e| AppError::Other(format!("Task failed: {}", e)))?;
+        let file_path: Option<tauri_plugin_dialog::FilePath> =
+            tokio::task::spawn_blocking(move || {
+                app.dialog()
+                    .file()
+                    .set_title("选择程序")
+                    .add_filter("可执行文件", &["exe"])
+                    .blocking_pick_file()
+            })
+            .await
+            .map_err(|e| AppError::Other(format!("Task failed: {}", e)))?;
 
         Ok(file_path.and_then(|p| p.as_path().map(|path| path.to_string_lossy().to_string())))
     }
@@ -234,7 +237,9 @@ pub async fn open_external_link(url: String) -> Result<(), AppError> {
 pub async fn open_folder_select_file(file_path: String) -> Result<(), AppError> {
     #[cfg(target_os = "windows")]
     {
-        crate::auto_open::windows::open_folder_and_select_file(&std::path::PathBuf::from(&file_path))
+        crate::auto_open::windows::open_folder_and_select_file(&std::path::PathBuf::from(
+            &file_path,
+        ))
     }
 
     #[cfg(target_os = "android")]
@@ -287,8 +292,7 @@ mod tests {
         // 回归：Windows 预览窗口依赖 image-preview scheme 与 asset protocol，
         // CSP 缺失任一来源会导致 <img> 加载失败（测试 CWD = src-tauri）
         let raw = std::fs::read_to_string("tauri.conf.json").expect("read tauri.conf.json");
-        let conf: serde_json::Value =
-            serde_json::from_str(&raw).expect("parse tauri.conf.json");
+        let conf: serde_json::Value = serde_json::from_str(&raw).expect("parse tauri.conf.json");
         let csp = conf["app"]["security"]["csp"]
             .as_str()
             .expect("csp must be a string");

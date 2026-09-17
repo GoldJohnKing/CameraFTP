@@ -12,20 +12,20 @@
 // run_event_loop），避免一个慢文件阻塞整批事件；Deleted 轻事件保持
 // 串行 await。处理顺序存在真实的乱序窗口：串行的 Deleted 可能赶在
 // 并发 spawn 的 Created 提交之前被处理（remove_file 落空 Ok(false)），
-// 随后该 Created 提交即成幽灵条目——由提交后的存在性复查兜底（见
-// index_with_recheck）；并发重复的 Created 则由 add_file 写锁内的
-// 查重-回填幂等吸收，不会产生重复条目。
+// 随后该 Created 提交即成幽灵条目——由 add_file 写锁内的提交前存在性
+// 检查兜底（见 FileIndexService::add_file，原子根位）；并发重复的
+// Created 则由 add_file 写锁内的查重-回填幂等吸收，不会产生重复条目。
 #![cfg(target_os = "windows")]
 
+use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
-use notify::{Event, RecursiveMode, Watcher, RecommendedWatcher};
 use tokio::sync::mpsc::{channel, Sender};
-use tracing::{info, debug, error, warn};
+use tracing::{debug, error, info, warn};
 
+use crate::constants::{FILE_READY_TIMEOUT_SECS, INDEX_EVENT_CONCURRENCY};
 use crate::file_index::FileIndexService;
-use crate::constants::FILE_READY_TIMEOUT_SECS;
 use crate::utils::wait_for_file_ready;
 
 /// 文件系统事件类型
@@ -40,7 +40,7 @@ pub enum FileSystemEvent {
 }
 
 /// Windows 文件系统监听器
-/// 
+///
 /// 使用 notify crate 的 ReadDirectoryChangesW 后端
 pub struct FileWatcher {
     watcher: Option<RecommendedWatcher>,
@@ -59,13 +59,16 @@ impl FileWatcher {
     }
 
     /// 开始监听文件系统事件
-    /// 
+    ///
     /// # Arguments
     /// * `file_index` - 文件索引服务，用于同步索引
-    /// 
+    ///
     /// # Platform Support
     /// - Windows: 使用 notify crate
-    pub async fn start(&mut self, file_index: Arc<FileIndexService>) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn start(
+        &mut self,
+        file_index: Arc<FileIndexService>,
+    ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
         if self.watcher.is_some() {
             info!("File watcher already running");
             return Ok(true);
@@ -77,14 +80,12 @@ impl FileWatcher {
         // 创建 notify watcher
         let watcher_tx = tx.clone();
         let mut watcher = RecommendedWatcher::new(
-            move |res: Result<Event, notify::Error>| {
-                match res {
-                    Ok(event) => {
-                        Self::handle_notify_event(event, &watcher_tx);
-                    }
-                    Err(e) => {
-                        error!("File watcher error: {}", e);
-                    }
+            move |res: Result<Event, notify::Error>| match res {
+                Ok(event) => {
+                    Self::handle_notify_event(event, &watcher_tx);
+                }
+                Err(e) => {
+                    error!("File watcher error: {}", e);
                 }
             },
             // 仅 PollWatcher 生效；Windows ReadDirectoryChangesW 后端忽略
@@ -126,11 +127,13 @@ impl FileWatcher {
         mut rx: tokio::sync::mpsc::Receiver<FileSystemEvent>,
         file_index: Arc<FileIndexService>,
     ) {
-        // 重事件并发上限：与扫描侧 SCAN_CONCURRENCY=6 同族（取 2 倍）。
+        // 重事件并发上限 INDEX_EVENT_CONCURRENCY（constants.rs）：与扫描侧
+        // INDEX_SCAN_CONCURRENCY 的 2× 关系是有意的不变式——事件通道含
+        // wait_for_file_ready 等待期，吞吐上界对齐扫描。
         // 重事件任务各自经 spawn_blocking 做 EXIF 全文件解析，若千级
         // 文件批量到达（相机连拍导入）时无上限 spawn，会占满 tokio 阻塞
         // 池——EXIF 解析排队反而拖慢包括本批在内的一切阻塞任务。
-        let semaphore = Arc::new(tokio::sync::Semaphore::new(12));
+        let semaphore = Arc::new(tokio::sync::Semaphore::new(INDEX_EVENT_CONCURRENCY));
         while let Some(event) = rx.recv().await {
             match event {
                 FileSystemEvent::Deleted(_) => {
@@ -163,27 +166,30 @@ impl FileWatcher {
             EventKind::Create(_) => {
                 for path in &event.paths {
                     if crate::image_utils::is_supported_image(path)
-                        && tx.try_send(FileSystemEvent::Created(path.clone())).is_err() {
-                            warn!("file watcher channel full, event dropped: {:?}", path);
-                        }
+                        && tx.try_send(FileSystemEvent::Created(path.clone())).is_err()
+                    {
+                        warn!("file watcher channel full, event dropped: {:?}", path);
+                    }
                 }
             }
             // 重命名旧路径（From）→ 等同于删除
             EventKind::Modify(ModifyKind::Name(RenameMode::From)) => {
                 for path in &event.paths {
                     if crate::image_utils::is_supported_image(path)
-                        && tx.try_send(FileSystemEvent::Deleted(path.clone())).is_err() {
-                            warn!("file watcher channel full, event dropped: {:?}", path);
-                        }
+                        && tx.try_send(FileSystemEvent::Deleted(path.clone())).is_err()
+                    {
+                        warn!("file watcher channel full, event dropped: {:?}", path);
+                    }
                 }
             }
             // 重命名新路径（To）→ 等同于创建
             EventKind::Modify(ModifyKind::Name(RenameMode::To)) => {
                 for path in &event.paths {
                     if crate::image_utils::is_supported_image(path)
-                        && tx.try_send(FileSystemEvent::Created(path.clone())).is_err() {
-                            warn!("file watcher channel full, event dropped: {:?}", path);
-                        }
+                        && tx.try_send(FileSystemEvent::Created(path.clone())).is_err()
+                    {
+                        warn!("file watcher channel full, event dropped: {:?}", path);
+                    }
                 }
             }
             // 单事件同时携带 from + to（某些后端）
@@ -199,12 +205,12 @@ impl FileWatcher {
                                 to: to.clone(),
                             })
                             .is_err()
-                        {
-                            warn!(
-                                "file watcher channel full, event dropped: {:?} -> {:?}",
-                                from, to
-                            );
-                        }
+                    {
+                        warn!(
+                            "file watcher channel full, event dropped: {:?} -> {:?}",
+                            from, to
+                        );
+                    }
                 }
             }
             // 其他修改事件（内容/属性/时间戳）不需要索引更新
@@ -212,63 +218,15 @@ impl FileWatcher {
             EventKind::Remove(_) => {
                 for path in &event.paths {
                     if crate::image_utils::is_supported_image(path)
-                        && tx.try_send(FileSystemEvent::Deleted(path.clone())).is_err() {
-                            warn!("file watcher channel full, event dropped: {:?}", path);
-                        }
+                        && tx.try_send(FileSystemEvent::Deleted(path.clone())).is_err()
+                    {
+                        warn!("file watcher channel full, event dropped: {:?}", path);
+                    }
                 }
             }
             _ => {
                 // 其他未知事件：不做处理
             }
-        }
-    }
-
-    /// 重事件（Created / Renamed-to）的公共索引收尾：
-    /// 1. best-effort `add_file`；
-    /// 2. 提交后存在性复查——Deleted 轻事件在事件循环中串行处理，可能
-    ///    赶在本任务（并发 spawn，EXIF 解析在 spawn_blocking 排队）提交
-    ///    之前送达，remove_file 落空后这里的提交即成幽灵条目；提交一完成
-    ///    立即复查存在性，把 Created→Deleted 乱序窗口从秒级缩到微秒级，
-    ///    文件确已消失则撤销刚提交的条目；
-    /// 3. timed_out（wait_for_file_ready 超时降级）时延迟 30s 重试一次
-    ///    add_file——纯 watcher 单事件场景没有第二次触发点，重试让
-    ///    add_file 的 EXIF 回填机制有机会善后半写/陈旧条目（失败仅 warn）。
-    async fn index_with_recheck(
-        file_index: &Arc<FileIndexService>,
-        path: PathBuf,
-        timed_out: bool,
-    ) {
-        match file_index.add_file(path.clone()).await {
-            Err(e) => warn!("Failed to add file to index: {}", e),
-            Ok(()) => {
-                info!("File added to index via watcher: {:?}", path);
-                match tokio::fs::try_exists(&path).await {
-                    Ok(true) => {}
-                    Ok(false) => {
-                        warn!(
-                            "File vanished right after indexing (out-of-order Deleted?), dropping ghost entry: {:?}",
-                            path
-                        );
-                        if let Err(e) = file_index.remove_file(&path).await {
-                            warn!("Failed to drop ghost entry from index: {}", e);
-                        }
-                    }
-                    // 存在性未知（瞬时 I/O 错误等）：不撤销条目，交由后续
-                    // Deleted 事件/下次扫描兜底
-                    Err(e) => {
-                        warn!("Existence recheck failed for {:?}: {} (keeping entry)", path, e);
-                    }
-                }
-            }
-        }
-        if timed_out {
-            let retry_index = Arc::clone(file_index);
-            tokio::spawn(async move {
-                tokio::time::sleep(Duration::from_secs(30)).await;
-                if let Err(e) = retry_index.add_file(path).await {
-                    warn!("Delayed re-index retry failed: {}", e);
-                }
-            });
         }
     }
 
@@ -279,17 +237,22 @@ impl FileWatcher {
                 debug!("File created: {:?}", path);
                 // 等待文件就绪（而非固定延迟）；超时不再丢弃事件，降级为
                 // 尽力而为索引——陈旧/半写条目由 add_file 的 EXIF 回填机制
-                // 善后（index_with_recheck 内含超时延迟重试）
-                let timed_out =
-                    !wait_for_file_ready(&path, Duration::from_secs(FILE_READY_TIMEOUT_SECS)).await;
-                if timed_out {
-                    warn!("File not ready after timeout, indexing best-effort: {:?}", path);
+                // 善后（FTP 双通道已各索引一次；慢文件由启动/换路径扫描兜底，
+                // watcher 侧不再做延迟重试）。幽灵/归属防御在 add_file 内部
+                //（写锁内提交前存在性检查 + save_path 归属校验）。
+                if !wait_for_file_ready(&path, Duration::from_secs(FILE_READY_TIMEOUT_SECS)).await {
+                    warn!(
+                        "File not ready after timeout, indexing best-effort: {:?}",
+                        path
+                    );
                 }
-                Self::index_with_recheck(&file_index, path, timed_out).await;
+                if let Err(e) = file_index.add_file(path).await {
+                    warn!("Failed to add file to index: {}", e);
+                }
             }
             FileSystemEvent::Deleted(path) => {
                 debug!("File deleted: {:?}", path);
-                
+
                 match file_index.remove_file(&path).await {
                     Ok(true) => {
                         info!("File removed from index via watcher: {:?}", path);
@@ -305,20 +268,23 @@ impl FileWatcher {
             }
             FileSystemEvent::Renamed { from, to } => {
                 debug!("File renamed: {:?} -> {:?}", from, to);
-                
+
                 // 先移除旧路径
                 if let Ok(true) = file_index.remove_file(&from).await {
                     info!("Removed old path from index: {:?}", from);
                 }
-                
+
                 // 等待新路径文件就绪；超时同样降级为尽力而为索引
-                //（EXIF 回填善后 + index_with_recheck 内的超时延迟重试）
-                let timed_out =
-                    !wait_for_file_ready(&to, Duration::from_secs(FILE_READY_TIMEOUT_SECS)).await;
-                if timed_out {
-                    warn!("Renamed file not ready after timeout, indexing best-effort: {:?}", to);
+                //（EXIF 回填善后；幽灵/归属防御在 add_file 内部）
+                if !wait_for_file_ready(&to, Duration::from_secs(FILE_READY_TIMEOUT_SECS)).await {
+                    warn!(
+                        "Renamed file not ready after timeout, indexing best-effort: {:?}",
+                        to
+                    );
                 }
-                Self::index_with_recheck(&file_index, to, timed_out).await;
+                if let Err(e) = file_index.add_file(to).await {
+                    warn!("Failed to add renamed file to index: {}", e);
+                }
             }
         }
     }
@@ -340,11 +306,19 @@ mod tests {
     use notify::event::{AccessKind, CreateKind, DataChange, ModifyKind, RemoveKind, RenameMode};
     use std::sync::Arc;
 
-    /// 构造仅驻留内存配置的文件索引服务（ConfigService::new_with_path 不做磁盘 IO）
-    fn make_file_index() -> Arc<FileIndexService> {
+    /// 构造配置了 save_path（= 给定目录）的文件索引服务
+    ///（ConfigService::new_with_path 不做磁盘 IO）。add_file 的归属校验
+    ///（service.rs S4）要求被索引文件位于当前 save_path 之下，目录内
+    /// 落盘的测试文件全部满足。
+    fn make_file_index(save_path: &std::path::Path) -> Arc<FileIndexService> {
         let config_service = Arc::new(ConfigService::new_with_path(
-            std::env::temp_dir().join("cameraftp-watcher-test-config.json"),
+            save_path.join("watcher-test-config.json"),
         ));
+        config_service
+            .mutate_and_persist(|config| {
+                config.save_path = save_path.to_path_buf();
+            })
+            .expect("persist config");
         Arc::new(FileIndexService::new(config_service))
     }
 
@@ -375,19 +349,29 @@ mod tests {
         let raw = PathBuf::from(r"C:\photos\b.NEF");
 
         assert_eq!(
-            classify(notify::event::EventKind::Create(CreateKind::File), vec![jpg.clone()]),
+            classify(
+                notify::event::EventKind::Create(CreateKind::File),
+                vec![jpg.clone()]
+            ),
             vec![FileSystemEvent::Created(jpg)]
         );
         // RAW 扩展名（大小写不敏感）同样视为受支持图片
         assert_eq!(
-            classify(notify::event::EventKind::Create(CreateKind::File), vec![raw.clone()]),
+            classify(
+                notify::event::EventKind::Create(CreateKind::File),
+                vec![raw.clone()]
+            ),
             vec![FileSystemEvent::Created(raw)]
         );
     }
 
     #[test]
     fn create_events_ignore_non_media_extensions() {
-        for name in ["C:\\photos\\notes.txt", "C:\\photos\\clip.mp4", "C:\\photos\\README"] {
+        for name in [
+            "C:\\photos\\notes.txt",
+            "C:\\photos\\clip.mp4",
+            "C:\\photos\\README",
+        ] {
             assert!(
                 classify(
                     notify::event::EventKind::Create(CreateKind::File),
@@ -404,7 +388,10 @@ mod tests {
     fn remove_events_map_to_deleted() {
         let jpg = PathBuf::from(r"C:\photos\a.jpg");
         assert_eq!(
-            classify(notify::event::EventKind::Remove(RemoveKind::File), vec![jpg.clone()]),
+            classify(
+                notify::event::EventKind::Remove(RemoveKind::File),
+                vec![jpg.clone()]
+            ),
             vec![FileSystemEvent::Deleted(jpg)]
         );
     }
@@ -443,12 +430,18 @@ mod tests {
         // 两个图片路径 → Renamed（移除旧 + 新增新）
         assert_eq!(
             classify(both.clone(), vec![from.clone(), to.clone()]),
-            vec![FileSystemEvent::Renamed { from: from.clone(), to: to.clone() }]
+            vec![FileSystemEvent::Renamed {
+                from: from.clone(),
+                to: to.clone()
+            }]
         );
         // 任一侧是图片即转发（如 txt 重命名为 jpg 进入目录）
         assert_eq!(
             classify(both.clone(), vec![txt_from.clone(), to.clone()]),
-            vec![FileSystemEvent::Renamed { from: txt_from.clone(), to: to.clone() }]
+            vec![FileSystemEvent::Renamed {
+                from: txt_from.clone(),
+                to: to.clone()
+            }]
         );
         // 两侧都不是图片 → 忽略
         assert!(classify(both.clone(), vec![txt_from, txt_to]).is_empty());
@@ -515,7 +508,7 @@ mod tests {
         // 索引（两个重事件不再串行等待彼此），Deleted 串行移除。用轮询
         // 等待最终状态，避免对 spawn 调度的时序假设。
         let temp_dir = tempfile::tempdir().expect("create temp dir");
-        let file_index = make_file_index();
+        let file_index = make_file_index(temp_dir.path());
         let (tx, rx) = channel::<FileSystemEvent>(16);
 
         let loop_service = Arc::clone(&file_index);
@@ -548,17 +541,23 @@ mod tests {
 
         let files = file_index.get_files().await;
         assert_eq!(files.len(), 1);
-        assert_eq!(files[0].path, a, "only the surviving file may remain indexed");
+        assert_eq!(
+            files[0].path, a,
+            "only the surviving file may remain indexed"
+        );
     }
 
     #[tokio::test]
     async fn process_created_adds_ready_file_to_index() {
         let temp_dir = tempfile::tempdir().expect("create temp dir");
-        let file_index = make_file_index();
+        let file_index = make_file_index(temp_dir.path());
         let path = write_image(temp_dir.path(), "watched.jpg");
 
-        FileWatcher::process_event(FileSystemEvent::Created(path.clone()), Arc::clone(&file_index))
-            .await;
+        FileWatcher::process_event(
+            FileSystemEvent::Created(path.clone()),
+            Arc::clone(&file_index),
+        )
+        .await;
 
         assert_eq!(file_index.get_file_count().await, 1);
         let files = file_index.get_files().await;
@@ -568,12 +567,15 @@ mod tests {
     #[tokio::test]
     async fn process_deleted_removes_from_index_and_is_idempotent() {
         let temp_dir = tempfile::tempdir().expect("create temp dir");
-        let file_index = make_file_index();
+        let file_index = make_file_index(temp_dir.path());
         let path = write_image(temp_dir.path(), "deleted.jpg");
         file_index.add_file(path.clone()).await.expect("seed index");
 
-        FileWatcher::process_event(FileSystemEvent::Deleted(path.clone()), Arc::clone(&file_index))
-            .await;
+        FileWatcher::process_event(
+            FileSystemEvent::Deleted(path.clone()),
+            Arc::clone(&file_index),
+        )
+        .await;
         assert_eq!(file_index.get_file_count().await, 0);
 
         // 索引中不存在的文件再次删除：幂等（Ok(false)），无 panic
@@ -584,19 +586,23 @@ mod tests {
     #[tokio::test]
     async fn process_renamed_moves_index_entry_to_new_path() {
         let temp_dir = tempfile::tempdir().expect("create temp dir");
-        let file_index = make_file_index();
+        let file_index = make_file_index(temp_dir.path());
         let from = write_image(temp_dir.path(), "before.jpg");
         let to = write_image(temp_dir.path(), "after.jpg");
         file_index.add_file(from.clone()).await.expect("seed index");
 
         FileWatcher::process_event(
-            FileSystemEvent::Renamed { from, to: to.clone() },
+            FileSystemEvent::Renamed {
+                from,
+                to: to.clone(),
+            },
             Arc::clone(&file_index),
         )
         .await;
 
         assert_eq!(
-            file_index.get_file_count().await, 1,
+            file_index.get_file_count().await,
+            1,
             "rename must move the entry, not duplicate it"
         );
         let files = file_index.get_files().await;
@@ -617,11 +623,12 @@ mod tests {
         //
         // 注：本交错下 Created 的 add_file 在文件消失后才执行
         //（metadata Err），幽灵不会真正产生——它钉住的是"乱序送达时
-        // 最终态无幽灵"这一不变量；"提交后才消失"的窄窗（幽灵真正
-        // 产生后被复查清除）由下方 created_commit_recheck_drops_ghost
+        // 最终态无幽灵"这一不变量；"提交前一刻才消失"的窄窗（幽灵在
+        // 写锁段顶部被存在性检查拦截）由下方
+        // created_ghost_check_inside_write_lock_blocks_vanished_file
         // 以写锁卡点确定性钉住。两个测试合起来覆盖乱序的两个相位。
         let temp_dir = tempfile::tempdir().expect("create temp dir");
-        let file_index = make_file_index();
+        let file_index = make_file_index(temp_dir.path());
         let path = write_image(temp_dir.path(), "ghost-race.jpg");
 
         let bumper_path = path.clone();
@@ -645,7 +652,10 @@ mod tests {
         ));
         // 给 Created 任务时间进入探测循环（首个轮询 20ms 内完成）
         tokio::time::sleep(Duration::from_millis(200)).await;
-        assert!(!created.is_finished(), "Created task must still be in flight");
+        assert!(
+            !created.is_finished(),
+            "Created task must still be in flight"
+        );
 
         // ② 立刻处理 Deleted：索引此刻为空，remove_file 落空（Ok(false)）
         FileWatcher::process_event(
@@ -664,7 +674,8 @@ mod tests {
         created.await.expect("created task must complete");
 
         assert_eq!(
-            file_index.get_file_count().await, 0,
+            file_index.get_file_count().await,
+            0,
             "no ghost entry may survive the out-of-order Deleted"
         );
         let files = file_index.get_files().await;
@@ -672,19 +683,20 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn created_commit_recheck_drops_ghost_when_file_vanishes() {
-        // X1 兜底路径直达钉住（修复前必红）：读锁守卫把 Created 任务
-        // 确定性卡在 add_file 的提交点（写锁获取处——位于元数据读取与
-        // EXIF 解析之后、提交之前），此刻删除磁盘文件。放行后 add_file
-        // 仍会提交出条目（元数据早已读到），紧随的提交后存在性复查
-        // 必须发现文件已消失并撤销条目——这正是"Deleted 在提交前送达"
-        // 交错里幽灵的唯一善后窗口。
+    async fn created_ghost_check_inside_write_lock_blocks_vanished_file() {
+        // S1 语义钉住（原子根位，修复前必红）：读锁守卫把 Created 任务
+        // 确定性卡在 add_file 的写锁获取处（位于归属校验、元数据读取与
+        // EXIF 解析之后、提交之前），此刻删除磁盘文件。放行后写锁段
+        // 最顶部的提交前存在性检查（try_exists）必须发现文件已消失并
+        // 放弃提交——"Deleted 在提交前送达"交错里幽灵条目在进入索引
+        // 之前即被拦截，无需提交后复查+撤销。
         let temp_dir = tempfile::tempdir().expect("create temp dir");
-        let file_index = make_file_index();
+        let file_index = make_file_index(temp_dir.path());
         let path = write_image(temp_dir.path(), "ghost-window.jpg");
 
-        // 持读锁：add_file 前段的廉价查重（读锁）不受影响，任务会推进
-        // 过元数据读取与 EXIF 解析，然后卡在 index.write() 提交点
+        // 持读锁：add_file 前段的归属校验与廉价查重（各取读锁）不受
+        // 影响，任务会推进过元数据读取与 EXIF 解析，然后卡在
+        // index.write() 提交点
         let guard = file_index.test_hold_index_read().await;
 
         let created = tokio::spawn(FileWatcher::process_event(
@@ -703,16 +715,17 @@ mod tests {
             "Created task must be parked at the index write lock (commit point)"
         );
 
-        // 磁盘文件在提交落地前消失（Deleted 事件的真实前因）
+        // 磁盘文件在写锁段执行前消失（Deleted 事件的真实前因）
         std::fs::remove_file(&path).expect("remove file from disk");
 
-        // 放行：提交照常发生，随后存在性复查必须撤销幽灵条目
+        // 放行：写锁段顶部的 try_exists 必须拦截提交
         drop(guard);
         created.await.expect("created task must complete");
 
         assert_eq!(
-            file_index.get_file_count().await, 0,
-            "post-commit existence recheck must drop the ghost entry"
+            file_index.get_file_count().await,
+            0,
+            "pre-commit existence check inside the write lock must block the ghost entry"
         );
         let files = file_index.get_files().await;
         assert!(
@@ -727,7 +740,7 @@ mod tests {
         // 超时分支不再丢弃事件而是 best-effort 调 add_file；add_file 因 metadata Err
         // 返回 Err（warn 路径），索引保持干净——无 panic、无 ghost 条目（~5s）
         let temp_dir = tempfile::tempdir().expect("create temp dir");
-        let file_index = make_file_index();
+        let file_index = make_file_index(temp_dir.path());
         let ghost = temp_dir.path().join("ghost.jpg");
 
         FileWatcher::process_event(FileSystemEvent::Created(ghost), Arc::clone(&file_index)).await;
@@ -741,7 +754,7 @@ mod tests {
         // 降级路径必须仍调用 add_file 尽力索引，而不是跳过事件（钉住 R1 的
         // best-effort 语义——陈旧条目交由 EXIF 回填机制善后，测试耗时 ~6s）
         let temp_dir = tempfile::tempdir().expect("create temp dir");
-        let file_index = make_file_index();
+        let file_index = make_file_index(temp_dir.path());
         let path = write_image(temp_dir.path(), "slow-write.jpg");
 
         // 后台持续拨动 mtime（len 不变），让 (len, mtime) 签名在整个 5s 探测窗口内
@@ -760,18 +773,82 @@ mod tests {
             }
         });
 
-        FileWatcher::process_event(FileSystemEvent::Created(path.clone()), Arc::clone(&file_index))
-            .await;
+        FileWatcher::process_event(
+            FileSystemEvent::Created(path.clone()),
+            Arc::clone(&file_index),
+        )
+        .await;
 
         assert_eq!(
-            file_index.get_file_count().await, 1,
+            file_index.get_file_count().await,
+            1,
             "timeout must degrade to best-effort add_file, not skip the event"
         );
         let files = file_index.get_files().await;
-        assert_eq!(files[0].path, path, "degraded index must contain the slow file");
+        assert_eq!(
+            files[0].path, path,
+            "degraded index must contain the slow file"
+        );
 
         // 收尾后台拨动任务，避免 tempdir 清理与句柄竞争
         bumper.abort();
+    }
+
+    // ---- 拉伸项（S6）----
+
+    #[tokio::test]
+    async fn event_loop_saturation_indices_all_events_beyond_permit_limit() {
+        // S6①：并发上限 INDEX_EVENT_CONCURRENCY=12，投递 15 个重事件
+        //（每个都经历 ≥200ms 的稳定性探测窗口，非零处理时长），断言
+        // 许可饱和排队下无一丢失、最终全部入索引。
+        let temp_dir = tempfile::tempdir().expect("create temp dir");
+        let file_index = make_file_index(temp_dir.path());
+        let (tx, rx) = channel::<FileSystemEvent>(64);
+
+        tokio::spawn(FileWatcher::run_event_loop(rx, Arc::clone(&file_index)));
+
+        let mut paths = Vec::new();
+        for i in 0..15 {
+            let path = write_image(temp_dir.path(), &format!("sat_{:02}.jpg", i));
+            tx.send(FileSystemEvent::Created(path.clone()))
+                .await
+                .unwrap();
+            paths.push(path);
+        }
+        drop(tx);
+
+        wait_for_count(&file_index, 15).await;
+        let files = file_index.get_files().await;
+        for path in &paths {
+            assert!(
+                files.iter().any(|f| f.path == *path),
+                "{:?} must survive semaphore saturation and be indexed",
+                path
+            );
+        }
+    }
+
+    #[test]
+    fn channel_full_drops_event_with_warning_without_panic() {
+        // S6②：notify 回调线程的 try_send 在通道满时必须走 warn 分支
+        // 丢弃事件，不得 panic——容量 2 的通道灌入 5 个 Created 事件，
+        // 只有前 2 个能入队。
+        let (tx, mut rx) = channel::<FileSystemEvent>(2);
+        for _ in 0..5 {
+            let event = notify::Event {
+                kind: notify::event::EventKind::Create(CreateKind::File),
+                paths: vec![PathBuf::from(r"C:\photos\flood.jpg")],
+                ..Default::default()
+            };
+            FileWatcher::handle_notify_event(event, &tx);
+        }
+        drop(tx);
+
+        let mut received = 0;
+        while rx.try_recv().is_ok() {
+            received += 1;
+        }
+        assert_eq!(received, 2, "only the first two events fit the channel");
     }
 
     // ---- 生命周期 ----
@@ -779,7 +856,7 @@ mod tests {
     #[tokio::test]
     async fn watcher_start_is_idempotent_and_stop_is_idempotent() {
         let temp_dir = tempfile::tempdir().expect("create temp dir");
-        let file_index = make_file_index();
+        let file_index = make_file_index(temp_dir.path());
 
         let mut watcher = FileWatcher::new(temp_dir.path().to_path_buf());
         assert!(matches!(
@@ -796,4 +873,3 @@ mod tests {
         watcher.stop(); // 重复 stop 不得 panic
     }
 }
-

@@ -6,19 +6,18 @@
 
 use crate::config_service::ConfigService;
 use crate::constants::{
-    DEFAULT_FTP_PORT_WINDOWS, DEFAULT_FTP_PORT_ANDROID,
-    MIN_PORT, IDLE_TIMEOUT_SECONDS,
+    DEFAULT_FTP_PORT_ANDROID, DEFAULT_FTP_PORT_WINDOWS, IDLE_TIMEOUT_SECONDS, MIN_PORT,
 };
 use crate::error::AppError;
-use crate::ftp::{
-    create_ftp_server, EventBus, EventProcessor, FtpServerHandle, FtpAuthConfig,
-    StatsEventHandler, TrayUpdateHandler,
-};
 use crate::ftp::types::{FtpServerSlot, ServerConfig};
+use crate::ftp::{
+    create_ftp_server, EventBus, EventProcessor, FtpAuthConfig, FtpServerHandle, StatsEventHandler,
+    TrayUpdateHandler,
+};
 use crate::network::NetworkManager;
 use std::sync::Arc;
 use tauri::{AppHandle, Manager};
-use tokio::sync::{Mutex, oneshot};
+use tokio::sync::{oneshot, Mutex};
 use tracing::{error, info, warn};
 
 #[derive(Debug)]
@@ -57,18 +56,14 @@ pub(crate) async fn start_ftp_server(
 ///
 /// 错误统一使用 `ServerAlreadyRunning`（与旧的“句柄已存在”检查保持同一约定），
 /// 不区分“启动中”与“已运行”，避免向公共错误契约（前端按 code 匹配）引入新变体。
-pub(crate) async fn claim_start_slot(
-    state: &Arc<Mutex<FtpServerSlot>>,
-) -> Result<(), AppError> {
+pub(crate) async fn claim_start_slot(state: &Arc<Mutex<FtpServerSlot>>) -> Result<(), AppError> {
     let mut guard = state.lock().await;
     match *guard {
         FtpServerSlot::None => {
             *guard = FtpServerSlot::Starting;
             Ok(())
         }
-        FtpServerSlot::Starting | FtpServerSlot::Running(_) => {
-            Err(AppError::ServerAlreadyRunning)
-        }
+        FtpServerSlot::Starting | FtpServerSlot::Running(_) => Err(AppError::ServerAlreadyRunning),
     }
 }
 
@@ -246,7 +241,10 @@ async fn start_actor_system(
     }
 }
 
-pub(crate) fn spawn_event_processor(app_handle: AppHandle, event_bus: &EventBus) -> oneshot::Receiver<()> {
+pub(crate) fn spawn_event_processor(
+    app_handle: AppHandle,
+    event_bus: &EventBus,
+) -> oneshot::Receiver<()> {
     let app_handle_for_tray = app_handle.clone();
     let (ready_tx, ready_rx) = oneshot::channel();
 
@@ -258,10 +256,7 @@ pub(crate) fn spawn_event_processor(app_handle: AppHandle, event_bus: &EventBus)
     let runtime_state_for_processor = runtime_state.clone();
 
     tokio::spawn(async move {
-        let processor = EventProcessor::from_parts(
-            state_rx,
-            Some(runtime_state_for_processor)
-        )
+        let processor = EventProcessor::from_parts(state_rx, Some(runtime_state_for_processor))
             .register_runtime_state_handler(StatsEventHandler::new(app_handle.clone()))
             .register_runtime_state_handler(TrayUpdateHandler::new(app_handle_for_tray));
 
@@ -416,9 +411,19 @@ mod tests {
         );
 
         // 绑定的监听端口数 == 1：仅胜者端口在监听，败者端口保持空闲
-        assert!(port_is_listening(winner_port).await, "winner port should listen");
-        let loser_port = if winner_port == port_a { port_b } else { port_a };
-        assert!(!port_is_listening(loser_port).await, "loser port must stay free");
+        assert!(
+            port_is_listening(winner_port).await,
+            "winner port should listen"
+        );
+        let loser_port = if winner_port == port_a {
+            port_b
+        } else {
+            port_a
+        };
+        assert!(
+            !port_is_listening(loser_port).await,
+            "loser port must stay free"
+        );
 
         // 槽位最终为 Running
         assert!(matches!(*state.lock().await, FtpServerSlot::Running(_)));
@@ -485,10 +490,12 @@ mod tests {
             .await
             .expect_err("start path must be rejected while Starting");
         assert!(matches!(error, AppError::ServerAlreadyRunning));
-        assert!(!port_is_listening(port).await, "no new listener may be created");
+        assert!(
+            !port_is_listening(port).await,
+            "no new listener may be created"
+        );
 
         // 被拒的调用不得破坏正在进行的启动（槽位保持 Starting）
         assert!(matches!(*state.lock().await, FtpServerSlot::Starting));
     }
 }
-

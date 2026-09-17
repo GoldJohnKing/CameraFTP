@@ -2,15 +2,15 @@
 // Copyright (C) 2026 GoldJohnKing <GoldJohnKing@Live.cn>
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-use std::sync::Arc;
-use std::path::PathBuf;
-use tauri::{command, State};
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
+use std::path::PathBuf;
+use std::sync::Arc;
+use tauri::{command, State};
 
-use crate::error::AppError;
-use crate::color_grading::presets::{ColorGradingPreset, all_presets};
+use crate::color_grading::presets::{all_presets, ColorGradingPreset};
 use crate::color_grading::preview::ColorGradingPreviewState;
 use crate::color_grading::service::ColorGradingService;
+use crate::error::AppError;
 
 #[command]
 pub async fn get_color_grading_presets() -> Vec<ColorGradingPreset> {
@@ -26,7 +26,9 @@ pub async fn enqueue_color_grading(
     ev_offset: f32,
 ) -> Result<(), AppError> {
     let paths: Vec<PathBuf> = file_paths.iter().map(PathBuf::from).collect();
-    color_grading.enqueue(paths, lut_id, metering_mode, ev_offset).await
+    color_grading
+        .enqueue(paths, lut_id, metering_mode, ev_offset)
+        .await
 }
 
 #[command]
@@ -69,7 +71,8 @@ pub async fn apply_color_grading_preview(
     let mw = max_width.unwrap_or(0);
     let mh = max_height.unwrap_or(0);
     let jpeg_bytes = ColorGradingPreviewState::get_global()
-        .apply(&lut_id, &metering_mode, ev_offset, mw, mh).await?;
+        .apply(&lut_id, &metering_mode, ev_offset, mw, mh)
+        .await?;
     let b64 = BASE64.encode(&jpeg_bytes);
     Ok(format!("data:image/jpeg;base64,{}", b64))
 }

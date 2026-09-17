@@ -28,14 +28,17 @@ struct AndroidLogWriter {
 
 impl AndroidLogWriter {
     fn new(prio: i32) -> Self {
-        Self { prio, buf: Vec::new() }
+        Self {
+            prio,
+            buf: Vec::new(),
+        }
     }
     fn emit_line(&mut self) {
         if self.buf.is_empty() {
             return;
         }
         self.buf.push(0); // NUL-terminate for the C string
-        // SAFETY: TAG and self.buf are both NUL-terminated; prio is a constant.
+                          // SAFETY: TAG and self.buf are both NUL-terminated; prio is a constant.
         unsafe {
             __android_log_write(self.prio, TAG.as_ptr(), self.buf.as_ptr());
         }
@@ -84,9 +87,9 @@ impl<'a> MakeWriter<'a> for AndroidLogMakeWriter {
 
 /// Initialize Android logging: logcat only.
 pub fn setup() {
-    use tracing_subscriber::EnvFilter;
     use tracing_subscriber::layer::SubscriberExt;
     use tracing_subscriber::util::SubscriberInitExt;
+    use tracing_subscriber::EnvFilter;
 
     #[cfg(debug_assertions)]
     let env_filter = EnvFilter::new("debug");

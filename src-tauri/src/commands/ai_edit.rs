@@ -16,7 +16,9 @@ pub async fn enqueue_ai_edit(
     model: Option<String>,
 ) -> Result<(), AppError> {
     for path in &file_paths {
-        ai_edit.enqueue_manual(PathBuf::from(path), prompt.clone(), model.clone()).await?;
+        ai_edit
+            .enqueue_manual(PathBuf::from(path), prompt.clone(), model.clone())
+            .await?;
     }
     Ok(())
 }

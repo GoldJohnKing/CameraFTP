@@ -32,7 +32,14 @@ impl StatsActor {
         let (tx, rx) = mpsc::channel(100);
         let stats = Arc::new(RwLock::new(ServerStats::default()));
         let worker = StatsActorWorker::new(rx, stats.clone(), event_bus);
-        (Self { tx, #[cfg(test)] stats }, worker)
+        (
+            Self {
+                tx,
+                #[cfg(test)]
+                stats,
+            },
+            worker,
+        )
     }
 
     /// 直接获取当前统计（从共享状态读取，不经过 channel）
@@ -44,14 +51,22 @@ impl StatsActor {
 
     /// 记录文件上传
     pub async fn record_upload(&self, path: String, bytes: u64) {
-        if let Err(e) = self.tx.send(StatsCommand::RecordUpload { path, bytes }).await {
+        if let Err(e) = self
+            .tx
+            .send(StatsCommand::RecordUpload { path, bytes })
+            .await
+        {
             tracing::warn!("Failed to send record_upload command: {}", e);
         }
     }
 
     /// 更新连接数
     pub async fn update_connection_count(&self, count: u64) {
-        if let Err(e) = self.tx.send(StatsCommand::UpdateConnectionCount { count }).await {
+        if let Err(e) = self
+            .tx
+            .send(StatsCommand::UpdateConnectionCount { count })
+            .await
+        {
             tracing::warn!("Failed to send update_connection_count command: {}", e);
         }
     }
@@ -71,7 +86,11 @@ impl StatsActorWorker {
         stats: Arc<RwLock<ServerStats>>,
         event_bus: Option<EventBus>,
     ) -> Self {
-        Self { rx, stats, event_bus }
+        Self {
+            rx,
+            stats,
+            event_bus,
+        }
     }
 
     /// 运行Actor主循环
@@ -111,7 +130,10 @@ mod tests {
     use std::time::Duration;
 
     /// 轮询共享统计快照直到条件满足（避免对 channel 时序做假设）
-    async fn wait_for_stats(actor: &StatsActor, want: impl Fn(&ServerStats) -> bool) -> ServerStats {
+    async fn wait_for_stats(
+        actor: &StatsActor,
+        want: impl Fn(&ServerStats) -> bool,
+    ) -> ServerStats {
         let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
         loop {
             let stats = actor.get_stats_direct().await;
@@ -139,7 +161,10 @@ mod tests {
         assert_eq!(stats.total_uploads, 2);
         assert_eq!(stats.total_bytes_received, 1024 + 2048);
         assert_eq!(stats.last_uploaded_file.as_deref(), Some("b.nef"));
-        assert_eq!(stats.active_connections, 0, "uploads must not touch connection count");
+        assert_eq!(
+            stats.active_connections, 0,
+            "uploads must not touch connection count"
+        );
 
         worker_handle.abort();
     }
@@ -151,7 +176,10 @@ mod tests {
 
         actor.update_connection_count(3).await;
         let stats = wait_for_stats(&actor, |s| s.active_connections == 3).await;
-        assert_eq!(stats.total_uploads, 0, "connection updates must not touch upload counters");
+        assert_eq!(
+            stats.total_uploads, 0,
+            "connection updates must not touch upload counters"
+        );
 
         // 连接数是"设置"语义而非累加：清零覆盖 3
         actor.update_connection_count(0).await;
@@ -183,7 +211,10 @@ mod tests {
         drop(actor);
 
         let exited = tokio::time::timeout(Duration::from_secs(2), run).await;
-        assert!(exited.is_ok(), "worker loop must exit after all senders drop");
+        assert!(
+            exited.is_ok(),
+            "worker loop must exit after all senders drop"
+        );
     }
 
     #[tokio::test]

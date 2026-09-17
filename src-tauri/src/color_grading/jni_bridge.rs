@@ -170,13 +170,15 @@ pub unsafe extern "C" fn Java_com_gjk_cameraftpcompanion_bridges_ColorGradingJni
                     tracing::error!("JNI applyPreview: failed to create byte array: {e}");
                     // 先清残留异常（如 OOM），保证 RuntimeException 能真正抛给 Java 侧
                     crate::utils::jni::clear_pending_exception(&mut env);
-                    let _ = env.throw_new("java/lang/RuntimeException", "Failed to allocate byte array");
+                    let _ = env.throw_new(
+                        "java/lang/RuntimeException",
+                        "Failed to allocate byte array",
+                    );
                     return std::ptr::null_mut();
                 }
             };
-            let signed: &[i8] = unsafe {
-                std::slice::from_raw_parts(jpeg_bytes.as_ptr() as *const i8, len)
-            };
+            let signed: &[i8] =
+                unsafe { std::slice::from_raw_parts(jpeg_bytes.as_ptr() as *const i8, len) };
             if let Err(e) = env.set_byte_array_region(&arr, 0, signed) {
                 tracing::error!("JNI applyPreview: failed to set byte array: {e}");
                 // 先清残留异常（如越界），保证 RuntimeException 能真正抛给 Java 侧
@@ -242,8 +244,7 @@ pub unsafe extern "C" fn Java_com_gjk_cameraftpcompanion_bridges_ColorGradingJni
     match config_service.get() {
         Ok(config) => {
             let json = match &config.color_grading_last_used {
-                Some(lu) => serde_json::to_string(lu)
-                    .unwrap_or_else(|_| "null".to_string()),
+                Some(lu) => serde_json::to_string(lu).unwrap_or_else(|_| "null".to_string()),
                 None => "null".to_string(),
             };
             new_json_string(&mut env, &json)

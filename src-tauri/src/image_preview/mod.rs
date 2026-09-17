@@ -25,7 +25,8 @@ pub fn content_type_for(path: &Path) -> &'static str {
         return "image/jpeg";
     }
 
-    let ext = path.extension()
+    let ext = path
+        .extension()
         .and_then(|e| e.to_str())
         .map(|e| e.to_lowercase())
         .unwrap_or_default();
@@ -135,7 +136,10 @@ impl ImagePreviewCache {
         let bytes = if is_raw_file(path) {
             Arc::new(extract::extract_preview_jpeg(path)?)
         } else {
-            Arc::new(std::fs::read(path).map_err(|e| format!("Failed to read {}: {}", path.display(), e))?)
+            Arc::new(
+                std::fs::read(path)
+                    .map_err(|e| format!("Failed to read {}: {}", path.display(), e))?,
+            )
         };
 
         {
@@ -201,9 +205,18 @@ mod tests {
 
     #[test]
     fn content_type_for_unknown_defaults_to_octet_stream() {
-        assert_eq!(content_type_for(Path::new("photo.png")), "application/octet-stream");
-        assert_eq!(content_type_for(Path::new("photo.mp4")), "application/octet-stream");
-        assert_eq!(content_type_for(Path::new("photo")), "application/octet-stream");
+        assert_eq!(
+            content_type_for(Path::new("photo.png")),
+            "application/octet-stream"
+        );
+        assert_eq!(
+            content_type_for(Path::new("photo.mp4")),
+            "application/octet-stream"
+        );
+        assert_eq!(
+            content_type_for(Path::new("photo")),
+            "application/octet-stream"
+        );
     }
 
     #[test]
@@ -212,7 +225,8 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let file_path = dir.join("test.jpg");
         let mut f = std::fs::File::create(&file_path).unwrap();
-        f.write_all(&[0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x02, 0x00, 0x00]).unwrap();
+        f.write_all(&[0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x02, 0x00, 0x00])
+            .unwrap();
 
         let cache = ImagePreviewCache::new();
         let result1 = cache.get_or_load(&file_path).unwrap();
@@ -349,8 +363,12 @@ mod tests {
 
         // 请求 root/../secret.jpg — canonicalize 后位于 root 之外
         let requested = root.join("../secret.jpg");
-        let resolved = validate_preview_path(&requested, &root).expect("canonicalize should succeed");
-        assert!(resolved.is_none(), "path escaping save_root must be rejected");
+        let resolved =
+            validate_preview_path(&requested, &root).expect("canonicalize should succeed");
+        assert!(
+            resolved.is_none(),
+            "path escaping save_root must be rejected"
+        );
 
         std::fs::remove_dir_all(&base).ok();
     }
@@ -362,8 +380,7 @@ mod tests {
         let sub = base.join("sub");
         std::fs::create_dir_all(&sub).unwrap();
 
-        let resolved =
-            validate_preview_path(&sub, &base).expect("canonicalize should succeed");
+        let resolved = validate_preview_path(&sub, &base).expect("canonicalize should succeed");
         assert!(resolved.is_none(), "directory targets must be rejected");
 
         std::fs::remove_dir_all(&base).ok();
@@ -395,7 +412,10 @@ mod tests {
         symlink(&outside, &link).unwrap();
 
         let resolved = validate_preview_path(&link, &root).expect("canonicalize should succeed");
-        assert!(resolved.is_none(), "symlink escaping save_root must be rejected");
+        assert!(
+            resolved.is_none(),
+            "symlink escaping save_root must be rejected"
+        );
 
         std::fs::remove_dir_all(&base).ok();
     }
@@ -483,7 +503,9 @@ mod tests {
             "forward-slash invalidate must remove the backslash-loaded entry"
         );
         assert!(
-            !inner.data.contains_key(&cache_key(std::path::Path::new(&forward_path))),
+            !inner
+                .data
+                .contains_key(&cache_key(std::path::Path::new(&forward_path))),
             "no separator-variant residue may survive"
         );
         assert_eq!(inner.total_bytes, 0, "byte accounting must drop to zero");

@@ -46,7 +46,11 @@ pub mod embedded_dll {
 
         let temp_dir = std::env::temp_dir().join("CameraFTP");
         std::fs::create_dir_all(&temp_dir).map_err(|e| {
-            AppError::ColorGradingError(format!("Failed to create temp dir {}: {}", temp_dir.display(), e))
+            AppError::ColorGradingError(format!(
+                "Failed to create temp dir {}: {}",
+                temp_dir.display(),
+                e
+            ))
         })?;
 
         let dll_name = format!("raw_alchemy_core_{}.dll", content_hash);
@@ -75,11 +79,14 @@ pub mod embedded_dll {
         // Write atomically: write to temp file then rename
         let tmp_path = dll_path.with_extension("tmp");
         std::fs::write(&tmp_path, &dll_bytes).map_err(|e| {
-            AppError::ColorGradingError(format!("Failed to write DLL to {}: {}", tmp_path.display(), e))
+            AppError::ColorGradingError(format!(
+                "Failed to write DLL to {}: {}",
+                tmp_path.display(),
+                e
+            ))
         })?;
-        std::fs::rename(&tmp_path, &dll_path).map_err(|e| {
-            AppError::ColorGradingError(format!("Failed to rename DLL: {}", e))
-        })?;
+        std::fs::rename(&tmp_path, &dll_path)
+            .map_err(|e| AppError::ColorGradingError(format!("Failed to rename DLL: {}", e)))?;
 
         cleanup_old_dlls(&temp_dir, "raw_alchemy_core_", &dll_name);
 
@@ -122,14 +129,12 @@ pub mod embedded_dll {
     // file: when the embedded content hash changes, the DLL is overwritten in
     // place and the sidecar updated, giving the same staleness guarantee the
     // hashed-filename approach gives raw_alchemy_core.dll.
-    const LIBOMP_DLL_GZ: &[u8] =
-        include_bytes!(concat!(env!("OUT_DIR"), "/libomp.dll.gz"));
+    const LIBOMP_DLL_GZ: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/libomp.dll.gz"));
     #[cfg(nn_demosaic)]
     const ONNXRUNTIME_DLL_GZ: &[u8] =
         include_bytes!(concat!(env!("OUT_DIR"), "/onnxruntime.dll.gz"));
     #[cfg(nn_demosaic)]
-    const DIRECTML_DLL_GZ: &[u8] =
-        include_bytes!(concat!(env!("OUT_DIR"), "/directml.dll.gz"));
+    const DIRECTML_DLL_GZ: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/directml.dll.gz"));
 
     /// Extract an embedded gzip DLL to the CameraFTP temp dir under `exact_name`,
     /// skipping the write when the sidecar content hash matches the embedded
@@ -171,7 +176,10 @@ pub mod embedded_dll {
         let mut decoder = flate2::read::GzDecoder::new(dll_gz);
         let mut bytes = Vec::new();
         decoder.read_to_end(&mut bytes).map_err(|e| {
-            AppError::ColorGradingError(format!("Failed to decompress embedded {}: {}", exact_name, e))
+            AppError::ColorGradingError(format!(
+                "Failed to decompress embedded {}: {}",
+                exact_name, e
+            ))
         })?;
 
         // Empty payload means the DLL wasn't fetched/built for this profile
@@ -199,7 +207,10 @@ pub mod embedded_dll {
             AppError::ColorGradingError(format!("Failed to rename {}: {}", exact_name, e))
         })?;
         std::fs::write(&hash_path, &content_hash).map_err(|e| {
-            AppError::ColorGradingError(format!("Failed to write {} hash sidecar: {}", exact_name, e))
+            AppError::ColorGradingError(format!(
+                "Failed to write {} hash sidecar: {}",
+                exact_name, e
+            ))
         })?;
 
         Ok(dll_path)
@@ -341,19 +352,19 @@ impl RaResult {
 }
 
 type RaProcessFileWithLUTFn = unsafe extern "C" fn(
-    *const c_char,   // inputPath
-    *const c_char,   // outputPath
-    *const c_char,   // logSpace
-    *const c_float,  // lutTable
-    c_int,           // lutSize
-    *const c_float,  // lutDomainMin
-    *const c_float,  // lutDomainMax
-    *const c_char,   // metering
-    c_float,         // evOffset
-    c_int,           // jpegQuality
-    c_int,           // enableLensCorrection
-    *const c_char,   // customLensfunDb
-    c_int,           // enableNnDemosaic
+    *const c_char,  // inputPath
+    *const c_char,  // outputPath
+    *const c_char,  // logSpace
+    *const c_float, // lutTable
+    c_int,          // lutSize
+    *const c_float, // lutDomainMin
+    *const c_float, // lutDomainMax
+    *const c_char,  // metering
+    c_float,        // evOffset
+    c_int,          // jpegQuality
+    c_int,          // enableLensCorrection
+    *const c_char,  // customLensfunDb
+    c_int,          // enableNnDemosaic
 ) -> c_int;
 
 type RaGetLastErrorFn = unsafe extern "C" fn() -> *const c_char;
@@ -373,12 +384,12 @@ pub(crate) struct RaPreviewSession {
 unsafe impl Send for RaPreviewSession {}
 
 type RaBeginPreviewSessionFn = unsafe extern "C" fn(
-    *const c_char,   // inputPath
-    c_int,           // enableLensCorrection
-    *const c_char,   // customLensfunDb
-    c_int,           // halfSize
-    c_int,           // maxPreviewWidth
-    c_int,           // maxPreviewHeight
+    *const c_char,         // inputPath
+    c_int,                 // enableLensCorrection
+    *const c_char,         // customLensfunDb
+    c_int,                 // halfSize
+    c_int,                 // maxPreviewWidth
+    c_int,                 // maxPreviewHeight
     *mut RaPreviewSession, // outSession
 ) -> c_int;
 
@@ -451,11 +462,8 @@ type RaSetLogFileFn = unsafe extern "C" fn(*const c_char);
 // buffer (Option D: ORT loads from memory, no on-disk file). kind: 0=bayer,
 // 1=xtrans. The C side deep-copies, so the caller's buffer may be freed
 // immediately. Optional like the other NN symbols.
-type RaSetNnModelFn = unsafe extern "C" fn(
-    kind: c_int,
-    data: *const std::ffi::c_void,
-    len: usize,
-) -> c_int;
+type RaSetNnModelFn =
+    unsafe extern "C" fn(kind: c_int, data: *const std::ffi::c_void, len: usize) -> c_int;
 
 pub struct RawAlchemyLib {
     _lib: Library,
@@ -504,7 +512,9 @@ struct CppBufferGuard<'a> {
 impl<'a> Drop for CppBufferGuard<'a> {
     fn drop(&mut self) {
         if !self.buf.is_null() {
-            unsafe { (self.lib.free_preview_buffer)(self.buf); }
+            unsafe {
+                (self.lib.free_preview_buffer)(self.buf);
+            }
         }
     }
 }
@@ -533,10 +543,9 @@ impl RawAlchemyLib {
                 })?
         };
         let get_version = unsafe {
-            *lib.get::<RaGetVersionFn>(b"raGetVersion\0")
-                .map_err(|e| {
-                    AppError::ColorGradingError(format!("Symbol raGetVersion not found: {}", e))
-                })?
+            *lib.get::<RaGetVersionFn>(b"raGetVersion\0").map_err(|e| {
+                AppError::ColorGradingError(format!("Symbol raGetVersion not found: {}", e))
+            })?
         };
         let begin_preview_session = unsafe {
             *lib.get::<RaBeginPreviewSessionFn>(b"raBeginPreviewSession\0")
@@ -569,7 +578,10 @@ impl RawAlchemyLib {
         let free_preview_buffer = unsafe {
             *lib.get::<RaFreePreviewBufferFn>(b"raFreePreviewBuffer\0")
                 .map_err(|e| {
-                    AppError::ColorGradingError(format!("Symbol raFreePreviewBuffer not found: {}", e))
+                    AppError::ColorGradingError(format!(
+                        "Symbol raFreePreviewBuffer not found: {}",
+                        e
+                    ))
                 })?
         };
 
@@ -591,11 +603,7 @@ impl RawAlchemyLib {
         // error on a ready session (→ retry this file classically, no latch).
         // Optional for the same robustness reason as the other NN symbols;
         // when absent, is_nn_ready() returns false → classical fallback.
-        let is_nn_ready = unsafe {
-            lib.get::<RaIsNnReadyFn>(b"raIsNnReady\0")
-                .ok()
-                .map(|f| *f)
-        };
+        let is_nn_ready = unsafe { lib.get::<RaIsNnReadyFn>(b"raIsNnReady\0").ok().map(|f| *f) };
         if is_nn_ready.is_some() {
             tracing::debug!("raIsNnReady symbol resolved");
         } else {
@@ -645,7 +653,9 @@ impl RawAlchemyLib {
         if set_log_file.is_some() {
             tracing::debug!("ra_set_log_file symbol resolved");
         } else {
-            tracing::debug!("ra_set_log_file symbol not present — C++ NN diagnostics stay on stderr");
+            tracing::debug!(
+                "ra_set_log_file symbol not present — C++ NN diagnostics stay on stderr"
+            );
         }
 
         Ok(Self {
@@ -850,7 +860,9 @@ impl RawAlchemyLib {
                     None => unsafe { f(std::ptr::null()) },
                 }
             }
-            None => tracing::debug!("ra_set_log_file unavailable — C++ NN diagnostics stay on stderr"),
+            None => {
+                tracing::debug!("ra_set_log_file unavailable — C++ NN diagnostics stay on stderr")
+            }
         }
     }
 
@@ -866,7 +878,9 @@ impl RawAlchemyLib {
             .map_err(|e| AppError::ColorGradingError(format!("Invalid input path: {}", e)))?;
         let lensfun_c = opt_cstring(lensfun_db_path, "lensfun path string")?;
 
-        let mut session = RaPreviewSession { ptr: std::ptr::null_mut() };
+        let mut session = RaPreviewSession {
+            ptr: std::ptr::null_mut(),
+        };
 
         let result = unsafe {
             (self.begin_preview_session)(
@@ -941,10 +955,11 @@ impl RawAlchemyLib {
             return Err(AppError::ColorGradingError("Buffer is empty".into()));
         }
 
-        let _guard = CppBufferGuard { buf: out_buf, lib: self };
-        let jpeg_bytes = unsafe {
-            std::slice::from_raw_parts(out_buf, out_len as usize).to_vec()
+        let _guard = CppBufferGuard {
+            buf: out_buf,
+            lib: self,
         };
+        let jpeg_bytes = unsafe { std::slice::from_raw_parts(out_buf, out_len as usize).to_vec() };
         // Guard drops here, freeing the C++ buffer even if to_vec() panics
 
         Ok(jpeg_bytes)
@@ -989,7 +1004,9 @@ mod tests {
     fn opt_cstring_passes_through_none_and_valid_strings() {
         assert!(opt_cstring(None, "field").unwrap().is_none());
         assert_eq!(
-            opt_cstring(Some("sRGB"), "field").unwrap().map(|c| c.to_string_lossy().into_owned()),
+            opt_cstring(Some("sRGB"), "field")
+                .unwrap()
+                .map(|c| c.to_string_lossy().into_owned()),
             Some("sRGB".to_string())
         );
     }

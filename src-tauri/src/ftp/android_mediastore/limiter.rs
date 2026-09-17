@@ -54,22 +54,22 @@ mod tests {
     #[tokio::test]
     async fn test_acquire_releases_permit() {
         let limiter = UploadLimiter::new(2);
-        
+
         // Initially 2 permits available
         assert_eq!(limiter.available_permits(), 2);
-        
+
         // Acquire one
         let permit1 = limiter.acquire().await;
         assert_eq!(limiter.available_permits(), 1);
-        
+
         // Acquire another
         let permit2 = limiter.acquire().await;
         assert_eq!(limiter.available_permits(), 0);
-        
+
         // Release one
         drop(permit1);
         assert_eq!(limiter.available_permits(), 1);
-        
+
         // Release the other
         drop(permit2);
         assert_eq!(limiter.available_permits(), 2);
@@ -79,20 +79,20 @@ mod tests {
     async fn test_concurrent_uploads_limited() {
         let limiter = Arc::new(UploadLimiter::new(2));
         let limiter_clone = limiter.clone();
-        
+
         // Spawn tasks that hold permits
         let handle1 = tokio::spawn(async move {
             let _permit = limiter_clone.acquire().await;
             tokio::time::sleep(Duration::from_millis(50)).await;
             // Permit released here
         });
-        
+
         let limiter_clone = limiter.clone();
         let handle2 = tokio::spawn(async move {
             let _permit = limiter_clone.acquire().await;
             tokio::time::sleep(Duration::from_millis(50)).await;
         });
-        
+
         // Wait for spawned tasks to acquire permits
         for _ in 0..100 {
             if limiter.available_permits() == 0 {
@@ -100,14 +100,14 @@ mod tests {
             }
             tokio::task::yield_now().await;
         }
-        
+
         // Both permits should be in use
         assert_eq!(limiter.available_permits(), 0);
-        
+
         // Wait for tasks to complete
         handle1.await.unwrap();
         handle2.await.unwrap();
-        
+
         // Permits should be available again
         assert_eq!(limiter.available_permits(), 2);
     }
