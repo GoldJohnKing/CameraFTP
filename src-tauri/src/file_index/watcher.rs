@@ -684,7 +684,8 @@ mod tests {
 
     #[tokio::test]
     async fn created_ghost_check_inside_write_lock_blocks_vanished_file() {
-        // S1 语义钉住（原子根位，修复前必红）：读锁守卫把 Created 任务
+        // S1 不变量钉住（对"无任何幽灵防御"的历史基线必红；对上一版
+        // "提交后复查"实现的最终态同为绿——钉的是不变量而非防御位置）：读锁守卫把 Created 任务
         // 确定性卡在 add_file 的写锁获取处（位于归属校验、元数据读取与
         // EXIF 解析之后、提交之前），此刻删除磁盘文件。放行后写锁段
         // 最顶部的提交前存在性检查（try_exists）必须发现文件已消失并

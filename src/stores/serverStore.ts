@@ -42,7 +42,8 @@ const defaultStats: ServerStateSnapshot = {
 // flag 在入口第一步即封住整个 in-flight 窗口（含 checkAll / 权限弹窗早退 /
 // doStartServer 成败所有路径，try/finally 保证复位），杜绝并发调用让第二个
 // 调用者收到误导性的 ServerAlreadyRunning。startInFlight 是唯一权威防线：
-// 它先行同步置位，入口处不存在它覆盖不到的 in-flight 窗口。
+// 它先行同步置位。已知残余：stopServer 的 isLoading 窗口内 start 不被前端
+// 拦截——后端 start_server 幂等兜底，最坏一次误导性错误提示，自愈。
 let startInFlight = false;
 
 function createRunningStats(stats?: ServerStateSnapshot): ServerStateSnapshot {
