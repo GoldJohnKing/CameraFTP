@@ -34,18 +34,33 @@ export function useGalleryPager(): UseGalleryPagerResult {
   const [error, setError] = useState<string | null>(null);
 
   const seenMediaIdsRef = useRef<Set<string>>(new Set());
-  const inflightRef = useRef(false);
+  // 三类操作各自独立防重：翻页 / 刷新 / 全量加载互不共享 in-flight 标记 ——
+  // 旧实现共享一个 inflightRef，会把"滚动分页在飞时的刷新/全量加载"静默
+  // 丢弃。现在 reload/loadAll 可随时执行并取代在飞的分页。
+  const pageInflightRef = useRef(false);
+  const reloadInflightRef = useRef(false);
+  const loadAllInflightRef = useRef(false);
+  // 代际计数：每次 reload/loadAll 递增。分页请求携带发起时的代际，完成后
+  // 若代际已过时（被刷新取代）则丢弃本次结果不写 state —— 与下方 stale
+  // cursor 自愈同构的"过时即弃"模式，只是判据从游标错误换成代际不匹配。
+  const revisionRef = useRef(0);
   const cursorRef = useRef<MediaCursor>(null);
   // `items` 状态的 ref 镜像：稳定回调（loadNextPage 守卫等）需读"当前值"，
   // 避免闭包里的陈旧快照。所有 items 变更点同步维护此 ref。
   const itemsRef = useRef<MediaItemDto[]>([]);
 
-  const fetchPage = useCallback(async (pageCursor: MediaCursor): Promise<void> => {
+  const fetchPage = useCallback(async (pageCursor: MediaCursor, revision: number): Promise<void> => {
     const response = await listMediaPage({
       cursor: pageCursor,
       pageSize: GALLERY_PAGE_SIZE,
       sort: 'dateDesc',
     });
+
+    if (revision !== revisionRef.current) {
+      // 已被更新的 reload/loadAll 取代：state 归新刷新所有，此处写入会把
+      // 过时的分页数据拼回新列表（seenMediaIds 也已随之重置）。
+      return;
+    }
 
     setCursor(response.nextCursor);
     cursorRef.current = response.nextCursor;
@@ -66,7 +81,7 @@ export function useGalleryPager(): UseGalleryPagerResult {
   }, []);
 
   const loadNextPage = useCallback(async () => {
-    if (isLoading || inflightRef.current) {
+    if (isLoading || pageInflightRef.current) {
       return;
     }
 
@@ -79,39 +94,54 @@ export function useGalleryPager(): UseGalleryPagerResult {
       return;
     }
 
-    inflightRef.current = true;
+    const revision = revisionRef.current;
+    pageInflightRef.current = true;
     setIsLoading(true);
     setError(null);
 
     try {
-      await fetchPage(cursor);
+      await fetchPage(cursor, revision);
     } catch (err) {
       if (isStaleCursorError(err)) {
+        if (revision !== revisionRef.current) {
+          // 已被刷新取代：刷新自身会重建首页状态，无需（也不得）再自愈。
+          return;
+        }
         setCursor(null);
         cursorRef.current = null;
         setItems([]);
         itemsRef.current = [];
 
         try {
-          await fetchPage(null);
+          await fetchPage(null, revision);
         } catch (innerErr) {
-          setError(innerErr instanceof Error ? innerErr.message : 'Failed to reload after stale cursor');
+          if (revision === revisionRef.current) {
+            setError(innerErr instanceof Error ? innerErr.message : 'Failed to reload after stale cursor');
+          }
         }
-      } else {
+      } else if (revision === revisionRef.current) {
         setError(err instanceof Error ? err.message : 'Failed to load page');
       }
     } finally {
-      inflightRef.current = false;
-      setIsLoading(false);
+      pageInflightRef.current = false;
+      // isLoading 由"最新代际"的操作负责复位：若已被 reload/loadAll 取代，
+      // 复位会侵吞取代者的加载窗口（items 已被重置为 []，loading 掉线会
+      // 让空态判断闪烁）。
+      if (revision === revisionRef.current) {
+        setIsLoading(false);
+      }
     }
   }, [cursor, isLoading, fetchPage]);
 
   const reload = useCallback(async () => {
-    if (inflightRef.current) {
+    if (reloadInflightRef.current) {
       return;
     }
 
-    inflightRef.current = true;
+    // 递增代际即取代所有在飞分页（含 loadNextPage 的自愈路径）：它们的
+    // 结果会在完成时被 fetchPage 的代际检查丢弃。
+    const revision = ++revisionRef.current;
+    reloadInflightRef.current = true;
     setIsLoading(true);
     setError(null);
     setItems([]);
@@ -122,12 +152,16 @@ export function useGalleryPager(): UseGalleryPagerResult {
     seenMediaIdsRef.current = new Set();
 
     try {
-      await fetchPage(null);
+      await fetchPage(null, revision);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load page');
+      if (revision === revisionRef.current) {
+        setError(err instanceof Error ? err.message : 'Failed to load page');
+      }
     } finally {
-      inflightRef.current = false;
-      setIsLoading(false);
+      reloadInflightRef.current = false;
+      if (revision === revisionRef.current) {
+        setIsLoading(false);
+      }
     }
   }, [fetchPage]);
 
@@ -135,23 +169,39 @@ export function useGalleryPager(): UseGalleryPagerResult {
   // complete list of capture dates for the date-jump picker; the virtualized
   // grid only renders the visible slice, so holding all items in memory is cheap.
   const loadAll = useCallback(async () => {
-    if (inflightRef.current) {
+    if (loadAllInflightRef.current) {
       return;
     }
 
-    inflightRef.current = true;
+    const revision = ++revisionRef.current;
+    loadAllInflightRef.current = true;
     setIsLoading(true);
     setError(null);
 
     try {
-      while (cursorRef.current !== null) {
-        await fetchPage(cursorRef.current);
+      // 代际检查前置到循环条件：被 reload/loadAll 取代后不再继续拉剩余页。
+      // cursor=null 且从未加载过数据（典型：首载分页刚被本 loadAll 取代）时
+      // 从头拉第一页；fetchedNullCursor 防止空库时对 null 游标无限重拉。
+      let fetchedNullCursor = false;
+      while (revisionRef.current === revision) {
+        const pageCursor = cursorRef.current;
+        if (pageCursor === null && (itemsRef.current.length > 0 || fetchedNullCursor)) {
+          break;
+        }
+        await fetchPage(pageCursor, revision);
+        if (pageCursor === null) {
+          fetchedNullCursor = true;
+        }
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load all media');
+      if (revision === revisionRef.current) {
+        setError(err instanceof Error ? err.message : 'Failed to load all media');
+      }
     } finally {
-      inflightRef.current = false;
-      setIsLoading(false);
+      loadAllInflightRef.current = false;
+      if (revision === revisionRef.current) {
+        setIsLoading(false);
+      }
     }
   }, [fetchPage]);
 

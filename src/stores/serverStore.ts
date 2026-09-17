@@ -41,8 +41,8 @@ const defaultStats: ServerStateSnapshot = {
 // 菜单可并发进入 startServer/continueAfterPermissionsGranted。用模块级同步
 // flag 在入口第一步即封住整个 in-flight 窗口（含 checkAll / 权限弹窗早退 /
 // doStartServer 成败所有路径，try/finally 保证复位），杜绝并发调用让第二个
-// 调用者收到误导性的 ServerAlreadyRunning。下方各入口的 isLoading 检查保留
-// 作双保险。
+// 调用者收到误导性的 ServerAlreadyRunning。startInFlight 是唯一权威防线：
+// 它先行同步置位，入口处不存在它覆盖不到的 in-flight 窗口。
 let startInFlight = false;
 
 function createRunningStats(stats?: ServerStateSnapshot): ServerStateSnapshot {
@@ -79,9 +79,6 @@ export const useServerStore = create<ServerState>((set, get) => ({
 
   startServer: async () => {
     if (startInFlight) return false;
-    // 防重（双保险）：UI 按钮与托盘事件可能并发触发；后端 start_server 幂等，
-    // 但并发调用会让第二个调用者收到误导性的 ServerAlreadyRunning 错误。
-    if (get().isLoading) return false;
     startInFlight = true;
     try {
       const permissions = await permissionBridge.checkAll();
@@ -119,7 +116,6 @@ export const useServerStore = create<ServerState>((set, get) => ({
 
   continueAfterPermissionsGranted: async () => {
     if (startInFlight) return;
-    if (get().isLoading) return;
     startInFlight = true;
     try {
       set({ showPermissionDialog: false });

@@ -148,12 +148,12 @@ export const GalleryCard = memo(function GalleryCard() {
     [scheduler, dateByMediaId],
   );
 
+  // 近底无条件透传：pager 层的同步 inflightRef 去重 + cursor===null 早退
+  // 是唯一权威（isLoading 是 React state，比同步 ref 慢一拍，此处重复门槛
+  // 反而会在状态滞后窗口丢掉翻页请求）。
   const handleNearEnd = useCallback(() => {
-    // Load next page when scrolling near the end
-    if (!pager.isLoading && pager.cursor !== null) {
-      void pager.loadNextPage();
-    }
-  }, [pager]);
+    void pager.loadNextPage();
+  }, [pager.loadNextPage]);
 
   const handleItemClick = useCallback(
     (item: MediaItemDto) => {

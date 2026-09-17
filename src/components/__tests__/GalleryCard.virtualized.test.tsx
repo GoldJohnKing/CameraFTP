@@ -273,8 +273,8 @@ describe('GalleryCard (virtualized)', () => {
   });
 
   it('triggers loadNextPage when scrolling near the end with a non-null cursor', async () => {
-    // 集成断言：grid → handleNearEnd → cursor 门槛 → pager.loadNextPage 的
-    // 真实联动链。mock 游标非空时，临近底部必须触发翻页。
+    // 集成断言：grid → handleNearEnd → pager.loadNextPage 的真实联动链。
+    // mock 游标非空时，临近底部必须触发翻页。
     mockCursor = 'next-token';
 
     await act(async () => {
@@ -309,9 +309,12 @@ describe('GalleryCard (virtualized)', () => {
     expect(mockLoadNextPage.mock.calls.length).toBeGreaterThan(callsAfterMount);
   });
 
-  it('does not trigger loadNextPage on near-end scroll when cursor is null', async () => {
-    // 游标已耗尽：同样的近底滚动不应触发翻页（GalleryCard 侧 cursor 门槛
-    // + pager 侧游标早退）。
+  it('still calls loadNextPage on near-end scroll when cursor is null', async () => {
+    // 近底门槛已按审计删除：GalleryCard 不再本地判断 cursor/isLoading，
+    // 无条件透传给 pager.loadNextPage。游标耗尽时不发起 bridge 请求的语义
+    // 由 pager 层 useGalleryPager.test 的
+    // "does not call listMediaPage when cursor is exhausted but items exist"
+    // 钉住。
     mockCursor = null;
 
     await act(async () => {
@@ -340,6 +343,6 @@ describe('GalleryCard (virtualized)', () => {
     });
     await flush();
 
-    expect(mockLoadNextPage).toHaveBeenCalledTimes(callsAfterMount);
+    expect(mockLoadNextPage.mock.calls.length).toBeGreaterThan(callsAfterMount);
   });
 });

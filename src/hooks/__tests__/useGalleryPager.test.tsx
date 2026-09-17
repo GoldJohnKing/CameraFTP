@@ -38,6 +38,9 @@ function PagerHarness() {
       <button onClick={() => void latestResult!.reload()} data-testid="reload">
         reload
       </button>
+      <button onClick={() => void latestResult!.loadAll()} data-testid="load-all">
+        load-all
+      </button>
       <button
         onClick={() => latestResult!.removeItems(new Set(['media-2']))}
         data-testid="remove-media-2"
@@ -342,5 +345,95 @@ describe('useGalleryPager', () => {
     });
 
     expect(latestResult).toBe(first);
+  });
+
+  it('reload supersedes an in-flight loadNextPage and discards its stale page result', async () => {
+    // 取代语义：翻页在飞（mock 挂起）时调用 reload 必须执行（不得被分页的
+    // in-flight 吞掉）；resolve 后旧分页结果按代际检查丢弃，state 只保留
+    // 新刷数据。
+    let resolveLoadNext!: (value: MediaPageResponse) => void;
+    const loadNextPromise = new Promise<MediaPageResponse>((res) => {
+      resolveLoadNext = res;
+    });
+    listMediaPageMock.mockReturnValueOnce(loadNextPromise);
+
+    await renderHarness();
+
+    await act(async () => {
+      getContainer().querySelector('[data-testid="load-next"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+    expect(getContainer().querySelector('[data-testid="loading"]')?.textContent).toBe('yes');
+
+    listMediaPageMock.mockResolvedValueOnce(
+      makePage([makeItem('media-r1'), makeItem('media-r2')], 'cursor-r1', 'rev-2'),
+    );
+
+    await act(async () => {
+      getContainer().querySelector('[data-testid="reload"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      await flush();
+      await flush();
+    });
+
+    expect(getContainer().querySelector('[data-testid="count"]')?.textContent).toBe('2');
+    expect(getContainer().querySelector('[data-testid="cursor"]')?.textContent).toBe('cursor-r1');
+
+    // 过时的翻页请求此刻才 resolve —— 不得写入 state。
+    await act(async () => {
+      resolveLoadNext(makePage([makeItem('media-old-1'), makeItem('media-old-2')], 'cursor-old', 'rev-1'));
+      await flush();
+      await flush();
+    });
+
+    expect(latestResult!.items.map((i) => i.mediaId)).toEqual(['media-r1', 'media-r2']);
+    expect(getContainer().querySelector('[data-testid="cursor"]')?.textContent).toBe('cursor-r1');
+    expect(getContainer().querySelector('[data-testid="loading"]')?.textContent).toBe('no');
+  });
+
+  it('loadAll proceeds while loadNextPage is in flight and completes without loss', async () => {
+    // 取代语义：loadAll 不被在飞分页吞掉，且完成后全量数据完整；
+    // 旧分页结果 resolve 后被丢弃。
+    let resolveLoadNext!: (value: MediaPageResponse) => void;
+    const loadNextPromise = new Promise<MediaPageResponse>((res) => {
+      resolveLoadNext = res;
+    });
+    listMediaPageMock.mockReturnValueOnce(loadNextPromise);
+
+    await renderHarness();
+
+    await act(async () => {
+      getContainer().querySelector('[data-testid="load-next"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+    expect(getContainer().querySelector('[data-testid="loading"]')?.textContent).toBe('yes');
+
+    // loadAll 取代在飞的翻页：拉全剩余页直到游标耗尽。
+    listMediaPageMock.mockResolvedValueOnce(
+      makePage([makeItem('media-a1')], 'cursor-a1', 'rev-2'),
+    );
+    listMediaPageMock.mockResolvedValueOnce(
+      makePage([makeItem('media-a2')], null, 'rev-2'),
+    );
+
+    await act(async () => {
+      getContainer().querySelector('[data-testid="load-all"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      await flush();
+      await flush();
+      await flush();
+      await flush();
+    });
+
+    expect(getContainer().querySelector('[data-testid="count"]')?.textContent).toBe('2');
+
+    // 过时的翻页请求 resolve 后被丢弃，全量结果不丢。
+    await act(async () => {
+      resolveLoadNext(makePage([makeItem('media-old')], 'cursor-old', 'rev-1'));
+      await flush();
+      await flush();
+    });
+
+    expect(latestResult!.items.map((i) => i.mediaId)).toEqual(['media-a1', 'media-a2']);
+    expect(getContainer().querySelector('[data-testid="cursor"]')?.textContent).toBe('null');
+    expect(getContainer().querySelector('[data-testid="loading"]')?.textContent).toBe('no');
   });
 });

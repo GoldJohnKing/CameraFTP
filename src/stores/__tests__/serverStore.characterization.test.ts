@@ -177,13 +177,6 @@ describe('serverStore characterization', () => {
     expect(useServerStore.getState().serverInfo).toBeNull();
   });
 
-  it('启动进行中时忽略并发调用（防 UI+托盘双触发）', async () => {
-    useServerStore.setState({ isLoading: true, showPermissionDialog: false });
-    const result = await useServerStore.getState().startServer();
-    expect(result).toBe(false);
-    expect(useServerStore.getState().showPermissionDialog).toBe(false);
-  });
-
   it('同步防重窗口：checkAll in-flight 期间并发 startServer 恰好触发一次 start_server', async () => {
     // isLoading 要到 checkAll 之后才置位，唯一防线是模块级同步 flag。
     // checkAll 用手动控制的 pending Promise 模拟慢 IPC，窗口未关闭期间
