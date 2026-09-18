@@ -23,6 +23,14 @@ vi.mock('../../services/gallery-media-v2', () => ({
 
 let latestResult: UseGalleryPagerResult | null = null;
 
+/** Options forwarded to the load-all button; set per-test before clicking. */
+let loadAllOpts: { untilMs?: number; marginPages?: number } | undefined;
+
+/** Epoch-ms for a Y/M/D at local noon (robust to DST shifts). */
+function dayMs(y: number, m: number, d: number): number {
+  return new Date(y, m - 1, d, 12, 0, 0).getTime();
+}
+
 function PagerHarness() {
   latestResult = useGalleryPager();
   return (
@@ -38,7 +46,7 @@ function PagerHarness() {
       <button onClick={() => void latestResult!.reload()} data-testid="reload">
         reload
       </button>
-      <button onClick={() => void latestResult!.loadAll()} data-testid="load-all">
+      <button onClick={() => void latestResult!.loadAll(loadAllOpts)} data-testid="load-all">
         load-all
       </button>
       <button
@@ -86,6 +94,7 @@ describe('useGalleryPager', () => {
   beforeEach(() => {
     listMediaPageMock.mockReset();
     latestResult = null;
+    loadAllOpts = undefined;
   });
 
   async function renderHarness(): Promise<void> {
@@ -435,5 +444,143 @@ describe('useGalleryPager', () => {
     expect(latestResult!.items.map((i) => i.mediaId)).toEqual(['media-a1', 'media-a2']);
     expect(getContainer().querySelector('[data-testid="cursor"]')?.textContent).toBe('null');
     expect(getContainer().querySelector('[data-testid="loading"]')?.textContent).toBe('no');
+  });
+
+  it('loadAll without untilMs still loads to cursor exhaustion', async () => {
+    // 无界模式（日期列表构建）：不传 untilMs 时保持拉到底 —— 有界化不得
+    // 改变现有"完整日期列表"路径的语义。
+    listMediaPageMock
+      .mockResolvedValueOnce(makePage([makeItem('media-1')], 'cursor-1', 'rev-1'))
+      .mockResolvedValueOnce(makePage([makeItem('media-2')], null, 'rev-1'));
+
+    await renderHarness();
+
+    await act(async () => {
+      getContainer().querySelector('[data-testid="load-all"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      await flush();
+      await flush();
+      await flush();
+      await flush();
+    });
+
+    expect(listMediaPageMock).toHaveBeenCalledTimes(2);
+    expect(getContainer().querySelector('[data-testid="cursor"]')?.textContent).toBe('null');
+    expect(getContainer().querySelector('[data-testid="count"]')?.textContent).toBe('2');
+  });
+
+  it('loadAll stops two margin pages past the page covering the target day', async () => {
+    // 有界模式：目标日 D2 的条目横跨 cursor-1 之后的第一页；覆盖判定需要
+    // 拉到一条"严格更早日"的 item（D3 页），随后仅再拉 2 页余量即停，
+    // 游标不耗尽 —— 不再拉完整个媒体库。
+    const D1 = dayMs(2026, 7, 19);
+    const D2 = dayMs(2026, 7, 18);
+    const D3 = dayMs(2026, 7, 17);
+    listMediaPageMock
+      .mockResolvedValueOnce(makePage([makeItem('p1-a', D1)], 'cursor-1', 'rev-1'))
+      .mockResolvedValueOnce(makePage([makeItem('p2-a', D2), makeItem('p2-b', D2)], 'cursor-2', 'rev-1'))
+      .mockResolvedValueOnce(makePage([makeItem('p3-a', D3)], 'cursor-3', 'rev-1'))
+      .mockResolvedValueOnce(makePage([makeItem('p4-a', D3)], 'cursor-4', 'rev-1'))
+      .mockResolvedValueOnce(makePage([makeItem('p5-a', D3)], 'cursor-5', 'rev-1'));
+
+    await renderHarness();
+    loadAllOpts = { untilMs: D2 };
+
+    await act(async () => {
+      getContainer().querySelector('[data-testid="load-all"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      for (let i = 0; i < 12; i++) await flush();
+    });
+
+    // p1 (D1, 未覆盖) → p2 (D2, 同日不算覆盖) → p3 (D3 < D2，覆盖页) →
+    // p4、p5（余量 2 页）→ 停止。第 6 页 mock 未消费。
+    expect(listMediaPageMock).toHaveBeenCalledTimes(5);
+    expect(getContainer().querySelector('[data-testid="cursor"]')?.textContent).toBe('cursor-5');
+    expect(getContainer().querySelector('[data-testid="count"]')?.textContent).toBe('6');
+    expect(getContainer().querySelector('[data-testid="loading"]')?.textContent).toBe('no');
+
+    // 向下无限滚动不受影响：loadNextPage 从保留的 cursor-5 继续追加。
+    listMediaPageMock.mockResolvedValueOnce(
+      makePage([makeItem('p6-a', D3)], null, 'rev-1'),
+    );
+    await clickLoadNext(getContainer);
+
+    expect(listMediaPageMock).toHaveBeenLastCalledWith({
+      cursor: 'cursor-5',
+      pageSize: 120,
+      sort: 'dateDesc',
+    });
+    expect(getContainer().querySelector('[data-testid="count"]')?.textContent).toBe('7');
+  });
+
+  it('loadAll honors a custom marginPages of zero', async () => {
+    const D1 = dayMs(2026, 7, 19);
+    const D2 = dayMs(2026, 7, 18);
+    const D3 = dayMs(2026, 7, 17);
+    listMediaPageMock
+      .mockResolvedValueOnce(makePage([makeItem('p1-a', D1)], 'cursor-1', 'rev-1'))
+      .mockResolvedValueOnce(makePage([makeItem('p2-a', D2)], 'cursor-2', 'rev-1'))
+      .mockResolvedValueOnce(makePage([makeItem('p3-a', D3)], 'cursor-3', 'rev-1'));
+
+    await renderHarness();
+    loadAllOpts = { untilMs: D2, marginPages: 0 };
+
+    await act(async () => {
+      getContainer().querySelector('[data-testid="load-all"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      for (let i = 0; i < 8; i++) await flush();
+    });
+
+    // 覆盖页（p3）即停，不拉余量。
+    expect(listMediaPageMock).toHaveBeenCalledTimes(3);
+    expect(getContainer().querySelector('[data-testid="cursor"]')?.textContent).toBe('cursor-3');
+  });
+
+  it('loadAll loads to exhaustion when the target day precedes all data', async () => {
+    const D1 = dayMs(2026, 7, 19);
+    const D3 = dayMs(2026, 7, 17);
+    const ANCIENT = dayMs(2020, 1, 1);
+    listMediaPageMock
+      .mockResolvedValueOnce(makePage([makeItem('p1-a', D1)], 'cursor-1', 'rev-1'))
+      .mockResolvedValueOnce(makePage([makeItem('p2-a', D3)], null, 'rev-1'));
+
+    await renderHarness();
+    loadAllOpts = { untilMs: ANCIENT };
+
+    await act(async () => {
+      getContainer().querySelector('[data-testid="load-all"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      for (let i = 0; i < 8; i++) await flush();
+    });
+
+    // 目标日早于全部数据：覆盖只能由游标耗尽达成 —— 等价于全量，正确终止。
+    expect(listMediaPageMock).toHaveBeenCalledTimes(2);
+    expect(getContainer().querySelector('[data-testid="cursor"]')?.textContent).toBe('null');
+    expect(getContainer().querySelector('[data-testid="count"]')?.textContent).toBe('2');
+  });
+
+  it('loadAll fetches only margin pages when the loaded range already covers the target day', async () => {
+    const D1 = dayMs(2026, 7, 19);
+    const D2 = dayMs(2026, 7, 18);
+    const D3 = dayMs(2026, 7, 17);
+    // 预载一页：同时含 D2 与更早的 D3 → 目标日 D2 已被覆盖。
+    listMediaPageMock.mockResolvedValueOnce(
+      makePage([makeItem('p1-a', D1), makeItem('p1-b', D2), makeItem('p1-c', D3)], 'cursor-1', 'rev-1'),
+    );
+
+    await renderHarness();
+    await clickLoadNext(getContainer);
+    expect(listMediaPageMock).toHaveBeenCalledTimes(1);
+
+    listMediaPageMock
+      .mockResolvedValueOnce(makePage([makeItem('p2-a', D3)], 'cursor-2', 'rev-1'))
+      .mockResolvedValueOnce(makePage([makeItem('p3-a', D3)], 'cursor-3', 'rev-1'));
+
+    loadAllOpts = { untilMs: D2 };
+    await act(async () => {
+      getContainer().querySelector('[data-testid="load-all"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      for (let i = 0; i < 8; i++) await flush();
+    });
+
+    // 已覆盖：每页都计为余量页 → 只再拉 2 页即停。
+    expect(listMediaPageMock).toHaveBeenCalledTimes(3);
+    expect(getContainer().querySelector('[data-testid="cursor"]')?.textContent).toBe('cursor-3');
+    expect(getContainer().querySelector('[data-testid="count"]')?.textContent).toBe('5');
   });
 });

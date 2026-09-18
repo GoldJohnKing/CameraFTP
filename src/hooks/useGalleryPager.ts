@@ -5,8 +5,22 @@
  */
 
 import { useCallback, useMemo, useRef, useState } from 'react';
-import type { MediaItemDto, MediaCursor } from '../types';
+import type { MediaItemDto, MediaCursor, MediaPageResponse } from '../types';
 import { listMediaPage, GALLERY_PAGE_SIZE } from '../services/gallery-media-v2';
+
+interface LoadAllOptions {
+  /**
+   * Epoch-ms bound (any timestamp inside the target capture day works).
+   * When set, loading stops once the loaded range fully covers that capture
+   * day — i.e. an item from a strictly older day has been fetched (items are
+   * sorted dateDesc) — plus `marginPages` extra pages. Omit to load until
+   * the cursor is exhausted (complete list, e.g. the date-jump picker's
+   * full day list).
+   */
+  untilMs?: number;
+  /** Extra pages fetched after the page that covers `untilMs` (default 2). */
+  marginPages?: number;
+}
 
 interface UseGalleryPagerResult {
   items: MediaItemDto[];
@@ -16,10 +30,27 @@ interface UseGalleryPagerResult {
   error: string | null;
   loadNextPage: () => Promise<void>;
   reload: () => Promise<void>;
-  /** Load all remaining pages (used to build the complete date list). */
-  loadAll: () => Promise<void>;
+  /**
+   * Load remaining pages. Without options, loads until the cursor is
+   * exhausted (used to build the complete date list). With `untilMs`,
+   * stops once the loaded range fully covers that capture day plus
+   * `marginPages` (default 2) extra pages — enough to make the target
+   * day's content visible while downward infinite scrolling keeps working
+   * from the preserved cursor (everything above the target stays loaded,
+   * so scrolling back up is unaffected).
+   */
+  loadAll: (opts?: LoadAllOptions) => Promise<void>;
   removeItems: (mediaIds: Set<string>) => void;
   addItems: (items: MediaItemDto[]) => void;
+}
+
+/** Default margin pages fetched past the page covering `untilMs`. */
+const LOAD_ALL_MARGIN_PAGES = 2;
+
+/** Local-midnight floor of an epoch-ms timestamp (capture-day granularity). */
+function dayFloorMs(ms: number): number {
+  const d = new Date(ms);
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
 }
 
 function isStaleCursorError(err: unknown): boolean {
@@ -49,7 +80,7 @@ export function useGalleryPager(): UseGalleryPagerResult {
   // 避免闭包里的陈旧快照。所有 items 变更点同步维护此 ref。
   const itemsRef = useRef<MediaItemDto[]>([]);
 
-  const fetchPage = useCallback(async (pageCursor: MediaCursor, revision: number): Promise<void> => {
+  const fetchPage = useCallback(async (pageCursor: MediaCursor, revision: number): Promise<MediaPageResponse | null> => {
     const response = await listMediaPage({
       cursor: pageCursor,
       pageSize: GALLERY_PAGE_SIZE,
@@ -59,7 +90,7 @@ export function useGalleryPager(): UseGalleryPagerResult {
     if (revision !== revisionRef.current) {
       // 已被更新的 reload/loadAll 取代：state 归新刷新所有，此处写入会把
       // 过时的分页数据拼回新列表（seenMediaIds 也已随之重置）。
-      return;
+      return null;
     }
 
     setCursor(response.nextCursor);
@@ -78,6 +109,7 @@ export function useGalleryPager(): UseGalleryPagerResult {
     const nextItems = [...itemsRef.current, ...newItems];
     itemsRef.current = nextItems;
     setItems(nextItems);
+    return response;
   }, []);
 
   const loadNextPage = useCallback(async () => {
@@ -165,13 +197,19 @@ export function useGalleryPager(): UseGalleryPagerResult {
     }
   }, [fetchPage]);
 
-  // Load every remaining page until the cursor is exhausted. Used to build a
-  // complete list of capture dates for the date-jump picker; the virtualized
-  // grid only renders the visible slice, so holding all items in memory is cheap.
-  const loadAll = useCallback(async () => {
+  // Load remaining pages until the cursor is exhausted — or, when `untilMs`
+  // is given, until the loaded range covers the target capture day plus a
+  // small margin. Unbounded mode feeds the date-jump picker's complete day
+  // list; bounded mode is for "jump to this date": the target day only needs
+  // everything from the newest item down past that day (dateDesc sort), and
+  // the preserved cursor keeps downward infinite scrolling working.
+  const loadAll = useCallback(async (opts?: LoadAllOptions) => {
     if (loadAllInflightRef.current) {
       return;
     }
+
+    const untilMs = opts?.untilMs;
+    const marginPages = Math.max(0, opts?.marginPages ?? LOAD_ALL_MARGIN_PAGES);
 
     const revision = ++revisionRef.current;
     loadAllInflightRef.current = true;
@@ -183,14 +221,41 @@ export function useGalleryPager(): UseGalleryPagerResult {
       // cursor=null 且从未加载过数据（典型：首载分页刚被本 loadAll 取代）时
       // 从头拉第一页；fetchedNullCursor 防止空库时对 null 游标无限重拉。
       let fetchedNullCursor = false;
+      // 有界模式：目标日被"覆盖"指加载范围已越过该日（拉到严格更早日的一
+      // 条 item —— dateDesc 排序下即该日全部条目已加载）。覆盖后仅再拉
+      // marginPages 页余量即停；无界模式（untilMs 未提供）保持拉到底。
+      let covered = false;
+      let marginFetched = 0;
+      if (untilMs != null) {
+        const oldestLoaded = itemsRef.current[itemsRef.current.length - 1];
+        covered = oldestLoaded != null && dayFloorMs(oldestLoaded.dateModifiedMs) < dayFloorMs(untilMs);
+      }
       while (revisionRef.current === revision) {
+        if (untilMs != null && covered && marginFetched >= marginPages) {
+          break;
+        }
         const pageCursor = cursorRef.current;
         if (pageCursor === null && (itemsRef.current.length > 0 || fetchedNullCursor)) {
           break;
         }
-        await fetchPage(pageCursor, revision);
+        const page = await fetchPage(pageCursor, revision);
         if (pageCursor === null) {
           fetchedNullCursor = true;
+        }
+        if (page === null) {
+          // 已被取代：下一轮循环条件即退出。
+          continue;
+        }
+        // 余量计数在覆盖判定之前：本页拉取时若尚未覆盖，则本页是（潜在的）
+        // 覆盖页本身，不计入余量；余量只数覆盖页之后的页。
+        if (untilMs != null && covered) {
+          marginFetched += 1;
+        }
+        if (untilMs != null && !covered) {
+          const oldest = page.items.length > 0 ? page.items[page.items.length - 1] : undefined;
+          if (oldest != null && dayFloorMs(oldest.dateModifiedMs) < dayFloorMs(untilMs)) {
+            covered = true;
+          }
         }
       }
     } catch (err) {
