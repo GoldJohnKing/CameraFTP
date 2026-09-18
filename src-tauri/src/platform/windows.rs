@@ -5,20 +5,18 @@
 use async_trait::async_trait;
 use std::env;
 use std::sync::Arc;
-use tokio::sync::Mutex;
-use tauri::{AppHandle, Emitter, Manager, Wry};
 use tauri::menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconEvent};
+use tauri::{AppHandle, Emitter, Manager, Wry};
+use tokio::sync::Mutex;
 use winreg::enums::*;
 use winreg::RegKey;
 
-use crate::config_service::ConfigService;
-use crate::constants::{
-    SERVER_READY_TIMEOUT_SECS, AUTOSTART_DELAY_MS,
-};
-use crate::ftp::types::ServerStateSnapshot;
 use super::traits::PlatformService;
-use super::types::{StorageInfo, PermissionStatus};
+use super::types::{PermissionStatus, StorageInfo};
+use crate::config_service::ConfigService;
+use crate::constants::{AUTOSTART_DELAY_MS, SERVER_READY_TIMEOUT_SECS};
+use crate::ftp::types::ServerStateSnapshot;
 
 /// 托盘菜单状态 - 存储菜单项引用用于动态更新
 pub struct TrayMenuState {
@@ -43,28 +41,33 @@ const TRAY_IDLE_PNG: &[u8] = include_bytes!("../../icons/tray-idle.png");
 const TRAY_ACTIVE_PNG: &[u8] = include_bytes!("../../icons/tray-active.png");
 
 /// 从嵌入的PNG数据创建图标
-fn create_icon_from_bytes(data: &[u8]) -> Result<tauri::image::Image<'static>, Box<dyn std::error::Error>> {
+fn create_icon_from_bytes(
+    data: &[u8],
+) -> Result<tauri::image::Image<'static>, Box<dyn std::error::Error>> {
     let img = image::load_from_memory_with_format(data, image::ImageFormat::Png)?;
     let rgba = img.to_rgba8();
     let (width, height) = rgba.dimensions();
-    
+
     let icon = tauri::image::Image::new_owned(rgba.into_raw(), width, height);
     Ok(icon)
 }
 
 /// 更新托盘图标
-/// 
+///
 /// # Arguments
 /// * `app` - Tauri 应用句柄
 /// * `state` - 托盘图标状态（Stopped/Idle/Active）
-pub fn update_tray_icon(app: &AppHandle, state: TrayIconState) -> Result<(), Box<dyn std::error::Error>> {
+pub fn update_tray_icon(
+    app: &AppHandle,
+    state: TrayIconState,
+) -> Result<(), Box<dyn std::error::Error>> {
     if let Some(tray) = app.tray_by_id("main") {
         let icon_data = match state {
             TrayIconState::Stopped => TRAY_STOPPED_PNG,
             TrayIconState::Idle => TRAY_IDLE_PNG,
             TrayIconState::Active => TRAY_ACTIVE_PNG,
         };
-        
+
         let icon = create_icon_from_bytes(icon_data)?;
         tray.set_icon(Some(icon))?;
     }
@@ -72,11 +75,14 @@ pub fn update_tray_icon(app: &AppHandle, state: TrayIconState) -> Result<(), Box
 }
 
 /// 更新托盘菜单项状态
-/// 
+///
 /// # Arguments
 /// * `app` - Tauri 应用句柄
 /// * `server_running` - 服务器是否正在运行
-pub fn update_tray_menu(app: &AppHandle, server_running: bool) -> Result<(), Box<dyn std::error::Error>> {
+pub fn update_tray_menu(
+    app: &AppHandle,
+    server_running: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
     // 从 State 获取菜单项引用
     if let Some(state) = app.try_state::<TrayMenuState>() {
         state.start_item.set_enabled(!server_running)?;
@@ -94,13 +100,7 @@ pub fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
     let separator = PredefinedMenuItem::separator(app)?;
     let quit_i = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
 
-    let menu = Menu::with_items(app, &[
-        &show_i,
-        &start_i,
-        &stop_i,
-        &separator,
-        &quit_i,
-    ])?;
+    let menu = Menu::with_items(app, &[&show_i, &start_i, &stop_i, &separator, &quit_i])?;
 
     // 保存菜单项引用到 State，用于后续动态更新
     app.manage(TrayMenuState {
@@ -130,7 +130,7 @@ pub fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
         .on_menu_event(move |app: &AppHandle, event: MenuEvent| {
             match event.id.as_ref() {
                 "show" => {
-                let _ = crate::platform::get_platform().show_main_window(app);
+                    let _ = crate::platform::get_platform().show_main_window(app);
                 }
                 "start" => {
                     // 发送事件给前端，由前端统一处理启动逻辑
@@ -163,7 +163,7 @@ const APP_REGISTRY_NAME: &str = "CameraFtpCompanion";
 pub fn set_autostart(enable: bool) -> Result<(), Box<dyn std::error::Error>> {
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);
     let (key, _) = hkcu.create_subkey(AUTOSTART_REGISTRY_KEY)?;
-    
+
     if enable {
         let exe_path = env::current_exe()?;
         let exe_path_str = exe_path.to_string_lossy();
@@ -174,7 +174,7 @@ pub fn set_autostart(enable: bool) -> Result<(), Box<dyn std::error::Error>> {
         key.delete_value(APP_REGISTRY_NAME)?;
         tracing::info!("Autostart disabled");
     }
-    
+
     Ok(())
 }
 
@@ -182,7 +182,7 @@ pub fn set_autostart(enable: bool) -> Result<(), Box<dyn std::error::Error>> {
 pub fn is_autostart_enabled() -> Result<bool, Box<dyn std::error::Error>> {
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);
     let key = hkcu.open_subkey(AUTOSTART_REGISTRY_KEY)?;
-    
+
     match key.get_value::<String, _>(APP_REGISTRY_NAME) {
         Ok(_) => Ok(true),
         Err(_) => Ok(false),
@@ -207,13 +207,13 @@ impl PlatformService for WindowsPlatform {
     fn name(&self) -> &'static str {
         "windows"
     }
-    
+
     fn setup(&self, app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
         setup_tray(app)?;
         tracing::info!("Windows platform initialized");
         Ok(())
     }
-    
+
     fn get_storage_info(&self) -> StorageInfo {
         StorageInfo {
             display_name: "本地存储".to_string(),
@@ -223,31 +223,33 @@ impl PlatformService for WindowsPlatform {
             has_all_files_access: true,
         }
     }
-    
+
     fn check_permission_status(&self) -> PermissionStatus {
         PermissionStatus {
             has_all_files_access: true,
             needs_user_action: false,
         }
     }
-    
+
     fn ensure_storage_ready(&self, app: &AppHandle) -> Result<String, String> {
         let config = load_config_from_service(app)?;
         let save_path = config.save_path.clone();
 
         if !save_path.exists() {
-            std::fs::create_dir_all(&save_path).map_err(|e| {
-                format!("无法创建保存目录 '{}': {}", save_path.display(), e)
-            })?;
+            std::fs::create_dir_all(&save_path)
+                .map_err(|e| format!("无法创建保存目录 '{}': {}", save_path.display(), e))?;
         }
 
         if let Err(e) = crate::utils::fs::is_path_writable(&save_path) {
-            return Err(format!("保存目录 '{}' 没有写入权限 ({e})", save_path.display()));
+            return Err(format!(
+                "保存目录 '{}' 没有写入权限 ({e})",
+                save_path.display()
+            ));
         }
 
         Ok(save_path.to_string_lossy().to_string())
     }
-    
+
     fn on_server_started(&self, app: &AppHandle) {
         if let Err(e) = update_tray_icon(app, TrayIconState::Idle) {
             tracing::warn!("Failed to update tray icon: {}", e);
@@ -256,7 +258,7 @@ impl PlatformService for WindowsPlatform {
             tracing::warn!("Failed to update tray menu: {}", e);
         }
     }
-    
+
     fn on_server_stopped(&self, app: &AppHandle) {
         if let Err(e) = update_tray_icon(app, TrayIconState::Stopped) {
             tracing::warn!("Failed to update tray icon: {}", e);
@@ -265,7 +267,7 @@ impl PlatformService for WindowsPlatform {
             tracing::warn!("Failed to update tray menu: {}", e);
         }
     }
-    
+
     fn update_server_state(&self, app: &AppHandle, connected_clients: u32) {
         let state = if connected_clients > 0 {
             TrayIconState::Active
@@ -330,7 +332,9 @@ impl PlatformService for WindowsPlatform {
                 &state_clone,
                 app_handle.clone(),
                 tokio::time::Duration::from_secs(SERVER_READY_TIMEOUT_SECS),
-            ).await {
+            )
+            .await
+            {
                 Ok(ctx) => {
                     tracing::info!("FTP server auto-started on {}:{}", ctx.ip, ctx.port);
                 }
@@ -345,8 +349,7 @@ impl PlatformService for WindowsPlatform {
 
     fn hide_main_window(&self, app: &AppHandle) -> Result<(), String> {
         if let Some(window) = app.get_webview_window("main") {
-            window.hide()
-                .map_err(|e| format!("隐藏窗口失败: {}", e))
+            window.hide().map_err(|e| format!("隐藏窗口失败: {}", e))
         } else {
             Err("主窗口不存在".to_string())
         }
@@ -387,14 +390,8 @@ impl PlatformService for WindowsPlatform {
         use windows::Win32::UI::Shell::ShellExecuteW;
         use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
 
-        let url_wide: Vec<u16> = OsStr::new(url)
-            .encode_wide()
-            .chain(Some(0))
-            .collect();
-        let open_wide: Vec<u16> = OsStr::new("open")
-            .encode_wide()
-            .chain(Some(0))
-            .collect();
+        let url_wide: Vec<u16> = OsStr::new(url).encode_wide().chain(Some(0)).collect();
+        let open_wide: Vec<u16> = OsStr::new("open").encode_wide().chain(Some(0)).collect();
 
         let result = unsafe {
             ShellExecuteW(
@@ -409,10 +406,7 @@ impl PlatformService for WindowsPlatform {
 
         // ShellExecuteW returns HINSTANCE, success > 32, failure <= 32
         if result.0 as isize <= 32 {
-            return Err(format!(
-                "ShellExecute failed with code {:?}",
-                result.0
-            ));
+            return Err(format!("ShellExecute failed with code {:?}", result.0));
         }
 
         Ok(())

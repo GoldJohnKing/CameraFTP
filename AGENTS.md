@@ -196,6 +196,8 @@ generated constant through the frontend.
 
 ### Update Version Number
 
+**快捷方式**：`./scripts/bump-version.sh <X.Y.Z>` 自动完成下表全部四处更新并校验一致性（CI 可用 `./scripts/check-versions.sh`）。
+
 When updating the application version, **ALL FOUR** of the following files must be updated:
 
 | File | Field | Purpose |

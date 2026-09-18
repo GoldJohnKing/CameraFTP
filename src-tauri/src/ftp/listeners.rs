@@ -13,6 +13,12 @@ use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager};
 use tracing::{info, warn};
 
+/// Put 侧超时降级后的再探测延迟：给极慢写入收尾留出时间
+const PUT_REINDEX_RETRY_DELAY: Duration = Duration::from_secs(30);
+
+/// Put 侧再探测轮数上限（每轮 = 一次延迟 + 一次就绪探测）
+const PUT_REINDEX_RETRY_ATTEMPTS: u32 = 2;
+
 /// 上传文件的自动处理分类
 ///
 /// 决定 Put 事件是否进入文件索引 / AI 修图 / 自动调色管线。
@@ -39,6 +45,81 @@ fn classify_uploaded_file(path: &std::path::Path) -> UploadedFileKind {
     }
 }
 
+/// Put 事件的后处理管线：就绪等待 → 索引 → AI 修图/调色/自动打开钩子。
+///
+/// 超时降级：`wait_for_file_ready` 超时时仍调用 `add_file` 尽力索引
+/// （文件可能真实存在，仅写入极慢；陈旧/半写条目由 add_file 的 EXIF
+/// 回填机制善后），但跳过后续钩子——AI 修图/调色/自动打开假定文件已
+/// 完整写入，对半写文件执行只会产出废图。
+///
+/// Generic over the runtime so tests can drive it with a mock
+/// `AppHandle<MockRuntime>` (production always passes `AppHandle<Wry>`);
+/// same pattern as `ai_edit::service::worker_loop`.
+async fn run_put_pipeline<R: tauri::Runtime>(
+    handle: &tauri::AppHandle<R>,
+    full_path: std::path::PathBuf,
+    is_raw: bool,
+) {
+    if !wait_for_file_ready(&full_path, Duration::from_secs(FILE_READY_TIMEOUT_SECS)).await {
+        tracing::warn!(
+            "File not ready after timeout, indexing best-effort, skipping post-processing hooks: {:?}",
+            full_path
+        );
+        // 尽力索引（成功路径的索引步骤），然后 return——不进入钩子
+        if let Some(file_index) = handle.try_state::<Arc<FileIndexService>>() {
+            if let Err(e) = file_index.add_file(full_path.clone()).await {
+                tracing::warn!("Failed to add file to index: {}", e);
+            }
+            // 有界再探测：此 Put 事件不会重发，降级索引后延迟再探一次
+            // 就绪，就绪则补一次 add_file——EXIF 回填的收敛点（至多 2 轮，
+            // 就绪即返回）。try_state 返回的 State 借用 handle，spawn
+            // 需要 'static，先克隆出 Arc。
+            let retry_index: Arc<FileIndexService> = file_index.inner().clone();
+            tokio::spawn(async move {
+                FileIndexService::retry_index_if_stable(
+                    &retry_index,
+                    full_path,
+                    PUT_REINDEX_RETRY_DELAY,
+                    PUT_REINDEX_RETRY_ATTEMPTS,
+                )
+                .await;
+            });
+        }
+        return;
+    }
+
+    // File indexing
+    if let Some(file_index) = handle.try_state::<Arc<FileIndexService>>() {
+        if let Err(e) = file_index.add_file(full_path.clone()).await {
+            tracing::warn!("Failed to add file to index: {}", e);
+        }
+    }
+
+    // AI edit (all platforms)
+    let ai_edit: tauri::State<'_, crate::ai_edit::AiEditService> = handle.state();
+    ai_edit.on_file_uploaded(full_path.clone()).await;
+
+    // Auto color grading (RAW files only)
+    if is_raw {
+        let color_grading: tauri::State<
+            '_,
+            std::sync::Arc<crate::color_grading::ColorGradingService>,
+        > = handle.state();
+        color_grading.on_file_uploaded(full_path.clone()).await;
+    }
+
+    // Auto-open (Windows only)
+    #[cfg(target_os = "windows")]
+    {
+        let auto_open: tauri::State<'_, crate::auto_open::AutoOpenService> = handle.state();
+        if let Err(e) = auto_open.on_file_uploaded(full_path).await {
+            tracing::error!("Failed to auto open image: {}", e);
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    let _ = &full_path; // suppress unused warning
+}
+
 /// 数据事件监听器（上传、下载等）
 #[derive(Debug, Clone)]
 pub struct FtpDataListener {
@@ -48,8 +129,16 @@ pub struct FtpDataListener {
 }
 
 impl FtpDataListener {
-    pub fn new(stats: StatsActor, save_path: std::path::PathBuf, app_handle: Option<AppHandle>) -> Self {
-        Self { stats, save_path: Arc::new(save_path), app_handle }
+    pub fn new(
+        stats: StatsActor,
+        save_path: std::path::PathBuf,
+        app_handle: Option<AppHandle>,
+    ) -> Self {
+        Self {
+            stats,
+            save_path: Arc::new(save_path),
+            app_handle,
+        }
     }
 }
 
@@ -79,38 +168,7 @@ impl DataListener for FtpDataListener {
                             let full_path = save_path.join(&path);
                             let handle_clone = handle.clone();
                             tokio::spawn(async move {
-                                if !wait_for_file_ready(&full_path, Duration::from_secs(FILE_READY_TIMEOUT_SECS)).await {
-                                    tracing::warn!("File not ready after timeout: {:?}", full_path);
-                                    return;
-                                }
-
-                                // File indexing
-                                if let Some(file_index) = handle_clone.try_state::<Arc<FileIndexService>>() {
-                                    if let Err(e) = file_index.add_file(full_path.clone()).await {
-                                        tracing::warn!("Failed to add file to index: {}", e);
-                                    }
-                                }
-
-                                // AI edit (all platforms)
-                                let ai_edit: tauri::State<'_, crate::ai_edit::AiEditService> = handle_clone.state();
-                                ai_edit.on_file_uploaded(full_path.clone()).await;
-
-                                // Auto color grading (RAW files only)
-                                if is_raw {
-                                    let color_grading: tauri::State<'_, std::sync::Arc<crate::color_grading::ColorGradingService>> = handle_clone.state();
-                                    color_grading.on_file_uploaded(full_path.clone()).await;
-                                }
-
-                                // Auto-open (Windows only)
-                                #[cfg(target_os = "windows")]
-                                {
-                                    let auto_open: tauri::State<'_, crate::auto_open::AutoOpenService> = handle_clone.state();
-                                    if let Err(e) = auto_open.on_file_uploaded(full_path).await {
-                                        tracing::error!("Failed to auto open image: {}", e);
-                                    }
-                                }
-                                #[cfg(not(target_os = "windows"))]
-                                let _ = &full_path; // suppress unused warning
+                                run_put_pipeline(&handle_clone, full_path, is_raw).await;
                             });
                         }
                     } else {
@@ -123,15 +181,17 @@ impl DataListener for FtpDataListener {
                 DataEvent::Deleted { path } => {
                     info!(file = %path, "File deleted");
 
-                    let is_image =
-                        classify_uploaded_file(std::path::Path::new(&path)) != UploadedFileKind::Other;
+                    let is_image = classify_uploaded_file(std::path::Path::new(&path))
+                        != UploadedFileKind::Other;
 
                     // 从文件索引中移除
                     if let Some(handle) = app_handle.as_ref() {
                         let full_path = save_path.join(&path);
                         let handle_clone = handle.clone();
                         tokio::spawn(async move {
-                            if let Some(file_index) = handle_clone.try_state::<Arc<FileIndexService>>() {
+                            if let Some(file_index) =
+                                handle_clone.try_state::<Arc<FileIndexService>>()
+                            {
                                 if let Err(e) = file_index.remove_file(&full_path).await {
                                     tracing::warn!("Failed to remove file from index: {}", e);
                                 }
@@ -267,12 +327,70 @@ mod tests {
 
     // ---- Put 事件：上传统计在图片过滤之前无条件记录 ----
     //
-    // 注：Put 的"文件就绪等待 → 索引更新 → 前端事件 → AI/调色/自动打开"管线
-    // 需要从 AppHandle 解析 AiEditService / AutoOpenService / ColorGradingService
-    // 等具体 Wry 句柄类型，MockRuntime 无法构造这些服务，因此该管线无法在
-    // 单测中确定性驱动（驱动它会因 state::<AiEditService>() 缺失而 panic）。
-    // 这里钉住管线之外的可见契约；同样的"就绪等待 → 索引"逻辑由
-    // file_index::watcher 的 process_event 测试覆盖。
+    // 注：Put 的完整成功管线（就绪等待 → 索引 → AI/调色/自动打开钩子）
+    // 需要从 AppHandle 解析 AiEditService / AutoOpenService /
+    // ColorGradingService 等具体 Wry 句柄类型，MockRuntime 无法构造这些
+    // 服务，因此成功路径无法在单测中确定性驱动（驱动它会因
+    // state::<AiEditService>() 缺失而 panic）。管线已抽取为
+    // run_put_pipeline<R: Runtime>，其超时降级路径在索引后即 return、
+    // 不触达任何钩子，可用 MockRuntime 直接驱动（见下方测试）。
+
+    #[tokio::test]
+    async fn put_pipeline_timeout_degrades_to_best_effort_index_and_skips_hooks() {
+        // 等价逻辑层测试（对齐 ai_edit/color_grading 的 MockRuntime 模式）：
+        // mock app 只管理 FileIndexService。mtime 全程持续拨动使
+        // wait_for_file_ready 在 FILE_READY_TIMEOUT_SECS（5s）后必然超时，
+        // 文件真实存在 → 降级路径必须仍调用 add_file（索引 1 条）。
+        // 测试跑完不 panic 本身即证明超时路径在索引后 return——若误入
+        // 成功路径，state::<AiEditService>() 会因服务缺失而 panic（~5s）。
+        let app = tauri::test::mock_app();
+        let temp_dir = tempfile::tempdir().expect("create temp dir");
+        let save_path = temp_dir.path().join("images");
+        std::fs::create_dir_all(&save_path).expect("create save path");
+
+        let config_service = Arc::new(crate::config_service::ConfigService::new_with_path(
+            temp_dir.path().join("config.json"),
+        ));
+        config_service
+            .mutate_and_persist(|c| {
+                c.save_path = save_path.clone();
+            })
+            .expect("persist config");
+        let file_index = Arc::new(crate::file_index::FileIndexService::new(config_service));
+        app.manage(Arc::clone(&file_index));
+
+        let path = save_path.join("slow-write.jpg");
+        std::fs::write(&path, b"jpeg-bytes").expect("write file");
+        // 后台持续拨动 mtime（len 不变），让 (len, mtime) 签名在整个 5s
+        // 探测窗口内永不稳定 → wait_for_file_ready 必然走超时分支
+        let touch_path = path.clone();
+        let bumper = tokio::spawn(async move {
+            for i in 0..80u32 {
+                tokio::time::sleep(Duration::from_millis(80)).await;
+                let bumped = std::time::SystemTime::now()
+                    + std::time::Duration::from_secs(1)
+                    + std::time::Duration::from_millis(u64::from(i));
+                let _ = filetime::set_file_mtime(
+                    &touch_path,
+                    filetime::FileTime::from_system_time(bumped),
+                );
+            }
+        });
+
+        run_put_pipeline(app.handle(), path.clone(), false).await;
+        bumper.abort();
+
+        assert_eq!(
+            file_index.get_file_count().await,
+            1,
+            "timeout must degrade to best-effort add_file, not skip the event"
+        );
+        let files = file_index.get_files().await;
+        assert_eq!(
+            files[0].path, path,
+            "degraded index must contain the slow file"
+        );
+    }
 
     #[tokio::test]
     async fn put_events_record_uploads_in_stats_regardless_of_file_kind() {
@@ -286,13 +404,19 @@ mod tests {
 
         listener
             .receive_data_event(
-                DataEvent::Put { path: "photo.jpg".to_string(), bytes: 2048 },
+                DataEvent::Put {
+                    path: "photo.jpg".to_string(),
+                    bytes: 2048,
+                },
                 event_meta("t-put-1"),
             )
             .await;
         listener
             .receive_data_event(
-                DataEvent::Put { path: "notes.txt".to_string(), bytes: 32 },
+                DataEvent::Put {
+                    path: "notes.txt".to_string(),
+                    bytes: 32,
+                },
                 event_meta("t-put-2"),
             )
             .await;
@@ -358,17 +482,28 @@ mod tests {
 
         // Got/Deleted/MadeDir/RemovedDir/Renamed 都不产生上传统计
         let events = [
-            DataEvent::Got { path: "photo.jpg".to_string(), bytes: 10 },
-            DataEvent::Deleted { path: "photo.jpg".to_string() },
-            DataEvent::MadeDir { path: "subdir".to_string() },
-            DataEvent::RemovedDir { path: "subdir".to_string() },
+            DataEvent::Got {
+                path: "photo.jpg".to_string(),
+                bytes: 10,
+            },
+            DataEvent::Deleted {
+                path: "photo.jpg".to_string(),
+            },
+            DataEvent::MadeDir {
+                path: "subdir".to_string(),
+            },
+            DataEvent::RemovedDir {
+                path: "subdir".to_string(),
+            },
             DataEvent::Renamed {
                 from: "a.jpg".to_string(),
                 to: "b.jpg".to_string(),
             },
         ];
         for event in events {
-            listener.receive_data_event(event, event_meta("t-other")).await;
+            listener
+                .receive_data_event(event, event_meta("t-other"))
+                .await;
         }
 
         tokio::time::sleep(Duration::from_millis(100)).await;
@@ -408,7 +543,9 @@ mod tests {
             .receive_presence_event(PresenceEvent::LoggedIn, event_meta("trace-1"))
             .await;
         assert_eq!(
-            connection_count_becomes(&stats_probe, 1).await.active_connections,
+            connection_count_becomes(&stats_probe, 1)
+                .await
+                .active_connections,
             1
         );
         assert!(sessions.contains("trace-1"));
@@ -426,7 +563,8 @@ mod tests {
             .await;
         tokio::time::sleep(Duration::from_millis(100)).await;
         assert_eq!(
-            stats_probe.get_stats_direct().await.active_connections, 2,
+            stats_probe.get_stats_direct().await.active_connections,
+            2,
             "duplicate LoggedIn for a known session must not bump the count"
         );
         assert_eq!(sessions.len(), 2);

@@ -2,9 +2,9 @@
 // Copyright (C) 2026 GoldJohnKing <GoldJohnKing@Live.cn>
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+use serde::Deserialize;
 use tauri::{command, AppHandle, Manager, State};
 use tracing::instrument;
-use serde::Deserialize;
 
 use crate::auto_open::AutoOpenService;
 use crate::config::{AppConfig, PreviewWindowConfig};
@@ -14,7 +14,7 @@ use crate::error::AppError;
 use crate::file_index::FileIndexService;
 use std::sync::Arc;
 
-fn save_auth_config_with_service(
+async fn save_auth_config_with_service(
     config_service: &ConfigService,
     anonymous: bool,
     username: String,
@@ -22,19 +22,25 @@ fn save_auth_config_with_service(
 ) -> Result<(), AppError> {
     use crate::config::AuthConfig;
 
+    // Argon2id(m=64MB,t=3,p=4) 是重 CPU 计算：放在 blocking 池执行，
+    // 不占用 tokio worker 线程（与 FTP 认证路径 ftp/server.rs 一致）。
     let password_hash = if anonymous || password.is_empty() {
         String::new()
     } else {
-        crypto::hash_password(password).hash
+        tokio::task::spawn_blocking(move || crypto::hash_password(password).hash)
+            .await
+            .map_err(|e| AppError::Other(format!("hash task failed: {}", e)))?
     };
 
-    config_service.mutate_and_persist(move |config| {
-        config.advanced_connection.auth = AuthConfig {
-            anonymous,
-            username,
-            password_hash,
-        };
-    })?;
+    config_service
+        .mutate_and_persist_async(move |config| {
+            config.advanced_connection.auth = AuthConfig {
+                anonymous,
+                username,
+                password_hash,
+            };
+        })
+        .await?;
 
     tracing::info!("Auth config saved with Argon2id hash");
     Ok(())
@@ -72,16 +78,18 @@ fn merge_backend_owned_fields(mut incoming: AppConfig, current: &AppConfig) -> A
     incoming
 }
 
-fn update_preview_config_with_service(
+async fn update_preview_config_with_service(
     config_service: &ConfigService,
     patch: PreviewWindowConfigPatch,
 ) -> Result<PreviewWindowConfig, AppError> {
-    config_service.mutate_and_persist(move |app_config| {
-        let current = app_config.preview_config.clone().unwrap_or_default();
-        let merged = patch.apply_to(current);
-        app_config.preview_config = Some(merged.clone());
-        merged
-    })
+    config_service
+        .mutate_and_persist_async(move |app_config| {
+            let current = app_config.preview_config.clone().unwrap_or_default();
+            let merged = patch.apply_to(current);
+            app_config.preview_config = Some(merged.clone());
+            merged
+        })
+        .await
 }
 
 #[command]
@@ -91,24 +99,43 @@ pub fn load_config(config_service: State<'_, Arc<ConfigService>>) -> AppConfig {
 }
 
 #[command]
-#[instrument(skip(config, config_service, file_index))]
+#[instrument(skip(app, config, config_service, file_index))]
 pub async fn save_config(
+    app: AppHandle,
     config: AppConfig,
     config_service: State<'_, Arc<ConfigService>>,
     file_index: State<'_, Arc<FileIndexService>>,
 ) -> Result<(), AppError> {
-    let old_save_path = config_service.mutate_and_persist(move |current| {
-        let old_save_path = current.save_path.clone();
-        *current = merge_backend_owned_fields(config, current);
-        old_save_path
-    })?;
-    let new_save_path = config_service.get()?.save_path;
+    let (old_save_path, new_save_path) = config_service
+        .mutate_and_persist_async(move |current| {
+            let old_save_path = current.save_path.clone();
+            *current = merge_backend_owned_fields(config, current);
+            // 新路径从 mutate 后的状态直接携带，避免落盘后再 get() 二次读取
+            let new_save_path = current.save_path.clone();
+            (old_save_path, new_save_path)
+        })
+        .await?;
 
     tracing::info!("Configuration saved successfully");
 
     if old_save_path != new_save_path {
-        tracing::info!("save_path changed from {:?} to {:?}, triggering rescan", old_save_path, new_save_path);
-        Arc::clone(&file_index).update_save_path(new_save_path).await?;
+        tracing::info!(
+            "save_path changed from {:?} to {:?}, triggering rescan",
+            old_save_path,
+            new_save_path
+        );
+        // 先扩展 asset protocol scope（幂等且廉价）：若放在 update_save_path
+        // 之后，其内部 scan_directory 失败经 ? 短路返回会让本会话的 scope
+        // 永远缺失新目录（预览窗口直到重启都不可用）
+        if let Err(e) = app
+            .asset_protocol_scope()
+            .allow_directory(&new_save_path, true)
+        {
+            tracing::warn!(error = %e, "Failed to extend asset protocol scope for new save_path");
+        }
+        Arc::clone(&file_index)
+            .update_save_path(new_save_path.clone())
+            .await?;
     }
 
     Ok(())
@@ -117,19 +144,24 @@ pub async fn save_config(
 /// 保存认证配置（使用 Argon2id 哈希密码）
 #[command]
 #[instrument(skip(config_service, password))]
-pub fn save_auth_config(
+pub async fn save_auth_config(
     config_service: State<'_, Arc<ConfigService>>,
     anonymous: bool,
     username: String,
     password: String,
 ) -> Result<(), AppError> {
-    save_auth_config_with_service(config_service.inner().as_ref(), anonymous, username, password)
+    // Argon2 哈希在 helper 内部走 spawn_blocking、落盘走
+    // mutate_and_persist_async（blocking 池），命令层无需再包裹
+    // spawn_blocking——直接 await 即可。
+    save_auth_config_with_service(config_service.inner(), anonymous, username, password).await
 }
 
 /// 选择保存目录
 #[command]
 pub async fn select_save_directory(app: AppHandle) -> Result<Option<String>, String> {
-    crate::platform::get_platform().select_save_directory(&app).await
+    crate::platform::get_platform()
+        .select_save_directory(&app)
+        .await
 }
 
 // ============================================================================
@@ -142,25 +174,23 @@ pub async fn update_preview_config(
     config_service: State<'_, Arc<ConfigService>>,
     patch: PreviewWindowConfigPatch,
 ) -> Result<PreviewWindowConfig, AppError> {
-    let persisted = update_preview_config_with_service(config_service.inner().as_ref(), patch)?;
+    let persisted =
+        update_preview_config_with_service(config_service.inner().as_ref(), patch).await?;
     auto_open.broadcast_config_changed(persisted.clone()).await;
     Ok(persisted)
 }
 
 /// 手动打开预览窗口（遵循用户配置的打开方式）
 #[command]
-pub async fn open_preview_window(
-    app: AppHandle,
-    file_path: String,
-) -> Result<(), AppError> {
+pub async fn open_preview_window(app: AppHandle, file_path: String) -> Result<(), AppError> {
     let path = std::path::PathBuf::from(&file_path);
-    
+
     // 先在 FileIndexService 中查找并设置索引
     let file_index = app.state::<Arc<FileIndexService>>();
     if let Some(index) = file_index.find_file_index(&path).await {
         file_index.navigate_to(index).await?;
     }
-    
+
     // 使用 AutoOpenService 来处理，它会根据配置决定打开方式
     let auto_open = app.state::<AutoOpenService>();
     auto_open.open_image(&path).await
@@ -174,17 +204,18 @@ pub async fn select_executable_file(app: AppHandle) -> Result<Option<String>, Ap
     {
         use tauri_plugin_dialog::DialogExt;
 
-        let file_path: Option<tauri_plugin_dialog::FilePath> = tokio::task::spawn_blocking(move || {
-            app.dialog()
-                .file()
-                .set_title("选择程序")
-                .add_filter("可执行文件", &["exe"])
-                .blocking_pick_file()
-        })
-        .await
-        .map_err(|e| AppError::Other(format!("Task failed: {}", e)))?;
+        let file_path: Option<tauri_plugin_dialog::FilePath> =
+            tokio::task::spawn_blocking(move || {
+                app.dialog()
+                    .file()
+                    .set_title("选择程序")
+                    .add_filter("可执行文件", &["exe"])
+                    .blocking_pick_file()
+            })
+            .await
+            .map_err(|e| AppError::Other(format!("Task failed: {}", e)))?;
 
-        return Ok(file_path.and_then(|p| p.as_path().map(|path| path.to_string_lossy().to_string())));
+        Ok(file_path.and_then(|p| p.as_path().map(|path| path.to_string_lossy().to_string())))
     }
 
     #[cfg(target_os = "android")]
@@ -206,7 +237,9 @@ pub async fn open_external_link(url: String) -> Result<(), AppError> {
 pub async fn open_folder_select_file(file_path: String) -> Result<(), AppError> {
     #[cfg(target_os = "windows")]
     {
-        crate::auto_open::windows::open_folder_and_select_file(&std::path::PathBuf::from(&file_path))
+        crate::auto_open::windows::open_folder_and_select_file(&std::path::PathBuf::from(
+            &file_path,
+        ))
     }
 
     #[cfg(target_os = "android")]
@@ -255,7 +288,26 @@ mod tests {
     }
 
     #[test]
-    fn helper_save_auth_persists_via_service() {
+    fn tauri_conf_csp_covers_preview_and_asset_origins() {
+        // 回归：Windows 预览窗口依赖 image-preview scheme 与 asset protocol，
+        // CSP 缺失任一来源会导致 <img> 加载失败（测试 CWD = src-tauri）
+        let raw = std::fs::read_to_string("tauri.conf.json").expect("read tauri.conf.json");
+        let conf: serde_json::Value = serde_json::from_str(&raw).expect("parse tauri.conf.json");
+        let csp = conf["app"]["security"]["csp"]
+            .as_str()
+            .expect("csp must be a string");
+        for required in [
+            "http://image-preview.localhost",
+            "asset:",
+            "http://asset.localhost",
+            "default-src 'self'",
+        ] {
+            assert!(csp.contains(required), "CSP must contain {:?}", required);
+        }
+    }
+
+    #[tokio::test]
+    async fn helper_save_auth_persists_via_service() {
         let temp_dir = tempdir().expect("failed to create temp dir");
         let config_path = temp_dir.path().join("config.json");
         let service = ConfigService::new_with_path(config_path.clone());
@@ -267,6 +319,7 @@ mod tests {
             "camera-user".to_string(),
             "secret-pass".to_string(),
         )
+        .await
         .expect("failed to save auth config");
 
         let persisted_service = ConfigService::new_with_path(config_path);
@@ -324,8 +377,8 @@ mod tests {
         assert!(merged.auto_bring_to_front);
     }
 
-    #[test]
-    fn helper_update_preview_patch_merges_against_latest_persisted_config() {
+    #[tokio::test]
+    async fn helper_update_preview_patch_merges_against_latest_persisted_config() {
         let temp_dir = tempdir().expect("failed to create temp dir");
         let config_path = temp_dir.path().join("config.json");
         let service = ConfigService::new_with_path(config_path.clone());
@@ -340,6 +393,7 @@ mod tests {
                 auto_bring_to_front: Some(false),
             },
         )
+        .await
         .expect("failed to initialize preview config");
 
         assert!(!updated.enabled);
@@ -354,6 +408,7 @@ mod tests {
                 auto_bring_to_front: Some(true),
             },
         )
+        .await
         .expect("failed to update preview config");
 
         assert!(updated.enabled);
@@ -368,13 +423,14 @@ mod tests {
             .get()
             .expect("failed to read persisted config")
             .preview_config
+            .clone()
             .expect("preview config should exist");
         assert!(persisted.enabled);
         assert!(matches!(persisted.method, ImageOpenMethod::WindowsPhotos));
     }
 
-    #[test]
-    fn helper_update_preview_patch_returns_error_when_persistence_fails() {
+    #[tokio::test]
+    async fn helper_update_preview_patch_returns_error_when_persistence_fails() {
         let temp_dir = tempdir().expect("failed to create temp dir");
         let blocked_parent = temp_dir.path().join("blocked-parent");
         std::fs::write(&blocked_parent, "not a directory").expect("failed to create blocker file");
@@ -388,7 +444,8 @@ mod tests {
                 custom_path: None,
                 auto_bring_to_front: None,
             },
-        );
+        )
+        .await;
 
         assert!(result.is_err());
     }

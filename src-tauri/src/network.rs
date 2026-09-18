@@ -4,8 +4,8 @@
 
 use std::net::SocketAddr;
 
+use local_ip_address::{list_afinet_netifas, local_ip};
 use tokio::net::TcpListener;
-use local_ip_address::{local_ip, list_afinet_netifas};
 
 #[derive(Debug, Clone)]
 struct NetworkInterface {
@@ -56,15 +56,33 @@ impl NetworkManager {
     fn is_virtual_interface(name: &str) -> bool {
         let name_lower = name.to_lowercase();
         let virtual_keywords = [
-            "vmware", "vmnet", "virtualbox", "vbox",
-            "tap", "tun", "vpn", "docker", "veth",
-            "hyper-v", "hyperv", "wsl", "loopback",
-            "pseudo", "teredo", "isatap",
+            "vmware",
+            "vmnet",
+            "virtualbox",
+            "vbox",
+            "tap",
+            "tun",
+            "vpn",
+            "docker",
+            "veth",
+            "hyper-v",
+            "hyperv",
+            "wsl",
+            "loopback",
+            "pseudo",
+            "teredo",
+            "isatap",
             // 代理/组网工具的 TUN 虚拟网卡，名称可能不含 tun 关键字
-            "mihomo", "clash", "tailscale", "zerotier", "wireguard",
+            "mihomo",
+            "clash",
+            "tailscale",
+            "zerotier",
+            "wireguard",
         ];
-        
-        virtual_keywords.iter().any(|keyword| name_lower.contains(keyword))
+
+        virtual_keywords
+            .iter()
+            .any(|keyword| name_lower.contains(keyword))
     }
 
     /// 根据 Windows IfType 判断是否为虚拟/隧道网卡
@@ -89,13 +107,17 @@ impl NetworkManager {
     /// 判断是否为 WiFi 接口
     fn is_wifi_interface(name: &str) -> bool {
         let name_lower = name.to_lowercase();
-        ["wlan", "wi-fi", "wifi", "wl", "wireless"].iter().any(|k| name_lower.contains(k))
+        ["wlan", "wi-fi", "wifi", "wl", "wireless"]
+            .iter()
+            .any(|k| name_lower.contains(k))
     }
 
     /// 判断是否为以太网接口
     fn is_ethernet_interface(name: &str) -> bool {
         let name_lower = name.to_lowercase();
-        ["eth", "en", "ethernet", "lan"].iter().any(|k| name_lower.contains(k))
+        ["eth", "en", "ethernet", "lan"]
+            .iter()
+            .any(|k| name_lower.contains(k))
             && !Self::is_virtual_interface(name)
             && !Self::is_wifi_interface(name)
     }
@@ -129,7 +151,13 @@ impl NetworkManager {
         let adapter_ptr = buffer.as_mut_ptr() as *mut IP_ADAPTER_ADDRESSES_LH;
 
         let result = unsafe {
-            GetAdaptersAddresses(AF_INET, Default::default(), None, Some(adapter_ptr), &mut size)
+            GetAdaptersAddresses(
+                AF_INET,
+                Default::default(),
+                None,
+                Some(adapter_ptr),
+                &mut size,
+            )
         };
 
         if result != 0 {
@@ -162,7 +190,7 @@ impl NetworkManager {
     /// 获取所有网络接口
     fn list_interfaces() -> Vec<NetworkInterface> {
         let mut interfaces = Vec::new();
-        
+
         match list_afinet_netifas() {
             Ok(ifaces) => {
                 for (name, ip) in ifaces {
@@ -186,12 +214,16 @@ impl NetworkManager {
                     let is_wifi = Self::is_wifi_interface(&name);
                     let is_ethernet = Self::is_ethernet_interface(&name);
                     let is_private_lan = Self::is_private_lan(&ip);
-                    
+
                     tracing::info!(
                         "Found network interface: {} = {} (wifi={}, ethernet={}, private_lan={})",
-                        name, ip, is_wifi, is_ethernet, is_private_lan
+                        name,
+                        ip,
+                        is_wifi,
+                        is_ethernet,
+                        is_private_lan
                     );
-                    
+
                     interfaces.push(NetworkInterface {
                         name,
                         ip: ip.to_string(),
@@ -216,30 +248,33 @@ impl NetworkManager {
                 let before = interfaces.len();
                 interfaces = interfaces
                     .into_iter()
-                    .filter_map(|mut iface| {
-                        match adapter_info.get(&iface.name) {
-                            None => {
+                    .filter_map(|mut iface| match adapter_info.get(&iface.name) {
+                        None => {
+                            tracing::debug!(
+                                "Skipping disconnected interface: {} ({})",
+                                iface.name,
+                                iface.ip
+                            );
+                            None
+                        }
+                        Some(&if_type) => {
+                            iface.if_type = Some(if_type);
+                            if Self::is_virtual_by_iftype(if_type) {
                                 tracing::debug!(
-                                    "Skipping disconnected interface: {} ({})",
-                                    iface.name, iface.ip
+                                    "Skipping virtual interface by IfType: {} ({}, IfType={})",
+                                    iface.name,
+                                    iface.ip,
+                                    if_type
                                 );
                                 None
-                            }
-                            Some(&if_type) => {
-                                iface.if_type = Some(if_type);
-                                if Self::is_virtual_by_iftype(if_type) {
-                                    tracing::debug!(
-                                        "Skipping virtual interface by IfType: {} ({}, IfType={})",
-                                        iface.name, iface.ip, if_type
-                                    );
-                                    None
-                                } else {
-                                    tracing::debug!(
-                                        "Kept interface: {} ({}, IfType={})",
-                                        iface.name, iface.ip, if_type
-                                    );
-                                    Some(iface)
-                                }
+                            } else {
+                                tracing::debug!(
+                                    "Kept interface: {} ({}, IfType={})",
+                                    iface.name,
+                                    iface.ip,
+                                    if_type
+                                );
+                                Some(iface)
                             }
                         }
                     })
@@ -255,10 +290,7 @@ impl NetworkManager {
         // 如果没有找到接口，尝试获取本地 IP（但确保不是链路本地地址）
         if interfaces.is_empty() {
             if let Ok(ip) = local_ip() {
-                if ip.is_ipv4() 
-                    && !ip.is_loopback() 
-                    && !Self::is_link_local(&ip) 
-                {
+                if ip.is_ipv4() && !ip.is_loopback() && !Self::is_link_local(&ip) {
                     tracing::info!("Using fallback local IP: {}", ip);
                     let is_private_lan = Self::is_private_lan(&ip);
                     interfaces.push(NetworkInterface {
@@ -272,10 +304,10 @@ impl NetworkManager {
                 }
             }
         }
-        
+
         interfaces
     }
-    
+
     /// 推荐最佳 IP 地址
     /// 优先级（避免 TUN 代理 fake-IP 误选）：
     /// 1. 私网地址的 WiFi 接口
@@ -295,7 +327,11 @@ impl NetworkManager {
         interfaces
             .iter()
             .find(|i| i.is_wifi && i.is_private_lan)
-            .or_else(|| interfaces.iter().find(|i| i.is_ethernet && i.is_private_lan))
+            .or_else(|| {
+                interfaces
+                    .iter()
+                    .find(|i| i.is_ethernet && i.is_private_lan)
+            })
             .or_else(|| interfaces.iter().find(|i| i.is_private_lan))
             .or_else(|| interfaces.iter().find(|i| i.is_wifi))
             .or_else(|| interfaces.iter().find(|i| i.is_ethernet))
@@ -305,13 +341,13 @@ impl NetworkManager {
                 iface.ip.clone()
             })
     }
-    
+
     /// 检查端口是否可用
     pub async fn is_port_available(port: u16) -> bool {
         let addr: SocketAddr = ([0, 0, 0, 0], port).into();
         TcpListener::bind(addr).await.is_ok()
     }
-    
+
     /// 查找从起始端口开始的可用端口
     pub async fn find_available_port(start: u16) -> Option<u16> {
         for port in start..=65535 {

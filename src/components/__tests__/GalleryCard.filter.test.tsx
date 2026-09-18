@@ -8,6 +8,7 @@ import { act } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { GalleryCard } from '../GalleryCard';
 import type { MediaItemDto } from '../../types';
+import { DEFAULT_GRID_METRICS } from '../../utils/grid-metrics';
 import { flush } from '../../test-utils/flush';
 import { createMockRectObserver } from '../../test-utils/mock-resize-observer';
 import { setupReactRoot } from '../../test-utils/react-root';
@@ -238,8 +239,9 @@ describe('GalleryCard extension filter', () => {
       await flush();
     });
 
-    // png-a is the sole filtered item → index 0 → row 0 → scrollTop 0.
-    expect(capturedTop).toBe(0);
+    // png-a is the sole filtered item → index 0 → row 0 → scrollTop = padTop + 0 × pitch
+    // （jsdom 下测量回退 DEFAULT_GRID_METRICS）
+    expect(capturedTop).toBe(DEFAULT_GRID_METRICS.padTop + 0 * DEFAULT_GRID_METRICS.pitch);
     expect(c.querySelector('[data-testid="date-jump-dialog"]')).toBeNull();
   });
 

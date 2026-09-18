@@ -39,17 +39,34 @@ fn test_default_relative_path() {
 // Tests for classify_file + collection mapping (not covered by inline tests)
 // ============================================================================
 
-use super::types::{classify_file, collection_from_class, mime_type_from_filename, MediaFileClass, MIME_TYPE_DEFAULT};
+use super::types::{
+    classify_file, collection_from_class, mime_type_from_filename, MediaFileClass,
+    MIME_TYPE_DEFAULT,
+};
 
 #[test]
 fn test_classify_file_routes_raw_to_images_via_collection_from_class() {
-    for ext in &["dng", "nef", "nrw", "cr2", "cr3", "arw", "sr2", "raf", "orf", "rw2", "pef", "x3f"] {
+    for ext in &[
+        "dng", "nef", "nrw", "cr2", "cr3", "arw", "sr2", "raf", "orf", "rw2", "pef", "x3f",
+    ] {
         let (_, class) = classify_file(&format!("photo.{ext}"));
         let collection = collection_from_class(class);
         match class {
-            MediaFileClass::Image => assert_eq!(collection, MediaStoreCollection::Images, ".{ext} Image → Images"),
-            MediaFileClass::Video => assert_eq!(collection, MediaStoreCollection::Videos, ".{ext} Video → Videos"),
-            MediaFileClass::NonMedia => assert_eq!(collection, MediaStoreCollection::Downloads, ".{ext} NonMedia → Downloads"),
+            MediaFileClass::Image => assert_eq!(
+                collection,
+                MediaStoreCollection::Images,
+                ".{ext} Image → Images"
+            ),
+            MediaFileClass::Video => assert_eq!(
+                collection,
+                MediaStoreCollection::Videos,
+                ".{ext} Video → Videos"
+            ),
+            MediaFileClass::NonMedia => assert_eq!(
+                collection,
+                MediaStoreCollection::Downloads,
+                ".{ext} NonMedia → Downloads"
+            ),
         }
     }
 }
@@ -57,9 +74,15 @@ fn test_classify_file_routes_raw_to_images_via_collection_from_class() {
 #[test]
 fn test_classify_file_unknown_keeps_files_in_downloads() {
     let (_, class) = classify_file("file.bin");
-    assert_eq!(collection_from_class(class), MediaStoreCollection::Downloads);
+    assert_eq!(
+        collection_from_class(class),
+        MediaStoreCollection::Downloads
+    );
     let (_, class) = classify_file("file.txt");
-    assert_eq!(collection_from_class(class), MediaStoreCollection::Downloads);
+    assert_eq!(
+        collection_from_class(class),
+        MediaStoreCollection::Downloads
+    );
 }
 
 #[test]
@@ -99,7 +122,11 @@ fn test_mime_type_raw_formats() {
         ("photo.srw", "image/x-samsung-srw"),
     ];
     for (filename, expected) in cases {
-        assert_eq!(mime_type_from_filename(filename), expected, "failed for {filename}");
+        assert_eq!(
+            mime_type_from_filename(filename),
+            expected,
+            "failed for {filename}"
+        );
     }
 }
 
@@ -119,7 +146,7 @@ fn test_mime_type_raw_formats_case_insensitive() {
 async fn test_mock_bridge_query_nonexistent_file() {
     let temp_dir = TempDir::new().unwrap();
     let bridge = MockMediaStoreBridge::new(temp_dir.path().to_path_buf());
-    
+
     let result = bridge.query_file("nonexistent.jpg").await;
     assert!(matches!(result, Err(MediaStoreError::NotFound(_))));
 }
@@ -129,16 +156,21 @@ async fn test_mock_bridge_query_nonexistent_file() {
 async fn test_mock_bridge_create_and_query() {
     let temp_dir = TempDir::new().unwrap();
     let bridge = MockMediaStoreBridge::new(temp_dir.path().to_path_buf());
-    
+
     // Create a file
     let fd = bridge
-        .open_fd_for_write("test.jpg", "image/jpeg", "DCIM/", MediaStoreCollection::Images)
+        .open_fd_for_write(
+            "test.jpg",
+            "image/jpeg",
+            "DCIM/",
+            MediaStoreCollection::Images,
+        )
         .await;
     #[cfg(unix)]
     assert!(fd.is_ok());
     #[cfg(not(unix))]
     assert!(fd.is_err()); // Expected to fail on non-Unix
-    
+
     // Query should succeed
     let result = bridge.query_file("DCIM/test.jpg").await;
     assert!(result.is_ok());
@@ -154,7 +186,8 @@ async fn test_mock_bridge_query_file_requires_exact_relative_path() {
     let bridge = MockMediaStoreBridge::new(temp_dir.path().to_path_buf());
 
     std::fs::create_dir_all(temp_dir.path().join("DCIM/subdir")).expect("create subdir");
-    std::fs::write(temp_dir.path().join("DCIM/subdir/foo.jpg"), b"nested").expect("write nested file");
+    std::fs::write(temp_dir.path().join("DCIM/subdir/foo.jpg"), b"nested")
+        .expect("write nested file");
 
     let nested = bridge
         .query_file("DCIM/subdir/foo.jpg")
@@ -171,7 +204,7 @@ async fn test_mock_bridge_query_file_requires_exact_relative_path() {
 async fn test_mock_bridge_list_empty_directory() {
     let temp_dir = TempDir::new().unwrap();
     let bridge = MockMediaStoreBridge::new(temp_dir.path().to_path_buf());
-    
+
     let results = bridge.query_files("DCIM/").await;
     // Directory doesn't exist, so results should be empty
     assert_eq!(results.unwrap().len(), 0);
@@ -182,16 +215,21 @@ async fn test_mock_bridge_list_empty_directory() {
 async fn test_mock_bridge_delete_file() {
     let temp_dir = TempDir::new().unwrap();
     let bridge = MockMediaStoreBridge::new(temp_dir.path().to_path_buf());
-    
+
     // Create a file
     let _ = bridge
-        .open_fd_for_write("test.jpg", "image/jpeg", "DCIM/", MediaStoreCollection::Images)
+        .open_fd_for_write(
+            "test.jpg",
+            "image/jpeg",
+            "DCIM/",
+            MediaStoreCollection::Images,
+        )
         .await;
-    
+
     // Delete it
     let result = bridge.delete_file("DCIM/test.jpg").await;
     assert!(result.is_ok());
-    
+
     // Query should fail
     let result = bridge.query_file("DCIM/test.jpg").await;
     assert!(matches!(result, Err(MediaStoreError::NotFound(_))));
@@ -214,7 +252,7 @@ fn create_test_backend() -> (AndroidMediaStoreBackend, TempDir) {
 async fn test_backend_list_empty_directory() {
     let (backend, _temp_dir) = create_test_backend();
     let user = DefaultUser;
-    
+
     let result = backend.list(&user, Path::new("/")).await;
     // Empty directory should return empty list
     assert!(result.is_ok());
@@ -227,7 +265,7 @@ async fn test_backend_list_empty_directory() {
 async fn test_backend_metadata_nonexistent() {
     let (backend, _temp_dir) = create_test_backend();
     let user = DefaultUser;
-    
+
     let result = backend.metadata(&user, Path::new("nonexistent.jpg")).await;
     assert!(result.is_err());
 }
@@ -237,9 +275,13 @@ async fn test_backend_metadata_nonexistent() {
 async fn test_backend_metadata_falls_back_to_download_root_for_file_lookup() {
     let (backend, temp_dir) = create_test_backend();
     let user = DefaultUser;
-    std::fs::create_dir_all(temp_dir.path().join("Download/CameraFTP")).expect("create Download root");
-    std::fs::write(temp_dir.path().join("Download/CameraFTP/download-only.txt"), b"download-only")
-        .expect("write Download fallback file");
+    std::fs::create_dir_all(temp_dir.path().join("Download/CameraFTP"))
+        .expect("create Download root");
+    std::fs::write(
+        temp_dir.path().join("Download/CameraFTP/download-only.txt"),
+        b"download-only",
+    )
+    .expect("write Download fallback file");
 
     let metadata = backend
         .metadata(&user, Path::new("/download-only.txt"))
@@ -258,9 +300,13 @@ async fn test_backend_get_falls_back_to_download_root_for_file_lookup() {
 
     let (backend, temp_dir) = create_test_backend();
     let user = DefaultUser;
-    std::fs::create_dir_all(temp_dir.path().join("Download/CameraFTP")).expect("create Download root");
-    std::fs::write(temp_dir.path().join("Download/CameraFTP/download-read.txt"), b"download-read")
-        .expect("write Download fallback file");
+    std::fs::create_dir_all(temp_dir.path().join("Download/CameraFTP"))
+        .expect("create Download root");
+    std::fs::write(
+        temp_dir.path().join("Download/CameraFTP/download-read.txt"),
+        b"download-read",
+    )
+    .expect("write Download fallback file");
 
     let result = backend.get(&user, Path::new("/download-read.txt"), 0).await;
 
@@ -294,7 +340,7 @@ async fn test_backend_get_falls_back_to_download_root_for_file_lookup() {
 async fn test_backend_mkd_and_list() {
     let (backend, _temp_dir) = create_test_backend();
     let user = DefaultUser;
-    
+
     // MKD is intentionally unsupported in current single-mount mode.
     let result = backend.mkd(&user, Path::new("testdir")).await;
     assert!(result.is_err());
@@ -315,7 +361,7 @@ async fn test_backend_put_accepts_non_media_files() {
         .await;
 
     match result {
-        Ok(_) => {},
+        Ok(_) => {}
         Err(e) => {
             assert_ne!(
                 e.kind(),
@@ -349,7 +395,10 @@ async fn test_backend_cwd_missing_virtual_directory_returns_directory_not_availa
     let result = backend.cwd(&user, Path::new("/missing")).await;
 
     assert!(result.is_err());
-    assert_eq!(result.unwrap_err().kind(), ErrorKind::PermanentDirectoryNotAvailable);
+    assert_eq!(
+        result.unwrap_err().kind(),
+        ErrorKind::PermanentDirectoryNotAvailable
+    );
 }
 
 #[cfg(not(target_os = "android"))]
@@ -446,7 +495,10 @@ async fn test_backend_cwd_rejects_existing_empty_directory_without_descendants()
     let result = backend.cwd(&user, Path::new("/empty-cwd-dir")).await;
 
     assert!(result.is_err());
-    assert_eq!(result.unwrap_err().kind(), ErrorKind::PermanentDirectoryNotAvailable);
+    assert_eq!(
+        result.unwrap_err().kind(),
+        ErrorKind::PermanentDirectoryNotAvailable
+    );
 }
 
 #[cfg(not(target_os = "android"))]
@@ -462,7 +514,10 @@ async fn test_backend_cwd_rejects_empty_explicit_rooted_directory_without_descen
         .await;
 
     assert!(result.is_err());
-    assert_eq!(result.unwrap_err().kind(), ErrorKind::PermanentDirectoryNotAvailable);
+    assert_eq!(
+        result.unwrap_err().kind(),
+        ErrorKind::PermanentDirectoryNotAvailable
+    );
 }
 
 #[cfg(not(target_os = "android"))]
@@ -500,7 +555,9 @@ async fn test_backend_metadata_directory_not_confused_by_unrelated_same_display_
     std::fs::create_dir_all(temp_dir.path().join("Download/CameraFTP/unrelated"))
         .expect("create unrelated directory");
     std::fs::write(
-        temp_dir.path().join("Download/CameraFTP/unrelated/target-dir"),
+        temp_dir
+            .path()
+            .join("Download/CameraFTP/unrelated/target-dir"),
         b"unrelated file with same display name",
     )
     .expect("write unrelated same-name file");
@@ -558,7 +615,9 @@ async fn test_backend_list_merges_virtual_root_and_subdirectory() {
         .list(&user, Path::new("/album"))
         .await
         .expect("list merged album");
-    assert!(album_listing.iter().any(|entry| entry.path == PathBuf::from("dcim.jpg")));
+    assert!(album_listing
+        .iter()
+        .any(|entry| entry.path == PathBuf::from("dcim.jpg")));
     assert!(album_listing
         .iter()
         .any(|entry| entry.path == PathBuf::from("download.jpg")));
@@ -625,7 +684,8 @@ async fn test_backend_metadata_prefers_directory_shape_when_virtual_roots_confli
     let dcim_root = temp_dir.path().join("DCIM/CameraFTP");
     let downloads_root = temp_dir.path().join("Download/CameraFTP");
     std::fs::create_dir_all(&dcim_root).expect("create DCIM root");
-    std::fs::create_dir_all(downloads_root.join("shape-collision")).expect("create Download directory");
+    std::fs::create_dir_all(downloads_root.join("shape-collision"))
+        .expect("create Download directory");
     std::fs::write(dcim_root.join("shape-collision"), b"dcim-file").expect("write DCIM file");
     std::fs::write(downloads_root.join("shape-collision/inside.jpg"), b"inside")
         .expect("write inside Download directory");
@@ -669,7 +729,8 @@ async fn test_backend_get_rejects_directory_when_virtual_roots_collide_file_vs_d
     let dcim_root = temp_dir.path().join("DCIM/CameraFTP");
     let downloads_root = temp_dir.path().join("Download/CameraFTP");
     std::fs::create_dir_all(&dcim_root).expect("create DCIM root");
-    std::fs::create_dir_all(downloads_root.join("shape-collision")).expect("create Download directory");
+    std::fs::create_dir_all(downloads_root.join("shape-collision"))
+        .expect("create Download directory");
     std::fs::write(dcim_root.join("shape-collision"), b"dcim-file").expect("write DCIM file");
     std::fs::write(downloads_root.join("shape-collision/inside.jpg"), b"inside")
         .expect("write inside Download directory");
@@ -687,7 +748,8 @@ async fn test_backend_del_rejects_directory_when_virtual_roots_collide_file_vs_d
     let dcim_root = temp_dir.path().join("DCIM/CameraFTP");
     let downloads_root = temp_dir.path().join("Download/CameraFTP");
     std::fs::create_dir_all(&dcim_root).expect("create DCIM root");
-    std::fs::create_dir_all(downloads_root.join("shape-collision")).expect("create Download directory");
+    std::fs::create_dir_all(downloads_root.join("shape-collision"))
+        .expect("create Download directory");
     let colliding_file = dcim_root.join("shape-collision");
     std::fs::write(&colliding_file, b"dcim-file").expect("write DCIM file");
     std::fs::write(downloads_root.join("shape-collision/inside.jpg"), b"inside")
@@ -704,8 +766,11 @@ async fn test_backend_metadata_explicit_rooted_dcim_path_resolves_without_double
     let (backend, temp_dir) = create_test_backend();
     let user = DefaultUser;
     std::fs::create_dir_all(temp_dir.path().join("DCIM/CameraFTP")).expect("create DCIM root");
-    std::fs::write(temp_dir.path().join("DCIM/CameraFTP/explicit-rooted.jpg"), b"dcim-rooted")
-        .expect("write explicit rooted file");
+    std::fs::write(
+        temp_dir.path().join("DCIM/CameraFTP/explicit-rooted.jpg"),
+        b"dcim-rooted",
+    )
+    .expect("write explicit rooted file");
 
     let metadata = backend
         .metadata(&user, Path::new("/DCIM/CameraFTP/explicit-rooted.jpg"))
@@ -722,8 +787,11 @@ async fn test_backend_metadata_does_not_preserve_arbitrary_download_rooted_path_
     let (backend, temp_dir) = create_test_backend();
     let user = DefaultUser;
     std::fs::create_dir_all(temp_dir.path().join("Download/Other")).expect("create Download/Other");
-    std::fs::write(temp_dir.path().join("Download/Other/foreign.jpg"), b"foreign")
-        .expect("write foreign Download-rooted file");
+    std::fs::write(
+        temp_dir.path().join("Download/Other/foreign.jpg"),
+        b"foreign",
+    )
+    .expect("write foreign Download-rooted file");
 
     let result = backend
         .metadata(&user, Path::new("/Download/Other/foreign.jpg"))
@@ -768,7 +836,10 @@ async fn test_backend_get_explicit_rooted_download_cameraftp_path_uses_direct_lo
     {
         let mut reader = result.expect("explicit rooted get should resolve");
         let mut content = Vec::new();
-        reader.read_to_end(&mut content).await.expect("read content");
+        reader
+            .read_to_end(&mut content)
+            .await
+            .expect("read content");
         assert_eq!(content, b"explicit-get");
     }
 
@@ -800,7 +871,10 @@ async fn test_backend_get_prefers_primary_root_for_file_file_collisions() {
     {
         let mut reader = result.expect("get should resolve primary root file");
         let mut content = Vec::new();
-        reader.read_to_end(&mut content).await.expect("read content");
+        reader
+            .read_to_end(&mut content)
+            .await
+            .expect("read content");
         assert_eq!(content, b"dcim");
     }
 
@@ -913,7 +987,7 @@ async fn test_backend_metadata_directory_uses_merged_max_modified_timestamp() {
 async fn test_backend_del_nonexistent() {
     let (backend, _temp_dir) = create_test_backend();
     let user = DefaultUser;
-    
+
     // Deleting nonexistent file should fail
     let result = backend.del(&user, Path::new("nonexistent.jpg")).await;
     assert!(result.is_err());
@@ -924,8 +998,11 @@ async fn test_backend_del_nonexistent() {
 async fn test_backend_del_falls_back_to_download_root_for_file_lookup() {
     let (backend, temp_dir) = create_test_backend();
     let user = DefaultUser;
-    std::fs::create_dir_all(temp_dir.path().join("Download/CameraFTP")).expect("create Download root");
-    let file_path = temp_dir.path().join("Download/CameraFTP/download-delete.txt");
+    std::fs::create_dir_all(temp_dir.path().join("Download/CameraFTP"))
+        .expect("create Download root");
+    let file_path = temp_dir
+        .path()
+        .join("Download/CameraFTP/download-delete.txt");
     std::fs::write(&file_path, b"delete-me").expect("write Download fallback file");
 
     backend
@@ -982,9 +1059,11 @@ async fn test_backend_del_explicit_rooted_dcim_cameraftp_path_uses_direct_lookup
 async fn test_backend_rename_not_supported() {
     let (backend, _temp_dir) = create_test_backend();
     let user = DefaultUser;
-    
+
     // Rename should return unsupported error
-    let result = backend.rename(&user, Path::new("old.jpg"), Path::new("new.jpg")).await;
+    let result = backend
+        .rename(&user, Path::new("old.jpg"), Path::new("new.jpg"))
+        .await;
     assert!(result.is_err());
 }
 
@@ -996,13 +1075,15 @@ async fn test_put_allows_raw_files_routed_to_images() {
     let data = b"raw-data".to_vec();
     let reader = tokio::io::BufReader::new(std::io::Cursor::new(data.clone()));
 
-    let result = backend.put(&user, reader, "/DCIM/CameraFTP/sample.dng", 0).await;
+    let result = backend
+        .put(&user, reader, "/DCIM/CameraFTP/sample.dng", 0)
+        .await;
 
     // On Unix the mock bridge succeeds; on non-Unix FDs are unsupported so put()
     // fails with PermanentFileNotAvailable — but crucially NOT FileNameNotAllowedError,
     // which proves RAW files now pass the collection admission gate (Images).
     match result {
-        Ok(_) => {},
+        Ok(_) => {}
         Err(e) => {
             assert_ne!(
                 e.kind(),
@@ -1030,8 +1111,14 @@ async fn test_backend_non_media_upload_preserves_virtual_subdir_in_listing() {
     assert_eq!(bytes_written, data.len() as u64);
 
     // The file should be listable under the virtual subdirectory
-    let items = backend.list(&DefaultUser {}, "subdir").await.expect("list subdir should succeed");
-    let names: Vec<String> = items.iter().map(|i| i.path.to_string_lossy().to_string()).collect();
+    let items = backend
+        .list(&DefaultUser {}, "subdir")
+        .await
+        .expect("list subdir should succeed");
+    let names: Vec<String> = items
+        .iter()
+        .map(|i| i.path.to_string_lossy().to_string())
+        .collect();
     assert!(
         names.contains(&"notes.txt".to_string()),
         "Expected notes.txt in subdir listing, got: {names:?}"
@@ -1084,5 +1171,8 @@ async fn test_backend_list_collision_at_nested_path_prefers_directory_over_file(
         .into_iter()
         .find(|entry| entry.path == PathBuf::from("nested"))
         .expect("nested should be listed");
-    assert!(nested.metadata.is_dir(), "directory should win over file at nested path");
+    assert!(
+        nested.metadata.is_dir(),
+        "directory should win over file at nested path"
+    );
 }

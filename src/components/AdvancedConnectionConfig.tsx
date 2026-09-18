@@ -6,10 +6,12 @@
 
 import { useState, useMemo } from 'react';
 import { Loader2, Eye, EyeOff, AlertCircle } from 'lucide-react';
+import { toast } from 'sonner';
 import { ToggleSwitch } from './ui';
 import type { AdvancedConnectionConfig, AppConfig } from '../types';
 import { parsePortInput, usePortCheck } from '../hooks/usePortCheck';
 import { useConfigStore } from '../stores/configStore';
+import { formatError } from '../utils/error';
 
 const PASSWORD_PLACEHOLDER = '••••••••';
 
@@ -26,7 +28,8 @@ type PortValidationError =
   | { type: 'empty' }
   | { type: 'invalid_number' }
   | { type: 'out_of_range'; min: number; max: number }
-  | { type: 'port_in_use'; port: number };
+  | { type: 'port_in_use'; port: number }
+  | { type: 'port_check_failed' };
 
 export function AdvancedConnectionConfigPanel({
   config,
@@ -83,6 +86,8 @@ export function AdvancedConnectionConfigPanel({
         return `端口号必须在 ${error.min}-${error.max} 之间`;
       case 'port_in_use':
         return `端口 ${error.port} 已被占用`;
+      case 'port_check_failed':
+        return '端口检查失败，无法确认端口状态，请重试';
     }
   };
 
@@ -153,6 +158,10 @@ export function AdvancedConnectionConfigPanel({
     if (parsedPort.port === port) return;
 
     const checkResult = await checkPort(parsedPort.port);
+    if (checkResult.error !== undefined) {
+      setPortError({ type: 'port_check_failed' });
+      return;
+    }
     if (!checkResult.available) {
       setPortError({ type: 'port_in_use', port: parsedPort.port });
       return;
@@ -203,7 +212,9 @@ export function AdvancedConnectionConfigPanel({
       setShowPassword(false);
     } catch (error) {
       console.error('Failed to save auth config:', error);
-      setIsEditingPassword(false);
+      toast.error('密码保存失败：' + formatError(error));
+      // 保持编辑模式与已输入内容，用户可修改后重试失焦保存；
+      // 清空输入再失焦即可放弃修改退出编辑。
     }
   };
 

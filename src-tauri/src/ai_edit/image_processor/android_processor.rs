@@ -26,8 +26,9 @@ impl ImagePreprocessor for AndroidImagePreprocessor {
             let context = android_context(env)?;
             let bridge_class = load_app_class(env, &context, BRIDGE_CLASS)?;
 
-            let j_path =
-                jni_ok(env, "JNI new_string failed", |env| env.new_string(&path_str))?;
+            let j_path = jni_ok(env, "JNI new_string failed", |env| {
+                env.new_string(&path_str)
+            })?;
 
             let result = match env.call_static_method(
                 bridge_class,

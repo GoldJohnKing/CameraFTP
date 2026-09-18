@@ -190,17 +190,32 @@ mod tests {
 
     #[test]
     fn code_returns_correct_strings() {
-        assert_eq!(AppError::ServerAlreadyRunning.code(), "SERVER_ALREADY_RUNNING");
+        assert_eq!(
+            AppError::ServerAlreadyRunning.code(),
+            "SERVER_ALREADY_RUNNING"
+        );
         assert_eq!(AppError::ServerNotRunning.code(), "SERVER_NOT_RUNNING");
         assert_eq!(AppError::NoAvailablePort.code(), "NO_AVAILABLE_PORT");
         assert_eq!(AppError::NoNetworkInterface.code(), "NO_NETWORK_INTERFACE");
         assert_eq!(AppError::Io("x".into()).code(), "IO_ERROR");
         assert_eq!(AppError::NetworkError("x".into()).code(), "NETWORK_ERROR");
-        assert_eq!(AppError::PermissionError("x".into()).code(), "PERMISSION_ERROR");
-        assert_eq!(AppError::StoragePermissionError("x".into()).code(), "STORAGE_PERMISSION_ERROR");
+        assert_eq!(
+            AppError::PermissionError("x".into()).code(),
+            "PERMISSION_ERROR"
+        );
+        assert_eq!(
+            AppError::StoragePermissionError("x".into()).code(),
+            "STORAGE_PERMISSION_ERROR"
+        );
         assert_eq!(AppError::AiEditError("x".into()).code(), "AI_EDIT_ERROR");
-        assert_eq!(AppError::ColorGradingError("x".into()).code(), "COLOR_GRADING_ERROR");
-        assert_eq!(AppError::Serialization("x".into()).code(), "SERIALIZATION_ERROR");
+        assert_eq!(
+            AppError::ColorGradingError("x".into()).code(),
+            "COLOR_GRADING_ERROR"
+        );
+        assert_eq!(
+            AppError::Serialization("x".into()).code(),
+            "SERIALIZATION_ERROR"
+        );
         assert_eq!(AppError::Other("x".into()).code(), "OTHER_ERROR");
     }
 

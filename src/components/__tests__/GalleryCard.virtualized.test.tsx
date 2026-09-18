@@ -18,11 +18,12 @@ let mockReload = vi.fn();
 let mockRemoveItems = vi.fn();
 let mockIsLoading = false;
 let mockError: string | null = null;
+let mockCursor: string | null = null;
 
 vi.mock('../../hooks/useGalleryPager', () => ({
   useGalleryPager: () => ({
     items: mockItems,
-    cursor: null,
+    cursor: mockCursor,
     revisionToken: '',
     isLoading: mockIsLoading,
     error: mockError,
@@ -115,6 +116,7 @@ describe('GalleryCard (virtualized)', () => {
     mockRegisterMedia.mockClear();
     mockIsLoading = false;
     mockError = null;
+    mockCursor = null;
     mockGallerySelectionOverrides = {};
     capturedOnDeleteApplied = null;
   });
@@ -129,7 +131,8 @@ describe('GalleryCard (virtualized)', () => {
       await flush();
     });
 
-    // Simulate container height = 360px (3 visible rows at 120px each)
+    // Simulate container height = 360px (3 visible rows at the jsdom fallback
+    // pitch 120 = DEFAULT_GRID_METRICS)
     const gridContainer = getContainer().querySelector('[data-testid="virtual-grid-container"]');
     expect(gridContainer).toBeTruthy();
 
@@ -267,5 +270,79 @@ describe('GalleryCard (virtualized)', () => {
 
     expect(mockRemoveItems).toHaveBeenCalledWith(deletedIds);
     expect(mockRemoveThumbs).toHaveBeenCalledWith(deletedIds);
+  });
+
+  it('triggers loadNextPage when scrolling near the end with a non-null cursor', async () => {
+    // 集成断言：grid → handleNearEnd → pager.loadNextPage 的真实联动链。
+    // mock 游标非空时，临近底部必须触发翻页。
+    mockCursor = 'next-token';
+
+    await act(async () => {
+      getRoot().render(<GalleryCard />);
+      await flush();
+    });
+
+    const gridContainer = getContainer().querySelector('[data-testid="virtual-grid-container"]');
+    expect(gridContainer).toBeTruthy();
+
+    act(() => {
+      resizeMock.triggerResize(gridContainer!, 360);
+    });
+    await flush();
+
+    const callsAfterMount = mockLoadNextPage.mock.calls.length;
+    expect(callsAfterMount).toBe(1); // mount load only
+
+    // 300 items = 100 rows at the jsdom fallback pitch 120 (COLUMNS=3).
+    // scrollTop 10920 → visibleEndRow = floor((10920+360)/120) = 94 →
+    // rowsRemaining = 99 - 94 = 5 ≤ NEAR_END_THRESHOLD (5).
+    Object.defineProperty(gridContainer!, 'scrollTop', {
+      value: 10920,
+      writable: true,
+      configurable: true,
+    });
+    act(() => {
+      gridContainer!.dispatchEvent(new Event('scroll'));
+    });
+    await flush();
+
+    expect(mockLoadNextPage.mock.calls.length).toBeGreaterThan(callsAfterMount);
+  });
+
+  it('still calls loadNextPage on near-end scroll when cursor is null', async () => {
+    // 近底门槛已按审计删除：GalleryCard 不再本地判断 cursor/isLoading，
+    // 无条件透传给 pager.loadNextPage。游标耗尽时不发起 bridge 请求的语义
+    // 由 pager 层 useGalleryPager.test 的
+    // "does not call listMediaPage when cursor is exhausted but items exist"
+    // 钉住。
+    mockCursor = null;
+
+    await act(async () => {
+      getRoot().render(<GalleryCard />);
+      await flush();
+    });
+
+    const gridContainer = getContainer().querySelector('[data-testid="virtual-grid-container"]');
+    expect(gridContainer).toBeTruthy();
+
+    act(() => {
+      resizeMock.triggerResize(gridContainer!, 360);
+    });
+    await flush();
+
+    const callsAfterMount = mockLoadNextPage.mock.calls.length;
+    expect(callsAfterMount).toBe(1); // mount load only
+
+    Object.defineProperty(gridContainer!, 'scrollTop', {
+      value: 10920,
+      writable: true,
+      configurable: true,
+    });
+    act(() => {
+      gridContainer!.dispatchEvent(new Event('scroll'));
+    });
+    await flush();
+
+    expect(mockLoadNextPage.mock.calls.length).toBeGreaterThan(callsAfterMount);
   });
 });

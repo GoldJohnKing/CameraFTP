@@ -19,7 +19,11 @@ fn main() {
     // (no suffix), neural is the distinguished variant (_nn-demosaic), matching
     // the artifact naming convention. build.rs embeds the DLL from whichever
     // subdir matches the active variant.
-    let nn_build_subdir = if nn_enabled { "build-windows-dll_nn-demosaic" } else { "build-windows-dll" };
+    let nn_build_subdir = if nn_enabled {
+        "build-windows-dll_nn-demosaic"
+    } else {
+        "build-windows-dll"
+    };
 
     pack_lut_zip();
     compress_lensfun_db();
@@ -39,7 +43,9 @@ fn main() {
         add_manifest_for_all_artifacts();
     }
 
-    tauri_build::try_build(attributes).expect("tauri-build failed — check that tauri.conf.json is valid and all referenced icons exist");
+    tauri_build::try_build(attributes).expect(
+        "tauri-build failed — check that tauri.conf.json is valid and all referenced icons exist",
+    );
 }
 
 fn pack_lut_zip() {
@@ -68,7 +74,8 @@ fn pack_lut_zip() {
     let out_dir = std::path::PathBuf::from(std::env::var("OUT_DIR").expect("OUT_DIR env var not set — this should be provided by Cargo; are you running outside of 'cargo build'?"));
     let zip_path = out_dir.join("luts.zip");
 
-    let zip_file = fs::File::create(&zip_path).expect("Failed to create luts.zip in OUT_DIR — check disk space and write permissions");
+    let zip_file = fs::File::create(&zip_path)
+        .expect("Failed to create luts.zip in OUT_DIR — check disk space and write permissions");
     let mut zip_writer = zip::ZipWriter::new(zip_file);
     let options = zip::write::SimpleFileOptions::default()
         .compression_method(zip::CompressionMethod::Deflated)
@@ -80,16 +87,23 @@ fn pack_lut_zip() {
         println!("cargo:rerun-if-changed={}", path.display());
 
         let mut data = Vec::new();
-        let mut input = fs::File::open(&path).expect("Failed to open LUT .cube file — check file permissions");
-        input.read_to_end(&mut data).expect("Failed to read LUT .cube file — file may be corrupted or unreadable");
+        let mut input =
+            fs::File::open(&path).expect("Failed to open LUT .cube file — check file permissions");
+        input
+            .read_to_end(&mut data)
+            .expect("Failed to read LUT .cube file — file may be corrupted or unreadable");
 
+        zip_writer.start_file(&file_name, options).expect(
+            "Failed to start ZIP entry for LUT file — ZIP writer may be in an invalid state",
+        );
         zip_writer
-            .start_file(&file_name, options)
-            .expect("Failed to start ZIP entry for LUT file — ZIP writer may be in an invalid state");
-        zip_writer.write_all(&data).expect("Failed to write LUT data to ZIP entry — check disk space");
+            .write_all(&data)
+            .expect("Failed to write LUT data to ZIP entry — check disk space");
     }
 
-    zip_writer.finish().expect("Failed to finalize ZIP archive — check disk space and write permissions");
+    zip_writer
+        .finish()
+        .expect("Failed to finalize ZIP archive — check disk space and write permissions");
 
     let compressed_size = fs::metadata(&zip_path).map(|m| m.len()).unwrap_or(0);
     println!(
@@ -156,9 +170,12 @@ fn compress_lensfun_db() {
         let file_name = path.file_name().unwrap().to_string_lossy().into_owned();
         println!("cargo:rerun-if-changed={}", path.display());
 
-        let mut input = fs::File::open(&path).expect("Failed to open Lensfun DB XML file — check file permissions");
+        let mut input = fs::File::open(&path)
+            .expect("Failed to open Lensfun DB XML file — check file permissions");
         let mut data = Vec::new();
-        input.read_to_end(&mut data).expect("Failed to read Lensfun DB XML file — file may be corrupted or unreadable");
+        input
+            .read_to_end(&mut data)
+            .expect("Failed to read Lensfun DB XML file — file may be corrupted or unreadable");
 
         // Hash filename + content for change detection
         file_name.hash(&mut hasher);
@@ -169,8 +186,12 @@ fn compress_lensfun_db() {
         let output_path = db_out.join(&gz_name);
         let output = fs::File::create(&output_path).expect("Failed to create compressed .gz file in OUT_DIR/lensfun_db — check disk space and write permissions");
         let mut encoder = GzEncoder::new(output, Compression::best());
-        encoder.write_all(&data).expect("Failed to compress XML file to gzip — check disk space");
-        encoder.finish().expect("Failed to finish gzip compression — check disk space and write permissions");
+        encoder
+            .write_all(&data)
+            .expect("Failed to compress XML file to gzip — check disk space");
+        encoder
+            .finish()
+            .expect("Failed to finish gzip compression — check disk space and write permissions");
 
         // Generate manifest entry: ("filename.xml", include_bytes!("lensfun_db/filename.xml.gz"))
         manifest_lines.push(format!(
@@ -258,14 +279,22 @@ fn compress_raw_alchemy_dll(build_subdir: &str) {
 
     let mut input = fs::File::open(&dll_path).expect("Failed to open raw_alchemy_core.dll — ensure the CMake build completed successfully and the DLL exists at the expected path");
     let mut data = Vec::new();
-    input.read_to_end(&mut data).expect("Failed to read raw_alchemy_core.dll — file may be locked by another process or corrupted");
+    input.read_to_end(&mut data).expect(
+        "Failed to read raw_alchemy_core.dll — file may be locked by another process or corrupted",
+    );
 
     let out_dir = std::path::PathBuf::from(std::env::var("OUT_DIR").expect("OUT_DIR env var not set — this should be provided by Cargo; are you running outside of 'cargo build'?"));
     let output_path = out_dir.join("raw_alchemy_core.dll.gz");
-    let output = fs::File::create(&output_path).expect("Failed to create compressed DLL file in OUT_DIR — check disk space and write permissions");
+    let output = fs::File::create(&output_path).expect(
+        "Failed to create compressed DLL file in OUT_DIR — check disk space and write permissions",
+    );
     let mut encoder = GzEncoder::new(output, Compression::best());
-    encoder.write_all(&data).expect("Failed to compress DLL to gzip — check disk space");
-    encoder.finish().expect("Failed to finish DLL gzip compression — check disk space and write permissions");
+    encoder
+        .write_all(&data)
+        .expect("Failed to compress DLL to gzip — check disk space");
+    encoder
+        .finish()
+        .expect("Failed to finish DLL gzip compression — check disk space and write permissions");
 
     let compressed_size = fs::metadata(&output_path).map(|m| m.len()).unwrap_or(0);
     println!(
@@ -280,13 +309,16 @@ fn write_empty_dll_placeholder(filename: &str) {
     let placeholder = out_dir.join(filename);
     // Write a minimal gzip file (empty payload) so include_bytes! still compiles
     use std::io::Write;
-    let mut f = std::fs::File::create(&placeholder).expect("Failed to create DLL placeholder file in OUT_DIR — check disk space and write permissions");
+    let mut f = std::fs::File::create(&placeholder).expect(
+        "Failed to create DLL placeholder file in OUT_DIR — check disk space and write permissions",
+    );
     // Minimal gzip: 10-byte header + 8-byte footer for empty content
     let empty_gz: &[u8] = &[
-        0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03, 0x03, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00,
+        0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03, 0x03, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00,
     ];
-    f.write_all(empty_gz).expect("Failed to write DLL placeholder content — check disk space and write permissions");
+    f.write_all(empty_gz)
+        .expect("Failed to write DLL placeholder content — check disk space and write permissions");
 }
 
 /// Gzip-compress libomp.dll (the OpenMP runtime, copied next to
@@ -348,9 +380,9 @@ fn compress_libomp_dll(build_subdir: &str) {
     encoder
         .write_all(&data)
         .expect("Failed to compress libomp.dll to gzip — check disk space");
-    encoder
-        .finish()
-        .expect("Failed to finish libomp.dll gzip compression — check disk space and write permissions");
+    encoder.finish().expect(
+        "Failed to finish libomp.dll gzip compression — check disk space and write permissions",
+    );
 
     let compressed_size = fs::metadata(&output_path).map(|m| m.len()).unwrap_or(0);
     println!(
@@ -423,7 +455,9 @@ fn compress_nn_cache_dll(
     let output = fs::File::create(&output_path).unwrap_or_else(|e| {
         panic!(
             "Failed to create compressed {} file in OUT_DIR ({}): {}",
-            label, out_dir.display(), e
+            label,
+            out_dir.display(),
+            e
         )
     });
     let mut encoder = GzEncoder::new(output, Compression::best());
@@ -477,8 +511,7 @@ fn compress_directml_dll() {
     }
     println!("cargo:rerun-if-changed=../scripts/fetch-nn-deps.sh");
 
-    let src = std::path::Path::new("lib/rawalchemy")
-        .join("third_party/nn-cache/DirectML.dll");
+    let src = std::path::Path::new("lib/rawalchemy").join("third_party/nn-cache/DirectML.dll");
     compress_nn_cache_dll(
         src,
         "directml.dll.gz",
@@ -542,11 +575,14 @@ fn compress_nn_models() {
             )
         });
         let mut encoder = GzEncoder::new(output, Compression::best());
-        encoder
-            .write_all(&data)
-            .unwrap_or_else(|e| panic!("Failed to compress NN model '{}' to gzip: {}", src_name, e));
+        encoder.write_all(&data).unwrap_or_else(|e| {
+            panic!("Failed to compress NN model '{}' to gzip: {}", src_name, e)
+        });
         encoder.finish().unwrap_or_else(|e| {
-            panic!("Failed to finish NN model '{}' gzip compression: {}", src_name, e)
+            panic!(
+                "Failed to finish NN model '{}' gzip compression: {}",
+                src_name, e
+            )
         });
 
         let compressed_size = fs::metadata(&out_path).map(|m| m.len()).unwrap_or(0);

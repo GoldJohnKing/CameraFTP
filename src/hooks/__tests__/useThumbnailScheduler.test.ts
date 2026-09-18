@@ -557,4 +557,15 @@ describe('useThumbnailScheduler', () => {
       expect(result.current.thumbnails.get('jpg1')).toBe('asset://localhost/cache/thumb_jpg1.jpg');
     });
   });
+
+  it('keeps the returned object identity stable across rerenders', () => {
+    const { result, rerender } = renderHook(() =>
+      useThumbnailScheduler({ debounceMs: TEST_DEBOUNCE }),
+    );
+
+    const first = result.current;
+    rerender();
+
+    expect(result.current).toBe(first);
+  });
 });

@@ -7,54 +7,49 @@
 //! 提供跨平台的文件系统辅助函数。
 
 use std::path::Path;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 use tracing::{debug, trace};
 
-/// 等待文件可读取（文件写入完成）
+/// (大小, mtime) 保持不变的持续时长，超过即视为写入完成。
+/// 取 200ms：足以覆盖连续写入的分段间隙，又不明显拖慢单个文件的索引时机。
+pub(crate) const FILE_READY_STABLE_WINDOW: Duration = Duration::from_millis(200);
+
+/// 等待文件写入完成（大小与修改时间稳定）
 ///
-/// 通过轮询检查文件是否可打开读取，而非使用固定延迟。
-/// 这比固定延迟更可靠，能适应不同大小的文件和不同的I/O速度。
-///
-/// # Arguments
-/// * `path` - 文件路径
-/// * `max_wait` - 最大等待时间
-///
-/// # Returns
-/// * `true` - 文件已就绪（可读取）
-/// * `false` - 超时仍未就绪
-///
-/// # Example
-/// ```ignore
-/// use std::time::Duration;
-/// use camera_ftp_companion_lib::utils::fs::wait_for_file_ready;
-///
-/// if wait_for_file_ready(Path::new("/path/to/file.jpg"), Duration::from_secs(5)).await {
-///     // 文件已就绪，可以安全读取
-/// }
-/// ```
+/// 通过轮询 metadata 的 (len, mtime) 签名判断写入是否结束。
+/// 为什么不用 File::open 成功与否判断：Windows 上 std 默认以
+/// FILE_SHARE_READ|WRITE|DELETE 打开，写方持有句柄时 open 仍然成功；
+/// notify 8.x 的 Windows 后端（ReadDirectoryChangesW）也不派发 Close
+/// 事件，因此"稳定性探测"是唯一可靠的写完信号。
 pub async fn wait_for_file_ready(path: &Path, max_wait: Duration) -> bool {
     let start = Instant::now();
-    let check_interval = Duration::from_millis(10);
+    let poll_interval = Duration::from_millis(20);
+
+    let mut last_sig: Option<(u64, Option<SystemTime>)> = None;
+    let mut last_change = Instant::now();
 
     while start.elapsed() < max_wait {
-        match is_file_readable(path).await {
-            Ok(true) => {
-                trace!(
-                    "File ready after {:?}: {:?}",
-                    start.elapsed(),
-                    path
-                );
-                return true;
-            }
-            Ok(false) => {
-                // 文件存在但可能还在写入，继续等待
-                trace!("File not yet ready, waiting: {:?}", path);
+        match tokio::fs::metadata(path).await {
+            Ok(md) => {
+                let sig = (md.len(), md.modified().ok());
+                if Some(sig) == last_sig {
+                    if last_change.elapsed() >= FILE_READY_STABLE_WINDOW {
+                        trace!("File stable after {:?}: {:?}", start.elapsed(), path);
+                        return true;
+                    }
+                } else {
+                    last_sig = Some(sig);
+                    last_change = Instant::now();
+                }
             }
             Err(_) => {
-                // 文件不存在或其他错误，继续等待（可能文件还没创建）
+                // 文件尚未创建（或刚被删除）：重置签名基准即可。last_change 无需
+                // 重置——文件重新可见时签名必然异于 None，会走 else 分支统一重置；
+                // 在此重置只会白白拉长稳定性窗口。
+                last_sig = None;
             }
         }
-        tokio::time::sleep(check_interval).await;
+        tokio::time::sleep(poll_interval).await;
     }
 
     debug!(
@@ -63,33 +58,6 @@ pub async fn wait_for_file_ready(path: &Path, max_wait: Duration) -> bool {
         path
     );
     false
-}
-
-/// 检查文件是否可读取
-///
-/// 文件可读取意味着：
-/// 1. 文件存在
-/// 2. 可以成功打开（没有写入锁）
-///
-/// # Returns
-/// * `Ok(true)` - 文件存在且可读取
-/// * `Ok(false)` - 文件存在但可能被锁定
-/// * `Err(_)` - 文件不存在或其他错误
-async fn is_file_readable(path: &Path) -> Result<bool, std::io::Error> {
-    // 检查文件是否存在
-    if !tokio::fs::try_exists(path).await.unwrap_or(false) {
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::NotFound,
-            "File does not exist",
-        ));
-    }
-
-    // 尝试打开文件读取
-    match tokio::fs::File::open(path).await {
-        Ok(_) => Ok(true),
-        Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => Ok(false),
-        Err(e) => Err(e),
-    }
 }
 
 /// 检查路径是否可写（通过创建临时测试文件）
@@ -139,6 +107,90 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn wait_for_file_ready_waits_for_stability_window() {
+        let mut file = tempfile::NamedTempFile::new().expect("create temp file");
+        file.write_all(b"test content").expect("write content");
+        file.flush().expect("flush");
+        let path = file.path().to_path_buf();
+
+        let start = Instant::now();
+        let result = wait_for_file_ready(&path, Duration::from_secs(2)).await;
+        assert!(result, "stable file should become ready");
+        // 不能"open 成功即返回"：必须等到稳定性窗口结束
+        assert!(
+            start.elapsed() >= FILE_READY_STABLE_WINDOW,
+            "ready only after the stability window, took {:?}",
+            start.elapsed()
+        );
+    }
+
+    #[tokio::test]
+    async fn wait_for_file_ready_not_ready_while_file_keeps_growing() {
+        let temp_dir = tempfile::tempdir().expect("create temp dir");
+        let path = temp_dir.path().join("growing.jpg");
+        std::fs::write(&path, b"head").expect("initial write");
+
+        // 模拟持续写入：每 40ms 追加一次共 ~600ms（间隔远小于稳定窗口）
+        let writer_path = path.clone();
+        let writer = tokio::spawn(async move {
+            for i in 0..15u32 {
+                tokio::time::sleep(Duration::from_millis(40)).await;
+                use std::io::Write;
+                let mut f = std::fs::OpenOptions::new()
+                    .append(true)
+                    .open(&writer_path)
+                    .expect("open append");
+                f.write_all(format!("-chunk{}", i).as_bytes())
+                    .expect("append chunk");
+            }
+        });
+
+        let start = Instant::now();
+        let result = wait_for_file_ready(&path, Duration::from_secs(5)).await;
+        let elapsed = start.elapsed();
+        writer.await.expect("writer task finishes");
+
+        assert!(result, "file eventually becomes stable");
+        assert!(
+            elapsed >= Duration::from_millis(600),
+            "must not report ready while file is growing (took {:?})",
+            elapsed
+        );
+    }
+
+    #[tokio::test]
+    async fn wait_for_file_ready_mtime_only_change_resets_stability_window() {
+        // len 不变、仅 mtime 推后：签名变化必须重置稳定性窗口，
+        // 不能沿用旧基准提前判稳（若 mtime 不计入签名，~200ms 即就绪）
+        let temp_dir = tempfile::tempdir().expect("create temp dir");
+        let path = temp_dir.path().join("mtime_only.jpg");
+        std::fs::write(&path, b"stable-length").expect("write file");
+
+        // 探测开始 ~100ms 后仅推后 mtime（len 保持不变）
+        let bump_path = path.clone();
+        let bumper = tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            let bumped = SystemTime::now() + Duration::from_secs(2);
+            filetime::set_file_mtime(&bump_path, filetime::FileTime::from_system_time(bumped))
+                .expect("bump mtime");
+        });
+
+        let start = Instant::now();
+        let result = wait_for_file_ready(&path, Duration::from_secs(2)).await;
+        let elapsed = start.elapsed();
+        bumper.await.expect("bumper task finishes");
+
+        assert!(result, "file must eventually become ready");
+        // 正确行为：就绪不早于 探测内变化点(~100ms) + 稳定窗口(200ms) ≈ 300ms；
+        // 若 mtime-only 变化未重置窗口，则 ~200ms 就绪。阈值取 270ms 区分两者。
+        assert!(
+            elapsed >= Duration::from_millis(270),
+            "mtime-only change must reset the stability window (took {:?})",
+            elapsed
+        );
+    }
+
+    #[tokio::test]
     async fn wait_for_file_ready_returns_false_for_nonexistent_file() {
         let path = std::env::temp_dir().join("nonexistent_test_file_12345_unique.jpg");
         let _ = std::fs::remove_file(&path);
@@ -162,4 +214,3 @@ mod tests {
         assert!(result.is_err(), "should fail for nonexistent directory");
     }
 }
-

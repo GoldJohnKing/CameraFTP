@@ -4,7 +4,7 @@
 
 use std::ffi::OsStr;
 use std::os::windows::ffi::OsStrExt;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::ptr;
 use windows::core::PCWSTR;
 use windows::Win32::System::Com::{CoCreateInstance, CoInitialize, CLSCTX_LOCAL_SERVER};
@@ -37,7 +37,7 @@ struct ShellExecutePayload {
 }
 
 impl ShellExecutePayload {
-    fn new(file_path: &PathBuf, operation: Option<&str>, arguments: Option<&PathBuf>) -> Self {
+    fn new(file_path: &Path, operation: Option<&str>, arguments: Option<&Path>) -> Self {
         let file_utf16: Vec<u16> = file_path.as_os_str().encode_wide().chain(Some(0)).collect();
         let operation_utf16 = operation.map(|value| {
             OsStr::new(value)
@@ -72,12 +72,12 @@ impl ShellExecutePayload {
 }
 
 /// 使用系统默认程序打开
-pub fn open_with_default(file_path: &PathBuf) -> Result<(), AppError> {
+pub fn open_with_default(file_path: &Path) -> Result<(), AppError> {
     open_with_shell_execute(file_path, None, None)
 }
 
 /// 使用 Windows 照片应用打开
-pub fn open_with_photos(file_path: &PathBuf) -> Result<(), AppError> {
+pub fn open_with_photos(file_path: &Path) -> Result<(), AppError> {
     unsafe {
         let _ = CoInitialize(None);
     }
@@ -100,7 +100,7 @@ pub fn open_with_photos(file_path: &PathBuf) -> Result<(), AppError> {
 /// 使用 IApplicationActivationManager::ActivateForFile 激活 UWP 应用并打开文件
 unsafe fn activate_uwp_app_for_file(
     app_user_model_id: &str,
-    file_path: &PathBuf,
+    file_path: &Path,
 ) -> Result<(), AppError> {
     // 创建 IApplicationActivationManager 实例
     let manager: IApplicationActivationManager = CoCreateInstance(
@@ -145,13 +145,13 @@ unsafe fn activate_uwp_app_for_file(
 }
 
 /// 使用自定义程序打开
-pub fn open_with_program(file_path: &PathBuf, program: &str) -> Result<(), AppError> {
+pub fn open_with_program(file_path: &Path, program: &str) -> Result<(), AppError> {
     let program_path = PathBuf::from(program);
     open_with_shell_execute(&program_path, None, Some(file_path))
 }
 
 /// 打开文件夹并选中文件
-pub fn open_folder_and_select_file(file_path: &PathBuf) -> Result<(), AppError> {
+pub fn open_folder_and_select_file(file_path: &Path) -> Result<(), AppError> {
     // 使用 explorer /select,<path> 命令打开文件夹并选中文件
     let path_str = file_path.to_string_lossy();
     let arg = format!("/select,{}", path_str);
@@ -189,14 +189,14 @@ pub fn open_folder_and_select_file(file_path: &PathBuf) -> Result<(), AppError> 
 }
 
 /// Open a directory in Windows Explorer.
-pub fn open_directory(dir_path: &PathBuf) -> Result<(), AppError> {
+pub fn open_directory(dir_path: &Path) -> Result<(), AppError> {
     open_with_shell_execute(dir_path, Some("explore"), None)
 }
 
 fn open_with_shell_execute(
-    file_path: &PathBuf,
+    file_path: &Path,
     operation: Option<&str>,
-    arguments: Option<&PathBuf>,
+    arguments: Option<&Path>,
 ) -> Result<(), AppError> {
     unsafe {
         let _ = CoInitialize(None);

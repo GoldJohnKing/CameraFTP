@@ -40,6 +40,7 @@ impl Default for AuthConfig {
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export)]
 #[serde(rename_all = "camelCase", default)]
+#[derive(Default)]
 pub struct AdvancedConnectionConfig {
     /// 是否启用高级连接配置
     pub enabled: bool,
@@ -47,30 +48,17 @@ pub struct AdvancedConnectionConfig {
     pub auth: AuthConfig,
 }
 
-impl Default for AdvancedConnectionConfig {
-    fn default() -> Self {
-        Self {
-            enabled: false,
-            auth: AuthConfig::default(),
-        }
-    }
-}
-
 /// 图片打开方式枚举
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export)]
 #[serde(rename_all = "kebab-case")]
+#[derive(Default)]
 pub enum ImageOpenMethod {
+    #[default]
     BuiltInPreview,
     SystemDefault,
     WindowsPhotos,
     Custom,
-}
-
-impl Default for ImageOpenMethod {
-    fn default() -> Self {
-        ImageOpenMethod::BuiltInPreview
-    }
 }
 
 /// 预览窗口配置
@@ -100,34 +88,22 @@ impl Default for PreviewWindowConfig {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[ts(export)]
 #[serde(rename_all = "kebab-case")]
+#[derive(Default)]
 pub enum AndroidImageOpenMethod {
+    #[default]
     BuiltInViewer,
     ExternalApp,
-}
-
-impl Default for AndroidImageOpenMethod {
-    fn default() -> Self {
-        AndroidImageOpenMethod::BuiltInViewer
-    }
 }
 
 /// Android 图片查看器配置
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export)]
 #[serde(rename_all = "camelCase")]
+#[derive(Default)]
 pub struct AndroidImageViewerConfig {
     pub open_method: AndroidImageOpenMethod,
     #[serde(default)]
     pub auto_open_latest_when_visible: bool,
-}
-
-impl Default for AndroidImageViewerConfig {
-    fn default() -> Self {
-        Self {
-            open_method: AndroidImageOpenMethod::default(),
-            auto_open_latest_when_visible: false,
-        }
-    }
 }
 
 /// 自动调色配置
@@ -337,7 +313,7 @@ impl AppConfig {
         }
 
         // desktop-generic (not android-specific)
-#[cfg(not(target_os = "android"))]
+        #[cfg(not(target_os = "android"))]
         {
             self
         }
@@ -500,7 +476,7 @@ mod tests {
         );
 
         // desktop-generic (not android-specific)
-#[cfg(not(target_os = "android"))]
+        #[cfg(not(target_os = "android"))]
         assert_eq!(normalized.save_path, PathBuf::from("/tmp/custom-cameraftp"));
     }
 }

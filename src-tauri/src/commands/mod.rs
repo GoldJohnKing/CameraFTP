@@ -7,10 +7,10 @@ use tokio::sync::Mutex;
 
 use crate::ftp::FtpServerSlot;
 
-mod config;
 mod ai_edit;
-mod exif;
 mod color_grading;
+mod config;
+mod exif;
 mod file_index;
 mod server;
 mod storage;
@@ -28,47 +28,28 @@ pub use exif::ExifInfo;
 
 // Re-export all commands
 pub use config::{
-    load_config,
-    open_external_link,
-    open_folder_select_file,
-    open_preview_window,
-    open_save_directory,
-    save_auth_config,
-    save_config,
-    select_executable_file,
-    select_save_directory,
-    update_preview_config,
+    load_config, open_external_link, open_folder_select_file, open_preview_window,
+    open_save_directory, save_auth_config, save_config, select_executable_file,
+    select_save_directory, update_preview_config,
 };
 
 pub use exif::{get_image_exif, get_raw_orientation, inject_exif_orientation};
 
-pub use file_index::{
-    get_current_file_index,
-    get_file_list,
-    get_latest_image,
-    navigate_to_file,
-};
+pub use file_index::{get_current_file_index, get_file_list, get_latest_image, navigate_to_file};
 
 pub use server::{
-    check_port_available,
-    hide_main_window,
-    quit_application,
-    show_main_window,
-    start_server,
-    stop_server,
-    get_server_runtime_state,
+    check_port_available, get_server_runtime_state, hide_main_window, quit_application,
+    show_main_window, start_server, stop_server,
 };
 
 pub use ai_edit::{cancel_ai_edit, enqueue_ai_edit};
 
-pub use color_grading::{get_color_grading_presets, enqueue_color_grading, cancel_color_grading, begin_color_grading_preview, apply_color_grading_preview, end_color_grading_preview};
+pub use color_grading::{
+    apply_color_grading_preview, begin_color_grading_preview, cancel_color_grading,
+    end_color_grading_preview, enqueue_color_grading, get_color_grading_presets,
+};
 
 pub use storage::{
-    check_permission_status,
-    check_server_start_prerequisites,
-    ensure_storage_ready,
-    get_autostart_status,
-    get_platform,
-    get_storage_info,
-    set_autostart_command,
+    check_permission_status, check_server_start_prerequisites, ensure_storage_ready,
+    get_autostart_status, get_platform, get_storage_info, set_autostart_command,
 };

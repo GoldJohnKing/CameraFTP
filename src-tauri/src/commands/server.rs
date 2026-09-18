@@ -8,8 +8,8 @@ use tracing::{error, info, instrument};
 use crate::commands::FtpServerState;
 use crate::error::AppError;
 use crate::ftp::types::{FtpServerSlot, ServerInfo, ServerRuntimeView, ServerStateSnapshot};
-use std::time::Duration;
 use crate::network::NetworkManager;
+use std::time::Duration;
 
 #[command]
 #[instrument(skip(state))]
@@ -36,7 +36,8 @@ pub async fn start_server(
         &state.0,
         app.clone(),
         Duration::from_secs(2),
-    ).await?;
+    )
+    .await?;
 
     info!(
         ip = %ctx.ip,
@@ -46,15 +47,17 @@ pub async fn start_server(
 
     let (username, password_info) = ctx.display_credentials;
 
-    Ok(ServerInfo::new(ctx.ip.clone(), ctx.port, username, password_info))
+    Ok(ServerInfo::new(
+        ctx.ip.clone(),
+        ctx.port,
+        username,
+        password_info,
+    ))
 }
 
 #[command]
 #[instrument(skip(state))]
-pub async fn stop_server(
-    state: State<'_, FtpServerState>,
-    app: AppHandle,
-) -> Result<(), AppError> {
+pub async fn stop_server(state: State<'_, FtpServerState>, app: AppHandle) -> Result<(), AppError> {
     info!("Stopping FTP server...");
 
     let server = {
@@ -84,7 +87,7 @@ pub async fn stop_server(
                     Ok(())
                 } else {
                     error!(error = %e, "Error stopping server");
-                    Err(e.into())
+                    Err(e)
                 }
             }
         }

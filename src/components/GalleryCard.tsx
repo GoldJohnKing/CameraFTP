@@ -37,6 +37,11 @@ export const GalleryCard = memo(function GalleryCard() {
   const pager = useGalleryPager();
   const scheduler = useThumbnailScheduler();
 
+  // scheduler 对象随 thumbnails 变化而变化（见 useThumbnailScheduler 的
+  // useMemo 依赖），用 ref 持有以避免 items 未变时重跑 O(n) 注册
+  const schedulerRef = useRef(scheduler);
+  schedulerRef.current = scheduler;
+
   useAndroidAutoOpenLatestPhoto({
     galleryItems: pager.items,
     openMethod: draft?.androidImageViewer?.openMethod,
@@ -90,9 +95,9 @@ export const GalleryCard = memo(function GalleryCard() {
   // Register media metadata with scheduler when items change
   useEffect(() => {
     if (pager.items.length > 0) {
-      scheduler.registerMedia(pager.items);
+      schedulerRef.current.registerMedia(pager.items);
     }
-  }, [pager.items, scheduler]);
+  }, [pager.items]);
   // ===== Extension filter =====
   const [filterMode, setFilterMode] = useState<GalleryFilterMode>('all');
   // Categories that actually have at least one loaded item; drives which
@@ -143,12 +148,12 @@ export const GalleryCard = memo(function GalleryCard() {
     [scheduler, dateByMediaId],
   );
 
+  // 近底无条件透传：pager 层的同步 inflightRef 去重 + cursor===null 早退
+  // 是唯一权威（isLoading 是 React state，比同步 ref 慢一拍，此处重复门槛
+  // 反而会在状态滞后窗口丢掉翻页请求）。
   const handleNearEnd = useCallback(() => {
-    // Load next page when scrolling near the end
-    if (!pager.isLoading && pager.cursor !== null) {
-      void pager.loadNextPage();
-    }
-  }, [pager]);
+    void pager.loadNextPage();
+  }, [pager.loadNextPage]);
 
   const handleItemClick = useCallback(
     (item: MediaItemDto) => {
@@ -190,13 +195,16 @@ export const GalleryCard = memo(function GalleryCard() {
         handleRefreshStart();
         // Reset the extension filter so a refresh always starts from "全部".
         setFilterMode('all');
-        scheduler.cleanup();
+        // 经 schedulerRef 读取（对齐 gallery-items-deleted 监听器）：scheduler
+        // 对象身份随缩略图批变化，直接闭包引用会让 handleRefresh（以及挂着
+        // 它的 GALLERY_REFRESH_REQUESTED_EVENT 监听器）每批缩略图重挂。
+        schedulerRef.current.cleanup();
         await pager.reload();
       });
     } finally {
       setIsRefreshing(false);
     }
-  }, [handleRefreshStart, pager, scheduler, requestStoragePermission, startPermissionPolling]);
+  }, [handleRefreshStart, pager, requestStoragePermission, startPermissionPolling]);
 
   const handleColorGrading = useCallback(() => {
     toggleMenu();
@@ -311,7 +319,9 @@ export const GalleryCard = memo(function GalleryCard() {
       if (mediaIds?.length > 0) {
         const idsToDelete = new Set(mediaIds);
         pager.removeItems(idsToDelete);
-        scheduler.removeThumbs(idsToDelete);
+        // 对齐 registerMedia effect 的做法：经 schedulerRef 读取，避免
+        // scheduler 对象身份变化导致监听器无谓重挂/卸载。
+        schedulerRef.current.removeThumbs(idsToDelete);
         // Invalidate disk cache for deleted media IDs
         void invalidateMediaIds([...idsToDelete]);
       }
@@ -321,7 +331,7 @@ export const GalleryCard = memo(function GalleryCard() {
     return () => {
       window.removeEventListener('gallery-items-deleted', handleItemsDeleted as EventListener);
     };
-  }, [pager, scheduler]);
+  }, [pager]);
 
   // Listen for incremental add events from FTP upload (preserves scroll position)
   useEffect(() => {

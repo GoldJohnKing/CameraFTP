@@ -146,16 +146,16 @@ describe('usePortCheck', () => {
     expect(result.current.isChecking).toBe(false);
   });
 
-  it('returns { available: false } when invoke rejects', async () => {
+  it('returns { available: false, error } when invoke rejects', async () => {
     invokeMock.mockRejectedValue(new Error('boom'));
 
     const { result } = renderHook(() => usePortCheck());
-    let outcome!: { available: boolean };
+    let outcome!: { available: boolean; error?: string };
     await act(async () => {
       outcome = await result.current.checkPort(2121);
     });
 
-    expect(outcome).toEqual({ available: false });
+    expect(outcome).toEqual({ available: false, error: 'boom' });
     expect(result.current.isChecking).toBe(false);
   });
 
@@ -245,5 +245,25 @@ describe('usePortCheck', () => {
     });
     expect(secondOutcome).toEqual({ available: false });
     expect(result.current.isChecking).toBe(false);
+  });
+
+  it('IPC 异常时返回 error 而非误报占用', async () => {
+    invokeMock.mockRejectedValueOnce(new Error('ipc down'));
+    const { result } = renderHook(() => usePortCheck());
+
+    const outcome = await act(() => result.current.checkPort(2121));
+
+    expect(outcome.available).toBe(false);
+    expect(outcome.error).toBe('ipc down');
+  });
+
+  it('正常路径不携带 error 字段', async () => {
+    invokeMock.mockResolvedValueOnce(true);
+    const { result } = renderHook(() => usePortCheck());
+
+    const outcome = await act(() => result.current.checkPort(2121));
+
+    expect(outcome.available).toBe(true);
+    expect(outcome.error).toBeUndefined();
   });
 });

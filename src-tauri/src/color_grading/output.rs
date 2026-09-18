@@ -152,13 +152,9 @@ mod tests {
     #[test]
     fn first_write_name_is_unchanged() {
         // 主名未被占用时，保持默认命名格式，不追加任何后缀。
-        let name = pick_unique_output_name(
-            "IMG_001",
-            "fujifilm-provia",
-            "20260818_120000",
-            |_| false,
-        )
-        .unwrap();
+        let name =
+            pick_unique_output_name("IMG_001", "fujifilm-provia", "20260818_120000", |_| false)
+                .unwrap();
         assert_eq!(name, "IMG_001_fujifilm-provia_20260818_120000.jpg");
     }
 
@@ -169,12 +165,9 @@ mod tests {
             "IMG_001_fujifilm-provia_20260818_120000.jpg",
             "IMG_001_fujifilm-provia_20260818_120000_1.jpg",
         ];
-        let name = pick_unique_output_name(
-            "IMG_001",
-            "fujifilm-provia",
-            "20260818_120000",
-            |n| taken.contains(&n),
-        )
+        let name = pick_unique_output_name("IMG_001", "fujifilm-provia", "20260818_120000", |n| {
+            taken.contains(&n)
+        })
         .unwrap();
         assert_eq!(name, "IMG_001_fujifilm-provia_20260818_120000_2.jpg");
     }
@@ -182,12 +175,8 @@ mod tests {
     #[test]
     fn exhaustion_errors() {
         // 1..=99 全部被占用时报错，与 ai_edit 的 "too many file name collisions" 对齐。
-        let result = pick_unique_output_name(
-            "IMG_001",
-            "fujifilm-provia",
-            "20260818_120000",
-            |_| true,
-        );
+        let result =
+            pick_unique_output_name("IMG_001", "fujifilm-provia", "20260818_120000", |_| true);
         let err = result.unwrap_err().to_string();
         assert!(
             err.contains("too many file name collisions"),

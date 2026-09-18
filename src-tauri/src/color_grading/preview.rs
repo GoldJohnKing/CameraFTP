@@ -6,10 +6,10 @@ use std::path::Path;
 use std::sync::{Arc, OnceLock};
 use tokio::sync::Mutex;
 
-use crate::error::AppError;
 use super::ffi::{RaPreviewSession, RawAlchemyLib};
 use super::lut_data;
 use super::presets::find_preset;
+use crate::error::AppError;
 
 const PREVIEW_JPEG_QUALITY: i32 = 50;
 
@@ -26,7 +26,9 @@ pub struct ColorGradingPreviewState {
 
 impl ColorGradingPreviewState {
     pub fn get_global() -> &'static Self {
-        GLOBAL_PREVIEW_STATE.get().expect("ColorGradingPreviewState not initialized")
+        GLOBAL_PREVIEW_STATE
+            .get()
+            .expect("ColorGradingPreviewState not initialized")
     }
 
     pub fn ensure_init() -> &'static Self {
@@ -54,10 +56,16 @@ impl ColorGradingPreviewState {
 
         if let Some(active) = guard.take() {
             tracing::info!(old_image = %active.image_path, "Ending previous preview session");
-            end_session_internal(&lib, active);
+            end_session_internal(lib, active);
         }
 
-        tracing::info!(image = image_path, half_size, max_w = max_preview_width, max_h = max_preview_height, "Beginning preview session (decoding RAW)...");
+        tracing::info!(
+            image = image_path,
+            half_size,
+            max_w = max_preview_width,
+            max_h = max_preview_height,
+            "Beginning preview session (decoding RAW)..."
+        );
 
         let session = tokio::task::spawn_blocking({
             let input_path = input_path.to_path_buf();
@@ -94,23 +102,32 @@ impl ColorGradingPreviewState {
         max_height: u32,
     ) -> Result<Vec<u8>, AppError> {
         let lib = RawAlchemyLib::get()?;
-        let preset = find_preset(lut_id)
-            .ok_or_else(|| AppError::ColorGradingError(format!("Unknown LUT preset: {}", lut_id)))?;
+        let preset = find_preset(lut_id).ok_or_else(|| {
+            AppError::ColorGradingError(format!("Unknown LUT preset: {}", lut_id))
+        })?;
         let lut_data = lut_data::get_lut_data(&preset.id)?;
 
         let mut guard = self.inner.lock().await;
-        let active = guard.as_mut()
+        let active = guard
+            .as_mut()
             .ok_or_else(|| AppError::ColorGradingError("No active preview session".into()))?;
 
         let session_addr = active.session.ptr as usize;
         let log_space = preset.log_space.clone();
         let metering = metering_mode.to_string();
 
-        tracing::debug!(lut = lut_id, ev = ev_offset,
-                        max_w = max_width, max_h = max_height, "Applying preview grading");
+        tracing::debug!(
+            lut = lut_id,
+            ev = ev_offset,
+            max_w = max_width,
+            max_h = max_height,
+            "Applying preview grading"
+        );
 
         tokio::task::spawn_blocking(move || {
-            let session = RaPreviewSession { ptr: session_addr as *mut std::ffi::c_void };
+            let session = RaPreviewSession {
+                ptr: session_addr as *mut std::ffi::c_void,
+            };
             lib.apply_preview_grading(
                 &session,
                 Some(log_space.as_str()),
@@ -132,7 +149,7 @@ impl ColorGradingPreviewState {
 
         if let Some(active) = guard.take() {
             tracing::info!(image = %active.image_path, "Ending preview session");
-            end_session_internal(&lib, active);
+            end_session_internal(lib, active);
         }
 
         Ok(())
@@ -156,7 +173,11 @@ mod tests {
     fn expect_lib_not_loaded(result: Result<impl std::fmt::Debug, AppError>) {
         match result {
             Err(AppError::ColorGradingError(message)) => {
-                assert!(message.contains("not loaded"), "unexpected error: {}", message);
+                assert!(
+                    message.contains("not loaded"),
+                    "unexpected error: {}",
+                    message
+                );
             }
             other => panic!("expected lib-not-loaded ColorGradingError, got {:?}", other),
         }
@@ -177,7 +198,9 @@ mod tests {
         let state = ColorGradingPreviewState::ensure_init();
         // 使用真实存在的 preset id：证明错误来自库加载门（get() 先于 preset 查找）
         expect_lib_not_loaded(
-            state.apply("fujifilm-provia", "matrix", 0.0, 1024, 768).await,
+            state
+                .apply("fujifilm-provia", "matrix", 0.0, 1024, 768)
+                .await,
         );
     }
 
@@ -191,13 +214,13 @@ mod tests {
     async fn failed_begin_does_not_wedge_the_state_for_subsequent_calls() {
         let state = ColorGradingPreviewState::ensure_init();
 
+        expect_lib_not_loaded(state.begin("X:/nope.nef", None, false, 1024, 768).await);
+        // 失败的 begin 不得毒化内部锁：后续 apply / end 仍能正常返回
         expect_lib_not_loaded(
             state
-                .begin("X:/nope.nef", None, false, 1024, 768)
+                .apply("fujifilm-provia", "matrix", 0.0, 1024, 768)
                 .await,
         );
-        // 失败的 begin 不得毒化内部锁：后续 apply / end 仍能正常返回
-        expect_lib_not_loaded(state.apply("fujifilm-provia", "matrix", 0.0, 1024, 768).await);
         expect_lib_not_loaded(state.end().await);
     }
 }

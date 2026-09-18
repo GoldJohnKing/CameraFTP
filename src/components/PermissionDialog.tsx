@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
 
-import { useEffect, useCallback } from 'react';
+import { useEffect, useCallback, useState } from 'react';
 import { Shield } from 'lucide-react';
 import { usePermissionStore } from '../stores/permissionStore';
 import { PermissionList } from './PermissionList';
@@ -13,7 +13,7 @@ import { Dialog } from './ui';
 interface PermissionDialogProps {
   isOpen: boolean;
   onClose: () => void;
-  onAllGranted: () => void;
+  onAllGranted: () => void | Promise<void>;
 }
 
 export function PermissionDialog({ isOpen, onClose, onAllGranted }: PermissionDialogProps) {
@@ -30,13 +30,32 @@ export function PermissionDialog({ isOpen, onClose, onAllGranted }: PermissionDi
     return () => stopPolling();
   }, [isOpen, checkPermissions, startPolling, stopPolling]);
 
+  const [isStarting, setIsStarting] = useState(false);
+  const [startError, setStartError] = useState<string | null>(null);
+
+  // The dialog stays mounted across isOpen toggles; clear the stale start
+  // error when closing so a later reopen starts from a clean state.
+  useEffect(() => {
+    if (!isOpen) setStartError(null);
+  }, [isOpen]);
+
   // Handle continue button
-  const handleContinue = useCallback(() => {
-    if (allGranted) {
-      onAllGranted();
+  const handleContinue = useCallback(async () => {
+    if (!allGranted || isStarting) return;
+    setIsStarting(true);
+    setStartError(null);
+    try {
+      // continueAfterPermissionsGranted 内部 rethrow（executeAsync rethrow:true），
+      // 启动失败时保持对话框打开供重试；详细错误已由 serverStore.error
+      // 经首页 ServerCard 的 ErrorMessage 展示。
+      await onAllGranted();
       onClose();
+    } catch {
+      setStartError('服务启动失败，请重试');
+    } finally {
+      setIsStarting(false);
     }
-  }, [allGranted, onAllGranted, onClose]);
+  }, [allGranted, isStarting, onAllGranted, onClose]);
 
   return (
     <Dialog
@@ -51,24 +70,31 @@ export function PermissionDialog({ isOpen, onClose, onAllGranted }: PermissionDi
       }
       contentClassName="p-6"
       footer={
-        <div className="flex gap-3 w-full">
-          <button
-            onClick={onClose}
-            className="flex-1 px-4 py-3 bg-gray-100 text-gray-700 rounded-xl hover:bg-gray-200"
-          >
-            取消
-          </button>
-          <button
-            onClick={handleContinue}
-            disabled={!allGranted}
-            className={`flex-1 px-4 py-3 rounded-xl font-medium ${
-              allGranted
-                ? 'bg-blue-500 text-white hover:bg-blue-600'
-                : 'bg-gray-200 text-gray-400 cursor-not-allowed'
-            }`}
-          >
-            {allGranted ? '开始服务' : '请授予权限'}
-          </button>
+        <div className="flex flex-col gap-2 w-full">
+          <div className="flex gap-3 w-full">
+            <button
+              onClick={onClose}
+              className="flex-1 px-4 py-3 bg-gray-100 text-gray-700 rounded-xl hover:bg-gray-200"
+            >
+              取消
+            </button>
+            <button
+              onClick={handleContinue}
+              disabled={!allGranted || isStarting}
+              className={`flex-1 px-4 py-3 rounded-xl font-medium ${
+                allGranted
+                  ? 'bg-blue-500 text-white hover:bg-blue-600'
+                  : 'bg-gray-200 text-gray-400 cursor-not-allowed'
+              }`}
+            >
+              {isStarting ? '启动中…' : allGranted ? '开始服务' : '请授予权限'}
+            </button>
+          </div>
+          {startError && (
+            <p className="text-xs text-red-600 text-center" data-testid="permission-start-error">
+              {startError}
+            </p>
+          )}
         </div>
       }
     >

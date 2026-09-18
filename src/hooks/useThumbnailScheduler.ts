@@ -20,7 +20,7 @@
  */
 
 import { convertFileSrc, invoke } from '@tauri-apps/api/core';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   enqueueThumbnails,
   cancelThumbnailRequests,
@@ -350,12 +350,15 @@ export function useThumbnailScheduler(opts?: UseThumbnailSchedulerOptions) {
     return cleanup;
   }, [cleanup]);
 
-  return {
-    thumbnails,
-    loadingThumbs,
-    updateViewport,
-    removeThumbs,
-    cleanup,
-    registerMedia,
-  };
+  return useMemo(
+    () => ({
+      thumbnails,
+      loadingThumbs,
+      updateViewport,
+      removeThumbs,
+      cleanup,
+      registerMedia,
+    }),
+    [thumbnails, loadingThumbs, updateViewport, removeThumbs, cleanup, registerMedia],
+  );
 }

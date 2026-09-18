@@ -14,6 +14,10 @@ import { formatError } from '../utils/error';
 
 
 export const ServerCard = memo(function ServerCard() {
+  // 分工：store（serverStore）内的同步 in-flight flag 已封住 start_server
+  // IPC 窗口（防 UI 按钮 + 托盘事件并发触发）；本组件的 isStarting 只负责
+  // checkPrerequisites/ensureStorageReady 阶段（store flag 覆盖不到的前置
+  // 检查窗口）的按钮防抖与视觉反馈，二者互补。
   const [isStarting, setIsStarting] = useState(false);
   const isRunning = useServerStore((state) => state.isRunning);
   const isLoading = useServerStore((state) => state.isLoading);

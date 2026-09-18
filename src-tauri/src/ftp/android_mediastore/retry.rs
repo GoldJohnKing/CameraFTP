@@ -104,7 +104,7 @@ where
 
     loop {
         attempt += 1;
-        
+
         match f().await {
             Ok(result) => {
                 if attempt > 1 {
@@ -215,6 +215,4 @@ mod tests {
         assert!(result.is_err());
         assert_eq!(call_count.load(Ordering::SeqCst), 3); // 1 initial + 2 retries
     }
-
-
 }

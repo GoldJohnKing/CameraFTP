@@ -115,7 +115,8 @@ pub struct QueryResult {
 impl QueryResult {
     /// Returns true if this entry is a directory (based on MIME type).
     pub fn is_directory(&self) -> bool {
-        self.mime_type == "inode/directory" || self.mime_type.is_empty() && self.display_name.ends_with('/')
+        self.mime_type == "inode/directory"
+            || self.mime_type.is_empty() && self.display_name.ends_with('/')
     }
 }
 
@@ -289,7 +290,10 @@ mod tests {
 
     #[test]
     fn test_display_name_from_path() {
-        assert_eq!(display_name_from_path("/DCIM/Camera/photo.jpg"), "photo.jpg");
+        assert_eq!(
+            display_name_from_path("/DCIM/Camera/photo.jpg"),
+            "photo.jpg"
+        );
         assert_eq!(display_name_from_path("photo.jpg"), "photo.jpg");
         assert_eq!(display_name_from_path("/photo.jpg"), "photo.jpg");
         assert_eq!(display_name_from_path("DCIM/photo.jpg"), "photo.jpg");
@@ -298,7 +302,10 @@ mod tests {
 
     #[test]
     fn test_relative_path_from_full_path() {
-        assert_eq!(relative_path_from_full_path("/DCIM/Camera/photo.jpg"), "DCIM/Camera/");
+        assert_eq!(
+            relative_path_from_full_path("/DCIM/Camera/photo.jpg"),
+            "DCIM/Camera/"
+        );
         assert_eq!(relative_path_from_full_path("photo.jpg"), "");
         assert_eq!(relative_path_from_full_path("/photo.jpg"), "");
         assert_eq!(relative_path_from_full_path("DCIM/photo.jpg"), "DCIM/");

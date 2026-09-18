@@ -244,45 +244,65 @@ setup_android_env() {
 }
 
 # 签名密钥
+# 口令解析优先级：KEYSTORE_PASSWORD 环境变量 > 仓库外口令文件
+# ${HOME}/.cameraftp/keystore-pass（首次现场生成随机口令时写入，目录权限 700、
+# 文件权限 600，彻底避免明文口令出现在仓库工作树内）> 现场生成（openssl rand -base64 18）。
+# 不存在任何默认口令。
 check_or_create_keystore() {
     local keystore_path="src-tauri/gen/android/keystore.properties"
     local keystore_file="cameraftp.keystore"
+    local pass_file="${HOME}/.cameraftp/keystore-pass"
+
+    if [ -f "$keystore_path" ]; then
+        return 0
+    fi
+
+    warn "签名配置不存在，创建新的签名密钥..."
 
     local key_alias="${KEYSTORE_ALIAS:-cameraftp}"
-    local key_store_pass="${KEYSTORE_PASSWORD:-cameraftp123}"
+    local key_store_pass
+    if [ -n "${KEYSTORE_PASSWORD:-}" ]; then
+        key_store_pass="$KEYSTORE_PASSWORD"
+    elif [ -f "$pass_file" ]; then
+        key_store_pass="$(<"$pass_file")"
+    else
+        if ! command -v openssl >/dev/null 2>&1; then
+            error "无法生成随机口令：需要 openssl，或显式设置 KEYSTORE_PASSWORD 环境变量"
+            return 1
+        fi
+        key_store_pass="$(openssl rand -base64 18)"
+        mkdir -p "$(dirname "$pass_file")"
+        chmod 700 "$(dirname "$pass_file")"
+        printf '%s\n' "$key_store_pass" > "$pass_file"
+        chmod 600 "$pass_file"
+        success "已生成随机签名口令并保存到 $pass_file（位于仓库外的用户目录，不会进入 git）"
+        warn "请妥善备份 $pass_file：口令丢失后该 keystore 无法再用于签名"
+    fi
     local key_pass="${KEY_PASSWORD:-$key_store_pass}"
     local key_dname="${KEYSTORE_DNAME:-CN=CameraFTP, OU=Development, O=GJK, L=Unknown, ST=Unknown, C=CN}"
 
-    if [ ! -f "$keystore_path" ]; then
-        warn "签名配置不存在，创建新的签名密钥..."
+    local keytool_cmd="${SELECTED_TOOLS[keytool]:-keytool}"
+    $keytool_cmd -genkey -v \
+        -keystore "$keystore_file" \
+        -alias "$key_alias" \
+        -keyalg RSA \
+        -keysize 2048 \
+        -validity 10000 \
+        -dname "$key_dname" \
+        -storepass "$key_store_pass" \
+        -keypass "$key_pass"
 
-        local keytool_cmd="${SELECTED_TOOLS[keytool]:-keytool}"
-        $keytool_cmd -genkey -v \
-            -keystore "$keystore_file" \
-            -alias "$key_alias" \
-            -keyalg RSA \
-            -keysize 2048 \
-            -validity 10000 \
-            -dname "$key_dname" \
-            -storepass "$key_store_pass" \
-            -keypass "$key_pass"
+    mv "$keystore_file" "src-tauri/gen/android/$keystore_file"
 
-        mv "$keystore_file" "src-tauri/gen/android/$keystore_file"
-
-        cat > "$keystore_path" << EOF
+    cat > "$keystore_path" << EOF
 storeFile=$keystore_file
 storePassword=$key_store_pass
 keyAlias=$key_alias
 keyPassword=$key_pass
 EOF
 
-        success "签名密钥已创建: src-tauri/gen/android/$keystore_file"
-        info "密钥信息已保存到: $keystore_path"
-
-        if [ "$key_store_pass" = "cameraftp123" ]; then
-            warn "使用的是默认密钥密码，建议设置 KEYSTORE_PASSWORD 环境变量"
-        fi
-    fi
+    success "签名密钥已创建: src-tauri/gen/android/$keystore_file"
+    info "密钥信息已保存到: $keystore_path"
 }
 
 # Find libomp.so from the NDK (OpenMP runtime needed by RawAlchemyCpp)

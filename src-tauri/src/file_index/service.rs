@@ -2,23 +2,27 @@
 // Copyright (C) 2026 GoldJohnKing <GoldJohnKing@Live.cn>
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+use futures::StreamExt;
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::SystemTime;
-use tokio::sync::RwLock;
+use std::time::{Duration, SystemTime};
 #[cfg(target_os = "windows")]
 use tokio::sync::Mutex;
-use tracing::{info, trace, warn};
+use tokio::sync::RwLock;
 #[cfg(target_os = "windows")]
 use tracing::error;
+use tracing::{info, trace, warn};
 
-use crate::config::AppConfig;
-use crate::config_service::ConfigService;
-use crate::error::AppError;
 use super::types::{FileIndex, FileInfo};
-use tauri::Emitter;
 #[cfg(target_os = "windows")]
 use super::watcher::FileWatcher;
+use crate::config::AppConfig;
+use crate::config_service::ConfigService;
+use crate::constants::{FILE_READY_TIMEOUT_SECS, INDEX_SCAN_CONCURRENCY};
+use crate::error::AppError;
+use crate::utils::wait_for_file_ready;
+use tauri::Emitter;
 
 pub struct FileIndexService {
     index: RwLock<FileIndex>,
@@ -32,13 +36,14 @@ impl FileIndexService {
     pub fn new(config_service: Arc<ConfigService>) -> Self {
         let config = config_service.get().unwrap_or_else(|e| {
             warn!(error = %e, "Failed to read config from ConfigService, using defaults");
-            AppConfig::default()
+            Arc::new(AppConfig::default())
         });
+        let save_path = config.save_path.clone();
         Self {
             index: RwLock::new(FileIndex::new()),
-            save_path: RwLock::new(config.save_path.clone()),
+            save_path: RwLock::new(save_path.clone()),
             #[cfg(target_os = "windows")]
-            watcher: Mutex::new(Some(FileWatcher::new(config.save_path))),
+            watcher: Mutex::new(Some(FileWatcher::new(save_path))),
             app_handle: Arc::new(RwLock::new(None)),
         }
     }
@@ -62,7 +67,11 @@ impl FileIndexService {
                 count = index.files().len();
                 latest_filename = index.files().first().map(|f| f.filename.clone());
             }
-            trace!("File index changed event emitted: count={}, latest={:?}", count, latest_filename);
+            trace!(
+                "File index changed event emitted: count={}, latest={:?}",
+                count,
+                latest_filename
+            );
             if let Err(e) = app_handle.emit(
                 "file-index-changed",
                 serde_json::json!({
@@ -156,21 +165,61 @@ impl FileIndexService {
     pub async fn scan_directory(&self) -> Result<(), AppError> {
         let save_path = self.save_path.read().await.clone();
         info!("Starting directory scan: {:?}", save_path);
-        
-        let mut files = Vec::new();
-        self.scan_directory_iterative(&save_path, &mut files).await?;
-        
-        // 按 sort_time 降序，相同则按 modified_time 降序（新文件优先）
-        files.sort_by(|a, b| {
-            b.sort_time.cmp(&a.sort_time)
-                .then_with(|| b.modified_time.cmp(&a.modified_time))
-        });
-        
+
+        // 提交前快照：识别"扫描期间通过 FTP Put 通道新进入索引"的文件，
+        // 提交时保留它们（见 merge_scan_result）
+        let pre_scan_paths: HashSet<PathBuf> = {
+            let index = self.index.read().await;
+            index.path_set.clone()
+        };
+
+        let paths = self.collect_image_paths(&save_path).await?;
+
+        // 并发获取文件信息（EXIF 解析经 spawn_blocking，见 read_exif_time）。
+        // 错误携带源路径，日志可定位到具体文件。
+        //（并发度 INDEX_SCAN_CONCURRENCY 见 constants.rs，与事件通道的
+        // INDEX_EVENT_CONCURRENCY 保持 2× 关系）
+        let infos = {
+            futures::stream::iter(paths)
+                .map(|path| async move {
+                    let metadata = match tokio::fs::metadata(&path).await {
+                        Ok(m) => m,
+                        Err(e) => {
+                            return Err((
+                                path,
+                                AppError::Other(format!("Failed to get metadata: {}", e)),
+                            ))
+                        }
+                    };
+                    self.get_file_info(&path, &metadata)
+                        .await
+                        .map_err(|e| (path, e))
+                })
+                .buffer_unordered(INDEX_SCAN_CONCURRENCY)
+                .collect::<Vec<Result<FileInfo, (PathBuf, AppError)>>>()
+                .await
+        };
+
+        let files: Vec<FileInfo> = infos
+            .into_iter()
+            .filter_map(|r| match r {
+                Ok(file_info) => Some(file_info),
+                Err((path, e)) => {
+                    warn!("Failed to get file info during scan {:?}: {}", path, e);
+                    None
+                }
+            })
+            .collect();
+
         let mut index = self.index.write().await;
-        index.current_index = files.first().map(|_| 0);
-        let count = files.len();
-        index.set_files(files);
-        
+        // merge_scan_result 内部会整体排序，此处无需预排序；
+        // existing 只被只读借用，克隆外层 Arc 即可，避免整份 Vec 深拷贝
+        let existing = Arc::clone(index.files());
+        let merged = Self::merge_scan_result(files, &existing, &pre_scan_paths);
+        index.current_index = merged.first().map(|_| 0);
+        let count = merged.len();
+        index.set_files(merged);
+
         info!("Directory scan complete: {} files found", count);
 
         drop(index);
@@ -179,56 +228,90 @@ impl FileIndexService {
         Ok(())
     }
 
-    /// Scan directories iteratively using a work stack
-    async fn scan_directory_iterative(&self, root: &Path, files: &mut Vec<FileInfo>) -> Result<(), AppError> {
+    /// 迭代遍历目录（工作栈），收集受支持的图片路径
+    async fn collect_image_paths(&self, root: &Path) -> Result<Vec<PathBuf>, AppError> {
         let mut dirs_to_process = vec![root.to_path_buf()];
+        let mut paths = Vec::new();
 
         while let Some(dir) = dirs_to_process.pop() {
-            let mut entries = tokio::fs::read_dir(&dir).await
+            let mut entries = tokio::fs::read_dir(&dir)
+                .await
                 .map_err(|e| AppError::Other(format!("Failed to read dir: {}", e)))?;
 
-            while let Some(entry) = entries.next_entry().await
+            while let Some(entry) = entries
+                .next_entry()
+                .await
                 .map_err(|e| AppError::Other(format!("Failed to read entry: {}", e)))?
             {
                 let path = entry.path();
-                let metadata = entry.metadata().await;
-
-                let metadata = match metadata {
+                let metadata = match entry.metadata().await {
                     Ok(m) => m,
                     Err(_) => continue,
                 };
 
                 if metadata.is_dir() {
                     dirs_to_process.push(path);
-                } else if metadata.is_file() {
-                    if crate::image_utils::is_supported_image(&path) {
-                        match self.get_file_info(&path, &metadata).await {
-                            Ok(file_info) => files.push(file_info),
-                            Err(e) => warn!("Failed to get file info for {:?}: {}", path, e),
-                        }
-                    }
+                } else if metadata.is_file() && crate::image_utils::is_supported_image(&path) {
+                    paths.push(path);
                 }
             }
         }
 
-        Ok(())
+        Ok(paths)
     }
 
+    /// 合并扫描结果与索引中"扫描期间新增"的条目。
+    ///
+    /// FTP Put 监听（ftp/listeners.rs）独立 spawn 调 add_file，可在扫描的
+    /// readdir 与 set_files 提交之间插入。保留规则：
+    /// - existing 中路径不在 scanned 结果、也不在 pre_scan_paths 快照中
+    ///   → 扫描开始后才进入索引的新文件，保留；
+    /// - 在 pre_scan_paths 中但不在 scanned 中 → 扫描期间已删除，丢弃
+    ///   （与旧 set_files 整体覆盖行为一致）；
+    /// - 同一路径以 scanned 的新元数据为准。
+    fn merge_scan_result(
+        scanned: Vec<FileInfo>,
+        existing: &[FileInfo],
+        pre_scan_paths: &HashSet<PathBuf>,
+    ) -> Vec<FileInfo> {
+        // 先在借用期内完成过滤（scanned_paths 持有对 scanned 的借用）
+        let added_during_scan: Vec<FileInfo> = {
+            let scanned_paths: HashSet<&PathBuf> = scanned.iter().map(|f| &f.path).collect();
+            existing
+                .iter()
+                .filter(|f| !scanned_paths.contains(&f.path) && !pre_scan_paths.contains(&f.path))
+                .cloned()
+                .collect()
+        };
 
+        let mut merged = scanned;
+        merged.extend(added_during_scan);
+
+        merged.sort_by(|a, b| {
+            b.sort_time
+                .cmp(&a.sort_time)
+                .then_with(|| b.modified_time.cmp(&a.modified_time))
+        });
+        merged
+    }
 
     /// 获取文件信息（包括EXIF时间）
-    async fn get_file_info(&self, path: &Path, metadata: &std::fs::Metadata) -> Result<FileInfo, AppError> {
-        let filename = path.file_name()
+    async fn get_file_info(
+        &self,
+        path: &Path,
+        metadata: &std::fs::Metadata,
+    ) -> Result<FileInfo, AppError> {
+        let filename = path
+            .file_name()
             .and_then(|n| n.to_str())
             .unwrap_or("unknown")
             .to_string();
-        
-        let modified_time = metadata.modified()
-            .unwrap_or_else(|_| SystemTime::UNIX_EPOCH);
-        
+
+        let modified_time = metadata.modified().unwrap_or(SystemTime::UNIX_EPOCH);
+
         // 尝试读取EXIF时间
         let exif_time = self.read_exif_time(path).await;
-        
+
         // sort_time 优先使用 exif_time
         let sort_time = exif_time.unwrap_or(modified_time);
         let sort_time_ms = sort_time
@@ -249,39 +332,112 @@ impl FileIndexService {
     async fn read_exif_time(&self, path: &Path) -> Option<SystemTime> {
         let path = path.to_path_buf();
         tokio::task::spawn_blocking(move || -> Option<SystemTime> {
-            crate::image_utils::parse_exif(&path).ok()??
+            crate::image_utils::parse_exif(&path)
+                .ok()??
                 .datetime_original
-                .map(|ndt| ndt.and_utc().try_into().ok())?
-        }).await.ok()?
+                .map(|ndt| ndt.and_utc().into())
+        })
+        .await
+        .ok()?
     }
 
-    /// 添加新文件（FTP上传时调用）
+    /// 添加新文件（FTP 上传/watcher 事件调用）
+    ///
+    /// watcher（Created，经稳定性探测放行）与 FTP Put 监听器（文件完全
+    /// 写入后触发）会对同一上传文件各调一次，因此：
+    /// 1. EXIF 解析（spawn_blocking 全文件扫描）之前先做廉价查重；
+    /// 2. 已存在但缺 EXIF 的陈旧条目（写入中途索引的遗留）重新解析回填。
+    ///
+    /// 根位防御（均在提交前生效）：
+    /// - 归属校验：路径不在当前 save_path 之下的迟到事件/重试直接忽略；
+    /// - 写锁内存在性检查：文件在事件乱序中已被删除时不提交幽灵条目。
     pub async fn add_file(&self, path: PathBuf) -> Result<(), AppError> {
         if !crate::image_utils::is_supported_image(&path) {
             return Ok(()); // 跳过非图片文件
         }
 
-        let metadata = tokio::fs::metadata(&path).await
+        // 归属校验：迟到的重试/事件不得把旧目录文件混入当前索引
+        //（Path::starts_with 按分量比较，分隔符差异天然免疫）
+        {
+            let save_path = self.save_path.read().await.clone();
+            if !path.starts_with(&save_path) {
+                trace!("Path outside current save_path, ignoring: {:?}", path);
+                return Ok(());
+            }
+        }
+
+        // 廉价查重前置：已索引且不缺 EXIF → 直接返回，避免重复解析
+        {
+            let index = self.index.read().await;
+            if index.contains_path(&path) {
+                let needs_backfill = index
+                    .files()
+                    .iter()
+                    .any(|f| f.path == path && f.exif_time.is_none());
+                if !needs_backfill {
+                    trace!("File already indexed, skipping: {:?}", path);
+                    return Ok(());
+                }
+            }
+        }
+
+        let metadata = tokio::fs::metadata(&path)
+            .await
             .map_err(|e| AppError::Other(format!("Failed to get metadata: {}", e)))?;
 
         let file_info = self.get_file_info(&path, &metadata).await?;
 
-        // Atomic check-and-insert under write lock to prevent TOCTOU race
+        // 原子检查-插入（写锁内防 TOCTOU 竞态）
         let mut index = self.index.write().await;
 
-        if index.contains_path(&path) {
-            trace!("File already indexed, skipping: {:?}", path);
+        // 提交前存在性检查（原子根位）：封住"事件乱序中文件已被删除"的
+        // 幽灵条目窗口——watcher Created 并发 × Deleted 串行、迟到重试等
+        // 全部调用方统一受保护。try_exists Err（Windows 写入期共享冲突）
+        // 视为存在（保留条目），与既有复查语义一致。
+        if !tokio::fs::try_exists(&path).await.unwrap_or(true) {
+            warn!("File vanished before index commit: {:?}", path);
             return Ok(());
+        }
+
+        // 单次遍历定位：同时携带位置、既有 EXIF 状态与"是否为当前查看项"，
+        // 避免对 files() 的重复索引访问
+        let mut was_current = false;
+        // 回填发生标记：条目被替换意味着文件内容与索引认知不符，
+        // 提交后需同步失效预览缓存（见下方 drop(index) 之后）
+        let mut backfilled = false;
+        if let Some((pos, existing)) = index
+            .files()
+            .iter()
+            .enumerate()
+            .find(|(_, f)| f.path == path)
+        {
+            let existing_has_exif = existing.exif_time.is_some();
+            was_current = index.current_index == Some(pos);
+            if existing_has_exif || file_info.exif_time.is_none() {
+                // 已有条目不劣于新解析结果：跳过（并发重复，或新解析失败）
+                trace!("File already indexed, skipping: {:?}", path);
+                return Ok(());
+            }
+            // 回填：移除缺 EXIF 的陈旧条目，让新 file_info 按排序位置重新插入
+            let files: &mut Vec<FileInfo> = Arc::make_mut(&mut index.files);
+            files.remove(pos);
+            let new_len = files.len();
+            Self::adjust_current_index_after_removal(&mut index.current_index, pos, new_len);
+            index.path_set.remove(&path);
+            backfilled = true;
+            info!("Backfilled EXIF for stale index entry: {:?}", path);
         }
 
         // Insert into sorted position using copy-on-write (Arc::make_mut)
         {
             let files: &mut Vec<FileInfo> = Arc::make_mut(&mut index.files);
             // sort_time 降序，相同则 modified_time 降序（新文件优先）
-            let insert_pos = files.iter()
+            let insert_pos = files
+                .iter()
                 .position(|f| {
-                    f.sort_time < file_info.sort_time ||
-                    (f.sort_time == file_info.sort_time && f.modified_time < file_info.modified_time)
+                    f.sort_time < file_info.sort_time
+                        || (f.sort_time == file_info.sort_time
+                            && f.modified_time < file_info.modified_time)
                 })
                 .unwrap_or(files.len());
 
@@ -292,16 +448,51 @@ impl FileIndexService {
                     index.current_index = Some(current + 1);
                 }
             }
+            // 回填重插的正是当前查看项：remove+adjust 后的通用位移不再适用，
+            // 无论条目前移/后移，直接把 current_index 指回该文件的新位置
+            if was_current {
+                index.current_index = Some(insert_pos);
+            }
         }
 
         index.path_set.insert(path.clone());
         drop(index);
         info!("Added file to index: {:?}", path);
 
+        if backfilled {
+            // 回填意味着文件内容与索引认知不符（半写期索引到的旧字节），
+            // 预览缓存同样可能滞留旧数据——与 remove_file 的失效处理一致
+            //（invalidate_preview_cache 在非 Windows 平台为 no-op）。
+            // 写锁已释放，此处不延长锁持有时间。
+            self.invalidate_preview_cache(&path).await;
+        }
+
         // 发射文件索引变化事件
         self.emit_file_index_changed().await;
 
         Ok(())
+    }
+
+    /// 超时降级后的有界再探测：延迟后再探一次就绪，就绪则补一次 add_file
+    /// （EXIF 回填收敛点）。默认至多 2 轮。delay 参数化供测试以 0ms 驱动。
+    pub(crate) async fn retry_index_if_stable(
+        file_index: &Arc<Self>,
+        path: PathBuf,
+        delay: Duration,
+        max_attempts: u32,
+    ) {
+        let mut remaining = max_attempts;
+        while remaining > 0 {
+            remaining -= 1;
+            tokio::time::sleep(delay).await;
+            // 探测失败（仍未稳定/已消失）→ 消耗本轮，进入下一轮直至用尽
+            if wait_for_file_ready(&path, Duration::from_secs(FILE_READY_TIMEOUT_SECS)).await {
+                if let Err(e) = file_index.add_file(path).await {
+                    warn!("Bounded re-index after stability retry failed: {}", e);
+                }
+                return;
+            }
+        }
     }
 
     /// 从索引中移除文件
@@ -346,7 +537,9 @@ impl FileIndexService {
 
             if let Some(app_handle) = app_handle {
                 use tauri::Manager;
-                if let Some(cache) = app_handle.try_state::<Arc<crate::image_preview::ImagePreviewCache>>() {
+                if let Some(cache) =
+                    app_handle.try_state::<Arc<crate::image_preview::ImagePreviewCache>>()
+                {
                     cache.invalidate(path);
                 }
             }
@@ -475,7 +668,20 @@ impl FileIndexService {
     pub async fn set_test_files(&self, files: Vec<FileInfo>) {
         let mut index = self.index.write().await;
         index.set_files(files);
-        index.current_index = if !index.files().is_empty() { Some(0) } else { None };
+        index.current_index = if !index.files().is_empty() {
+            Some(0)
+        } else {
+            None
+        };
+    }
+
+    /// 测试专用：持有索引读锁守卫。watcher 的乱序窗口测试用它把
+    /// add_file 确定性卡在提交点（写锁获取处，位于元数据读取与 EXIF
+    /// 解析之后、提交之前）。守卫随 Drop 释放；读锁不阻塞其他读方，
+    /// 只阻塞写提交。
+    #[cfg(test)]
+    pub(crate) async fn test_hold_index_read(&self) -> tokio::sync::RwLockReadGuard<'_, FileIndex> {
+        self.index.read().await
     }
 
     pub async fn update_save_path(self: Arc<Self>, new_path: PathBuf) -> Result<(), AppError> {
@@ -500,9 +706,10 @@ impl FileIndexService {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashSet;
     use std::path::{Path, PathBuf};
     use std::sync::Arc;
-    use std::time::SystemTime;
+    use std::time::{Duration, SystemTime};
 
     use tempfile::tempdir;
 
@@ -519,6 +726,19 @@ mod tests {
             modified_time: SystemTime::UNIX_EPOCH,
             sort_time: sort_time_ms,
         }
+    }
+
+    /// 构造配置了 save_path（= 给定目录）的服务。add_file 的归属校验
+    ///（S4）要求路径位于当前 save_path 之下，直接在目录内落盘的测试
+    /// 必须先配置，否则 add_file 会被静默忽略。
+    fn service_with_save_path(dir: &Path) -> FileIndexService {
+        let config_service = ConfigService::new_with_path(dir.join("config.json"));
+        config_service
+            .mutate_and_persist(|config| {
+                config.save_path = dir.to_path_buf();
+            })
+            .expect("persist config");
+        FileIndexService::new(Arc::new(config_service))
     }
 
     #[tokio::test]
@@ -549,10 +769,7 @@ mod tests {
             "expected latest file on startup from configured save path even before explicit scan"
         );
         assert_eq!(
-            latest
-                .as_ref()
-                .expect("latest file should exist")
-                .filename,
+            latest.as_ref().expect("latest file should exist").filename,
             "latest.jpg"
         );
         assert_eq!(file_index_service.get_file_count().await, 1);
@@ -565,11 +782,13 @@ mod tests {
         let config_service = ConfigService::new_with_path(config_path);
         let service = FileIndexService::new(Arc::new(config_service));
 
-        service.set_test_files(vec![
-            make_file_info("/images/a.jpg", 3000),
-            make_file_info("/images/b.jpg", 2000),
-            make_file_info("/images/c.jpg", 1000),
-        ]).await;
+        service
+            .set_test_files(vec![
+                make_file_info("/images/a.jpg", 3000),
+                make_file_info("/images/b.jpg", 2000),
+                make_file_info("/images/c.jpg", 1000),
+            ])
+            .await;
 
         assert_eq!(service.get_current_index().await, Some(0));
 
@@ -587,10 +806,12 @@ mod tests {
         let config_service = ConfigService::new_with_path(config_path);
         let service = FileIndexService::new(Arc::new(config_service));
 
-        service.set_test_files(vec![
-            make_file_info("/images/a.jpg", 3000),
-            make_file_info("/images/b.jpg", 2000),
-        ]).await;
+        service
+            .set_test_files(vec![
+                make_file_info("/images/a.jpg", 3000),
+                make_file_info("/images/b.jpg", 2000),
+            ])
+            .await;
 
         // Remove current (index 0 = a.jpg) — should stay at 0, now pointing to b.jpg
         let removed = service.remove_file(Path::new("/images/a.jpg")).await;
@@ -607,11 +828,13 @@ mod tests {
         let config_service = ConfigService::new_with_path(config_path);
         let service = FileIndexService::new(Arc::new(config_service));
 
-        service.set_test_files(vec![
-            make_file_info("/images/a.jpg", 3000),
-        ]).await;
+        service
+            .set_test_files(vec![make_file_info("/images/a.jpg", 3000)])
+            .await;
 
-        let removed = service.remove_file(Path::new("/images/nonexistent.jpg")).await;
+        let removed = service
+            .remove_file(Path::new("/images/nonexistent.jpg"))
+            .await;
         assert!(!removed.expect("remove should return false"));
         assert_eq!(service.get_file_count().await, 1);
     }
@@ -623,10 +846,12 @@ mod tests {
         let config_service = ConfigService::new_with_path(config_path);
         let service = FileIndexService::new(Arc::new(config_service));
 
-        service.set_test_files(vec![
-            make_file_info("/images/newest.jpg", 3000),
-            make_file_info("/images/oldest.jpg", 1000),
-        ]).await;
+        service
+            .set_test_files(vec![
+                make_file_info("/images/newest.jpg", 3000),
+                make_file_info("/images/oldest.jpg", 1000),
+            ])
+            .await;
 
         let latest = service.get_latest_file().await;
         assert!(latest.is_some());
@@ -654,12 +879,198 @@ mod tests {
         std::fs::write(&file_path, b"test-jpeg-content").expect("write file");
 
         // Add it
-        service.add_file(file_path.clone()).await.expect("first add");
+        service
+            .add_file(file_path.clone())
+            .await
+            .expect("first add");
         assert_eq!(service.get_file_count().await, 1);
 
         // Add again — should be skipped as duplicate
-        service.add_file(file_path.clone()).await.expect("second add");
+        service
+            .add_file(file_path.clone())
+            .await
+            .expect("second add");
         assert_eq!(service.get_file_count().await, 1);
+    }
+
+    #[tokio::test]
+    async fn add_file_backfills_exif_for_stale_entry() {
+        let temp_dir = tempdir().expect("failed to create temp dir");
+        let config_path = temp_dir.path().join("config.json");
+        let save_path = temp_dir.path().join("images");
+        std::fs::create_dir_all(&save_path).expect("create dir");
+
+        let config_service = ConfigService::new_with_path(config_path);
+        config_service
+            .mutate_and_persist(|config| {
+                config.save_path = save_path.clone();
+            })
+            .expect("persist config");
+
+        let service = FileIndexService::new(Arc::new(config_service));
+
+        let file_path = save_path.join("backfill.jpg");
+
+        // 1) 无 EXIF 的普通 JPEG 先入索引（模拟"写入中途索引"的陈旧条目）
+        let plain = image::RgbImage::from_pixel(2, 2, image::Rgb([64u8, 64, 64]));
+        let mut buf: Vec<u8> = Vec::new();
+        image::DynamicImage::ImageRgb8(plain)
+            .write_to(
+                &mut std::io::Cursor::new(&mut buf),
+                image::ImageFormat::Jpeg,
+            )
+            .expect("encode plain jpeg");
+        std::fs::write(&file_path, &buf).expect("write plain jpeg");
+        // mtime 拨到一年前，确保陈旧条目与回填后的 sort_time 差异明显
+        let old_system =
+            std::time::SystemTime::now() - std::time::Duration::from_secs(365 * 24 * 3600);
+        filetime::set_file_mtime(&file_path, filetime::FileTime::from_system_time(old_system))
+            .expect("set old mtime");
+
+        service
+            .add_file(file_path.clone())
+            .await
+            .expect("first add");
+        let files = service.get_files().await;
+        assert_eq!(files.len(), 1);
+        assert!(files[0].exif_time.is_none(), "plain jpeg entry has no exif");
+
+        // 2) 文件补上 EXIF（等价于完整写入后 Put 事件再次触发 add_file）
+        std::fs::write(
+            &file_path,
+            crate::image_utils::build_exif_jpeg("2024:06:01 12:00:00", 1),
+        )
+        .expect("overwrite with exif jpeg");
+
+        service
+            .add_file(file_path.clone())
+            .await
+            .expect("second add");
+
+        let files = service.get_files().await;
+        assert_eq!(files.len(), 1, "backfill must replace, not duplicate");
+        assert!(
+            files[0].exif_time.is_some(),
+            "stale entry must be backfilled with EXIF time"
+        );
+    }
+
+    #[tokio::test]
+    async fn add_file_backfill_keeps_current_index_when_exif_moves_newer() {
+        // 当前查看项回填后 EXIF 变新 → 条目前移到列表头（位置 0），
+        // current_index 必须仍指向该文件，而不是指向顶替其旧位置的邻居
+        let temp_dir = tempdir().expect("failed to create temp dir");
+        let service = service_with_save_path(temp_dir.path());
+
+        // [a(3000), b(2000), c(1000)] 按 mtime 排序
+        service
+            .add_file(create_file_with_mtime(temp_dir.path(), "a.jpg", 3000))
+            .await
+            .unwrap();
+        service
+            .add_file(create_file_with_mtime(temp_dir.path(), "b.jpg", 2000))
+            .await
+            .unwrap();
+        service
+            .add_file(create_file_with_mtime(temp_dir.path(), "c.jpg", 1000))
+            .await
+            .unwrap();
+
+        // 目标文件：无 EXIF、mtime 1500 → 落在 b 与 c 之间（索引位置 2），设为当前查看项
+        let target = create_file_with_mtime(temp_dir.path(), "target.jpg", 1500);
+        service.add_file(target.clone()).await.unwrap();
+        let current = service
+            .find_file_index(&target)
+            .await
+            .expect("target must be indexed");
+        assert_eq!(current, 2);
+        service
+            .navigate_to(current)
+            .await
+            .expect("navigate to target");
+        assert_eq!(service.get_current_index().await, Some(2));
+
+        // 补上"远新于一切 mtime"的 EXIF（2030）→ 回填后 sort_time 最大，前移到位置 0
+        std::fs::write(
+            &target,
+            crate::image_utils::build_exif_jpeg("2030:06:15 12:00:00", 1),
+        )
+        .expect("overwrite with exif jpeg");
+        service.add_file(target.clone()).await.unwrap();
+
+        let files = service.get_files().await;
+        assert_eq!(files.len(), 4, "backfill must replace, not duplicate");
+        assert_eq!(
+            files[0].path, target,
+            "newer EXIF must move the entry to the front"
+        );
+        let current_index = service
+            .get_current_index()
+            .await
+            .expect("current must stay set");
+        assert_eq!(current_index, 0);
+        assert_eq!(
+            files[current_index].path, target,
+            "current index must follow the backfilled file"
+        );
+    }
+
+    #[tokio::test]
+    async fn add_file_backfill_keeps_current_index_when_exif_moves_older() {
+        // 当前查看项回填后 EXIF 变旧 → 条目后移到列表尾（位置 3），
+        // current_index 必须仍指向该文件
+        let temp_dir = tempdir().expect("failed to create temp dir");
+        let service = service_with_save_path(temp_dir.path());
+
+        service
+            .add_file(create_file_with_mtime(temp_dir.path(), "a.jpg", 3000))
+            .await
+            .unwrap();
+        service
+            .add_file(create_file_with_mtime(temp_dir.path(), "b.jpg", 2000))
+            .await
+            .unwrap();
+        service
+            .add_file(create_file_with_mtime(temp_dir.path(), "c.jpg", 1000))
+            .await
+            .unwrap();
+
+        // 无 EXIF、mtime 1500 → 落在 b 与 c 之间（索引位置 2），设为当前查看项
+        let target = create_file_with_mtime(temp_dir.path(), "target.jpg", 1500);
+        service.add_file(target.clone()).await.unwrap();
+        let current = service
+            .find_file_index(&target)
+            .await
+            .expect("target must be indexed");
+        assert_eq!(current, 2);
+        service
+            .navigate_to(current)
+            .await
+            .expect("navigate to target");
+
+        // 补上"远旧于一切 mtime"的 EXIF（epoch+30s）→ 回填后 sort_time 最小，后移到末尾
+        std::fs::write(
+            &target,
+            crate::image_utils::build_exif_jpeg("1970:01:01 00:00:30", 1),
+        )
+        .expect("overwrite with exif jpeg");
+        service.add_file(target.clone()).await.unwrap();
+
+        let files = service.get_files().await;
+        assert_eq!(files.len(), 4, "backfill must replace, not duplicate");
+        assert_eq!(
+            files[3].path, target,
+            "older EXIF must move the entry to the back"
+        );
+        let current_index = service
+            .get_current_index()
+            .await
+            .expect("current must stay set");
+        assert_eq!(current_index, 3);
+        assert_eq!(
+            files[current_index].path, target,
+            "current index must follow the backfilled file"
+        );
     }
 
     #[tokio::test]
@@ -669,9 +1080,9 @@ mod tests {
         let config_service = ConfigService::new_with_path(config_path);
         let service = FileIndexService::new(Arc::new(config_service));
 
-        service.set_test_files(vec![
-            make_file_info("/images/a.jpg", 3000),
-        ]).await;
+        service
+            .set_test_files(vec![make_file_info("/images/a.jpg", 3000)])
+            .await;
 
         assert_eq!(service.get_current_index().await, Some(0));
 
@@ -715,44 +1126,80 @@ mod tests {
     #[tokio::test]
     async fn add_file_newer_than_current_shifts_current_index() {
         let temp_dir = tempdir().expect("failed to create temp dir");
-        let config_service = ConfigService::new_with_path(temp_dir.path().join("config.json"));
-        let service = FileIndexService::new(Arc::new(config_service));
+        let service = service_with_save_path(temp_dir.path());
 
         // Seed: [b(2000), a(1000)] sorted by sort_time descending
-        service.add_file(create_file_with_mtime(temp_dir.path(), "b.jpg", 2000)).await.unwrap();
-        service.add_file(create_file_with_mtime(temp_dir.path(), "a.jpg", 1000)).await.unwrap();
-        service.navigate_to(0).await.expect("navigate to first file");
+        service
+            .add_file(create_file_with_mtime(temp_dir.path(), "b.jpg", 2000))
+            .await
+            .unwrap();
+        service
+            .add_file(create_file_with_mtime(temp_dir.path(), "a.jpg", 1000))
+            .await
+            .unwrap();
+        service
+            .navigate_to(0)
+            .await
+            .expect("navigate to first file");
         assert_eq!(service.get_current_index().await, Some(0));
 
         // Insert a NEWER file — it lands before the current index → shift +1
-        service.add_file(create_file_with_mtime(temp_dir.path(), "n.jpg", 3000)).await.unwrap();
+        service
+            .add_file(create_file_with_mtime(temp_dir.path(), "n.jpg", 3000))
+            .await
+            .unwrap();
 
-        assert_eq!(service.get_current_index().await, Some(1), "current index must shift past the inserted file");
+        assert_eq!(
+            service.get_current_index().await,
+            Some(1),
+            "current index must shift past the inserted file"
+        );
         let files = service.get_files().await;
         assert_eq!(files.len(), 3);
         assert_eq!(files[0].filename, "n.jpg");
-        assert_eq!(files[1].filename, "b.jpg", "current index must still point at b.jpg");
+        assert_eq!(
+            files[1].filename, "b.jpg",
+            "current index must still point at b.jpg"
+        );
         assert_eq!(files[2].filename, "a.jpg");
     }
 
     #[tokio::test]
     async fn add_file_older_than_current_keeps_current_index() {
         let temp_dir = tempdir().expect("failed to create temp dir");
-        let config_service = ConfigService::new_with_path(temp_dir.path().join("config.json"));
-        let service = FileIndexService::new(Arc::new(config_service));
+        let service = service_with_save_path(temp_dir.path());
 
-        service.add_file(create_file_with_mtime(temp_dir.path(), "b.jpg", 2000)).await.unwrap();
-        service.add_file(create_file_with_mtime(temp_dir.path(), "a.jpg", 1000)).await.unwrap();
-        service.navigate_to(0).await.expect("navigate to first file");
+        service
+            .add_file(create_file_with_mtime(temp_dir.path(), "b.jpg", 2000))
+            .await
+            .unwrap();
+        service
+            .add_file(create_file_with_mtime(temp_dir.path(), "a.jpg", 1000))
+            .await
+            .unwrap();
+        service
+            .navigate_to(0)
+            .await
+            .expect("navigate to first file");
         assert_eq!(service.get_current_index().await, Some(0));
 
         // Insert an OLDER file — it lands after the current index → no shift
-        service.add_file(create_file_with_mtime(temp_dir.path(), "c.jpg", 500)).await.unwrap();
+        service
+            .add_file(create_file_with_mtime(temp_dir.path(), "c.jpg", 500))
+            .await
+            .unwrap();
 
-        assert_eq!(service.get_current_index().await, Some(0), "insert after current must not shift");
+        assert_eq!(
+            service.get_current_index().await,
+            Some(0),
+            "insert after current must not shift"
+        );
         let files = service.get_files().await;
         assert_eq!(files.len(), 3);
-        assert_eq!(files[0].filename, "b.jpg", "current index must still point at b.jpg");
+        assert_eq!(
+            files[0].filename, "b.jpg",
+            "current index must still point at b.jpg"
+        );
         assert_eq!(files[1].filename, "a.jpg");
         assert_eq!(files[2].filename, "c.jpg");
     }
@@ -760,8 +1207,7 @@ mod tests {
     #[tokio::test]
     async fn add_file_sorts_by_exif_time_over_newer_mtime() {
         let temp_dir = tempdir().expect("failed to create temp dir");
-        let config_service = ConfigService::new_with_path(temp_dir.path().join("config.json"));
-        let service = FileIndexService::new(Arc::new(config_service));
+        let service = service_with_save_path(temp_dir.path());
 
         // Old mtime (1000s) but EXIF DateTimeOriginal far in the future (2030)
         let exif_path = temp_dir.path().join("exif_new.jpg");
@@ -782,10 +1228,292 @@ mod tests {
 
         let files = service.get_files().await;
         assert_eq!(files.len(), 2);
-        assert_eq!(files[0].filename, "exif_new.jpg", "EXIF time must win over newer mtime");
+        assert_eq!(
+            files[0].filename, "exif_new.jpg",
+            "EXIF time must win over newer mtime"
+        );
         assert_eq!(files[1].filename, "mtime_new.jpg");
-        assert!(files[0].exif_time.is_some(), "EXIF time must be recorded for the EXIF file");
-        assert!(files[1].exif_time.is_none(), "no EXIF file must fall back to mtime");
+        assert!(
+            files[0].exif_time.is_some(),
+            "EXIF time must be recorded for the EXIF file"
+        );
+        assert!(
+            files[1].exif_time.is_none(),
+            "no EXIF file must fall back to mtime"
+        );
         assert!(files[0].sort_time > files[1].sort_time);
+    }
+
+    // ---- 并发扫描与合并提交 ----
+
+    #[test]
+    fn merge_scan_result_preserves_files_added_during_scan() {
+        let scanned = vec![make_file_info("/images/a.jpg", 3000)];
+        let existing = vec![
+            make_file_info("/images/a.jpg", 3000),
+            // FTP Put 通道在 readdir 之后、提交之前插入
+            make_file_info("/images/new_from_ftp.jpg", 5000),
+        ];
+        let pre_scan_paths: HashSet<PathBuf> =
+            [PathBuf::from("/images/a.jpg")].into_iter().collect();
+
+        let merged = FileIndexService::merge_scan_result(scanned, &existing, &pre_scan_paths);
+
+        assert_eq!(merged.len(), 2);
+        // 排序：sort_time 降序 → new_from_ftp(5000) 在前
+        assert_eq!(merged[0].filename, "new_from_ftp.jpg");
+    }
+
+    #[test]
+    fn merge_scan_result_drops_files_deleted_during_scan() {
+        let scanned = vec![make_file_info("/images/a.jpg", 3000)];
+        let existing = vec![
+            make_file_info("/images/a.jpg", 3000),
+            make_file_info("/images/deleted.jpg", 1000),
+        ];
+        let pre_scan_paths: HashSet<PathBuf> = existing.iter().map(|f| f.path.clone()).collect();
+
+        let merged = FileIndexService::merge_scan_result(scanned, &existing, &pre_scan_paths);
+
+        assert_eq!(merged.len(), 1);
+        assert_eq!(merged[0].filename, "a.jpg");
+    }
+
+    #[test]
+    fn merge_scan_result_prefers_scanned_metadata_for_same_path() {
+        let scanned = vec![make_file_info("/images/a.jpg", 9000)];
+        let existing = vec![make_file_info("/images/a.jpg", 3000)];
+        let pre_scan_paths: HashSet<PathBuf> =
+            [PathBuf::from("/images/a.jpg")].into_iter().collect();
+
+        let merged = FileIndexService::merge_scan_result(scanned, &existing, &pre_scan_paths);
+
+        assert_eq!(merged.len(), 1);
+        assert_eq!(merged[0].sort_time, 9000);
+    }
+
+    #[tokio::test]
+    async fn scan_directory_concurrent_finds_all_images_in_nested_dirs() {
+        let temp_dir = tempdir().expect("failed to create temp dir");
+        let save_path = temp_dir.path().join("images");
+        std::fs::create_dir_all(save_path.join("sub_a/sub_b")).expect("create nested dirs");
+
+        let mut expected = std::collections::HashSet::new();
+        for i in 0..12 {
+            let name = format!("img_{:02}.jpg", i);
+            std::fs::write(save_path.join("sub_a").join(&name), b"jpeg").expect("write file");
+            expected.insert(name);
+        }
+        for i in 12..20 {
+            let name = format!("img_{:02}.jpg", i);
+            std::fs::write(save_path.join("sub_a/sub_b").join(&name), b"jpeg").expect("write file");
+            expected.insert(name);
+        }
+        std::fs::write(save_path.join("notes.txt"), b"not an image").expect("write file");
+
+        let config_service = ConfigService::new_with_path(temp_dir.path().join("config.json"));
+        config_service
+            .mutate_and_persist(|config| {
+                config.save_path = save_path.clone();
+            })
+            .expect("persist config");
+
+        let service = FileIndexService::new(Arc::new(config_service));
+        service.scan_directory().await.expect("scan");
+
+        let files = service.get_files().await;
+        assert_eq!(files.len(), 20, "all supported images must be indexed");
+        let names: std::collections::HashSet<String> =
+            files.iter().map(|f| f.filename.clone()).collect();
+        assert_eq!(names, expected);
+    }
+
+    // ---- 语义钉住（spec review findings）----
+
+    #[tokio::test]
+    async fn scan_directory_commit_resets_current_index_to_latest() {
+        // 语义钉住（当前实际行为）：扫描提交把 current_index 重置到最新一张
+        //（位置 0，实现为 merged.first().map(|_| 0)），不保留扫描前的查看
+        // 位置；空目录提交后为 None。
+        let temp_dir = tempdir().expect("failed to create temp dir");
+        let save_path = temp_dir.path().join("images");
+        std::fs::create_dir_all(&save_path).expect("create dir");
+
+        let config_service = ConfigService::new_with_path(temp_dir.path().join("config.json"));
+        config_service
+            .mutate_and_persist(|config| {
+                config.save_path = save_path.clone();
+            })
+            .expect("persist config");
+        let service = FileIndexService::new(Arc::new(config_service));
+
+        let newest = create_file_with_mtime(&save_path, "newest.jpg", 3000);
+        let oldest = create_file_with_mtime(&save_path, "oldest.jpg", 1000);
+        service.add_file(newest.clone()).await.unwrap();
+        service.add_file(oldest).await.unwrap();
+        // 先查看较旧的一张（位置 1），扫描提交后必须回到最新（位置 0）
+        service
+            .navigate_to(1)
+            .await
+            .expect("navigate to the older entry");
+        assert_eq!(service.get_current_index().await, Some(1));
+
+        service.scan_directory().await.expect("rescan");
+
+        assert_eq!(
+            service.get_current_index().await,
+            Some(0),
+            "scan commit must reset current_index to the latest (first) entry"
+        );
+        let files = service.get_files().await;
+        assert_eq!(
+            files[0].path, newest,
+            "first entry must be the newest by sort_time"
+        );
+    }
+
+    #[tokio::test]
+    async fn add_file_keeps_existing_exif_entry_unchanged() {
+        // 语义钉住：对"已存在且带 EXIF"的条目再次 add_file（watcher/FTP 双
+        // 通道并发的常态）→ 条目原样保留：sort_time 不变、无重复。这是
+        // watcher 事件并发化（file_index/watcher.rs）正确性的根基。
+        let temp_dir = tempdir().expect("failed to create temp dir");
+        let save_path = temp_dir.path().join("images");
+        std::fs::create_dir_all(&save_path).expect("create dir");
+
+        let config_service = ConfigService::new_with_path(temp_dir.path().join("config.json"));
+        config_service
+            .mutate_and_persist(|config| {
+                config.save_path = save_path.clone();
+            })
+            .expect("persist config");
+        let service = FileIndexService::new(Arc::new(config_service));
+
+        let file_path = save_path.join("exif.jpg");
+        std::fs::write(
+            &file_path,
+            crate::image_utils::build_exif_jpeg("2024:06:01 12:00:00", 1),
+        )
+        .expect("write exif jpeg");
+        filetime::set_file_mtime(&file_path, filetime::FileTime::from_unix_time(5000, 0))
+            .expect("set mtime");
+
+        service
+            .add_file(file_path.clone())
+            .await
+            .expect("first add");
+        let before = service.get_files().await;
+        assert_eq!(before.len(), 1);
+        let sort_time_before = before[0].sort_time;
+        let exif_before = before[0].exif_time;
+        assert!(exif_before.is_some(), "seed entry must carry EXIF");
+
+        // 即便之后 mtime 拨到远新于原值，已带 EXIF 的条目也不得被重写
+        //（重解析会得到不同的 sort_time，可用本断言检出）
+        filetime::set_file_mtime(&file_path, filetime::FileTime::from_unix_time(9000, 0))
+            .expect("bump mtime");
+
+        service
+            .add_file(file_path.clone())
+            .await
+            .expect("second add");
+
+        let after = service.get_files().await;
+        assert_eq!(after.len(), 1, "repeated add must not duplicate the entry");
+        assert_eq!(
+            after[0].sort_time, sort_time_before,
+            "sort_time must stay untouched"
+        );
+        assert_eq!(
+            after[0].exif_time, exif_before,
+            "exif_time must stay untouched"
+        );
+    }
+
+    #[tokio::test]
+    async fn add_file_ignores_path_outside_save_path() {
+        // S4 归属校验钉住：save_path 之外的迟到事件/重试不得混入当前索引
+        let temp_dir = tempdir().expect("failed to create temp dir");
+        let save_path = temp_dir.path().join("images");
+        std::fs::create_dir_all(&save_path).expect("create dir");
+        let outside = temp_dir.path().join("old_dir");
+        std::fs::create_dir_all(&outside).expect("create outside dir");
+
+        let config_service = ConfigService::new_with_path(temp_dir.path().join("config.json"));
+        config_service
+            .mutate_and_persist(|config| {
+                config.save_path = save_path.clone();
+            })
+            .expect("persist config");
+        let service = FileIndexService::new(Arc::new(config_service));
+
+        let stray = outside.join("stray.jpg");
+        std::fs::write(&stray, b"jpeg").expect("write file");
+
+        service.add_file(stray).await.expect("add must not error");
+        assert_eq!(
+            service.get_file_count().await,
+            0,
+            "path outside save_path must be ignored"
+        );
+    }
+
+    #[tokio::test]
+    async fn retry_index_if_stable_backfills_degraded_entry_once_file_completes() {
+        // S3 收敛点钉住：Put 侧超时降级索引出无 EXIF 的陈旧条目后，
+        // 有界再探测在文件补完（就绪）时补一次 add_file → EXIF 回填。
+        // delay=0ms 直接驱动 helper，不引入真实 30s 等待。
+        let temp_dir = tempdir().expect("failed to create temp dir");
+        let save_path = temp_dir.path().join("images");
+        std::fs::create_dir_all(&save_path).expect("create dir");
+
+        let config_service = ConfigService::new_with_path(temp_dir.path().join("config.json"));
+        config_service
+            .mutate_and_persist(|config| {
+                config.save_path = save_path.clone();
+            })
+            .expect("persist config");
+        let service = Arc::new(FileIndexService::new(Arc::new(config_service)));
+
+        // 降级条目：无 EXIF 的普通 JPEG（模拟超时降级 add_file 的产物）
+        let file_path = save_path.join("slow.jpg");
+        let plain = image::RgbImage::from_pixel(2, 2, image::Rgb([64u8, 64, 64]));
+        let mut buf: Vec<u8> = Vec::new();
+        image::DynamicImage::ImageRgb8(plain)
+            .write_to(
+                &mut std::io::Cursor::new(&mut buf),
+                image::ImageFormat::Jpeg,
+            )
+            .expect("encode plain jpeg");
+        std::fs::write(&file_path, &buf).expect("write plain jpeg");
+        service
+            .add_file(file_path.clone())
+            .await
+            .expect("degraded add");
+        let files = service.get_files().await;
+        assert_eq!(files.len(), 1);
+        assert!(files[0].exif_time.is_none(), "degraded entry lacks EXIF");
+
+        // 文件补完（带 EXIF）→ 再探测就绪 → 补一次 add_file 触发回填
+        std::fs::write(
+            &file_path,
+            crate::image_utils::build_exif_jpeg("2024:06:01 12:00:00", 1),
+        )
+        .expect("overwrite with exif jpeg");
+
+        FileIndexService::retry_index_if_stable(
+            &service,
+            file_path.clone(),
+            Duration::from_millis(0),
+            2,
+        )
+        .await;
+
+        let files = service.get_files().await;
+        assert_eq!(files.len(), 1, "backfill must replace, not duplicate");
+        assert!(
+            files[0].exif_time.is_some(),
+            "stable re-probe must backfill EXIF for the degraded entry"
+        );
     }
 }

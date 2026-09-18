@@ -10,12 +10,12 @@ use crate::error::{AppError, AppResult};
 use crate::ftp::events::EventBus;
 use crate::ftp::listeners::{FtpDataListener, FtpPresenceListener};
 use crate::ftp::stats::{StatsActor, StatsActorWorker};
+#[cfg(test)]
+use crate::ftp::types::ServerStateSnapshot;
 use crate::ftp::types::{
     format_ipv4_socket_addr, normalize_ipv4_host, FtpAuthConfig, ServerConfig, ServerInfo,
     ServerRuntimeState, ServerStatus,
 };
-#[cfg(test)]
-use crate::ftp::types::ServerStateSnapshot;
 use crate::ftp::FtpStorageBackend;
 use dashmap::DashSet;
 use libunftp::options::Shutdown;
@@ -26,7 +26,7 @@ use std::time::{Duration, Instant};
 use tauri::AppHandle;
 use tokio::sync::{mpsc, oneshot, RwLock};
 use tracing::{error, info, instrument};
-use unftp_core::auth::{Authenticator, Credentials, AuthenticationError, Principal};
+use unftp_core::auth::{AuthenticationError, Authenticator, Credentials, Principal};
 
 #[cfg(target_os = "android")]
 use crate::ftp::android_mediastore::AndroidMediaStoreBackend;
@@ -57,7 +57,10 @@ impl Authenticator for CustomAuthenticator {
                     username: username.to_string(),
                 })
             }
-            FtpAuthConfig::Authenticated { username: expected_username, password_hash } => {
+            FtpAuthConfig::Authenticated {
+                username: expected_username,
+                password_hash,
+            } => {
                 // 验证用户名
                 if username != expected_username {
                     return Err(AuthenticationError::BadPassword);
@@ -68,9 +71,9 @@ impl Authenticator for CustomAuthenticator {
                 // 0.5–2s on mobile and stalls other connections during auth.
                 let password = creds.password.clone().unwrap_or_default();
                 let hash = password_hash.clone();
-                let verified = tokio::task::spawn_blocking(
-                    move || crate::crypto::verify_password(password, &hash),
-                )
+                let verified = tokio::task::spawn_blocking(move || {
+                    crate::crypto::verify_password(password, &hash)
+                })
                 .await
                 .unwrap_or(false);
 
@@ -121,17 +124,19 @@ impl FtpServerHandle {
 
     /// 启动服务器
     #[instrument(skip(self))]
-    pub(crate) async fn start(
-        &self,
-        config: ServerConfig,
-    ) -> AppResult<SocketAddr> {
-        self.send_command(|tx| ServerCommand::Start { config, respond_to: tx }).await?
+    pub(crate) async fn start(&self, config: ServerConfig) -> AppResult<SocketAddr> {
+        self.send_command(|tx| ServerCommand::Start {
+            config,
+            respond_to: tx,
+        })
+        .await?
     }
 
     /// 停止服务器
     #[instrument(skip(self))]
     pub async fn stop(&self) -> AppResult<()> {
-        self.send_command(|tx| ServerCommand::Stop { respond_to: tx }).await?
+        self.send_command(|tx| ServerCommand::Stop { respond_to: tx })
+            .await?
     }
 
     /// 获取服务器连接信息（包含 IP 和端口）
@@ -169,7 +174,11 @@ struct SpawnedServer {
 
 impl FtpServerActor {
     /// 创建新的FTP服务器Actor
-    pub fn new(stats_actor: StatsActor, event_bus: EventBus, app_handle: Option<AppHandle>) -> (FtpServerHandle, Self) {
+    pub fn new(
+        stats_actor: StatsActor,
+        event_bus: EventBus,
+        app_handle: Option<AppHandle>,
+    ) -> (FtpServerHandle, Self) {
         let (tx, rx) = mpsc::channel(32);
         let handle = FtpServerHandle {
             tx,
@@ -206,9 +215,7 @@ impl FtpServerActor {
 
     /// 处理命令
     #[instrument(skip(self, cmd))]
-    async fn handle_command(&mut self,
-        cmd: ServerCommand,
-    ) {
+    async fn handle_command(&mut self, cmd: ServerCommand) {
         match cmd {
             ServerCommand::Start { config, respond_to } => {
                 let result = self.do_start(config).await;
@@ -228,10 +235,7 @@ impl FtpServerActor {
 
     /// 执行启动
     #[instrument(skip(self, config))]
-    async fn do_start(
-        &mut self,
-        config: ServerConfig,
-    ) -> AppResult<SocketAddr> {
+    async fn do_start(&mut self, config: ServerConfig) -> AppResult<SocketAddr> {
         self.validate_can_start().await?;
         self.set_status(ServerStatus::Starting).await;
 
@@ -245,22 +249,20 @@ impl FtpServerActor {
             self.reset_partial_state().await;
             return Err(error);
         }
-        
+
         let port = config.port;
         let root_path = config.root_path.clone();
         let (listeners, shutdown_rx) = self.create_server_components(&root_path);
-        
+
         if let Err(error) = self.validate_filesystem(&root_path).await {
             self.reset_partial_state().await;
             return Err(error);
         }
-        
-        let spawned_server = match self.build_and_spawn_server(
-            config.clone(),
-            listeners,
-            shutdown_rx,
-            port,
-        ).await {
+
+        let spawned_server = match self
+            .build_and_spawn_server(config.clone(), listeners, shutdown_rx, port)
+            .await
+        {
             Ok(spawned_server) => spawned_server,
             Err(error) => {
                 self.reset_partial_state().await;
@@ -303,16 +305,17 @@ impl FtpServerActor {
     fn create_server_components(
         &mut self,
         root_path: &std::path::Path,
-    ) -> ((FtpDataListener, FtpPresenceListener), oneshot::Receiver<()>) {
+    ) -> (
+        (FtpDataListener, FtpPresenceListener),
+        oneshot::Receiver<()>,
+    ) {
         let data_listener = FtpDataListener::new(
             self.stats_actor.clone(),
             root_path.to_path_buf(),
             self.app_handle.clone(),
         );
-        let presence_listener = FtpPresenceListener::new(
-            self.stats_actor.clone(),
-            self.sessions.clone(),
-        );
+        let presence_listener =
+            FtpPresenceListener::new(self.stats_actor.clone(), self.sessions.clone());
 
         let (shutdown_tx, shutdown_rx) = oneshot::channel();
         self.shutdown_tx = Some(shutdown_tx);
@@ -330,7 +333,7 @@ impl FtpServerActor {
         }
 
         // desktop-generic (not android-specific)
-#[cfg(not(target_os = "android"))]
+        #[cfg(not(target_os = "android"))]
         {
             if let Err(e) = unftp_sbe_fs::Filesystem::new(root_path) {
                 error!(error = %e, "Failed to create filesystem");
@@ -394,7 +397,8 @@ impl FtpServerActor {
                     info!("FTP server stopped normally");
                 }
                 Err(e) => {
-                    let app_error = AppError::Other(format!("FTP server failed before becoming ready: {e}"));
+                    let app_error =
+                        AppError::Other(format!("FTP server failed before becoming ready: {e}"));
                     let _ = startup_tx.send(Err(app_error.clone()));
                     error!(error = %e, "FTP server error");
                 }
@@ -405,8 +409,13 @@ impl FtpServerActor {
             port,
             Duration::from_secs(SERVER_READY_TIMEOUT_SECS),
             startup_rx,
-        ).await {
-            Ok(()) => Ok(SpawnedServer { bind_addr, server_task }),
+        )
+        .await
+        {
+            Ok(()) => Ok(SpawnedServer {
+                bind_addr,
+                server_task,
+            }),
             Err(error) => {
                 self.cleanup_failed_startup(server_task).await;
                 Err(error)
@@ -472,9 +481,9 @@ impl FtpServerActor {
     }
 
     /// 创建文件系统实例（路径已验证，不应失败）
-    /// 
+    ///
     /// # Panics
-    /// 
+    ///
     /// 仅在文件系统创建失败时 panic，这种情况在正常流程中不应发生，
     /// 因为路径已在 `validate_filesystem` 中验证过。
     ///
@@ -491,9 +500,9 @@ impl FtpServerActor {
         }
 
         // desktop-generic (not android-specific)
-#[cfg(not(target_os = "android"))]
+        #[cfg(not(target_os = "android"))]
         {
-            return unftp_sbe_fs::Filesystem::new(root_path.to_path_buf())
+            unftp_sbe_fs::Filesystem::new(root_path.to_path_buf())
                 .unwrap_or_else(|e| {
                     tracing::error!(
                         path = %root_path.display(),
@@ -501,7 +510,7 @@ impl FtpServerActor {
                         "Filesystem creation failed — path validated at startup but may have been removed"
                     );
                     panic!("Filesystem creation failed for {}: {e}", root_path.display())
-                });
+                })
         }
     }
 
@@ -514,15 +523,11 @@ impl FtpServerActor {
         self.server_task = Some(spawned_server.server_task);
 
         let recommended_ip = crate::network::NetworkManager::recommended_ip();
-        let ip = normalize_ipv4_host(
-            recommended_ip.as_deref().unwrap_or("127.0.0.1"),
-        );
+        let ip = normalize_ipv4_host(recommended_ip.as_deref().unwrap_or("127.0.0.1"));
         self.advertised_ip = Some(ip);
 
         let advertised_addr = advertised_server_addr(bind_addr, recommended_ip);
-        self.event_bus
-            .emit_server_started(advertised_addr)
-            .await;
+        self.event_bus.emit_server_started(advertised_addr).await;
         info!(bind_addr = %bind_addr, "FTP server started successfully");
     }
 
@@ -568,7 +573,7 @@ impl FtpServerActor {
     #[instrument(skip(self))]
     async fn do_stop(&mut self) -> AppResult<()> {
         let port = self.bind_addr.map(|addr| addr.port()).unwrap_or_default();
-        
+
         {
             let status = self.status.read().await;
             if !status.is_running() {
@@ -646,7 +651,8 @@ impl FtpServerActor {
         let port = bind_addr.port();
 
         // 获取认证信息
-        let (username, password_info) = self.config
+        let (username, password_info) = self
+            .config
             .as_ref()
             .map(|c| c.auth.to_display_credentials())
             .unwrap_or((None, None));
@@ -681,12 +687,9 @@ fn build_server_snapshot(
 }
 
 /// 创建FTP服务器Actor系统
-pub fn create_ftp_server(app_handle: Option<AppHandle>) -> (
-    FtpServerHandle,
-    FtpServerActor,
-    StatsActorWorker,
-    EventBus,
-) {
+pub fn create_ftp_server(
+    app_handle: Option<AppHandle>,
+) -> (FtpServerHandle, FtpServerActor, StatsActorWorker, EventBus) {
     let event_bus = EventBus::new();
 
     // StatsActor 持有 EventBus 的克隆，用于在统计变化时发送事件
@@ -702,7 +705,12 @@ pub fn create_ftp_server(app_handle: Option<AppHandle>) -> (
 mod tests {
     use super::*;
 
-    fn test_stats(active: u64, uploads: u64, bytes: u64, last_file: Option<&str>) -> crate::ftp::types::ServerStats {
+    fn test_stats(
+        active: u64,
+        uploads: u64,
+        bytes: u64,
+        last_file: Option<&str>,
+    ) -> crate::ftp::types::ServerStats {
         crate::ftp::types::test_utils::test_stats(active, uploads, bytes, last_file)
     }
 
@@ -763,7 +771,10 @@ mod tests {
 
         let runtime_snapshot = event_bus.runtime_state().current_runtime_snapshot().await;
         assert!(runtime_snapshot.is_running);
-        assert_eq!(runtime_snapshot.bind_addr.as_deref(), Some("127.0.0.1:2121"));
+        assert_eq!(
+            runtime_snapshot.bind_addr.as_deref(),
+            Some("127.0.0.1:2121")
+        );
     }
 
     #[tokio::test]
@@ -782,5 +793,4 @@ mod tests {
         assert_eq!(actor.get_current_status().await, ServerStatus::Stopped);
         assert_eq!(actor.get_current_snapshot().await.connected_clients, 0);
     }
-
 }

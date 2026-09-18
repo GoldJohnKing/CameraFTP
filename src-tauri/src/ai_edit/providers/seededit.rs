@@ -2,11 +2,11 @@
 // Copyright (C) 2026 GoldJohnKing <GoldJohnKing@Live.cn>
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+use super::super::config::SeedEditConfig;
+use super::AiEditProvider;
+use crate::error::AppError;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
-use crate::error::AppError;
-use super::AiEditProvider;
-use super::super::config::SeedEditConfig;
 
 const BASE_URL: &str = "https://ark.cn-beijing.volces.com/api/v3";
 
@@ -19,7 +19,9 @@ pub struct SeedEditProvider {
 impl SeedEditProvider {
     pub fn new(config: &SeedEditConfig) -> Result<Self, AppError> {
         if config.api_key.is_empty() {
-            return Err(AppError::AiEditError("API Key is not configured".to_string()));
+            return Err(AppError::AiEditError(
+                "API Key is not configured".to_string(),
+            ));
         }
 
         let client = reqwest::Client::builder()
@@ -70,7 +72,12 @@ struct SeedEditErrorDetail {
 
 #[async_trait]
 impl AiEditProvider for SeedEditProvider {
-    async fn edit_image(&self, image_base64: &str, mime_type: &str, prompt: &str) -> Result<Vec<u8>, AppError> {
+    async fn edit_image(
+        &self,
+        image_base64: &str,
+        mime_type: &str,
+        prompt: &str,
+    ) -> Result<Vec<u8>, AppError> {
         let request = SeedEditRequest {
             model: self.model.clone(),
             prompt: prompt.to_string(),
@@ -80,7 +87,8 @@ impl AiEditProvider for SeedEditProvider {
             watermark: false,
         };
 
-        let response = self.client
+        let response = self
+            .client
             .post(format!("{}/images/generations", BASE_URL))
             .header("Authorization", format!("Bearer {}", self.api_key))
             .header("Content-Type", "application/json")
@@ -98,14 +106,16 @@ impl AiEditProvider for SeedEditProvider {
                 let code = err_resp.error.code.as_deref().unwrap_or("unknown");
                 let message = err_resp.error.message.as_deref().unwrap_or("");
                 return Err(AppError::AiEditError(format!(
-                    "API error ({}): {} — {}", status, code, message
+                    "API error ({}): {} — {}",
+                    status, code, message
                 )));
             }
 
             // Fallback: raw body preview
             let body_preview: String = body.chars().take(200).collect();
             return Err(AppError::AiEditError(format!(
-                "API returned {}: {}", status, body_preview
+                "API returned {}: {}",
+                status, body_preview
             )));
         }
 
@@ -114,15 +124,21 @@ impl AiEditProvider for SeedEditProvider {
             .await
             .map_err(|e| AppError::AiEditError(format!("Failed to parse API response: {}", e)))?;
 
-        let image_data = parsed.data.into_iter().next()
+        let image_data = parsed
+            .data
+            .into_iter()
+            .next()
             .ok_or_else(|| AppError::AiEditError("API returned no image data".to_string()))?;
 
         if let Some(url) = image_data.url {
-            let image_bytes = self.client
+            let image_bytes = self
+                .client
                 .get(&url)
                 .send()
                 .await
-                .map_err(|e| AppError::AiEditError(format!("Failed to download edited image: {}", e)))?
+                .map_err(|e| {
+                    AppError::AiEditError(format!("Failed to download edited image: {}", e))
+                })?
                 .bytes()
                 .await
                 .map_err(|e| AppError::AiEditError(format!("Failed to read image bytes: {}", e)))?;
@@ -130,10 +146,13 @@ impl AiEditProvider for SeedEditProvider {
             Ok(image_bytes.into())
         } else if let Some(b64) = image_data.b64_json {
             use base64::Engine;
-            base64::engine::general_purpose::STANDARD.decode(&b64)
+            base64::engine::general_purpose::STANDARD
+                .decode(&b64)
                 .map_err(|e| AppError::AiEditError(format!("Failed to decode base64 image: {}", e)))
         } else {
-            Err(AppError::AiEditError("API returned neither URL nor base64 data".to_string()))
+            Err(AppError::AiEditError(
+                "API returned neither URL nor base64 data".to_string(),
+            ))
         }
     }
 }

@@ -2,8 +2,8 @@
 // Copyright (C) 2026 GoldJohnKing <GoldJohnKing@Live.cn>
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-use tauri::command;
 use crate::error::AppError;
+use tauri::command;
 
 /// EXIF 信息结构体
 #[derive(Debug, Clone, serde::Serialize, ts_rs::TS)]
@@ -11,13 +11,13 @@ use crate::error::AppError;
 #[serde(rename_all = "camelCase")]
 pub struct ExifInfo {
     pub iso: Option<u32>,
-    pub aperture: Option<String>,           // f/2.8 格式
+    pub aperture: Option<String>, // f/2.8 格式
     #[serde(rename = "shutterSpeed")]
-    pub shutter_speed: Option<String>,      // 1/125s 格式
+    pub shutter_speed: Option<String>, // 1/125s 格式
     #[serde(rename = "focalLength")]
-    pub focal_length: Option<String>,       // 24mm 格式
-    pub datetime: Option<String>,           // 2024-02-27 14:30:00 格式
-    pub orientation: Option<u8>,            // EXIF Orientation (1-8)
+    pub focal_length: Option<String>, // 24mm 格式
+    pub datetime: Option<String>, // 2024-02-27 14:30:00 格式
+    pub orientation: Option<u8>,  // EXIF Orientation (1-8)
 }
 
 /// Format shutter speed from an exposure time ratio.
@@ -45,13 +45,9 @@ pub(crate) fn format_focal_length(
     focal_35mm: Option<u16>,
     focal_raw: Option<(u32, u32)>,
 ) -> Option<String> {
-    focal_35mm
-        .map(|v| format!("{}mm", v))
-        .or_else(|| {
-            focal_raw.map(|(num, den)| {
-                format!("{}mm", (num as f64 / den as f64).round() as u32)
-            })
-        })
+    focal_35mm.map(|v| format!("{}mm", v)).or_else(|| {
+        focal_raw.map(|(num, den)| format!("{}mm", (num as f64 / den as f64).round() as u32))
+    })
 }
 
 /// 获取图片的 EXIF 信息
@@ -60,12 +56,10 @@ pub async fn get_image_exif(file_path: String) -> Result<Option<ExifInfo>, AppEr
     let start = std::time::Instant::now();
 
     let path = std::path::PathBuf::from(&file_path);
-    let parsed = tokio::task::spawn_blocking(move || {
-        crate::image_utils::parse_exif(&path)
-    })
-    .await
-    .map_err(|e| AppError::Io(format!("Task join error: {}", e)))?
-    .map_err(|e| AppError::Io(e))?;
+    let parsed = tokio::task::spawn_blocking(move || crate::image_utils::parse_exif(&path))
+        .await
+        .map_err(|e| AppError::Io(format!("Task join error: {}", e)))?
+        .map_err(AppError::Io)?;
 
     let parsed = match parsed {
         Some(p) => p,
@@ -82,7 +76,9 @@ pub async fn get_image_exif(file_path: String) -> Result<Option<ExifInfo>, AppEr
         parsed.focal_length_35mm,
         parsed.focal_length_raw.map(|r| (r.0, r.1)),
     );
-    let datetime = parsed.datetime_original.map(|ndt| ndt.format("%Y-%m-%d %H:%M:%S").to_string());
+    let datetime = parsed
+        .datetime_original
+        .map(|ndt| ndt.format("%Y-%m-%d %H:%M:%S").to_string());
     let orientation = parsed.orientation;
 
     let duration = start.elapsed();
@@ -91,8 +87,13 @@ pub async fn get_image_exif(file_path: String) -> Result<Option<ExifInfo>, AppEr
         file_path, duration, iso, aperture, shutter_speed, focal_length, datetime, orientation
     );
 
-    if iso.is_none() && aperture.is_none() && shutter_speed.is_none()
-        && focal_length.is_none() && datetime.is_none() && orientation.is_none() {
+    if iso.is_none()
+        && aperture.is_none()
+        && shutter_speed.is_none()
+        && focal_length.is_none()
+        && datetime.is_none()
+        && orientation.is_none()
+    {
         return Ok(None);
     }
 
@@ -111,12 +112,10 @@ pub async fn get_image_exif(file_path: String) -> Result<Option<ExifInfo>, AppEr
 #[command]
 pub async fn get_raw_orientation(file_path: String) -> Result<u8, AppError> {
     let path = std::path::PathBuf::from(&file_path);
-    let parsed = tokio::task::spawn_blocking(move || {
-        crate::image_utils::parse_exif(&path)
-    })
-    .await
-    .map_err(|e| AppError::Io(format!("Task join error: {}", e)))?
-    .map_err(|e| AppError::Io(e))?;
+    let parsed = tokio::task::spawn_blocking(move || crate::image_utils::parse_exif(&path))
+        .await
+        .map_err(|e| AppError::Io(format!("Task join error: {}", e)))?
+        .map_err(AppError::Io)?;
     Ok(parsed.and_then(|p| p.orientation).unwrap_or(0))
 }
 
@@ -126,7 +125,6 @@ pub async fn get_raw_orientation(file_path: String) -> Result<u8, AppError> {
 /// orientation is 0 or 1 (no rotation needed).
 #[command]
 pub async fn inject_exif_orientation(
-    app: tauri::AppHandle,
     thumbnail_path: String,
     orientation: u8,
 ) -> Result<bool, AppError> {
@@ -144,21 +142,15 @@ pub async fn inject_exif_orientation(
     let fixed = crate::image_utils::inject_orientation_exif(jpeg, orientation);
     let path = thumbnail_path.clone();
     tokio::task::spawn_blocking(move || {
-        std::fs::write(&path, fixed).map_err(|e| AppError::Io(format!("Failed to write thumbnail: {}", e)))
+        std::fs::write(&path, fixed)
+            .map_err(|e| AppError::Io(format!("Failed to write thumbnail: {}", e)))
     })
     .await
     .map_err(|e| AppError::Io(format!("Task join error: {}", e)))??;
 
-    #[cfg(target_os = "windows")]
-    {
-        use tauri::Manager;
-        if let Some(cache) = app.try_state::<std::sync::Arc<crate::image_preview::ImagePreviewCache>>() {
-            let path = std::path::PathBuf::from(&thumbnail_path);
-            cache.invalidate(&path);
-        }
-    }
-    #[cfg(not(target_os = "windows"))]
-    let _ = app;
+    // 预览缓存失效块已删除：inject_exif_orientation 的唯一前端消费者是
+    // useThumbnailScheduler.ts，仅在 GalleryAndroidV2 存在（Android）时激活；
+    // Windows 不产生缩略图路径，不存在需要失效的缓存。
 
     Ok(true)
 }

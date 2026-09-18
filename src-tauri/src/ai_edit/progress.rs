@@ -135,7 +135,11 @@ mod tests {
             queue_depth: 32,
         };
         let json = serde_json::to_string(&event).unwrap();
-        assert!(json.contains("\"type\":\"queuedDropped\""), "JSON: {}", json);
+        assert!(
+            json.contains("\"type\":\"queuedDropped\""),
+            "JSON: {}",
+            json
+        );
     }
 
     #[test]

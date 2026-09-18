@@ -4,22 +4,12 @@
 
 /// Tracks aggregate progress for a batch of tasks processed sequentially.
 /// Shared by AI edit and color grading worker loops.
+#[derive(Default)]
 pub(crate) struct BatchState {
     pub completed_count: u32,
     pub failed_count: u32,
     pub failed_files: Vec<String>,
     pub output_files: Vec<String>,
-}
-
-impl Default for BatchState {
-    fn default() -> Self {
-        Self {
-            completed_count: 0,
-            failed_count: 0,
-            failed_files: Vec::new(),
-            output_files: Vec::new(),
-        }
-    }
 }
 
 impl BatchState {

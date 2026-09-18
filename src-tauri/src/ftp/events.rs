@@ -5,9 +5,9 @@
 use crate::ftp::types::{
     ServerRuntimeSnapshot, ServerRuntimeState, ServerStateSnapshot, ServerStats,
 };
+use tauri::Emitter;
 use tokio::sync::watch;
 use tracing::warn;
-use tauri::Emitter;
 
 /// 事件总线 - 运行时状态（watch channel）的持有者与更新入口
 #[derive(Debug, Clone)]
@@ -125,14 +125,9 @@ impl EventProcessor {
     }
 
     async fn run_loop(&mut self) {
-        loop {
-            match self.state_rx.changed().await {
-                Ok(()) => {
-                    let snapshot = self.state_rx.borrow_and_update().clone();
-                    self.replay_state_to_handlers(&snapshot).await;
-                }
-                Err(_) => break,
-            }
+        while let Ok(()) = self.state_rx.changed().await {
+            let snapshot = self.state_rx.borrow_and_update().clone();
+            self.replay_state_to_handlers(&snapshot).await;
         }
     }
 
@@ -223,8 +218,8 @@ fn fan_out_runtime_state(
     }
 
     if current_state.snapshot.is_running {
-        let should_emit_stats = previous_state
-            .is_none_or(|previous| previous.snapshot != current_state.snapshot);
+        let should_emit_stats =
+            previous_state.is_none_or(|previous| previous.snapshot != current_state.snapshot);
         if should_emit_stats {
             match serde_json::to_value(snapshot.clone()) {
                 Ok(value) => {
@@ -307,11 +302,19 @@ impl RuntimeStateHandler for TrayUpdateHandler {
         let snapshot = runtime_state_to_snapshot(runtime_state);
         let previous_state = self.last_state.clone();
 
-        if snapshot.is_running && previous_state.as_ref().is_none_or(|previous| !previous.is_running) {
+        if snapshot.is_running
+            && previous_state
+                .as_ref()
+                .is_none_or(|previous| !previous.is_running)
+        {
             crate::platform::get_platform().on_server_started(&self.app_handle);
         }
 
-        if !snapshot.is_running && previous_state.as_ref().is_some_and(|previous| previous.is_running) {
+        if !snapshot.is_running
+            && previous_state
+                .as_ref()
+                .is_some_and(|previous| previous.is_running)
+        {
             crate::platform::get_platform().on_server_stopped(&self.app_handle);
         } else if snapshot.is_running
             && previous_state.as_ref().is_none_or(|previous| {
@@ -396,13 +399,14 @@ mod tests {
         runtime_state
             .record_server_started("127.0.0.1:2121".to_string())
             .await;
-        runtime_state.record_stats(ServerStats {
-            active_connections: 2,
-            total_uploads: 4,
-            total_bytes_received: 1024,
-            last_uploaded_file: Some("latest.jpg".to_string()),
-        })
-        .await;
+        runtime_state
+            .record_stats(ServerStats {
+                active_connections: 2,
+                total_uploads: 4,
+                total_bytes_received: 1024,
+                last_uploaded_file: Some("latest.jpg".to_string()),
+            })
+            .await;
 
         let handler = RecordingRuntimeStateHandler::default();
         let snapshots = handler.snapshots.clone();
@@ -418,18 +422,16 @@ mod tests {
         let recorded = snapshots.lock().await.clone();
         assert_eq!(
             recorded,
-            vec![
-                ServerRuntimeSnapshot {
-                    bind_addr: Some("127.0.0.1:2121".to_string()),
-                    is_running: true,
-                    stats: Some(ServerStats {
-                        active_connections: 2,
-                        total_uploads: 4,
-                        total_bytes_received: 1024,
-                        last_uploaded_file: Some("latest.jpg".to_string()),
-                    }),
-                },
-            ]
+            vec![ServerRuntimeSnapshot {
+                bind_addr: Some("127.0.0.1:2121".to_string()),
+                is_running: true,
+                stats: Some(ServerStats {
+                    active_connections: 2,
+                    total_uploads: 4,
+                    total_bytes_received: 1024,
+                    last_uploaded_file: Some("latest.jpg".to_string()),
+                }),
+            },]
         );
     }
 
@@ -450,7 +452,10 @@ mod tests {
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         run_handle.abort();
 
-        assert_eq!(snapshots.lock().await.as_slice(), &[ServerRuntimeSnapshot::default()]);
+        assert_eq!(
+            snapshots.lock().await.as_slice(),
+            &[ServerRuntimeSnapshot::default()]
+        );
     }
 
     #[tokio::test]
@@ -460,13 +465,14 @@ mod tests {
         runtime_state
             .record_server_started("127.0.0.1:2121".to_string())
             .await;
-        runtime_state.record_stats(ServerStats {
-            active_connections: 2,
-            total_uploads: 1,
-            total_bytes_received: 32,
-            last_uploaded_file: Some("before-stop.jpg".to_string()),
-        })
-        .await;
+        runtime_state
+            .record_stats(ServerStats {
+                active_connections: 2,
+                total_uploads: 1,
+                total_bytes_received: 32,
+                last_uploaded_file: Some("before-stop.jpg".to_string()),
+            })
+            .await;
 
         let handler = RecordingRuntimeStateHandler::default();
         let snapshots = handler.snapshots.clone();
@@ -481,7 +487,10 @@ mod tests {
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         run_handle.abort();
 
-        assert_eq!(snapshots.lock().await.as_slice(), &[ServerRuntimeSnapshot::default()]);
+        assert_eq!(
+            snapshots.lock().await.as_slice(),
+            &[ServerRuntimeSnapshot::default()]
+        );
     }
 
     #[tokio::test]
@@ -508,19 +517,24 @@ mod tests {
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         run_handle.abort();
 
-        assert_eq!(snapshots.lock().await.as_slice(), &[ServerRuntimeSnapshot::default()]);
+        assert_eq!(
+            snapshots.lock().await.as_slice(),
+            &[ServerRuntimeSnapshot::default()]
+        );
     }
 
     #[tokio::test]
     async fn late_state_subscriber_reads_current_snapshot_without_event_replay() {
         let runtime_state = crate::ftp::types::ServerRuntimeState::default();
-        runtime_state.update_running_snapshot(ServerStateSnapshot {
-            is_running: true,
-            connected_clients: 2,
-            files_received: 7,
-            bytes_received: 2048,
-            last_file: None,
-        }).await;
+        runtime_state
+            .update_running_snapshot(ServerStateSnapshot {
+                is_running: true,
+                connected_clients: 2,
+                files_received: 7,
+                bytes_received: 2048,
+                last_file: None,
+            })
+            .await;
 
         let snapshot = runtime_state.current_snapshot().await;
 
@@ -536,7 +550,10 @@ mod tests {
             .record_server_started("192.168.1.8:2121".into())
             .await;
         runtime_state
-            .record_stats(ServerStats { active_connections: 3, ..Default::default() })
+            .record_stats(ServerStats {
+                active_connections: 3,
+                ..Default::default()
+            })
             .await;
         runtime_state.record_server_stopped().await;
 
@@ -550,8 +567,11 @@ mod tests {
         let bus = EventBus::new();
 
         bus.emit_server_started("192.168.1.8:2121").await;
-        bus.emit_stats_updated(ServerStats { active_connections: 3, ..Default::default() })
-            .await;
+        bus.emit_stats_updated(ServerStats {
+            active_connections: 3,
+            ..Default::default()
+        })
+        .await;
 
         let snapshot = bus.runtime_state().current_snapshot().await;
 
@@ -582,16 +602,19 @@ mod tests {
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         run_handle.abort();
 
-        assert_eq!(snapshots.lock().await.as_slice(), &[ServerRuntimeSnapshot {
-            bind_addr: Some("127.0.0.1:2121".to_string()),
-            is_running: true,
-            stats: Some(ServerStats {
-                active_connections: 2,
-                total_uploads: 5,
-                total_bytes_received: 512,
-                last_uploaded_file: Some("handoff.jpg".to_string()),
-            }),
-        }]);
+        assert_eq!(
+            snapshots.lock().await.as_slice(),
+            &[ServerRuntimeSnapshot {
+                bind_addr: Some("127.0.0.1:2121".to_string()),
+                is_running: true,
+                stats: Some(ServerStats {
+                    active_connections: 2,
+                    total_uploads: 5,
+                    total_bytes_received: 512,
+                    last_uploaded_file: Some("handoff.jpg".to_string()),
+                }),
+            }]
+        );
     }
 
     #[tokio::test]
@@ -641,15 +664,21 @@ mod tests {
 
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         bus.emit_server_started("127.0.0.1:2121").await;
-        bus.emit_stats_updated(ServerStats { active_connections: 2, ..Default::default() })
-            .await;
+        bus.emit_stats_updated(ServerStats {
+            active_connections: 2,
+            ..Default::default()
+        })
+        .await;
 
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         run_handle.abort();
 
         assert!(snapshots.lock().await.iter().any(|snapshot| {
             snapshot.is_running
-                && snapshot.stats.as_ref().is_some_and(|stats| stats.active_connections == 2)
+                && snapshot
+                    .stats
+                    .as_ref()
+                    .is_some_and(|stats| stats.active_connections == 2)
         }));
     }
 
@@ -716,11 +745,7 @@ mod tests {
             stats: Some(stats.clone()),
         };
 
-        fan_out_runtime_state(
-            &mut fanout,
-            None,
-            &started_state,
-        );
+        fan_out_runtime_state(&mut fanout, None, &started_state);
         fan_out_runtime_state(
             &mut fanout,
             Some(&RuntimeStateView {
@@ -762,7 +787,7 @@ mod tests {
                         bytes_received: stats.total_bytes_received,
                         last_file: stats.last_uploaded_file.clone(),
                     })
-                        .expect("server snapshot should serialize"),
+                    .expect("server snapshot should serialize"),
                 ),
                 ("server-stopped".to_string(), serde_json::Value::Null),
             ]
@@ -805,11 +830,7 @@ mod tests {
             }),
         };
 
-        fan_out_runtime_state(
-            &mut fanout,
-            None,
-            &started_state,
-        );
+        fan_out_runtime_state(&mut fanout, None, &started_state);
         fan_out_runtime_state(
             &mut fanout,
             Some(&RuntimeStateView {
@@ -883,7 +904,10 @@ mod tests {
         fan_out_runtime_state(&mut fanout, None, &started_state);
 
         assert!(
-            fanout.frontend_events.iter().any(|(name, _)| name == "stats-update"),
+            fanout
+                .frontend_events
+                .iter()
+                .any(|(name, _)| name == "stats-update"),
             "stats-update event should be emitted for running server"
         );
     }
@@ -899,16 +923,16 @@ mod tests {
 
         fan_out_runtime_state(&mut fanout, None, &started_state);
 
-        assert_eq!(fanout.frontend_events, vec![
-            (
+        assert_eq!(
+            fanout.frontend_events,
+            vec![(
                 "stats-update".to_string(),
                 serde_json::to_value(ServerStateSnapshot {
                     is_running: true,
                     ..ServerStateSnapshot::default()
                 })
                 .expect("server snapshot should serialize"),
-            )
-        ]);
+            )]
+        );
     }
-
 }

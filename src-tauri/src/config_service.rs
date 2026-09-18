@@ -13,15 +13,28 @@ use crate::config::AppConfig;
 use crate::error::AppError;
 
 fn lock_result<T>(result: std::sync::LockResult<T>) -> Result<T, AppError> {
-    result.map_err(|e| AppError::Other(format!("Config lock poisoned: {}", e)))
+    // 锁中毒恢复：config 是纯值数据（Arc<AppConfig> 不可变快照 +
+    // Mutex<()> 纯互斥），守卫本身没有结构性破坏——某次持锁 panic 后
+    // 若持续报错，会让之后所有 get/mutate/persist 路径永久瘫痪。
+    // 恢复守卫（into_inner）优于永久失效；签名保持 Result 不变，
+    // 调用方（read/write/persist_lock）语义照旧。
+    Ok(result.unwrap_or_else(|e| e.into_inner()))
 }
 
 static GLOBAL_CONFIG_SERVICE: OnceLock<Arc<ConfigService>> = OnceLock::new();
 
 #[derive(Clone)]
 pub struct ConfigService {
-    config: Arc<RwLock<AppConfig>>,
+    config: Arc<RwLock<Arc<AppConfig>>>,
     config_path: PathBuf,
+    /// Serializes the whole mutate→persist sequence of both the sync
+    /// ([`ConfigService::mutate_and_persist`]) and async
+    /// ([`ConfigService::mutate_and_persist_async`]) variants. The in-memory
+    /// RwLock is only held for the fast phases (clone+mutate+validate / swap
+    /// in), so concurrent writers must not interleave between "read current
+    /// state" and "persist next state" — otherwise two-phase interleaving
+    /// could lose updates.
+    persist_lock: Arc<std::sync::Mutex<()>>,
 }
 
 impl ConfigService {
@@ -33,7 +46,9 @@ impl ConfigService {
     /// Get the global ConfigService instance (set during app setup).
     /// Panics if called before `set_global()`.
     pub fn get_global() -> &'static Arc<Self> {
-        GLOBAL_CONFIG_SERVICE.get().expect("ConfigService global not initialized")
+        GLOBAL_CONFIG_SERVICE
+            .get()
+            .expect("ConfigService global not initialized")
     }
 
     pub fn new() -> Result<Self, AppError> {
@@ -44,30 +59,40 @@ impl ConfigService {
 
     pub fn new_with_path(config_path: PathBuf) -> Self {
         Self {
-            config: Arc::new(RwLock::new(AppConfig::default())),
+            config: Arc::new(RwLock::new(Arc::new(AppConfig::default()))),
             config_path,
+            persist_lock: Arc::new(std::sync::Mutex::new(())),
         }
     }
 
+    /// Load the config from disk and swap it into memory.
+    ///
+    /// 仅在初始化阶段（ConfigService::new）调用；不持 persist_lock，
+    /// 与运行期 mutate 并发调用会产生竞争。
     pub fn load(&self) -> Result<AppConfig, AppError> {
         let loaded_config = Self::load_from_path(&self.config_path)?;
         let mut guard = lock_result(self.config.write())?;
         let result = loaded_config.clone();
-        *guard = loaded_config;
+        *guard = Arc::new(loaded_config);
         Ok(result)
     }
 
-    pub fn get(&self) -> Result<AppConfig, AppError> {
+    /// Cheap snapshot: clones only an `Arc`, not the whole `AppConfig`.
+    /// The snapshot is immutable — later mutations replace the inner Arc
+    /// and never mutate an outstanding snapshot in place.
+    pub fn get(&self) -> Result<Arc<AppConfig>, AppError> {
         let guard = lock_result(self.config.read())?;
-        Ok(guard.clone())
+        Ok(Arc::clone(&guard))
     }
 
     /// Fault-tolerant read: returns the in-memory config, or defaults when the
-    /// read fails (e.g. poisoned lock). Lives here — next to the config state —
-    /// so platform/commands code does not depend on each other for it.
+    /// read fails. Lives here — next to the config state — so platform/commands
+    /// code does not depend on each other for it. Note: lock poisoning no
+    /// longer fails reads (see `lock_result` — the guard is recovered), so the
+    /// fallback is purely defensive.
     pub fn get_or_default(&self) -> AppConfig {
         match self.get() {
-            Ok(config) => config,
+            Ok(config) => (*config).clone(),
             Err(e) => {
                 error!(error = %e, "Failed to read config from ConfigService, returning defaults");
                 AppConfig::default()
@@ -79,20 +104,54 @@ impl ConfigService {
     where
         F: FnOnce(&mut AppConfig) -> R,
     {
-        let mut guard = lock_result(self.config.write())?;
+        // Serialize the whole mutate→persist sequence; see persist_lock docs.
+        // 失败语义：validate 失败或落盘失败时内存保持旧值（`?` 先于换入）。
+        let _persist_guard = lock_result(self.persist_lock.lock())?;
 
-        let mut next_config = guard.clone();
-        let result = mutate(&mut next_config);
-        next_config = next_config.normalized_for_current_platform();
+        let (next_config, result) = {
+            let guard = lock_result(self.config.write())?;
+            // 双重解引用：克隆内层 AppConfig（(*guard).clone() 只会浅克隆外层 Arc，
+            // 导致下方 mutate(&mut …) 与 normalized_for_current_platform() 类型不符）。
+            let mut next_config = (**guard).clone();
+            let result = mutate(&mut next_config);
+            next_config = next_config.normalized_for_current_platform();
 
-        if let Err(e) = next_config.validate() {
-            return Err(AppError::Other(format!("Invalid configuration: {}", e)));
-        }
+            if let Err(e) = next_config.validate() {
+                return Err(AppError::Other(format!("Invalid configuration: {}", e)));
+            }
+
+            (next_config, result)
+        }; // write guard released here — disk I/O below no longer blocks get()
 
         Self::save_to_path(&self.config_path, &next_config)?;
-        *guard = next_config;
+
+        let mut guard = lock_result(self.config.write())?;
+        *guard = Arc::new(next_config);
 
         Ok(result)
+    }
+
+    /// Async variant of [`ConfigService::mutate_and_persist`]: identical
+    /// semantics (the in-memory config is only swapped in after the persist
+    /// succeeded), but the whole mutate→persist sequence — including the
+    /// fsync-heavy `save_to_path` — runs on tokio's blocking pool so Tauri
+    /// async commands get a `Send` future and do not stall worker threads.
+    // Delegating to the sync version on the blocking pool (instead of holding
+    // the std MutexGuard across `spawn_blocking().await`, which would make
+    // the future !Send and fail Tauri's command bound) also gives strictly
+    // better cancellation semantics: the blocking task owns the full
+    // save+swap-in sequence and runs it to completion, so disk and memory
+    // cannot diverge; the persist_lock still guarantees mutual exclusion
+    // between the sync (JNI) and async (command) paths. See the field docs.
+    pub async fn mutate_and_persist_async<F, R>(&self, mutate: F) -> Result<R, AppError>
+    where
+        F: FnOnce(&mut AppConfig) -> R + Send + 'static,
+        R: Send + 'static,
+    {
+        let service = self.clone();
+        tokio::task::spawn_blocking(move || service.mutate_and_persist(mutate))
+            .await
+            .map_err(|e| AppError::Other(format!("Config persist task failed: {}", e)))?
     }
 
     fn load_from_path(path: &Path) -> Result<AppConfig, AppError> {
@@ -233,6 +292,128 @@ mod tests {
     }
 
     #[test]
+    fn mutate_and_persist_failure_leaves_memory_unchanged() {
+        // 语义钉死：save_to_path 在 blocked-parent（文件而非目录）上
+        // create_dir_all 失败 → 落盘失败 ⇒ 内存保持旧值。同步/异步两版
+        // 都必须维护这一契约（mutate_and_persist 的 `?` 先于 `*guard` 换入）。
+        let temp_dir = tempdir().expect("failed to create temp dir");
+        let blocked_parent = temp_dir.path().join("blocked-parent");
+        std::fs::write(&blocked_parent, "not a directory").expect("failed to create blocker file");
+
+        let service = ConfigService::new_with_path(blocked_parent.join("config.json"));
+
+        let result = service.mutate_and_persist(|config| config.port = 7073);
+
+        assert!(result.is_err());
+        assert_eq!(
+            service.get().expect("failed to get config").port,
+            AppConfig::default().port
+        );
+    }
+
+    #[tokio::test]
+    async fn mutate_and_persist_async_keeps_memory_unchanged_on_persist_failure() {
+        let temp_dir = tempdir().expect("failed to create temp dir");
+        let blocked_parent = temp_dir.path().join("blocked-parent");
+        std::fs::write(&blocked_parent, "not a directory").expect("failed to create blocker file");
+
+        let service = ConfigService::new_with_path(blocked_parent.join("config.json"));
+
+        let result = service
+            .mutate_and_persist_async(|config| config.port = 7074)
+            .await;
+
+        assert!(result.is_err());
+        assert_eq!(
+            service.get().expect("failed to get config").port,
+            AppConfig::default().port
+        );
+    }
+
+    #[tokio::test]
+    async fn concurrent_gets_do_not_deadlock_with_mutate_and_persist_async() {
+        // 正确性冒烟（非时延断言）：100 个并发 get 与一次落盘变更共存，
+        // 全部完成且最终 get 看到新值（耗时阈值断言在 CI 上过于 flaky）。
+        let temp_dir = tempdir().expect("failed to create temp dir");
+        let config_path = temp_dir.path().join("config.json");
+        let service = Arc::new(ConfigService::new_with_path(config_path));
+        service.load().expect("failed to load config");
+
+        let mut readers = Vec::new();
+        for _ in 0..100 {
+            let reader = Arc::clone(&service);
+            readers.push(tokio::spawn(async move {
+                reader.get().expect("concurrent get must not fail")
+            }));
+        }
+
+        service
+            .mutate_and_persist_async(|config| config.port = 7075)
+            .await
+            .expect("failed to mutate and persist config");
+
+        for handle in readers {
+            handle.await.expect("reader task must not deadlock");
+        }
+
+        assert_eq!(service.get().expect("failed to get config").port, 7075);
+    }
+
+    #[test]
+    fn get_snapshot_is_stable_across_mutation() {
+        // get() 返回不可变快照：后续 mutate 通过替换内部 Arc 生效，
+        // 绝不原地修改旧快照。若实现退化为原地 patch，本测试失败。
+        let temp_dir = tempdir().expect("failed to create temp dir");
+        let config_path = temp_dir.path().join("config.json");
+        let service = ConfigService::new_with_path(config_path);
+        service.load().expect("failed to load config");
+
+        let default_port = service.get().expect("failed to get config").port;
+        let snapshot = service.get().expect("failed to get snapshot");
+
+        service
+            .mutate_and_persist(|config| config.port = 7076)
+            .expect("failed to mutate and persist config");
+
+        assert_eq!(
+            snapshot.port, default_port,
+            "old snapshot must be immutable"
+        );
+        assert_eq!(
+            service.get().expect("failed to get config").port,
+            7076,
+            "new snapshot must reflect the mutation"
+        );
+    }
+
+    #[test]
+    fn poisoned_config_lock_recovers_instead_of_failing_forever() {
+        // X4 语义钉住：锁中毒恢复。旧行为：某次持锁 panic 后，get/mutate
+        // 永久返回 "Config lock poisoned" 错误；新行为：恢复守卫，配置
+        // 读写继续可用（config 是纯值数据，中毒无结构性破坏）。
+        let temp_dir = tempdir().expect("failed to create temp dir");
+        let service = ConfigService::new_with_path(temp_dir.path().join("config.json"));
+        service.load().expect("failed to load config");
+
+        // 持写锁 panic → 守卫在 unwind 中被丢弃，锁进入中毒状态
+        let lock = Arc::clone(&service.config);
+        let _ = std::thread::spawn(move || {
+            let _guard = lock.write().unwrap();
+            panic!("poison the config lock");
+        })
+        .join();
+
+        assert!(
+            service.get().is_ok(),
+            "get must recover after lock poisoning"
+        );
+        service
+            .mutate_and_persist(|config| config.port = 7321)
+            .expect("mutate must recover after lock poisoning");
+        assert_eq!(service.get().expect("get after recovery").port, 7321);
+    }
+
+    #[test]
     fn mutate_and_persist_updates_memory_and_disk_atomically() {
         assert_mutate_and_persist_roundtrip(
             |config| {
@@ -298,7 +479,10 @@ mod tests {
 
         // Should use defaults for missing fields
         assert_eq!(loaded.port, AppConfig::default().port);
-        assert_eq!(service.get().expect("failed to get config").port, AppConfig::default().port);
+        assert_eq!(
+            service.get().expect("failed to get config").port,
+            AppConfig::default().port
+        );
     }
 
     #[test]
@@ -398,7 +582,8 @@ mod tests {
         );
 
         // ...但文件既不删除也不覆盖：原始字节原样保留，下次启动可重读。
-        let preserved = fs::read(&config_path).expect("config.json must be preserved on read failure");
+        let preserved =
+            fs::read(&config_path).expect("config.json must be preserved on read failure");
         assert_eq!(preserved, raw);
     }
 
@@ -411,7 +596,9 @@ mod tests {
 
         // First load: falls back to defaults and deletes the corrupt file
         let service = ConfigService::new_with_path(config_path.clone());
-        let loaded = service.load().expect("corrupt config must load with defaults");
+        let loaded = service
+            .load()
+            .expect("corrupt config must load with defaults");
         assert_eq!(loaded.port, AppConfig::default().port);
 
         // A persisted mutation after the corrupt-load must recover the file:
@@ -435,5 +622,76 @@ mod tests {
         let reloaded_service = ConfigService::new_with_path(config_path);
         let reloaded = reloaded_service.load().expect("reload recovered config");
         assert_eq!(reloaded.port, 7777);
+    }
+
+    #[tokio::test]
+    async fn concurrent_mutates_do_not_lose_updates() {
+        // N=8 并发 mutate_and_persist_async：persist_lock 序列化整个
+        // mutate→persist 序列，最终磁盘 config.json 必须是某一次完整写入的
+        // 结果（port 与 username 来自同一次 mutate），无字段丢失或交叉。
+        let temp_dir = tempdir().expect("failed to create temp dir");
+        let config_path = temp_dir.path().join("config.json");
+        let service = Arc::new(ConfigService::new_with_path(config_path.clone()));
+        service.load().expect("failed to load config");
+
+        const N: u16 = 8;
+        let base_port: u16 = 7100;
+        let mut handles = Vec::new();
+        for i in 0..N {
+            let service = Arc::clone(&service);
+            let port = base_port + i;
+            let username = format!("concurrent-user-{i}");
+            handles.push(tokio::spawn(async move {
+                service
+                    .mutate_and_persist_async(move |config| {
+                        config.port = port;
+                        config.advanced_connection.auth.username = username;
+                    })
+                    .await
+                    .expect("concurrent mutate must succeed");
+            }));
+        }
+        for handle in handles {
+            handle.await.expect("mutate task must not panic");
+        }
+
+        // 磁盘序列化结果：可解析、port ∈ 写入集合、username 为最后写入者之一且非空
+        let content = fs::read_to_string(&config_path).expect("config.json should exist");
+        let parsed: AppConfig =
+            serde_json::from_str(&content).expect("config.json should be valid JSON");
+        let expected_ports: std::collections::HashSet<u16> =
+            (0..N).map(|i| base_port + i).collect();
+        let expected_usernames: std::collections::HashSet<String> =
+            (0..N).map(|i| format!("concurrent-user-{i}")).collect();
+        assert!(
+            expected_ports.contains(&parsed.port),
+            "persisted port {} must be one of the written values",
+            parsed.port
+        );
+        assert!(
+            expected_usernames.contains(&parsed.advanced_connection.auth.username),
+            "persisted username {:?} must be one of the written values",
+            parsed.advanced_connection.auth.username
+        );
+        assert!(
+            !parsed.advanced_connection.auth.username.is_empty(),
+            "username must never be lost to a torn write"
+        );
+        // 配对断言：port 与 username 必须来自同一次完整 mutate（persist_lock
+        // 序列化保证）——若出现交叉写（port 来自 A、username 来自 B），
+        // 下式将得不到任何合法的 concurrent-user-{i} 值
+        assert_eq!(
+            parsed.advanced_connection.auth.username,
+            format!("concurrent-user-{}", parsed.port - base_port),
+            "port and username must originate from the same serialized mutate"
+        );
+
+        // 内存快照与磁盘一致（最后一次落盘的结果）
+        let in_memory = service.get().expect("failed to get config");
+        assert_eq!(in_memory.port, parsed.port);
+        assert_eq!(
+            in_memory.advanced_connection.auth.username,
+            parsed.advanced_connection.auth.username
+        );
     }
 }

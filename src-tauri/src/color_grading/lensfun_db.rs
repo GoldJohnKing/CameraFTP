@@ -67,9 +67,7 @@ pub fn ensure_db(app_data_dir: &Path) -> Result<(), AppError> {
 
 pub fn get_db() -> Result<&'static LensfunDbPaths, AppError> {
     GLOBAL_DB.get().ok_or_else(|| {
-        AppError::ColorGradingError(
-            "Lensfun DB not initialized. Call ensure_db() first.".into(),
-        )
+        AppError::ColorGradingError("Lensfun DB not initialized. Call ensure_db() first.".into())
     })
 }
 

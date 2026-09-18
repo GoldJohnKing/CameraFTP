@@ -9,6 +9,7 @@ use ts_rs::TS;
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export)]
 #[serde(rename_all = "camelCase", default)]
+#[derive(Default)]
 pub struct AiEditConfig {
     /// 接收图片后自动触发
     pub auto_edit: bool,
@@ -20,18 +21,6 @@ pub struct AiEditConfig {
     pub manual_model: String,
     /// Provider 配置
     pub provider: ProviderConfig,
-}
-
-impl Default for AiEditConfig {
-    fn default() -> Self {
-        Self {
-            auto_edit: false,
-            prompt: String::new(),
-            manual_prompt: String::new(),
-            manual_model: String::new(),
-            provider: ProviderConfig::default(),
-        }
-    }
 }
 
 /// Provider 配置枚举（预留扩展）
@@ -121,8 +110,16 @@ mod tests {
         for model in SEEDREAM_MODELS {
             assert!(!model.value.is_empty(), "empty value in catalog");
             assert!(!model.label.is_empty(), "empty label in catalog");
-            assert!(values.insert(model.value), "duplicate value: {}", model.value);
-            assert!(labels.insert(model.label), "duplicate label: {}", model.label);
+            assert!(
+                values.insert(model.value),
+                "duplicate value: {}",
+                model.value
+            );
+            assert!(
+                labels.insert(model.label),
+                "duplicate label: {}",
+                model.label
+            );
         }
     }
 

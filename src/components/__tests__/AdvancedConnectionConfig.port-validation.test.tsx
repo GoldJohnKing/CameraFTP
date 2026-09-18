@@ -4,14 +4,18 @@
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
 
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, beforeEach, vi } from 'vitest';
+import { toast } from 'sonner';
 import { AdvancedConnectionConfigPanel } from '../AdvancedConnectionConfig';
+import type { AdvancedConnectionConfig as AdvancedConnectionConfigType } from '../../types';
 
 const { checkPortMock, saveAuthConfigMock } = vi.hoisted(() => ({
   checkPortMock: vi.fn(),
   saveAuthConfigMock: vi.fn(),
 }));
+
+vi.mock('sonner', () => ({ toast: { error: vi.fn() } }));
 
 vi.mock('../../hooks/usePortCheck', async () => {
   const actual = await vi.importActual<typeof import('../../hooks/usePortCheck')>('../../hooks/usePortCheck');
@@ -29,6 +33,28 @@ vi.mock('../../stores/configStore', () => ({
     saveAuthConfig: saveAuthConfigMock,
   }),
 }));
+
+// 与生成类型 src-tauri/bindings/AdvancedConnectionConfig.ts 对齐（无 port 字段）
+const baseConfig = {
+  enabled: true,
+  auth: { anonymous: false, username: 'user', passwordHash: '' },
+} as unknown as AdvancedConnectionConfigType;
+
+/** 可复用的面板渲染 harness（本文件内复用） */
+function renderPanel(
+  overrides: Partial<Parameters<typeof AdvancedConnectionConfigPanel>[0]> = {},
+) {
+  return render(
+    <AdvancedConnectionConfigPanel
+      config={baseConfig}
+      port={2121}
+      platform="windows"
+      isLoading={false}
+      onUpdate={vi.fn()}
+      {...overrides}
+    />,
+  );
+}
 
 describe('AdvancedConnectionConfigPanel port validation', () => {
   const onUpdate = vi.fn();
@@ -93,5 +119,90 @@ describe('AdvancedConnectionConfigPanel port validation', () => {
     expect(await screen.findByText('端口 2233 已被占用')).toBeTruthy();
     expect(onUpdate).not.toHaveBeenCalled();
     expect(checkPortMock).toHaveBeenCalledWith(2233);
+  });
+});
+
+describe('AdvancedConnectionConfigPanel port check errors', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('检查异常时显示检查失败而非占用', async () => {
+    checkPortMock.mockResolvedValueOnce({ available: false, error: 'ipc down' });
+    renderPanel();
+    const portInput = screen.getByPlaceholderText('1-65535');
+
+    fireEvent.change(portInput, { target: { value: '3000' } });
+    fireEvent.blur(portInput);
+
+    expect(await screen.findByText(/端口检查失败/)).toBeTruthy();
+    expect(screen.queryByText(/已被占用/)).toBeNull();
+  });
+
+  it('真实占用仍显示占用文案', async () => {
+    checkPortMock.mockResolvedValueOnce({ available: false });
+    renderPanel();
+    const portInput = screen.getByPlaceholderText('1-65535');
+
+    fireEvent.change(portInput, { target: { value: '3000' } });
+    fireEvent.blur(portInput);
+
+    expect(await screen.findByText(/端口 3000 已被占用/)).toBeTruthy();
+  });
+});
+
+describe('AdvancedConnectionConfigPanel password save failure', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('保存失败时 toast 报错并保持编辑态（输入不丢失）', async () => {
+    renderPanel();
+    const input = screen.getByPlaceholderText('输入密码');
+
+    fireEvent.focus(input);
+    fireEvent.change(input, { target: { value: 'secret123' } });
+    saveAuthConfigMock.mockRejectedValueOnce(new Error('disk full'));
+    fireEvent.blur(input);
+
+    await waitFor(() =>
+      expect(toast.error).toHaveBeenCalledWith(expect.stringContaining('密码保存失败')),
+    );
+    expect((input as HTMLInputElement).value).toBe('secret123');
+  });
+
+  it('保存成功后正常退出编辑模式', async () => {
+    renderPanel();
+    const input = screen.getByPlaceholderText('输入密码');
+
+    fireEvent.focus(input);
+    fireEvent.change(input, { target: { value: 'secret123' } });
+    saveAuthConfigMock.mockResolvedValueOnce(undefined);
+    fireEvent.blur(input);
+
+    // 成功后退出编辑并点亮乐观标记，输入框回到占位符（而非明文/空串）
+    await waitFor(() =>
+      expect((input as HTMLInputElement).value).toBe('••••••••'),
+    );
+    expect(toast.error).not.toHaveBeenCalled();
+  });
+
+  it('清空输入再失焦=放弃修改：退出编辑态且不保存、无 toast', async () => {
+    renderPanel();
+    const input = screen.getByPlaceholderText('输入密码');
+
+    // 进入编辑 → 输入 → 清空 → 失焦
+    fireEvent.focus(input);
+    fireEvent.change(input, { target: { value: 'secret123' } });
+    fireEvent.change(input, { target: { value: '' } });
+    fireEvent.blur(input);
+
+    // 退出编辑态：无已存密码（baseConfig passwordHash 为空）→ 显示值回到
+    // 空串（而非占位符或明文）。
+    await waitFor(() =>
+      expect((input as HTMLInputElement).value).toBe(''),
+    );
+    expect(saveAuthConfigMock).not.toHaveBeenCalled();
+    expect(toast.error).not.toHaveBeenCalled();
   });
 });
