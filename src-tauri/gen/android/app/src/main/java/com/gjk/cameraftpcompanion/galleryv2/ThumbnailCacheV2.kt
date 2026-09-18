@@ -149,6 +149,17 @@ class ThumbnailCacheV2(
     }
 
     /**
+     * Evict all L1 in-memory entries (UI trim path).
+     *
+     * L1 is a pure read-through accelerator over the L2 disk cache: eviction
+     * is always safe — entries are transparently re-populated from disk on
+     * the next [get]. The L2 disk cache is NOT touched.
+     */
+    fun evictMemory() {
+        l1.evictAll()
+    }
+
+    /**
      * Remove all cached entries for the given media IDs.
      *
      * Uses file name prefix matching to delete all cache files for each mediaId,

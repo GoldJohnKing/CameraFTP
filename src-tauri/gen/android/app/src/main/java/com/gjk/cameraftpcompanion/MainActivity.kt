@@ -8,6 +8,7 @@ package com.gjk.cameraftpcompanion
 
 import android.annotation.SuppressLint
 import android.app.Activity
+import android.content.ComponentCallbacks2
 import android.content.IntentSender
 import android.os.Bundle
 import android.util.Log
@@ -63,6 +64,15 @@ class MainActivity : TauriActivity() {
     private var imageViewerBridge: ImageViewerBridge? = null
     @Volatile
     private var isWebViewActive = false
+
+    /**
+     * True while onTrimMemory(UI_HIDDEN+) has paused the main WebView's
+     * timers. Cleared by [resumeWebViewTimersIfPaused], which MainActivity,
+     * ImageViewerActivity and ColorGradingActivity call from their
+     * onResume — whichever activity the user returns to.
+     */
+    @Volatile
+    private var webViewTimersPausedByTrim = false
     private val pendingDeleteResult = AtomicReference<Pair<CountDownLatch, AtomicReference<Boolean>>?>(null)
     private val deleteRequestLauncher = registerForActivityResult(
         ActivityResultContracts.StartIntentSenderForResult()
@@ -211,11 +221,95 @@ class MainActivity : TauriActivity() {
 
     override fun onResume() {
         super.onResume()
+        // super (WryActivity.onResume) already calls webView.onResume();
+        // this only re-enables the JS/layout timers that onTrimMemory may
+        // have paused while the app was fully hidden.
+        resumeWebViewTimersIfPaused()
         // Returning to the app may mean the user just granted the storage
         // permission in system settings; ask the web layer to re-check so a
         // false→true transition can trigger the gallery refresh hook.
         Log.d(TAG, "onResume: requesting permission re-check")
         emitWindowEvent("permission-recheck-requested", "{}")
+    }
+
+    /**
+     * Release UI-side caches when the app's UI is no longer visible
+     * (TRIM_MEMORY_UI_HIDDEN and above — e.g. MIUI backgrounding/lock screen).
+     *
+     * Scope is strictly UI-only: the FTP server state, the color-grading and
+     * AI-edit processing workers, the file index and the configuration are
+     * NOT touched. Everything released here is transparently rebuilt on next
+     * use (WebView timers on resume, thumbnails from the L2 disk cache,
+     * viewer tiles on rebind).
+     */
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        if (level < ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN) {
+            // Below UI_HIDDEN some app UI is still (about to be) visible —
+            // dropping these caches would cause visible re-decode churn.
+            // TODO(trim-running-low): at TRIM_MEMORY_RUNNING_LOW/CRITICAL also
+            //   unload NN weights / decoder pools (future work; not needed for
+            //   the UI_HIDDEN tier which MIUI sends on background/lock).
+            return
+        }
+
+        Log.i(TAG, "onTrimMemory($level >= UI_HIDDEN): releasing UI-side caches")
+
+        // 1) Freeze the main WebView's rendering and JS timers. onPause() is
+        //    normally already applied by WryActivity.onPause() (UI_HIDDEN is
+        //    only delivered after all activities are stopped) and is
+        //    idempotent; pauseTimers() is the actual addition — WryActivity
+        //    never pauses timers, so JS timers would keep firing while the
+        //    app is hidden. The timer pause is reversed by
+        //    resumeWebViewTimersIfPaused(); the onPause() half is undone by
+        //    WryActivity's own onResume lifecycle.
+        getWebView()?.let { wv ->
+            try {
+                wv.onPause()
+                wv.pauseTimers()
+                webViewTimersPausedByTrim = true
+            } catch (e: Exception) {
+                Log.e(TAG, "onTrimMemory: failed to pause WebView", e)
+            }
+        }
+
+        // 2) L1 in-memory thumbnail LruCache (L2 disk cache untouched —
+        //    thumbnails re-populate from disk on next access).
+        galleryBridgeV2?.trimUiMemoryCaches()
+
+        // 3) If the image viewer is alive, recycle its offscreen tile
+        //    bitmaps (current page and ±1 neighbors are kept).
+        ImageViewerActivity.instance?.let { viewer ->
+            if (!viewer.isFinishing && !viewer.isDestroyed) {
+                viewer.recycleOffscreenTiles()
+            }
+        }
+    }
+
+    /**
+     * Undo the WebView timer pause applied by [onTrimMemory] (if any).
+     * Idempotent and safe to call when timers were never paused.
+     * Called from MainActivity.onResume, ImageViewerActivity.onResume and
+     * ColorGradingActivity.onResume — whichever activity the user returns
+     * to after the app was hidden.
+     *
+     * Only resumes the JS/layout timers: WebView.onResume() itself is
+     * WryActivity's lifecycle responsibility — callers may be other
+     * activities while MainActivity is still stopped, and resuming the
+     * main WebView then would over-restore it (it stays correctly paused
+     * until WryActivity.onResume runs).
+     */
+    fun resumeWebViewTimersIfPaused() {
+        if (!webViewTimersPausedByTrim) return
+        webViewTimersPausedByTrim = false
+        webViewRef?.let { wv ->
+            try {
+                wv.resumeTimers()
+                Log.d(TAG, "WebView timers resumed after trim pause")
+            } catch (e: Exception) {
+                Log.e(TAG, "resumeWebViewTimersIfPaused failed", e)
+            }
+        }
     }
 
     /**

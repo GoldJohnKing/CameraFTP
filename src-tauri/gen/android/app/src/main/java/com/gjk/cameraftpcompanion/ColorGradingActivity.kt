@@ -117,6 +117,16 @@ class ColorGradingActivity : AppCompatActivity() {
         setContentView(container)
     }
 
+    override fun onResume() {
+        super.onResume()
+        // The grading screen may be the activity the user returns to after
+        // the app was hidden (MainActivity stays stopped and never fires
+        // onResume); undo the WebView timer pause from
+        // MainActivity.onTrimMemory here so the EV-throttle setTimeouts
+        // in the main WebView resume.
+        MainActivity.instance?.resumeWebViewTimersIfPaused()
+    }
+
     override fun onDestroy() {
         if (isSaving) {
             // save() has already called endPreview() + enqueueBatch().

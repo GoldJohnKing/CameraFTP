@@ -224,6 +224,19 @@ class GalleryBridgeV2(
 
     // ── Cache invalidation ────────────────────────────────────────────
 
+    /**
+     * Release UI-side memory caches when the OS asks the app to trim
+     * (called from MainActivity.onTrimMemory at TRIM_MEMORY_UI_HIDDEN and
+     * above). Clears only the L1 in-memory thumbnail LruCache — the L2 disk
+     * cache, the thumbnail pipeline queue, listeners, FTP state and the
+     * processing workers are intentionally untouched; in-flight requests
+     * keep running and are re-served from disk.
+     */
+    fun trimUiMemoryCaches() {
+        cache.evictMemory()
+        Log.d(TAG, "trimUiMemoryCaches: L1 thumbnail cache evicted")
+    }
+
     @android.webkit.JavascriptInterface
     fun invalidateMediaIds(mediaIdsJson: String) {
         Log.d(TAG, "invalidateMediaIds: $mediaIdsJson")

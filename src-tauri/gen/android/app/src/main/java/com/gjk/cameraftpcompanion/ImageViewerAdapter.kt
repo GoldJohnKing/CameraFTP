@@ -22,6 +22,23 @@ class ImageViewerAdapter(
     private val onExifNeeded: ((position: Int, uri: String) -> Unit)? = null,
 ) : RecyclerView.Adapter<ImageViewerAdapter.ViewHolder>() {
 
+    companion object {
+        /**
+         * Normal recycling (onViewRecycled) keeps pages within ±2 of the
+         * current position decoded — matches the EXIF/decode prefetch range.
+         */
+        private const val PREFETCH_KEEP_WINDOW = 2
+
+        /**
+         * Aggressive trim recycling (UI_HIDDEN) keeps only the current page
+         * and its immediate neighbors (±1) — the pages ViewPager2 keeps
+         * attached with offscreenPageLimit = 1. Attached pages are NOT
+         * rebound when swiped back to, so recycling them would leave blank
+         * pages; ±1 is therefore the minimum safe keep window.
+         */
+        const val TRIM_KEEP_WINDOW = 1
+    }
+
     private val uris: MutableList<String> = uris.toMutableList()
 
     /** Current visible position, updated by ViewPager2 callback */
@@ -112,10 +129,18 @@ class ImageViewerAdapter(
     override fun onViewRecycled(holder: ViewHolder) {
         // Only recycle if distance from current position > 2
         // This keeps images within prefetch range (±2) in memory
-        val position = holder.bindingAdapterPosition
-        if (position != RecyclerView.NO_POSITION && abs(position - currentPosition) > 2) {
+        if (shouldRecycleTileAt(holder.bindingAdapterPosition, PREFETCH_KEEP_WINDOW)) {
             holder.imageView.recycle()
         }
+    }
+
+    /**
+     * Whether the tile bitmaps of the page at [position] may be released.
+     * [keepWindow] is the number of pages on each side of [currentPosition]
+     * that must stay decoded (see [PREFETCH_KEEP_WINDOW] / [TRIM_KEEP_WINDOW]).
+     */
+    fun shouldRecycleTileAt(position: Int, keepWindow: Int): Boolean {
+        return position != RecyclerView.NO_POSITION && abs(position - currentPosition) > keepWindow
     }
 
     override fun getItemCount(): Int = uris.size

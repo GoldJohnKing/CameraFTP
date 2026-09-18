@@ -684,6 +684,10 @@ class ImageViewerActivity : AppCompatActivity() {
         super.onResume()
         _instance = WeakReference(this)
         isViewerVisible = true
+        // The viewer may be the activity the user returns to after the app
+        // was hidden (MainActivity stays stopped and never fires onResume);
+        // undo the WebView timer pause from MainActivity.onTrimMemory here.
+        MainActivity.instance?.resumeWebViewTimersIfPaused()
         taskController.syncAiEditProgress()
         taskController.syncColorGradingProgress()
         if (taskController.isVisible) {
@@ -704,6 +708,42 @@ class ImageViewerActivity : AppCompatActivity() {
     override fun onStop() {
         MainActivity.markActivityHidden()
         super.onStop()
+    }
+
+    /**
+     * Release offscreen tile bitmaps — UI trim path, called from
+     * MainActivity.onTrimMemory at TRIM_MEMORY_UI_HIDDEN and above.
+     *
+     * - Attached pages outside [ImageViewerAdapter.TRIM_KEEP_WINDOW] (±1 of
+     *   the current position, i.e. outside what offscreenPageLimit = 1 keeps
+     *   alive) get an immediate explicit [SubsamplingScaleImageView.recycle].
+     * - The RecyclerView recycled-view pool is then cleared: pooled holders
+     *   kept their bitmaps under the adapter's lenient ±2 rule, and dropping
+     *   the last references lets GC reclaim the (Java-heap) bitmaps.
+     *
+     * The current page and its ±1 neighbors are never touched — attached
+     * pages are not rebound when the user swipes back to them, so recycling
+     * them would leave blank pages.
+     */
+    fun recycleOffscreenTiles() {
+        runOnUiThread {
+            if (isFinishing || isDestroyed) return@runOnUiThread
+            val adapter = viewPager.adapter as? ImageViewerAdapter ?: return@runOnUiThread
+            val rv = viewPager.getChildAt(0) as? androidx.recyclerview.widget.RecyclerView
+                ?: return@runOnUiThread
+
+            var recycledAttached = 0
+            for (i in 0 until rv.childCount) {
+                val holder = rv.getChildViewHolder(rv.getChildAt(i)) as? ImageViewerAdapter.ViewHolder
+                    ?: continue
+                if (adapter.shouldRecycleTileAt(holder.bindPosition, ImageViewerAdapter.TRIM_KEEP_WINDOW)) {
+                    holder.imageView.recycle()
+                    recycledAttached++
+                }
+            }
+            rv.recycledViewPool.clear()
+            Log.d(TAG, "recycleOffscreenTiles: recycled $recycledAttached attached offscreen pages, view pool cleared")
+        }
     }
 
     override fun onDestroy() {
