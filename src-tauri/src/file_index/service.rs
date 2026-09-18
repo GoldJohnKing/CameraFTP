@@ -30,6 +30,10 @@ pub struct FileIndexService {
     #[cfg(target_os = "windows")]
     watcher: Mutex<Option<FileWatcher>>,
     app_handle: Arc<RwLock<Option<tauri::AppHandle>>>,
+    /// 测试观察 seam：scan_directory 调用计数。watcher 丢弃事件收敛测试
+    /// 用它在真实索引行为之外断言"恰好一次合并重扫"。
+    #[cfg(test)]
+    scan_call_count: std::sync::atomic::AtomicU64,
 }
 
 impl FileIndexService {
@@ -45,6 +49,8 @@ impl FileIndexService {
             #[cfg(target_os = "windows")]
             watcher: Mutex::new(Some(FileWatcher::new(save_path))),
             app_handle: Arc::new(RwLock::new(None)),
+            #[cfg(test)]
+            scan_call_count: std::sync::atomic::AtomicU64::new(0),
         }
     }
 
@@ -163,6 +169,10 @@ impl FileIndexService {
 
     /// 扫描目录建立索引
     pub async fn scan_directory(&self) -> Result<(), AppError> {
+        #[cfg(test)]
+        self.scan_call_count
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+
         let save_path = self.save_path.read().await.clone();
         info!("Starting directory scan: {:?}", save_path);
 
@@ -361,7 +371,10 @@ impl FileIndexService {
         {
             let save_path = self.save_path.read().await.clone();
             if !path.starts_with(&save_path) {
-                trace!("Path outside current save_path, ignoring: {:?}", path);
+                warn!(
+                    "Path outside current save_path, ignoring: path={:?}, save_path={:?}",
+                    path, save_path
+                );
                 return Ok(());
             }
         }
@@ -662,6 +675,13 @@ impl FileIndexService {
     pub async fn get_file_count(&self) -> usize {
         let index = self.index.read().await;
         index.files().len()
+    }
+
+    /// 测试 seam：scan_directory 的调用次数（仅测试构建存在）
+    #[cfg(test)]
+    pub fn test_scan_call_count(&self) -> u64 {
+        self.scan_call_count
+            .load(std::sync::atomic::Ordering::SeqCst)
     }
 
     #[cfg(test)]

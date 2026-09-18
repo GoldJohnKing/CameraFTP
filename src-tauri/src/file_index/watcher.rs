@@ -6,7 +6,8 @@
 // Android 不使用文件系统监听
 //
 // 并发模型：notify 回调线程只做事件分类，把事件 try_send 进 mpsc 通道
-//（容量 1000；满时告警并丢弃该事件，索引最终一致，下次扫描可补）。
+//（容量 1000；满时告警丢弃并置位 needs_rescan——事件循环在通道排空后
+// check-and-swap 触发一次合并重扫收敛丢弃，见 run_event_loop）。
 // 事件循环对 Created/Renamed 重事件（wait_for_file_ready 秒级等待 +
 // EXIF 全文件解析）每事件独立 tokio::spawn 并发处理（信号量限流，见
 // run_event_loop），避免一个慢文件阻塞整批事件；Deleted 轻事件保持
@@ -19,6 +20,7 @@
 
 use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher};
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc::{channel, Sender};
@@ -77,12 +79,18 @@ impl FileWatcher {
         let (tx, rx) = channel::<FileSystemEvent>(1000);
         self.event_sender = Some(tx.clone());
 
+        // 丢弃事件收敛标志：notify 回调线程 try_send 失败时置位，事件
+        // 循环在通道排空后 check-and-swap 触发一次合并重扫（见
+        // run_event_loop 尾部）
+        let needs_rescan = Arc::new(AtomicBool::new(false));
+
         // 创建 notify watcher
         let watcher_tx = tx.clone();
+        let watcher_needs_rescan = Arc::clone(&needs_rescan);
         let mut watcher = RecommendedWatcher::new(
             move |res: Result<Event, notify::Error>| match res {
                 Ok(event) => {
-                    Self::handle_notify_event(event, &watcher_tx);
+                    Self::handle_notify_event(event, &watcher_tx, &watcher_needs_rescan);
                 }
                 Err(e) => {
                     error!("File watcher error: {}", e);
@@ -104,7 +112,7 @@ impl FileWatcher {
         // 启动事件处理任务（并发模型见文件顶部注释）
         let file_index_clone = file_index.clone();
         tokio::spawn(async move {
-            Self::run_event_loop(rx, file_index_clone).await;
+            Self::run_event_loop(rx, file_index_clone, needs_rescan).await;
         });
 
         Ok(true)
@@ -123,9 +131,14 @@ impl FileWatcher {
     /// 等待 + EXIF 全文件解析）每事件独立 tokio::spawn 并发处理（信号量
     /// 限流），防止一个慢文件阻塞整批事件；轻事件（Deleted，仅索引写锁
     /// 内移除）保持串行 await。
+    ///
+    /// 丢弃事件收敛（B2）：notify 回调线程通道满时丢弃事件并置位
+    /// needs_rescan；本循环在每批事件排空（try_recv 返回 Empty）后
+    /// check-and-swap 该标志，置位过则执行一次合并重扫（scan_directory）。
     async fn run_event_loop(
         mut rx: tokio::sync::mpsc::Receiver<FileSystemEvent>,
         file_index: Arc<FileIndexService>,
+        needs_rescan: Arc<AtomicBool>,
     ) {
         // 重事件并发上限 INDEX_EVENT_CONCURRENCY（constants.rs）：与扫描侧
         // INDEX_SCAN_CONCURRENCY 的 2× 关系是有意的不变式——事件通道含
@@ -135,29 +148,69 @@ impl FileWatcher {
         // 池——EXIF 解析排队反而拖慢包括本批在内的一切阻塞任务。
         let semaphore = Arc::new(tokio::sync::Semaphore::new(INDEX_EVENT_CONCURRENCY));
         while let Some(event) = rx.recv().await {
-            match event {
-                FileSystemEvent::Deleted(_) => {
-                    Self::process_event(event, Arc::clone(&file_index)).await;
+            Self::dispatch_event(event, &file_index, &semaphore).await;
+
+            // 排空积压：try_recv 连续取到 Empty 视为排空（Disconnected 时
+            // 队列也已取尽，同样落入排空分支）。丢弃只发生在通道满时，满
+            // 意味着必有积压事件待处理，因此任何置位终将等到一次排空观察。
+            loop {
+                match rx.try_recv() {
+                    Ok(event) => Self::dispatch_event(event, &file_index, &semaphore).await,
+                    Err(tokio::sync::mpsc::error::TryRecvError::Empty)
+                    | Err(tokio::sync::mpsc::error::TryRecvError::Disconnected) => break,
                 }
-                FileSystemEvent::Created(_) | FileSystemEvent::Renamed { .. } => {
-                    let semaphore = Arc::clone(&semaphore);
-                    let file_index = Arc::clone(&file_index);
-                    tokio::spawn(async move {
-                        // 先取许可再处理；permit guard 随任务结束自动释放。
-                        // 信号量从不 close，Err 分支不可达。
-                        let _permit = semaphore
-                            .acquire_owned()
-                            .await
-                            .expect("watcher semaphore is never closed");
-                        Self::process_event(event, file_index).await;
-                    });
+            }
+
+            // check-and-swap 即重入守卫：只有把 true 换成 false 的一方执行
+            // 扫描；扫描期间若再次溢出丢弃，flag 被重新置位，下一轮排空
+            // 再次收敛。合并重扫与在飞 spawn 的重事件（add_file）并发安全
+            // ——merge_scan_result（service.rs）保留扫描期间新增的条目，
+            // 提交语义正确合并不丢数据。扫描失败则恢复置位，下次排空重试。
+            if needs_rescan.swap(false, Ordering::AcqRel) {
+                info!("file watcher dropped events detected, running merged rescan");
+                if let Err(e) = file_index.scan_directory().await {
+                    warn!(
+                        error = %e,
+                        "merged rescan after dropped events failed, will retry on next drain"
+                    );
+                    needs_rescan.store(true, Ordering::Release);
                 }
             }
         }
     }
 
+    /// 单事件分发：重事件（Created/Renamed）spawn 并发处理（信号量限流，
+    /// permit 随任务结束释放）；轻事件（Deleted）串行 await
+    async fn dispatch_event(
+        event: FileSystemEvent,
+        file_index: &Arc<FileIndexService>,
+        semaphore: &Arc<tokio::sync::Semaphore>,
+    ) {
+        match event {
+            FileSystemEvent::Deleted(_) => {
+                Self::process_event(event, Arc::clone(file_index)).await;
+            }
+            FileSystemEvent::Created(_) | FileSystemEvent::Renamed { .. } => {
+                let semaphore = Arc::clone(semaphore);
+                let file_index = Arc::clone(file_index);
+                tokio::spawn(async move {
+                    // 先取许可再处理；permit guard 随任务结束自动释放。
+                    // 信号量从不 close，Err 分支不可达。
+                    let _permit = semaphore
+                        .acquire_owned()
+                        .await
+                        .expect("watcher semaphore is never closed");
+                    Self::process_event(event, file_index).await;
+                });
+            }
+        }
+    }
+
     /// 处理 notify 事件，转换为内部事件格式
-    fn handle_notify_event(event: Event, tx: &Sender<FileSystemEvent>) {
+    ///
+    /// 通道满（try_send 失败）时丢弃该事件并置位 needs_rescan——事件循环
+    /// 在通道排空后执行一次合并重扫收敛丢弃（见 run_event_loop）。
+    fn handle_notify_event(event: Event, tx: &Sender<FileSystemEvent>, needs_rescan: &AtomicBool) {
         use notify::event::{EventKind, ModifyKind, RenameMode};
 
         debug!("Raw notify event: {:?}", event);
@@ -169,6 +222,7 @@ impl FileWatcher {
                         && tx.try_send(FileSystemEvent::Created(path.clone())).is_err()
                     {
                         warn!("file watcher channel full, event dropped: {:?}", path);
+                        needs_rescan.store(true, Ordering::Release);
                     }
                 }
             }
@@ -179,6 +233,7 @@ impl FileWatcher {
                         && tx.try_send(FileSystemEvent::Deleted(path.clone())).is_err()
                     {
                         warn!("file watcher channel full, event dropped: {:?}", path);
+                        needs_rescan.store(true, Ordering::Release);
                     }
                 }
             }
@@ -189,6 +244,7 @@ impl FileWatcher {
                         && tx.try_send(FileSystemEvent::Created(path.clone())).is_err()
                     {
                         warn!("file watcher channel full, event dropped: {:?}", path);
+                        needs_rescan.store(true, Ordering::Release);
                     }
                 }
             }
@@ -210,6 +266,7 @@ impl FileWatcher {
                             "file watcher channel full, event dropped: {:?} -> {:?}",
                             from, to
                         );
+                        needs_rescan.store(true, Ordering::Release);
                     }
                 }
             }
@@ -221,6 +278,7 @@ impl FileWatcher {
                         && tx.try_send(FileSystemEvent::Deleted(path.clone())).is_err()
                     {
                         warn!("file watcher channel full, event dropped: {:?}", path);
+                        needs_rescan.store(true, Ordering::Release);
                     }
                 }
             }
@@ -325,13 +383,14 @@ mod tests {
     /// 用构造的 notify 事件驱动分类逻辑，同步收集转换出的内部事件
     fn classify(kind: notify::event::EventKind, paths: Vec<PathBuf>) -> Vec<FileSystemEvent> {
         let (tx, mut rx) = channel::<FileSystemEvent>(32);
+        let needs_rescan = AtomicBool::new(false);
         // notify 8.0：Event::new 只收 EventKind；paths/attrs 为公有字段，经结构体字面量设置
         let event = notify::Event {
             kind,
             paths,
             ..Default::default()
         };
-        FileWatcher::handle_notify_event(event, &tx);
+        FileWatcher::handle_notify_event(event, &tx, &needs_rescan);
         drop(tx);
 
         let mut events = Vec::new();
@@ -510,9 +569,14 @@ mod tests {
         let temp_dir = tempfile::tempdir().expect("create temp dir");
         let file_index = make_file_index(temp_dir.path());
         let (tx, rx) = channel::<FileSystemEvent>(16);
+        let needs_rescan = Arc::new(AtomicBool::new(false));
 
         let loop_service = Arc::clone(&file_index);
-        tokio::spawn(FileWatcher::run_event_loop(rx, loop_service));
+        tokio::spawn(FileWatcher::run_event_loop(
+            rx,
+            loop_service,
+            needs_rescan,
+        ));
 
         let a = write_image(temp_dir.path(), "a.jpg");
         let b = write_image(temp_dir.path(), "b.jpg");
@@ -805,8 +869,13 @@ mod tests {
         let temp_dir = tempfile::tempdir().expect("create temp dir");
         let file_index = make_file_index(temp_dir.path());
         let (tx, rx) = channel::<FileSystemEvent>(64);
+        let needs_rescan = Arc::new(AtomicBool::new(false));
 
-        tokio::spawn(FileWatcher::run_event_loop(rx, Arc::clone(&file_index)));
+        tokio::spawn(FileWatcher::run_event_loop(
+            rx,
+            Arc::clone(&file_index),
+            needs_rescan,
+        ));
 
         let mut paths = Vec::new();
         for i in 0..15 {
@@ -833,15 +902,16 @@ mod tests {
     fn channel_full_drops_event_with_warning_without_panic() {
         // S6②：notify 回调线程的 try_send 在通道满时必须走 warn 分支
         // 丢弃事件，不得 panic——容量 2 的通道灌入 5 个 Created 事件，
-        // 只有前 2 个能入队。
+        // 只有前 2 个能入队。丢弃必须同时置位 needs_rescan（B2 收敛契约）。
         let (tx, mut rx) = channel::<FileSystemEvent>(2);
+        let needs_rescan = AtomicBool::new(false);
         for _ in 0..5 {
             let event = notify::Event {
                 kind: notify::event::EventKind::Create(CreateKind::File),
                 paths: vec![PathBuf::from(r"C:\photos\flood.jpg")],
                 ..Default::default()
             };
-            FileWatcher::handle_notify_event(event, &tx);
+            FileWatcher::handle_notify_event(event, &tx, &needs_rescan);
         }
         drop(tx);
 
@@ -850,6 +920,100 @@ mod tests {
             received += 1;
         }
         assert_eq!(received, 2, "only the first two events fit the channel");
+        assert!(
+            needs_rescan.load(Ordering::SeqCst),
+            "overflow drops must set the needs_rescan flag"
+        );
+    }
+
+    // ---- 丢弃事件收敛（B2）----
+
+    #[tokio::test]
+    async fn channel_overflow_drops_converge_via_merged_rescan_on_drain() {
+        // B2：溢出丢弃的事件必须收敛——丢弃置 needs_rescan，事件循环在
+        // 通道排空（try_recv 返回 Empty）后 check-and-swap 触发一次合并
+        // 重扫。孤儿文件真实存在于磁盘但事件被丢弃，只有合并重扫能把它
+        // 补进索引；修复前（Windows 会话无任何后续重扫触发点）它会一直
+        // 缺失直到应用重启。
+        let temp_dir = tempfile::tempdir().expect("create temp dir");
+        let file_index = make_file_index(temp_dir.path());
+
+        let a = write_image(temp_dir.path(), "a.jpg");
+        let b = write_image(temp_dir.path(), "b.jpg");
+        let orphan = write_image(temp_dir.path(), "orphan.jpg");
+
+        let (tx, rx) = channel::<FileSystemEvent>(2);
+        let needs_rescan = Arc::new(AtomicBool::new(false));
+
+        // 占满容量 2（事件循环尚未启动，无消费者）；随后 3 次投递必然
+        // 溢出丢弃（fake 路径不落盘，重扫也不会索引它们）
+        tx.try_send(FileSystemEvent::Created(a)).expect("fill slot 1");
+        tx.try_send(FileSystemEvent::Created(b)).expect("fill slot 2");
+        for _ in 0..3 {
+            let event = notify::Event {
+                kind: notify::event::EventKind::Create(CreateKind::File),
+                paths: vec![PathBuf::from(r"C:\photos\flood.jpg")],
+                ..Default::default()
+            };
+            FileWatcher::handle_notify_event(event, &tx, &needs_rescan);
+        }
+        assert!(
+            needs_rescan.load(Ordering::SeqCst),
+            "overflow drops must set the needs_rescan flag"
+        );
+
+        tokio::spawn(FileWatcher::run_event_loop(
+            rx,
+            Arc::clone(&file_index),
+            Arc::clone(&needs_rescan),
+        ));
+
+        // a/b 经事件入索引；排空后的合并重扫必须把从未投递成功的孤儿补进来
+        wait_for_count(&file_index, 3).await;
+        let files = file_index.get_files().await;
+        assert!(
+            files.iter().any(|f| f.path == orphan),
+            "merged rescan on drain must index the orphan file"
+        );
+        assert_eq!(
+            file_index.test_scan_call_count(),
+            1,
+            "a single overflow episode must converge with exactly one merged rescan"
+        );
+
+        // 第二轮溢出：flag 被重新置位 → 下一轮排空再次重扫（swap 守卫不
+        // 吞新置位）。current_thread 运行时内同步灌入不会被消费任务交错，
+        // 排空后通道为空、容量 2 ⇒ 第 3 个投递起必然再次溢出
+        let c = write_image(temp_dir.path(), "c.jpg");
+        let d = write_image(temp_dir.path(), "d.jpg");
+        tx.try_send(FileSystemEvent::Created(c)).expect("refill slot 1");
+        tx.try_send(FileSystemEvent::Created(d)).expect("refill slot 2");
+        for _ in 0..3 {
+            let event = notify::Event {
+                kind: notify::event::EventKind::Create(CreateKind::File),
+                paths: vec![PathBuf::from(r"C:\photos\flood-2.jpg")],
+                ..Default::default()
+            };
+            FileWatcher::handle_notify_event(event, &tx, &needs_rescan);
+        }
+        assert!(
+            needs_rescan.load(Ordering::SeqCst),
+            "second overflow must set the flag again"
+        );
+        drop(tx);
+
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+        loop {
+            if file_index.test_scan_call_count() >= 2 {
+                break;
+            }
+            assert!(
+                tokio::time::Instant::now() < deadline,
+                "timed out waiting for the second merged rescan (scans: {})",
+                file_index.test_scan_call_count()
+            );
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
     }
 
     // ---- 生命周期 ----

@@ -7,11 +7,13 @@ use tauri::{command, AppHandle, Manager, State};
 use tracing::instrument;
 
 use crate::auto_open::AutoOpenService;
+use crate::commands::FtpServerState;
 use crate::config::{AppConfig, PreviewWindowConfig};
 use crate::config_service::ConfigService;
 use crate::crypto;
 use crate::error::AppError;
 use crate::file_index::FileIndexService;
+use crate::ftp::types::FtpServerSlot;
 use std::sync::Arc;
 
 async fn save_auth_config_with_service(
@@ -98,14 +100,51 @@ pub fn load_config(config_service: State<'_, Arc<ConfigService>>) -> AppConfig {
     config_service.inner().get_or_default()
 }
 
+/// save_path 变更守卫：FTP 服务器活动（Starting/Running）期间拒绝改路径。
+///
+/// FTP 监听器的根目录在启动时固定；若放行运行中改路径，索引会切到新根
+/// 目录，而上传仍写入旧根目录——文件落盘却在图库中不可见（唯一痕迹是
+/// add_file 的越界路径拒绝日志）。UI 侧同步禁用目录选择器，本守卫是
+/// 后端兜底（托盘/并发窗口等绕过 UI 的写者同样被拦截）。
+async fn ensure_save_path_change_allowed(
+    config_service: &ConfigService,
+    ftp_state: &FtpServerState,
+    incoming: &AppConfig,
+) -> Result<(), AppError> {
+    let current_save_path = config_service.get_or_default().save_path;
+    if incoming.save_path == current_save_path {
+        return Ok(());
+    }
+
+    // 只看槽位状态（None 之外一律视为活动），不与服务器通信——
+    // Starting 窗口内尚无运行时信息，且必须与启动认领同样保守
+    let slot = ftp_state.0.lock().await;
+    if !matches!(*slot, FtpServerSlot::None) {
+        tracing::warn!(
+            old = ?current_save_path,
+            new = ?incoming.save_path,
+            "Rejected save_path change while FTP server is starting or running"
+        );
+        return Err(AppError::Other(
+            "Cannot change the save path while the FTP server is starting or running; \
+             stop the FTP server first"
+                .to_string(),
+        ));
+    }
+    Ok(())
+}
+
 #[command]
-#[instrument(skip(app, config, config_service, file_index))]
+#[instrument(skip(app, config, config_service, file_index, ftp_state))]
 pub async fn save_config(
     app: AppHandle,
     config: AppConfig,
     config_service: State<'_, Arc<ConfigService>>,
     file_index: State<'_, Arc<FileIndexService>>,
+    ftp_state: State<'_, FtpServerState>,
 ) -> Result<(), AppError> {
+    ensure_save_path_change_allowed(config_service.inner(), ftp_state.inner(), &config).await?;
+
     let (old_save_path, new_save_path) = config_service
         .mutate_and_persist_async(move |current| {
             let old_save_path = current.save_path.clone();
@@ -448,5 +487,84 @@ mod tests {
         .await;
 
         assert!(result.is_err());
+    }
+
+    // ---- save_path 变更守卫（B1：FTP 服务器活动期间拒绝改路径）----
+
+    use std::path::PathBuf;
+
+    use crate::ftp::types::FtpServerSlot;
+
+    fn ftp_state_with_slot(slot: FtpServerSlot) -> super::super::FtpServerState {
+        crate::commands::FtpServerState(std::sync::Arc::new(tokio::sync::Mutex::new(slot)))
+    }
+
+    fn guard_test_config_service(dir: &std::path::Path) -> ConfigService {
+        let service = ConfigService::new_with_path(dir.join("config.json"));
+        service.load().expect("failed to load config");
+        service
+    }
+
+    fn incoming_with_save_path(path: &str) -> AppConfig {
+        AppConfig {
+            save_path: PathBuf::from(path),
+            ..AppConfig::default()
+        }
+    }
+
+    #[tokio::test]
+    async fn save_path_guard_rejects_change_while_slot_starting_or_running() {
+        let temp_dir = tempdir().expect("failed to create temp dir");
+        let service = guard_test_config_service(temp_dir.path());
+        let incoming = incoming_with_save_path("D:/photos/new-root");
+
+        // Starting（启动权已认领）：视同运行中拒绝
+        let state = ftp_state_with_slot(FtpServerSlot::Starting);
+        let err = super::ensure_save_path_change_allowed(&service, &state, &incoming)
+            .await
+            .expect_err("must reject save_path change while Starting");
+        assert!(
+            err.to_string().to_lowercase().contains("save path"),
+            "error should mention the save path, got: {}",
+            err
+        );
+
+        // Running：同样拒绝（句柄仅为槽位载荷，守卫只看槽位状态，
+        // 不与服务器通信——无需真正启动 Actor）
+        let (handle, _actor, _stats_worker, _event_bus) = crate::ftp::create_ftp_server(None);
+        let state = ftp_state_with_slot(FtpServerSlot::Running(handle));
+        let err = super::ensure_save_path_change_allowed(&service, &state, &incoming)
+            .await
+            .expect_err("must reject save_path change while Running");
+        assert!(
+            err.to_string().to_lowercase().contains("save path"),
+            "error should mention the save path, got: {}",
+            err
+        );
+    }
+
+    #[tokio::test]
+    async fn save_path_guard_allows_change_when_slot_none() {
+        let temp_dir = tempdir().expect("failed to create temp dir");
+        let service = guard_test_config_service(temp_dir.path());
+        let incoming = incoming_with_save_path("D:/photos/new-root");
+
+        let state = ftp_state_with_slot(FtpServerSlot::None);
+        super::ensure_save_path_change_allowed(&service, &state, &incoming)
+            .await
+            .expect("save_path change must be allowed while server stopped");
+    }
+
+    #[tokio::test]
+    async fn save_path_guard_allows_save_when_save_path_unchanged_even_while_active() {
+        let temp_dir = tempdir().expect("failed to create temp dir");
+        let service = guard_test_config_service(temp_dir.path());
+
+        // 服务器启动中，但本次保存不改动 save_path（其余字段照常保存）
+        let unchanged = service.get_or_default();
+        let state = ftp_state_with_slot(FtpServerSlot::Starting);
+        super::ensure_save_path_change_allowed(&service, &state, &unchanged)
+            .await
+            .expect("saves that keep save_path must pass even while server active");
     }
 }
