@@ -53,8 +53,12 @@ pub async fn begin_color_grading_preview(
         .begin(
             &image_path,
             lensfun_db_path.as_deref(),
-            half_size.unwrap_or(false),
-            max_preview_width.unwrap_or(0),
+            // Safe defaults: current callers pass no optional args and the real
+            // Android path goes through JNI with screen dimensions — half-size
+            // decode + a 2048px width bound prevents a future caller from
+            // accidentally decoding full-size RAW into the preview session.
+            half_size.unwrap_or(true),
+            max_preview_width.unwrap_or(2048),
             max_preview_height.unwrap_or(0),
         )
         .await
