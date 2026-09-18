@@ -73,6 +73,14 @@ class FtpForegroundService : Service() {
         val snapshot = AndroidServiceStateCoordinator.getLatestState()
         if (!snapshot.isRunning) {
             Log.d(TAG, "onStartCommand: ignoring start because coordinator is stopped")
+            // The intent may have arrived via startForegroundService(): the
+            // contract requires calling startForeground() before stopping,
+            // otherwise some API 26+ ROMs throw
+            // ForegroundServiceDidNotStartInTimeException even though we are
+            // already stopping. buildNotification() handles the empty-state
+            // case (stats=null → "Disconnected | 0 | 0 B"), so it builds fine
+            // in this stale scenario.
+            startForegroundWithType(buildNotification())
             stopForegroundServiceNow("stale start while stopped")
             return START_NOT_STICKY
         }
