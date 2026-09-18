@@ -74,6 +74,10 @@ async fn run_put_pipeline<R: tauri::Runtime>(
             // 就绪，就绪则补一次 add_file——EXIF 回填的收敛点（至多 2 轮，
             // 就绪即返回）。try_state 返回的 State 借用 handle，spawn
             // 需要 'static，先克隆出 Arc。
+            // Design intent: the re-probe task is bounded (≤ ~70s: 2 rounds ×
+            // 30s delay + probing) and deliberately NOT cancelled on server
+            // stop — post-stop reindexing is desired; FileIndexService is
+            // app-lifetime.
             let retry_index: Arc<FileIndexService> = file_index.inner().clone();
             tokio::spawn(async move {
                 FileIndexService::retry_index_if_stable(

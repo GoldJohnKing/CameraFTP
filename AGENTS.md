@@ -218,6 +218,19 @@ When updating the application version, **ALL FOUR** of the following files must 
 
 **IMPORTANT**: If `tauri.conf.json` is not updated, the About dialog will display the old version even though the build shows the new version in logs.
 
+### Maintain the Deferred Issues Ledger
+
+Any merge that resolves an entry in `docs/known-deferred-issues.md`, or introduces a new known limitation, MUST update that ledger in the same merge (delete resolved entries, append new ones).
+
+### Branch/Worktree Hygiene
+
+After merging an SDD/feature branch, close it out in the same session:
+
+```bash
+git worktree remove <dir>   # submodule worktrees: rm -rf <dir> && git worktree prune
+git branch -d <branch>
+```
+
 ---
 
 ## Common Pitfalls

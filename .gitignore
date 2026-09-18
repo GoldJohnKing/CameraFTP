@@ -84,9 +84,6 @@ tmp/
 temp/
 *.tmp
 
-# Worktrees
-.worktrees/
-
 # Python
 __pycache__/
 *.pyc
@@ -95,7 +92,6 @@ __pycache__/
 
 # OpenCode
 config.json
-.worktrees/
 
 # Deepwork session state (local only, kept readable for OpenCode)
 .slim/deepwork/
@@ -103,3 +99,5 @@ config.json
 # SDD worktrees & scratch
 .worktrees/
 .superpowers/
+# build artifacts (build.sh output)
+out/

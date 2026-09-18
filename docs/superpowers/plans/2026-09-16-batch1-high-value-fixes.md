@@ -2,6 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+> **Snapshot note (2026-09-16):** embedded code blocks are an authoring-time snapshot; where
+> implementation diverged, the code and git history are authoritative.
+
 **Goal:** 修复经对抗性审查确认的 5 类高价值缺陷：虚拟网格行高、Windows 文件就绪检测、密码保存主线程阻塞、Android 备份面、启动/保存失败无反馈。
 
 **Architecture:** 7 个互相独立的任务。前端 4 个（任务 1、5、6、7）走 vitest TDD；Rust 2 个（任务 2、3）走 cargo TDD；Android 1 个（任务 4）为配置改动走构建验证。每个任务独立可交付、可单独 review。
