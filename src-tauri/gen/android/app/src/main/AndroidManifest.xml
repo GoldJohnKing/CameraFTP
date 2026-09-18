@@ -18,6 +18,11 @@
          (ForegroundServiceTypePolicy.java, enforced via ActiveServices.java for targetSdk ≥ 34).
          Normal protection level — auto-granted at install, no runtime prompt. -->
     <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
+    <!-- Processing FGS (color grading / AI edit keep-alive): mediaProcessing is
+         the targetSdk 36 semantics-correct type (API 35+); dataSync is the
+         fallback type declared for older systems. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROCESSING" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     
     <!-- Notification permission -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
@@ -102,6 +107,13 @@
             android:enabled="true"
             android:exported="false"
             android:foregroundServiceType="connectedDevice" />
+
+        <!-- Processing Foreground Service (color grading / AI edit keep-alive) -->
+        <service
+            android:name=".ProcessingForegroundService"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="mediaProcessing|dataSync" />
 
         <!-- FileProvider for sharing files with external apps -->
         <provider

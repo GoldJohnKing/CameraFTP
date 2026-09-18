@@ -31,6 +31,10 @@ import org.robolectric.annotation.Config
 @Config(sdk = [35], manifest = Config.NONE)
 class AndroidServiceStateCoordinatorTest {
 
+    private companion object {
+        const val ANDROID_NAMESPACE = "http://schemas.android.com/apk/res/android"
+    }
+
     @Test
     fun manifest_declares_connected_device_foreground_service_type() {
         val manifestPath = resolveProjectPath(
@@ -41,21 +45,40 @@ class AndroidServiceStateCoordinatorTest {
             "src-tauri/gen/android/app/src/main/AndroidManifest.xml",
         )
         val manifest = String(Files.readAllBytes(manifestPath))
-        val androidNamespace = "http://schemas.android.com/apk/res/android"
-        val document = DocumentBuilderFactory.newInstance().apply { isNamespaceAware = true }
-            .newDocumentBuilder()
-            .parse(manifestPath.toFile())
-        val serviceNodes = document.getElementsByTagName("service")
-        val ftpServiceNode = (0 until serviceNodes.length).map { index -> serviceNodes.item(index) }.firstOrNull { node ->
-            node.attributes?.getNamedItemNS(androidNamespace, "name")?.nodeValue == ".FtpForegroundService"
-        }
+        val ftpServiceNode = findManifestServiceNode(manifestPath, ".FtpForegroundService")
 
         assertTrue(manifest.contains("android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE"))
-        assertFalse(manifest.contains("android.permission.FOREGROUND_SERVICE_DATA_SYNC"))
         assertNotNull(ftpServiceNode)
         assertEquals(
             "connectedDevice",
-            ftpServiceNode?.attributes?.getNamedItemNS(androidNamespace, "foregroundServiceType")?.nodeValue,
+            ftpServiceNode?.attributes?.getNamedItemNS(ANDROID_NAMESPACE, "foregroundServiceType")?.nodeValue,
+        )
+    }
+
+    @Test
+    fun manifest_declares_processing_foreground_service_type_and_permissions() {
+        val manifestPath = resolveProjectPath(
+            "src/main/AndroidManifest.xml",
+            "app/src/main/AndroidManifest.xml",
+            "../app/src/main/AndroidManifest.xml",
+            "../../app/src/main/AndroidManifest.xml",
+            "src-tauri/gen/android/app/src/main/AndroidManifest.xml",
+        )
+        val manifest = String(Files.readAllBytes(manifestPath))
+        val processingServiceNode = findManifestServiceNode(manifestPath, ".ProcessingForegroundService")
+
+        // targetSdk 36: mediaProcessing is the semantics-correct type (API 35+);
+        // dataSync is the declared fallback for older systems.
+        assertTrue(manifest.contains("android.permission.FOREGROUND_SERVICE_MEDIA_PROCESSING"))
+        assertTrue(manifest.contains("android.permission.FOREGROUND_SERVICE_DATA_SYNC"))
+        assertNotNull(processingServiceNode)
+        assertEquals(
+            "false",
+            processingServiceNode?.attributes?.getNamedItemNS(ANDROID_NAMESPACE, "exported")?.nodeValue,
+        )
+        assertEquals(
+            "mediaProcessing|dataSync",
+            processingServiceNode?.attributes?.getNamedItemNS(ANDROID_NAMESPACE, "foregroundServiceType")?.nodeValue,
         )
     }
 
@@ -325,6 +348,21 @@ class AndroidServiceStateCoordinatorTest {
         }
 
         throw java.nio.file.NoSuchFileException(candidates.joinToString(", "))
+    }
+
+    private fun findManifestServiceNode(
+        manifestPath: java.nio.file.Path,
+        serviceName: String,
+    ): org.w3c.dom.Node? {
+        val document = DocumentBuilderFactory.newInstance().apply { isNamespaceAware = true }
+            .newDocumentBuilder()
+            .parse(manifestPath.toFile())
+        val serviceNodes = document.getElementsByTagName("service")
+        return (0 until serviceNodes.length)
+            .map { index -> serviceNodes.item(index) }
+            .firstOrNull { node ->
+                node.attributes?.getNamedItemNS(ANDROID_NAMESPACE, "name")?.nodeValue == serviceName
+            }
     }
 
     private fun <T> withAccessibleField(

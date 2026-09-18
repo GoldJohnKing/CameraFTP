@@ -5,6 +5,8 @@
 mod traits;
 mod types;
 
+pub mod processing_activity;
+
 pub use traits::PlatformService;
 pub use types::{PermissionStatus, ServerStartCheckResult, StorageInfo};
 

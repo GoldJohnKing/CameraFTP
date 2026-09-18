@@ -16,6 +16,7 @@ use super::providers;
 use crate::config_service::ConfigService;
 use crate::error::AppError;
 use crate::file_index::FileIndexService;
+use crate::platform::processing_activity;
 use crate::utils::batch_state::BatchState;
 use crate::utils::task_worker::{CancelGate, QueueDepth};
 
@@ -117,6 +118,9 @@ impl AiEditService {
 
         let (_, auto_sender) = self.ensure_worker().await;
         self.queue_depth.add(1);
+        // 先上报忙再发送：保证「激活」严格先于 worker 对该任务的任何
+        // 「空闲」上报（enqueue→send→recv 的 happens-before 链）。
+        processing_activity::notify_ai(true);
         let task = AiEditTask {
             file_path,
             override_prompt: None,
@@ -124,6 +128,8 @@ impl AiEditService {
         };
         if let Err(e) = auto_sender.try_send(task) {
             self.queue_depth.sub(1);
+            // 入队失败回滚后按当前深度重算。
+            processing_activity::notify_ai(self.queue_depth.get() > 0);
             let dropped_task = e.into_inner();
             warn!(
                 "AI edit queue full, dropping task: {}",
@@ -160,6 +166,8 @@ impl AiEditService {
     ) -> Result<(), AppError> {
         let (manual_sender, _) = self.ensure_worker().await;
         self.queue_depth.add(1);
+        // 先上报忙再发送（同 on_file_uploaded 的顺序论证）。
+        processing_activity::notify_ai(true);
         if let Err(e) = manual_sender
             .send(AiEditTask {
                 file_path,
@@ -169,6 +177,8 @@ impl AiEditService {
             .await
         {
             self.queue_depth.sub(1);
+            // 入队失败回滚后按当前深度重算。
+            processing_activity::notify_ai(self.queue_depth.get() > 0);
             return Err(AppError::AiEditError(format!(
                 "AI edit service shut down: {}",
                 e
@@ -234,6 +244,17 @@ async fn select_next_task(
     }
 }
 
+/// 兜底守卫：worker 任务以任何方式退出（channel 关闭 break、运行时关停、
+/// panic 展开）时 Drop 强制上报 AI 修图管线空闲，保证 AI_ACTIVE 最终回到
+/// false，前台服务不会因标志卡 true 而永不撤销。正常 break 路径的显式
+/// 上报先于此执行，这里只是无副作用的幂等兜底。
+struct AiIdleGuard;
+impl Drop for AiIdleGuard {
+    fn drop(&mut self) {
+        processing_activity::notify_ai(false);
+    }
+}
+
 /// Generic over the runtime so tests can drive the loop with a mock
 /// `AppHandle<MockRuntime>` (production always passes `AppHandle<Wry>`).
 async fn worker_loop<R: tauri::Runtime>(
@@ -245,6 +266,7 @@ async fn worker_loop<R: tauri::Runtime>(
     cancel_gate: CancelGate,
 ) {
     info!("AI edit worker started");
+    let _idle_guard = AiIdleGuard;
 
     let mut state = BatchState::default();
 
@@ -287,6 +309,11 @@ async fn worker_loop<R: tauri::Runtime>(
     }
 
     loop {
+        // 每轮循环开头统一重算上报：此刻上一任务已完成（无 in-flight），
+        // busy = 队列深度 > 0。cancel/drain 分支 continue 后同样在此收敛
+        // 到 false。这是最稳的集中上报落点。
+        processing_activity::notify_ai(queue_depth.get() > 0);
+
         let cancel_token = cancel_gate.current();
 
         // Fast path: drain pending manual tasks first (high priority)
@@ -311,6 +338,7 @@ async fn worker_loop<R: tauri::Runtime>(
                 SelectOutcome::ShutDown => {
                     drain_pending_tasks(&mut manual_rx, &mut auto_rx, &queue_depth);
                     emit_batch_done(&mut state, &app_handle, true);
+                    processing_activity::notify_ai(false);
                     break;
                 }
             }
@@ -318,6 +346,9 @@ async fn worker_loop<R: tauri::Runtime>(
 
         // Decrement queue depth BEFORE calculating progress (fixes off-by-one)
         queue_depth.sub(1);
+        // 任务已取走、正在处理（in-flight）：此时 queue_depth 可能为 0，
+        // 必须显式保持忙，否则最后一个任务处理到一半前台服务会被撤销。
+        processing_activity::notify_ai(true);
 
         let remaining = queue_depth.get();
         let current = state.processed_count() + 1;

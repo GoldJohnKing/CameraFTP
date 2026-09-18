@@ -92,4 +92,73 @@ object AndroidServiceStateCoordinator {
 
         appContext.startService(serviceIntent)
     }
+
+    // ====================================================================
+    // Processing (color grading / AI edit) FGS state — independent section.
+    // Intentionally shares nothing with the FTP state above: separate lock,
+    // separate flag, separate service, so neither channel can block or
+    // reorder the other. Lives in this class to reuse the existing proguard
+    // keep rule and the Rust-side class-loading path.
+    // ====================================================================
+
+    private val processingLock = Any()
+
+    @Volatile
+    private var processingActive = false
+
+    /**
+     * JNI entrypoint (called from Rust via class-name string lookup).
+     * Edge semantics: false→true starts the foreground service when it is
+     * not already running; true→false sends ACTION_STOP. Synchronized so
+     * concurrent true/false transitions cannot reorder.
+     */
+    @JvmStatic
+    fun syncNativeProcessingState(callerContext: Context, active: Boolean) {
+        val appContext = callerContext.applicationContext
+        synchronized(processingLock) {
+            val previous = processingActive
+            processingActive = active
+            if (active) {
+                if (!previous || ProcessingForegroundService.getInstance() == null) {
+                    startProcessingForegroundService(appContext)
+                }
+            } else if (previous) {
+                if (ProcessingForegroundService.getInstance() == null) {
+                    // Service not created yet: its onStartCommand stale-start
+                    // defense (getProcessingActive()==false) will stop it.
+                    return
+                }
+                stopProcessingForegroundService(appContext)
+            }
+        }
+    }
+
+    /** Read by ProcessingForegroundService.onStartCommand for stale-start defense. */
+    fun getProcessingActive(): Boolean = processingActive
+
+    /** Called from ProcessingForegroundService.onTimeout. */
+    fun clearProcessingState() {
+        synchronized(processingLock) {
+            processingActive = false
+        }
+    }
+
+    private fun startProcessingForegroundService(appContext: Context) {
+        val serviceIntent = Intent(appContext, ProcessingForegroundService::class.java).apply {
+            action = ProcessingForegroundService.ACTION_START
+        }
+
+        appContext.startForegroundService(serviceIntent)
+    }
+
+    private fun stopProcessingForegroundService(appContext: Context) {
+        val serviceIntent = Intent(appContext, ProcessingForegroundService::class.java).apply {
+            action = ProcessingForegroundService.ACTION_STOP
+        }
+
+        // startService + action (not stopService): avoids background
+        // stopService restrictions, mirrors the FTP stop path. Safe because
+        // the running FGS elevates the process above background-start limits.
+        appContext.startService(serviceIntent)
+    }
 }

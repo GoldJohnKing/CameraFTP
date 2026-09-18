@@ -15,6 +15,7 @@ use crate::config::AutoColorGradingConfig;
 use crate::config_service::ConfigService;
 use crate::error::AppError;
 use crate::image_utils;
+use crate::platform::processing_activity;
 use crate::utils::batch_state::BatchState;
 use crate::utils::task_worker::{CancelGate, QueueDepth};
 
@@ -141,6 +142,10 @@ impl ColorGradingService {
         let sender = self.ensure_worker().await;
         let total = file_paths.len() as u32;
         self.queue_depth.add(total);
+        // 先上报忙再发送：保证「激活」严格先于 worker 对这些任务的任何
+        // 「空闲」上报（enqueue→send→recv 的 happens-before 链），避免
+        // 快速任务完成后的 false 覆盖尚未落地的 true。
+        processing_activity::notify_cg(true);
 
         let mut sent = 0u32;
         for path in file_paths {
@@ -156,6 +161,8 @@ impl ColorGradingService {
                 Ok(()) => sent += 1,
                 Err(_) => {
                     self.queue_depth.sub(total - sent);
+                    // 发送失败回滚后按当前深度重算（可能仍有其他并发入队任务）。
+                    processing_activity::notify_cg(self.queue_depth.get() > 0);
                     return Err(AppError::ColorGradingError(
                         "Failed to enqueue task".to_string(),
                     ));
@@ -218,6 +225,17 @@ pub(crate) fn should_auto_color_grade(
     image_utils::is_raw_file(file_path)
 }
 
+/// 兜底守卫：worker 任务以任何方式退出（channel 关闭 break、运行时关停、
+/// panic 展开）时 Drop 强制上报调色管线空闲，保证 CG_ACTIVE 最终回到
+/// false，前台服务不会因标志卡 true 而永不撤销。正常 break 路径的显式
+/// 上报先于此执行，这里只是无副作用的幂等兜底。
+struct CgIdleGuard;
+impl Drop for CgIdleGuard {
+    fn drop(&mut self) {
+        processing_activity::notify_cg(false);
+    }
+}
+
 /// Generic over the runtime so tests can drive the loop with a mock
 /// `AppHandle<MockRuntime>` (production always passes `AppHandle<Wry>`).
 async fn worker_loop<R: tauri::Runtime>(
@@ -228,6 +246,7 @@ async fn worker_loop<R: tauri::Runtime>(
     nn_enabled: Arc<AtomicBool>,
 ) {
     tracing::info!("Color grading worker started");
+    let _idle_guard = CgIdleGuard;
 
     let mut state = BatchState::default();
 
@@ -259,6 +278,11 @@ async fn worker_loop<R: tauri::Runtime>(
     }
 
     loop {
+        // 每轮循环开头统一重算上报：此刻上一任务已完成（无 in-flight），
+        // busy = 队列深度 > 0。cancel/drain 分支 continue 后同样在此收敛
+        // 到 false。这是最稳的集中上报落点。
+        processing_activity::notify_cg(queue_depth.get() > 0);
+
         let cancel_token = cancel_gate.current();
 
         let task = tokio::select! {
@@ -278,12 +302,16 @@ async fn worker_loop<R: tauri::Runtime>(
                     if state.processed_count() > 0 {
                         emit_done(&mut state, &app_handle, true);
                     }
+                    processing_activity::notify_cg(false);
                     break;
                 }
             }
         };
 
         queue_depth.sub(1);
+        // 任务已取走、正在处理（in-flight）：此时 queue_depth 可能为 0，
+        // 必须显式保持忙，否则最后一个任务处理到一半前台服务会被撤销。
+        processing_activity::notify_cg(true);
 
         let remaining = queue_depth.get();
         let current = state.processed_count() + 1;
