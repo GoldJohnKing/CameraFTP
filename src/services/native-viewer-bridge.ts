@@ -4,7 +4,6 @@
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
 
-import { invoke } from '@tauri-apps/api/core';
 import { applyAndEnqueueAiEdit, getCurrentAiEditProgress } from './ai-edit-tasks';
 import { getCurrentColorGradingProgress } from './color-grading-tasks';
 import { getCachedColorGradingPresets } from '../hooks/useColorGradingPresets';
@@ -86,20 +85,6 @@ export function registerNativeViewerBridges(): () => void {
     await cancelColorGrading();
   };
 
-  w.__tauriBeginColorGradingPreview = async (filePath: string) => {
-    await invoke('begin_color_grading_preview', { imagePath: filePath });
-  };
-
-  w.__tauriApplyColorGradingPreview = async (lutId: string, meteringMode: string, evOffset: number) => {
-    return await invoke<string>('apply_color_grading_preview', {
-      lutId, meteringMode, evOffset,
-    });
-  };
-
-  w.__tauriEndColorGradingPreview = async () => {
-    await invoke('end_color_grading_preview');
-  };
-
   w.__tauriSaveColorGradingLastUsed = (lutId: string, meteringMode: string, evOffset: number) => {
     useConfigStore.getState().updateDraft(d => applyColorGradingLastUsed(
       d,
@@ -134,9 +119,6 @@ export function registerNativeViewerBridges(): () => void {
     delete w.__tauriTriggerColorGrading;
     delete w.__tauriGetColorGradingProgress;
     delete w.__tauriCancelColorGrading;
-    delete w.__tauriBeginColorGradingPreview;
-    delete w.__tauriApplyColorGradingPreview;
-    delete w.__tauriEndColorGradingPreview;
     delete w.__tauriSaveColorGradingLastUsed;
     delete w.__requestExifForPositions;
   };
