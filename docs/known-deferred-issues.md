@@ -36,14 +36,3 @@ differ per target, and a wrong constant would break one platform's build. If raw
 a versioned ABI, add per-target expected sizes (cfg-gated consts) or generate the assert from the
 C headers; until then, treat any edit to `RaNnConfig` fields as a cross-platform ABI change requiring
 both `./build.sh windows android` and on-device NN smoke tests.
-
-## 4. File watcher event channel (capacity 1000) drops events under large camera bursts
-
-The file watcher event channel in `file_index/watcher.rs` has capacity 1000. A camera burst that
-produces more than 1000 events before the consumer drains the channel overflows it; the excess
-events are dropped with a `warn` log and the watcher itself keeps running (pinned by the
-`channel_full_drops_event_with_warning_without_panic` test in `watcher.rs`). Until a self-heal
-mechanism exists, files behind dropped events stay out of the index until the next full scan.
-A needs-rescan flag plus a merged rescan on channel drain is being added by a parallel change in
-this same branch; the final state after this branch merges is that overflow drops self-heal via
-the merged rescan, leaving no index gap.
