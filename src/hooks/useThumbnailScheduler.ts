@@ -35,6 +35,46 @@ const VIEW_ID = 'gallery-grid';
 const LISTENER_ID = 'thumbnail-scheduler';
 const SIZE_BUCKET = 's';
 
+/**
+ * LRU cap for the in-memory thumbnail URL cache (mediaId → URL). The Map
+ * only ever grew before, pinning every thumbnail ever shown for the
+ * component's lifetime. Entries beyond this cap are evicted oldest-first
+ * (Map iteration order = insertion order); consumers treat an evicted entry
+ * exactly like a never-loaded one — the placeholder shows and the scheduler
+ * re-requests the thumbnail when the item scrolls back into view (the
+ * native layer serves it from its disk cache).
+ */
+const THUMBNAIL_CACHE_MAX = 300;
+
+/**
+ * Immutable upsert of a thumbnail entry with LRU eviction: an entry whose
+ * URL is unchanged is returned as-is — the early return intentionally does
+ * NOT refresh recency (a same-URL re-delivery must not churn the LRU order
+ * or cause a needless re-render). A genuinely changed URL moves the entry
+ * to the back (most-recent), and the oldest entries are evicted while the
+ * map exceeds the cap.
+ */
+function upsertThumbnailEntry(
+  prev: Map<string, string>,
+  mediaId: string,
+  url: string,
+): Map<string, string> {
+  if (prev.get(mediaId) === url) {
+    return prev;
+  }
+  const next = new Map(prev);
+  // Delete-then-set so a refreshed entry moves to the back of the
+  // insertion-ordered Map (a plain re-set keeps its original position).
+  next.delete(mediaId);
+  next.set(mediaId, url);
+  while (next.size > THUMBNAIL_CACHE_MAX) {
+    const oldest = next.keys().next().value;
+    if (oldest === undefined) break;
+    next.delete(oldest);
+  }
+  return next;
+}
+
 type WantedKey = string;
 
 interface ActiveRequest {
@@ -121,12 +161,7 @@ export function useThumbnailScheduler(opts?: UseThumbnailSchedulerOptions) {
           );
         } else {
           const url = convertFileSrc(result.localPath);
-          setThumbnails((prev) => {
-            if (prev.get(result.mediaId) === url) return prev;
-            const next = new Map(prev);
-            next.set(result.mediaId, url);
-            return next;
-          });
+          setThumbnails((prev) => upsertThumbnailEntry(prev, result.mediaId, url));
           cleanupRequest(result.requestId, result.mediaId);
         }
       } else {
@@ -160,22 +195,12 @@ export function useThumbnailScheduler(opts?: UseThumbnailSchedulerOptions) {
           await invoke<boolean>('inject_exif_orientation', { thumbnailPath, orientation });
         }
         const url = convertFileSrc(thumbnailPath);
-        setThumbnails((prev) => {
-          if (prev.get(mediaId) === url) return prev;
-          const next = new Map(prev);
-          next.set(mediaId, url);
-          return next;
-        });
+        setThumbnails((prev) => upsertThumbnailEntry(prev, mediaId, url));
       } catch (e) {
         // Orientation fix failed — display thumbnail as-is (better than nothing)
         console.warn(`Failed to fix RAW orientation for ${rawFilePath}:`, e);
         const url = convertFileSrc(thumbnailPath);
-        setThumbnails((prev) => {
-          if (prev.get(mediaId) === url) return prev;
-          const next = new Map(prev);
-          next.set(mediaId, url);
-          return next;
-        });
+        setThumbnails((prev) => upsertThumbnailEntry(prev, mediaId, url));
       } finally {
         cleanupRequest(requestId, mediaId);
       }
@@ -343,6 +368,11 @@ export function useThumbnailScheduler(opts?: UseThumbnailSchedulerOptions) {
     }
     activeRequestsRef.current.clear();
     failedMediaRef.current.clear();
+    // Also drop the accumulated thumbnail cache and registered media
+    // metadata — previously these leaked across cleanup (e.g. gallery
+    // refresh), pinning evicted entries and stale mediaMap lookups.
+    setThumbnails(new Map());
+    mediaMapRef.current.clear();
     setLoadingThumbs(new Set());
   }, []);
 

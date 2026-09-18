@@ -319,6 +319,149 @@ describe('useThumbnailScheduler', () => {
     expect(cancelThumbnailRequests).toHaveBeenCalled();
   });
 
+  it('caps the thumbnail cache at 300 entries, evicting the oldest', async () => {
+    const { result } = renderHook(() => useThumbnailScheduler({ debounceMs: TEST_DEBOUNCE }));
+
+    const media = Array.from({ length: 301 }, (_, i) => makeMedia(String(i + 1)));
+    act(() => {
+      result.current.registerMedia(media);
+    });
+    act(() => {
+      result.current.updateViewport(media.map((m) => m.mediaId), []);
+    });
+    await flushDebounce();
+
+    const reqs = vi.mocked(enqueueThumbnails).mock.calls[0][0] as ThumbRequest[];
+    expect(reqs).toHaveLength(301);
+
+    const listener = getRegisteredListener();
+    await act(async () => {
+      for (const req of reqs) {
+        listener(makeReadyResult(req.requestId, req.mediaId, `/cache/thumb_${req.mediaId}.jpg`));
+      }
+    });
+
+    // Oldest entry evicted, everything else (including the newest) kept.
+    expect(result.current.thumbnails.size).toBe(300);
+    expect(result.current.thumbnails.has('1')).toBe(false);
+    expect(result.current.thumbnails.has('2')).toBe(true);
+    expect(result.current.thumbnails.has('301')).toBe(true);
+  });
+
+  it('re-requests thumbnails for LRU-evicted entries when they re-enter the viewport', async () => {
+    const { result } = renderHook(() => useThumbnailScheduler({ debounceMs: TEST_DEBOUNCE }));
+
+    const media = Array.from({ length: 301 }, (_, i) => makeMedia(String(i + 1)));
+    act(() => {
+      result.current.registerMedia(media);
+    });
+    act(() => {
+      result.current.updateViewport(media.map((m) => m.mediaId), []);
+    });
+    await flushDebounce();
+
+    const reqs = vi.mocked(enqueueThumbnails).mock.calls[0][0] as ThumbRequest[];
+    const listener = getRegisteredListener();
+    await act(async () => {
+      for (const req of reqs) {
+        listener(makeReadyResult(req.requestId, req.mediaId, `/cache/thumb_${req.mediaId}.jpg`));
+      }
+    });
+
+    expect(result.current.thumbnails.has('1')).toBe(false);
+
+    // '1' scrolls back into view: the scheduler must treat the eviction as a
+    // cache miss and enqueue a fresh request (no "must-hit" assumption).
+    act(() => {
+      result.current.updateViewport(['1'], []);
+    });
+    await flushDebounce();
+
+    const reReqs = vi.mocked(enqueueThumbnails).mock.calls[1][0] as ThumbRequest[];
+    expect(reReqs.map((r) => r.mediaId)).toEqual(['1']);
+    expect(reReqs[0].requestId).not.toBe(reqs[0].requestId);
+  });
+
+  it('refreshes recency when an already-cached entry is updated', async () => {
+    // The mediaId-keyed cache-hit guard makes a "same id, new URL" refresh
+    // unreachable through the public scheduler API today (a cached id is
+    // never re-enqueued); upsertThumbnailEntry's delete-then-set handles it
+    // defensively. What IS reachable and must keep working: an entry whose
+    // thumbnail was cleared (cleanup/removeThumbs) gets a fresh request and
+    // the new URL lands in the cache.
+    const { result } = renderHook(() => useThumbnailScheduler({ debounceMs: TEST_DEBOUNCE }));
+
+    act(() => {
+      result.current.registerMedia([makeMedia('1')]);
+    });
+    act(() => {
+      result.current.updateViewport(['1'], []);
+    });
+    await flushDebounce();
+
+    const firstReqs = vi.mocked(enqueueThumbnails).mock.calls[0][0] as ThumbRequest[];
+    const listener = getRegisteredListener();
+    await act(async () => {
+      listener(makeReadyResult(firstReqs[0].requestId, '1', '/cache/thumb_1.jpg'));
+    });
+    expect(result.current.thumbnails.get('1')).toBe('asset://localhost/cache/thumb_1.jpg');
+
+    // Cleanup now clears the cache and media map (F1 fix) — after
+    // re-registering, a subsequent viewport pass re-requests and the
+    // regenerated URL replaces the old entry.
+    act(() => {
+      result.current.cleanup();
+    });
+    act(() => {
+      result.current.registerMedia([makeMedia('1')]);
+    });
+    act(() => {
+      result.current.updateViewport(['1'], []);
+    });
+    await flushDebounce();
+
+    const secondReqs = vi.mocked(enqueueThumbnails).mock.calls[1][0] as ThumbRequest[];
+    await act(async () => {
+      listener(makeReadyResult(secondReqs[0].requestId, '1', '/cache/thumb_1_v2.jpg'));
+    });
+
+    expect(result.current.thumbnails.get('1')).toBe('asset://localhost/cache/thumb_1_v2.jpg');
+  });
+
+  it('cleanup clears cached thumbnails and registered media metadata', async () => {
+    const { result } = renderHook(() => useThumbnailScheduler({ debounceMs: TEST_DEBOUNCE }));
+
+    act(() => {
+      result.current.registerMedia([makeMedia('1')]);
+    });
+    act(() => {
+      result.current.updateViewport(['1'], []);
+    });
+    await flushDebounce();
+
+    const reqs = vi.mocked(enqueueThumbnails).mock.calls[0][0] as ThumbRequest[];
+    const listener = getRegisteredListener();
+    await act(async () => {
+      listener(makeReadyResult(reqs[0].requestId, '1', '/cache/thumb_1.jpg'));
+    });
+    expect(result.current.thumbnails.size).toBe(1);
+
+    act(() => {
+      result.current.cleanup();
+    });
+
+    expect(result.current.thumbnails.size).toBe(0);
+
+    // mediaMapRef was cleared too: viewport updates no longer enqueue
+    // requests for previously-registered media.
+    act(() => {
+      result.current.updateViewport(['1'], []);
+    });
+    await flushDebounce();
+
+    expect(enqueueThumbnails).toHaveBeenCalledTimes(1);
+  });
+
   it('does not duplicate cancellation work when cleanup is called before unmount', async () => {
     const { result, unmount } = renderHook(() => useThumbnailScheduler({ debounceMs: TEST_DEBOUNCE }));
 
