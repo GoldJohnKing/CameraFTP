@@ -102,13 +102,15 @@ export const ConfigCard = memo(function ConfigCard() {
         />
 
         <div className="p-4 space-y-6">
-          {/* 路径选择 */}
+          {/* 路径选择：FTP 服务器运行期间禁用（后端 save_config 守卫兜底，
+              双根目录不一致会让上传落盘却在图库中不可见） */}
           <PathSelector
             storageInfo={storageInfo}
             needsPermission={needsPermission}
             savePath={draft?.savePath ?? null}
             isLoading={isLoading}
             disabled={isRunning}
+            disabledReason={isRunning ? 'FTP 服务器运行中，请先停止服务器再更改存储路径' : null}
             ensureStorageReady={ensureStorageReady}
             onSelectDirectory={handleSelectDirectory}
           />

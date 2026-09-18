@@ -7,7 +7,7 @@ use tracing::{error, info, instrument};
 
 use crate::commands::FtpServerState;
 use crate::error::AppError;
-use crate::ftp::types::{FtpServerSlot, ServerInfo, ServerRuntimeView, ServerStateSnapshot};
+use crate::ftp::types::{ServerInfo, ServerRuntimeView, ServerStateSnapshot};
 use crate::network::NetworkManager;
 use std::time::Duration;
 
@@ -22,13 +22,16 @@ pub async fn start_server(
     // 幂等性检查：如果服务器已运行，静默返回当前状态
     // 注：Starting 窗口（另一任务启动中）无运行时信息可返回，不在此时提前返回，
     // 而是落入工厂的认领检查（start_ftp_server），按 ServerAlreadyRunning 拒绝
-    {
+    // 锁内仅克隆句柄、释放后再 await，避免跨 await 持有状态锁
+    //（与 get_server_runtime_state 的克隆-释放模式一致）
+    let running_server = {
         let server_guard = state.0.lock().await;
-        if let Some(server) = server_guard.running_handle() {
-            if let Some(info) = server.get_server_info().await {
-                info!(ip = %info.ip, port = info.port, "Server already running, returning current state");
-                return Ok(info);
-            }
+        server_guard.running_handle().cloned()
+    };
+    if let Some(server) = running_server {
+        if let Some(info) = server.get_server_info().await {
+            info!(ip = %info.ip, port = info.port, "Server already running, returning current state");
+            return Ok(info);
         }
     }
 
@@ -69,9 +72,13 @@ pub async fn stop_server(state: State<'_, FtpServerState>, app: AppHandle) -> Re
         match server.stop().await {
             Ok(_) => {
                 let mut server_guard = state.0.lock().await;
-                *server_guard = FtpServerSlot::None;
-
-                info!("FTP server stopped successfully");
+                // 身份条件清空：仅当槽位仍由刚停止的那台服务器占据时才复位，
+                // 防止清掉并发启动已提交的新服务器（孤儿监听）
+                if server_guard.clear_if_same_actor(&server) {
+                    info!("FTP server stopped successfully");
+                } else {
+                    info!("Slot already holds a newer server; left slot intact after stop");
+                }
                 Ok(())
             }
             Err(e) => {
@@ -81,9 +88,11 @@ pub async fn stop_server(state: State<'_, FtpServerState>, app: AppHandle) -> Re
                     // 补偿逻辑保留：句柄可能因 Actor 任务异常退出而“陈旧”
                     // （sentinel 无法覆盖 Actor 自身崩溃的场景，仍需在此清理）
                     let mut server_guard = state.0.lock().await;
-                    *server_guard = FtpServerSlot::None;
-
-                    info!(error = %e, "Stop returned an error after the server had already stopped; cleared stale server handle");
+                    if server_guard.clear_if_same_actor(&server) {
+                        info!(error = %e, "Stop returned an error after the server had already stopped; cleared stale server handle");
+                    } else {
+                        info!(error = %e, "Stop returned an error after the server had already stopped; slot holds a newer server, left intact");
+                    }
                     Ok(())
                 } else {
                     error!(error = %e, "Error stopping server");

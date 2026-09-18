@@ -65,12 +65,16 @@ jobs:
       - name: Install actionlint
         # pinned to release tag; the script self-verifies downloaded binaries against the release's checksums.txt（main 分支可变，不可用于 fork PR 信任边界）
         run: curl -fsSL https://raw.githubusercontent.com/rhysd/actionlint/v1.7.7/scripts/download-actionlint.bash | bash
-      - name: Verify pinned action SHAs are 40-hex
+      # Every `uses:` must be pinned to a full 40-hex commit SHA — mutable
+      # tags/branches (@v4, @main) are not allowed. Trailing `# vX.Y.Z`
+      # version comments after the SHA are permitted. Matches both the
+      # `- uses:` dash form and the indented continuation-line form.
+      - name: Enforce SHA-pinned actions (40-hex commit)
         run: |
-          if grep -nE 'uses: \S+@[0-9a-f]{41,}' .github/workflows/*.yml; then
-            echo "ERROR: pinned action SHA is not 40-hex (see above)" >&2
-            exit 1
-          fi
+          bad=$(grep -hE '^\s*(-\s*)?uses:\s+\S+' .github/workflows/*.yml \
+            | grep -vE '@[0-9a-f]{40}(\s*#.*)?$' \
+            | grep -vE 'uses:\s+(\./|docker://)' || true)
+          if [ -n "$bad" ]; then { echo "ERROR: actions must be pinned to 40-hex commit SHAs:"; echo "$bad"; } >&2; exit 1; fi
 
       - name: actionlint
         run: actionlint

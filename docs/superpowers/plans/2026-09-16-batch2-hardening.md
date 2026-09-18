@@ -2,6 +2,11 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development or superpowers:executing-plans to execute this plan. Work through tasks sequentially; do not skip the failing-test-first steps; commit after each green step with the exact messages below.
 
+> **Snapshot note (2026-09-16):** embedded code blocks are an authoring-time snapshot; where
+> implementation diverged, the code and git history are authoritative. Known deviation: the plan
+> specifies HTTP 403 for out-of-scope preview paths, but the implementation intentionally unifies
+> 403→404 to avoid an existence oracle (see `src-tauri/src/image_preview/mod.rs`).
+
 ## Goal
 
 针对对抗性审查确认成立的 4 个问题落地修复：

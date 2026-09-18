@@ -2,6 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking. 执行前先读 `AGENTS.md`（仓库根目录）；禁止跳过"确认失败"步骤；每个任务独立 commit。
 
+> **Snapshot note (2026-09-16):** embedded code blocks are an authoring-time snapshot; where
+> implementation diverged, the code and git history are authoritative.
+
 **Goal**: 在不改变功能行为的前提下收紧安全面（FileProvider 暴露面、签名口令、NN 依赖供应链）、升级前端工具链（Vite 5→6）、建立版本同步护栏，并消除 `ConfigService` 写路径持锁 fsync 与读路径整份 `clone` 两个热路径缺陷。
 
 **Architecture**: Tauri v2 单体应用：React 18 + TS + Zustand 前端（Vite 构建、vitest 测试）→ Rust 后端（`ConfigService` 全局单例经 `OnceLock` 分发，`commands/*` 为 IPC 边界）；Android 端为 `src-tauri/gen/android`（生成但已深度手工定制）+ `scripts/build-android.sh`。

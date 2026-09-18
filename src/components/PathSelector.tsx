@@ -15,6 +15,8 @@ interface PathSelectorProps {
   savePath: string | null;
   isLoading: boolean;
   disabled?: boolean;
+  /** 禁用原因（服务器运行中禁用改路径时展示给用户；仅桌面端目录选择器使用） */
+  disabledReason?: string | null;
   ensureStorageReady: () => Promise<{ success: boolean; error?: string }>;
   onSelectDirectory: () => Promise<void>;
 }
@@ -25,6 +27,7 @@ export const PathSelector = memo(function PathSelector({
   savePath,
   isLoading,
   disabled = false,
+  disabledReason = null,
   ensureStorageReady,
   onSelectDirectory,
 }: PathSelectorProps) {
@@ -65,6 +68,13 @@ export const PathSelector = memo(function PathSelector({
           </button>
         )}
       </div>
+
+      {/* 服务器运行中禁用改路径：给出可见原因（后端 save_config 守卫兜底） */}
+      {isDesktop && disabled && disabledReason && (
+        <p className="text-xs text-amber-600" role="note">
+          {disabledReason}
+        </p>
+      )}
 
       {/* Android 创建目录提示 */}
       {isAndroid && storageInfo && !storageInfo.exists && !needsPermission && (

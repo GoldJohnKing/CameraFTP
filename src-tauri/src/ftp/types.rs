@@ -201,6 +201,11 @@ impl ServerRuntimeState {
         let state = self.state.read().await;
         state.clone()
     }
+
+    /// 两个运行时状态是否源自同一实例（共享存储且同一 watch 通道）。
+    pub(crate) fn is_same_runtime(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.state, &other.state) && self.tx.same_channel(&other.tx)
+    }
 }
 
 #[cfg(test)]
@@ -311,6 +316,23 @@ mod tests {
         assert_eq!(info.ip, "127.0.0.1");
         assert_eq!(info.url, "ftp://127.0.0.1:2121");
     }
+
+    #[test]
+    fn server_handle_identity_follows_actor_runtime_channel() {
+        // create_ftp_server 仅构建句柄/Actor 值，不 spawn、不监听，可同步驱动
+        let (h1, _actor1, _stats1, _bus1) = crate::ftp::create_ftp_server(None);
+        let h1_clone = h1.clone();
+        let (h2, _actor2, _stats2, _bus2) = crate::ftp::create_ftp_server(None);
+
+        assert!(
+            h1.is_same_actor(&h1_clone),
+            "clones of one handle must share the actor identity"
+        );
+        assert!(
+            !h1.is_same_actor(&h2),
+            "handles of different actors must not be identified as the same"
+        );
+    }
 }
 
 /// 服务器运行状态
@@ -354,6 +376,37 @@ impl FtpServerSlot {
             Self::Running(handle) => Some(handle),
             _ => None,
         }
+    }
+
+    /// stop 收尾的清空步骤：仅当槽位当前运行句柄与 `stopped` 指向同一 Actor
+    /// 时才复位为 `None`，返回是否实际清空。
+    ///
+    /// 防止 TOCTOU：stop_server 在锁外 await 停止期间，槽位可能已被并发的
+    /// 新启动占据；无条件清空会把新服务器变成无法停止的孤儿监听。
+    pub(crate) fn clear_if_same_actor(&mut self, stopped: &FtpServerHandle) -> bool {
+        let is_stopped_server = self
+            .running_handle()
+            .is_some_and(|handle| handle.is_same_actor(stopped));
+        if is_stopped_server {
+            *self = Self::None;
+            true
+        } else {
+            false
+        }
+    }
+}
+
+/// `FtpServerHandle` 的身份判定（inherent impl 置于 types.rs，
+/// 与 `FtpServerSlot` 的状态机清空逻辑同处一地，便于对照维护）
+impl FtpServerHandle {
+    /// 两个句柄是否指向同一 Actor（同一运行时通道）。
+    ///
+    /// 每次服务器启动（`create_ftp_server`）都会创建全新 `EventBus`，
+    /// 句柄持有的 runtime watch 通道与 Actor 的命令通道一一对应：
+    /// 同一 Actor 的克隆共享该通道，不同 Actor 的句柄必然不同。
+    /// 用于 stop 收尾时判断槽位是否仍由刚停止的那台服务器占据。
+    pub fn is_same_actor(&self, other: &Self) -> bool {
+        self.runtime_state().is_same_runtime(&other.runtime_state())
     }
 }
 

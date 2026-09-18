@@ -1,16 +1,10 @@
 # Known Deferred Issues
 
 Tracking notes for review findings deliberately deferred (decided at 2026-08 review session).
+Ledger refreshed 2026-09 (fix-forward): entries are removed when their fix merges, and new known
+limitations are appended in the same merge (see AGENTS.md → Deferred Issues Ledger).
 
-## 1. `tauri.conf.json`: `csp: null` + `assetProtocol.scope.allow: ["**"]`
-
-Any XSS in the webview could read arbitrary local files via the asset protocol. Not tightened yet
-because the media save directory is chosen by the user at runtime — a static scope would break
-preview loading of user-selected directories. Fixing this requires runtime asset-scope management
-(e.g. adding the chosen save dir to the protocol scope at runtime) plus on-device verification on
-Android and Windows. Should be handled in a dedicated session.
-
-## 2. Android `GalleryBridge.deleteImages` blocks the WebView JavaBridge thread up to 30s
+## 1. Android `GalleryBridge.deleteImages` blocks the WebView JavaBridge thread up to 30s
 
 `MainActivity.requestDeleteConfirmation` blocks on a `CountDownLatch` while the system delete
 confirmation dialog is open. Because the JS bridge thread is single-threaded, every other
@@ -23,7 +17,7 @@ destructive-action flow that must be device-tested; a blind conversion risks con
 failed deletes or never-resolving promises, and a naive timeout reduction trades a rare freeze for
 spurious delete failures on slow users. Handle in a session with an Android device available.
 
-## 3. Windows preview cache: gallery-initiated deletes bypass invalidation
+## 2. Windows preview cache: gallery-initiated deletes bypass invalidation
 
 `FileIndexService::remove_file` invalidates the Windows `ImagePreviewCache` entry for the removed
 path (covers FTP-session deletes on all backends and filesystem-watcher deletes). The Kotlin
@@ -32,7 +26,7 @@ notify Rust — but note it only applies to Android, where `image_preview` (a Wi
 not compiled, so no stale-cache window exists today. If `image_preview` is ever enabled for other
 platforms, gallery-delete paths must call into the cache invalidation as well.
 
-## 4. `RaNnConfig` FFI field order has no compile-time guard
+## 3. `RaNnConfig` FFI field order has no compile-time guard
 
 `src-tauri/src/color_grading/ffi.rs` `RaNnConfig` is `#[repr(C)]` and its comment declares
 "Field order MUST match the C struct exactly", but nothing enforces it — no `size_of`/offset

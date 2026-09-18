@@ -498,4 +498,86 @@ mod tests {
         // 被拒的调用不得破坏正在进行的启动（槽位保持 Starting）
         assert!(matches!(*state.lock().await, FtpServerSlot::Starting));
     }
+
+    /// 回归测试：陈旧 stop 的收尾清空不得抹掉已提交的新服务器。
+    ///
+    /// 旧行为（TOCTOU）：stop_server 锁内克隆句柄 → 释放锁 → await stop →
+    /// 重新加锁后【无条件】写 `*slot = None`。若在锁外 await 期间旧服务器已被
+    /// 先行清理、新服务器已认领并提交（Running(H2)），该无条件写入会把 H2
+    /// 清出槽位，留下无法停止的孤儿监听。
+    /// 修复后：清空步骤以句柄身份为条件 —— 仅当槽位仍由刚停止的那台服务器
+    /// （同一 Actor）占据时才复位为 None。
+    #[tokio::test]
+    async fn stale_stop_clear_keeps_newer_running_server() {
+        warm_up_tls_certs();
+
+        let state = Arc::new(Mutex::new(FtpServerSlot::None));
+        let dir = tempfile::tempdir().expect("tempdir");
+
+        // 第一代服务器 H1 启动并占据槽位
+        let port_h1 = pick_free_port();
+        start_via_slot(&state, test_config(port_h1, dir.path()))
+            .await
+            .expect("first start must succeed");
+        let h1 = {
+            let guard = state.lock().await;
+            guard.running_handle().cloned().expect("slot holds H1")
+        };
+
+        // 模拟真实竞态时序：H1 的 stop 已完成（监听关闭），槽位已被先行清空
+        // （sentinel / 并发 stop 的成功路径），新启动因此得以认领
+        {
+            let mut guard = state.lock().await;
+            *guard = FtpServerSlot::None;
+        }
+        h1.stop().await.expect("stop H1");
+
+        // 第二代服务器 H2 认领并提交（新启动）
+        let port_h2 = loop {
+            let candidate = pick_free_port();
+            if candidate != port_h1 {
+                break candidate;
+            }
+        };
+        start_via_slot(&state, test_config(port_h2, dir.path()))
+            .await
+            .expect("second start must succeed");
+        let h2 = {
+            let guard = state.lock().await;
+            guard.running_handle().cloned().expect("slot holds H2")
+        };
+        assert!(
+            !h1.is_same_actor(&h2),
+            "H1 and H2 must be distinct actors"
+        );
+
+        // 陈旧句柄 H1 的 stop 收尾：不得清空已被 H2 占据的槽位
+        {
+            let mut guard = state.lock().await;
+            let cleared = guard.clear_if_same_actor(&h1);
+            assert!(!cleared, "stale stop must not clear the slot");
+        }
+        let still_h2 = {
+            let guard = state.lock().await;
+            matches!(&*guard, FtpServerSlot::Running(h) if h.is_same_actor(&h2))
+        };
+        assert!(
+            still_h2,
+            "slot must still hold H2 after the stale stop clear step"
+        );
+        // H2 未被孤儿化：仍在监听
+        assert!(port_is_listening(port_h2).await, "H2 must keep listening");
+
+        // 对照：停止 H2 本体的收尾必须正常清空槽位
+        h2.stop().await.expect("stop H2");
+        {
+            let mut guard = state.lock().await;
+            let cleared = guard.clear_if_same_actor(&h2);
+            assert!(
+                cleared,
+                "clearing the actual running server must reset the slot"
+            );
+        }
+        assert!(matches!(*state.lock().await, FtpServerSlot::None));
+    }
 }
