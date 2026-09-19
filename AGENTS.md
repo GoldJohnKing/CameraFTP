@@ -284,6 +284,24 @@ lists use the generator bin instead. Pattern introduced for the Seedream model c
 Never hand-edit generated files; changing a list means editing the Rust constant and re-running
 gen-types. See "Common Tasks → Add/Update a Constant List" for the full walkthrough.
 
+#### ndk-context Is Initialized by the App (tauri 2.11.x / tao 0.35.3 regression window)
+
+tauri 2.11.x (tauri-runtime-wry 2.11.4 → tao 0.35.3) stopped initializing
+[ndk-context](https://crates.io/crates/ndk-context), so `ndk_context::android_context()` panics and
+every Rust→JNI bridge dies (FTP MediaStore LIST/STOR, service-state sync). Upstream regression
+(tao#1220/#1266, fixed in tao 0.36; tauri 2.12 not yet released). The app therefore initializes
+ndk-context itself:
+
+- `MainActivity.onCreate` calls `initNdkContext(applicationContext)` right after `super.onCreate()`
+  (the library is loaded inside `super.onCreate` via `WryActivity.onCreate → Rust.onActivityCreate`).
+- The JNI handler `Java_com_gjk_cameraftpcompanion_MainActivity_initNdkContext` lives in
+  `src-tauri/src/utils/jni.rs` (idempotent via `Once`; double-init when a fixed tao restores its own
+  initialization is caught via `catch_unwind` — first one wins, second is harmless).
+
+**When upgrading to tauri ≥ 2.12 (or any stack with tao ≥ 0.36), this initialization MUST be
+removed** (Kotlin declaration + onCreate call + the Rust init block in `utils/jni.rs`): the
+`catch_unwind` guards against double-init, but the workaround should not outlive its upstream fix.
+
 ---
 
 ## References

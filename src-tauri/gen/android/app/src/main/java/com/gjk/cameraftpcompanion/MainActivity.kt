@@ -9,6 +9,7 @@ package com.gjk.cameraftpcompanion
 import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.ComponentCallbacks2
+import android.content.Context
 import android.content.IntentSender
 import android.os.Bundle
 import android.util.Log
@@ -90,10 +91,39 @@ class MainActivity : TauriActivity() {
         bridge?.let { webView.addJavascriptInterface(it, name) }
     }
 
+    /**
+     * Initialize the process-wide ndk-context (JavaVM + Context global ref)
+     * on the Rust side.
+     *
+     * Workaround for the tauri 2.11.x stack (tauri-runtime-wry 2.11.4 →
+     * tao 0.35.3) which stopped initializing ndk-context (upstream
+     * regression tao#1220/#1266, fixed in tao 0.36, pending tauri 2.12).
+     * Without it every ndk_context::android_context() call panics, killing
+     * the FTP MediaStore bridge (empty LIST / STOR 550) and service-state
+     * sync.
+     *
+     * Rust side is idempotent (activity re-creation may call it repeatedly,
+     * and double-init when a fixed tao restores its own initialization is
+     * caught harmlessly). REMOVE this declaration and the onCreate call
+     * together with the JNI handler in src-tauri/src/utils/jni.rs once
+     * tauri >= 2.12 ships.
+     */
+    private external fun initNdkContext(context: Context)
+
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
+
+        // super.onCreate → TauriActivity → WryActivity.onCreate has already
+        // run Rust.onActivityCreate(this), whose Rust-object class init does
+        // System.loadLibrary("camera_ftp_companion_lib") — so the JNI symbol
+        // is resolvable here. Pass applicationContext (NOT the Activity): the
+        // Rust side stores a process-lifetime global ref, and an Activity
+        // reference there would leak the entire Activity. Idempotent on the
+        // Rust side; remove with the tauri >= 2.12 upgrade.
+        initNdkContext(applicationContext)
+
         instance = this
         
         Log.d(TAG, "onCreate: initializing bridges")
