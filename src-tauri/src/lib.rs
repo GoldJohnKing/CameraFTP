@@ -365,6 +365,33 @@ pub fn run() {
         },
     );
 
+    // Android：改为 build + run 回调形式，拦截"最后一窗销毁"引发的自发退出。
+    // MIUI 会在数秒内销毁后台化的 MainActivity，tauri-runtime-wry 2.11.4 随即
+    // 发出 ExitRequested{code:None}，tao 0.35.3 会结束事件循环并退出进程
+    // （连同前台服务）。code:None = 自发的 last-window-closed 退出（拦截）；
+    // code:Some(_) = 显式 app.exit()（必须放行）。
+    // Android: run with an event callback and prevent spontaneous exit. MIUI
+    // destroys the backgrounded activity within seconds; without this guard
+    // tao ends the event loop and the process (plus any running foreground
+    // service) dies.
+    #[cfg(target_os = "android")]
+    {
+        builder
+            .build(tauri::generate_context!())
+            .unwrap_or_else(|e| {
+                eprintln!("Fatal error running Tauri application: {}", e);
+                std::process::exit(1);
+            })
+            .run(|_app_handle, event| {
+                if let tauri::RunEvent::ExitRequested { code: None, api, .. } = event {
+                    api.prevent_exit();
+                    tracing::info!(
+                        "ExitRequested (code=None) prevented — keeping process alive for foreground services"
+                    );
+                }
+            });
+    }
+    #[cfg(not(target_os = "android"))]
     builder.run(tauri::generate_context!()).unwrap_or_else(|e| {
         eprintln!("Fatal error running Tauri application: {}", e);
         std::process::exit(1);

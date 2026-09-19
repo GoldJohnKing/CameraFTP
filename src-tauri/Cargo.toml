@@ -101,3 +101,15 @@ tauri = { version = "2", features = ["test"] }
 # "symbols" not "debuginfo": Rust release emits no DWARF, so debuginfo-only
 # stripping saves nothing (~2 KB measured). This removes the ~5 MB symtab.
 strip = "symbols"
+
+# Pinned to PR tauri-apps/tauri#15678 (fix(android): re-create configured
+# windows when resumed without webviews), unmerged as of 2026-09-20. Without
+# it, MIUI destroys the backgrounded MainActivity and tao 0.35.3 exits the
+# process (std::process::exit), killing the FTP foreground service. The rev
+# is version-identical to our locked crates (tauri 2.11.5 / tauri-runtime
+# 2.11.3 / tauri-runtime-wry 2.11.4, deps tao ^0.35 / wry ^0.55).
+# REMOVAL CONDITION: PR merged and released in a tauri >= our version.
+[patch.crates-io]
+tauri = { git = "https://github.com/Turbo87/tauri", rev = "c1ab0d85a4567892764d4564e080bd3480a0c9aa" }
+tauri-runtime = { git = "https://github.com/Turbo87/tauri", rev = "c1ab0d85a4567892764d4564e080bd3480a0c9aa" }
+tauri-runtime-wry = { git = "https://github.com/Turbo87/tauri", rev = "c1ab0d85a4567892764d4564e080bd3480a0c9aa" }

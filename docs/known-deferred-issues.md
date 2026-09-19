@@ -200,3 +200,31 @@ SM8550, Android 16):
    APKs silently embedded ~29 MB of dead model bytes. Now properly gated with
    `cfg(not(nn_demosaic))` stubs returning `None` (models are neither embedded nor
    referenced in legacy builds).
+
+## 14. `[patch.crates-io]` pin to tauri PR #15678 + Android prevent_exit (2026-09-20)
+
+**Root cause** (ADB-verified on ishtar): MIUI destroys the backgrounded MainActivity within
+seconds of swipe-home/screen-off; tauri-runtime-wry 2.11.4 then emits
+`ExitRequested{code: None}` (last window destroyed) and, unhandled, tao 0.35.3's
+`EventLoop::run` ends with `std::process::exit` — the process (and any running FGS) dies.
+Logcat evidence: 4× `Process ... has died: cch CRE` 0.1–2s after the destroy trigger, zero
+system-kill records (no `Killing`/lmkd/crash). This was the dominant
+"background → cold restart" path (see §13 for the exit-time interplay).
+
+**Fix**: (a) `lib.rs` Android-only `RunEvent::ExitRequested { code: None } →
+api.prevent_exit()` — the `code.is_none()` guard is mandatory because 2.11.4 honors
+prevent_exit for explicit `app.exit()` too (unconditional prevention makes the app
+unkillable); (b) `[patch.crates-io]` pins tauri / tauri-runtime / tauri-runtime-wry to
+Turbo87's fork rev `c1ab0d85` (PR tauri-apps/tauri#15678 "fix(android): re-create
+configured windows when resumed without webviews", OPEN/unmerged as of 2026-09-20; the rev
+is version-identical to our lock — tauri 2.11.5 / runtime 2.11.3 / runtime-wry 2.11.4, deps
+tao ^0.35 / wry ^0.55). Without the pin, prevent_exit alone turns
+relaunch-after-activity-destroy into a blank WebView (wry deletes `WEBVIEW_ATTRIBUTES` on
+every non-config destroy; the PR re-creates configured windows on resume instead).
+
+**Removal condition**: PR #15678 merged and shipped in a tauri release we adopt → delete the
+three `[patch]` entries (the prevent_exit handler itself stays — documented API). This is
+independent of §9's ndk-context removal condition (this pin keeps tao 0.35.3). **Residual
+known behavior**: the recreated WebView reloads the SPA to its initial route (state
+restoration deliberately descoped by owner decision 2026-09-20); Rust-side state — FTP
+server, file index, loaded NN session — and both FGS survive.
