@@ -14,10 +14,18 @@
 //! - 两条管线任一忙 → 组合忙；全部空闲 → 组合闲（combined 边沿，保证
 //!   两条管线同时忙、一条先结束时前台服务仍保持）。
 //!
+//! 除忙闲边沿外，本模块还承载各管线的**实时进度**（[`PipelineProgress`]）：
+//! worker 在每个 progress 事件 emit 点位旁上报同数值快照，服务活跃期间
+//! 组合两槽位为 JSON 推给 Kotlin 刷新通知。进度是电平型数据（最新者胜），
+//! 无自己的边沿检测；管线失活上报（notify_cg/notify_ai 传 false）清空
+//! 对应进度槽。
+//!
 //! 纯观测：本模块不干预队列处理本身（不暂停、不限速）。非 Android 平台
-//! 上报仅更新标志，不发起 JNI（[`dispatch_platform_sync`] no-op）。
+//! 上报仅更新标志，不发起 JNI（[`dispatch_platform_sync`] 与
+//! [`dispatch_progress_sync`] 均 no-op）。
 
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Mutex;
 use tracing::info;
 
 /// 调色管线忙闲标志。
@@ -29,14 +37,61 @@ static AI_ACTIVE: AtomicBool = AtomicBool::new(false);
 /// 上次已向平台同步的组合活跃值（边沿检测基准）。
 static SYNCED_COMBINED_ACTIVE: AtomicBool = AtomicBool::new(false);
 
+/// 单管线进度快照（done/total/failed），数值与对应前端 progress 事件同源。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PipelineProgress {
+    pub done: u32,
+    pub total: u32,
+    pub failed: u32,
+}
+
+/// 调色管线最新进度槽位（None = 无任务；失活上报时清空）。
+static CG_PROGRESS: Mutex<Option<PipelineProgress>> = Mutex::new(None);
+
+/// AI 修图管线最新进度槽位（None = 无任务；失活上报时清空）。
+static AI_PROGRESS: Mutex<Option<PipelineProgress>> = Mutex::new(None);
+
 /// 上报调色管线忙闲（忙 = 队列非空或有任务处理中）。
 pub fn notify_cg(active: bool) {
-    notify_one("color-grading", active, &CG_ACTIVE);
+    notify_one("color-grading", active, &CG_ACTIVE, &CG_PROGRESS);
 }
 
 /// 上报 AI 修图管线忙闲（忙 = 队列非空或有任务处理中）。
 pub fn notify_ai(active: bool) {
-    notify_one("ai-edit", active, &AI_ACTIVE);
+    notify_one("ai-edit", active, &AI_ACTIVE, &AI_PROGRESS);
+}
+
+/// 上报调色管线进度（worker 在每个 `color-grading-progress` 事件点位旁调用，
+/// 数值与事件完全相同）。仅服务已活跃时向平台分发。
+pub fn notify_cg_progress(progress: PipelineProgress) {
+    notify_progress(&CG_PROGRESS, progress);
+}
+
+/// 上报 AI 修图管线进度（worker 在每个 `ai-edit-progress` 事件点位旁调用，
+/// 数值与事件完全相同）。仅服务已活跃时向平台分发。
+pub fn notify_ai_progress(progress: PipelineProgress) {
+    notify_progress(&AI_PROGRESS, progress);
+}
+
+/// 存入进度槽位；仅在组合活跃已同步为 true 时分发（服务未启动不刷——
+/// 启停生命周期完全由边沿通道管，进度通道绝不拉起服务）。
+fn notify_progress(slot: &Mutex<Option<PipelineProgress>>, progress: PipelineProgress) {
+    write_progress(slot, Some(progress));
+    if SYNCED_COMBINED_ACTIVE.load(Ordering::SeqCst) {
+        dispatch_progress_sync();
+    }
+}
+
+/// 读写进度槽位。锁中毒仅意味着某次持锁线程 panic 过，互斥语义不受
+/// 影响，照常使用（与 android.rs PROCESSING_SYNC_EXEC_MUTEX 风格一致）。
+fn write_progress(slot: &Mutex<Option<PipelineProgress>>, value: Option<PipelineProgress>) {
+    *slot.lock().unwrap_or_else(|p| p.into_inner()) = value;
+}
+
+/// 读槽位（仅 Android 分发路径与单测引用；桌面构建无分发，抑制 dead_code）。
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
+fn read_progress(slot: &Mutex<Option<PipelineProgress>>) -> Option<PipelineProgress> {
+    *slot.lock().unwrap_or_else(|p| p.into_inner())
 }
 
 /// 更新单管线标志并做组合边沿检测。
@@ -49,8 +104,18 @@ pub fn notify_ai(active: bool) {
 /// 影响）。SeqCst 全序 + 每条管线「激活上报先于其任务完成上报」的
 /// happens-before 链（enqueue/send/receiver）保证最终一致：后续任一次
 /// 上报都会把 synced 值拉回真实组合值，不会卡死在 false。
-fn notify_one(service: &str, active: bool, flag: &AtomicBool) {
+fn notify_one(
+    service: &str,
+    active: bool,
+    flag: &AtomicBool,
+    progress_slot: &Mutex<Option<PipelineProgress>>,
+) {
     flag.store(active, Ordering::SeqCst);
+    if !active {
+        // 失活：清空该管线进度槽（电平数据随管线撤销，避免下批启动时
+        // 通知读到上一批的残留进度）。
+        write_progress(progress_slot, None);
+    }
     let combined = CG_ACTIVE.load(Ordering::SeqCst) || AI_ACTIVE.load(Ordering::SeqCst);
     // swap 返回旧值：仅边沿变化时同步（连续 100 次 enqueue(true) 只同步 1 次）。
     let previous = SYNCED_COMBINED_ACTIVE.swap(combined, Ordering::SeqCst);
@@ -69,10 +134,103 @@ fn notify_one(service: &str, active: bool, flag: &AtomicBool) {
 
 #[cfg(target_os = "android")]
 fn dispatch_platform_sync(combined: bool) {
-    crate::platform::android::sync_processing_state(combined);
+    // 启停边沿搭载当前进度快照：服务启动时即可渲染首帧进度，消除「首帧
+    // 通知构建早于首个进度 JNI 到达」的竞态（真机实测首图无进度、次图才
+    // 出现）。Kotlin 侧 start 边沿仅在快照为空时采用（floor 语义），不会
+    // 覆盖可能先到的更新进度。
+    let cg = read_progress(&CG_PROGRESS);
+    let ai = read_progress(&AI_PROGRESS);
+    crate::platform::android::sync_processing_state(combined, combine_progress_json(cg, ai));
 }
 
 #[cfg(not(target_os = "android"))]
 fn dispatch_platform_sync(_combined: bool) {
     // 非 Android：无前台服务概念，纯 no-op（标志已在 notify_one 更新）。
+}
+
+/// 组合两槽位为 JSON 推给 Kotlin 刷新通知。与启停边沿共用「活跃才发」
+/// 纪律（调用方已检查 SYNCED_COMBINED_ACTIVE），但**无自己的边沿检测**：
+/// 进度是电平型数据，最新者胜。非 Android no-op。
+#[cfg(target_os = "android")]
+fn dispatch_progress_sync() {
+    // 两槽位分别短临界区读取，不嵌套加锁（无锁序问题）。
+    let cg = read_progress(&CG_PROGRESS);
+    let ai = read_progress(&AI_PROGRESS);
+    crate::platform::android::sync_processing_progress(combine_progress_json(cg, ai));
+}
+
+#[cfg(not(target_os = "android"))]
+fn dispatch_progress_sync() {
+    // 非 Android：无前台服务概念，纯 no-op（槽位已更新，供单测/诊断读取）。
+}
+
+/// 纯函数：组合两槽位为 `{"cg":{...}|null,"ai":{...}|null}`。
+/// （仅 Android 分发路径与单测引用；桌面构建无分发，抑制 dead_code。）
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
+fn combine_progress_json(cg: Option<PipelineProgress>, ai: Option<PipelineProgress>) -> String {
+    fn one(p: Option<PipelineProgress>) -> String {
+        match p {
+            Some(p) => format!(
+                "{{\"done\":{},\"total\":{},\"failed\":{}}}",
+                p.done, p.total, p.failed
+            ),
+            None => "null".to_string(),
+        }
+    }
+    format!("{{\"cg\":{},\"ai\":{}}}", one(cg), one(ai))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // 只测纯函数与独立的槽位读写辅助：notify_* 系列触碰全局静态且
+    // dispatch 依赖平台，由 Kotlin 侧测试与 worker 集成路径覆盖。
+
+    #[test]
+    fn combine_progress_json_renders_null_and_objects() {
+        let cg = PipelineProgress {
+            done: 1,
+            total: 2,
+            failed: 0,
+        };
+        let ai = PipelineProgress {
+            done: 2,
+            total: 3,
+            failed: 1,
+        };
+
+        assert_eq!(
+            combine_progress_json(None, None),
+            r#"{"cg":null,"ai":null}"#
+        );
+        assert_eq!(
+            combine_progress_json(Some(cg), None),
+            r#"{"cg":{"done":1,"total":2,"failed":0},"ai":null}"#
+        );
+        assert_eq!(
+            combine_progress_json(Some(cg), Some(ai)),
+            r#"{"cg":{"done":1,"total":2,"failed":0},"ai":{"done":2,"total":3,"failed":1}}"#
+        );
+    }
+
+    #[test]
+    fn progress_slot_write_and_clear_roundtrip() {
+        // 局部槽位：避免与并行 worker 测试的全局静态互相干扰。
+        let slot: Mutex<Option<PipelineProgress>> = Mutex::new(None);
+
+        assert_eq!(read_progress(&slot), None);
+
+        let p = PipelineProgress {
+            done: 3,
+            total: 5,
+            failed: 2,
+        };
+        write_progress(&slot, Some(p));
+        assert_eq!(read_progress(&slot), Some(p));
+
+        // 失活清空路径（notify_one 内部对全局槽位执行的同一辅助）。
+        write_progress(&slot, None);
+        assert_eq!(read_progress(&slot), None);
+    }
 }

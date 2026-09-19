@@ -321,6 +321,111 @@ class AndroidServiceStateCoordinatorTest {
         }
     }
 
+    @Test
+    fun processing_progress_snapshot_roundtrip_without_starting_service() {
+        val context = getApplicationContext<Context>()
+        val application = getApplicationContext<android.app.Application>()
+
+        AndroidServiceStateCoordinator.clearProcessingState()
+        shadowOf(application).clearStartedServices()
+
+        // Active gate: snapshots are only stored while processing is active.
+        // Arm active first; drain the service intent it issues so the test's
+        // core assertion (progress channel alone issues no intents) holds.
+        AndroidServiceStateCoordinator.syncNativeProcessingState(context, true, null)
+        shadowOf(application).clearStartedServices()
+
+        val payload = """{"cg":{"done":1,"total":2,"failed":0},"ai":{"done":2,"total":3,"failed":1}}"""
+        AndroidServiceStateCoordinator.syncNativeProcessingProgress(context, payload)
+
+        assertEquals(payload, AndroidServiceStateCoordinator.getProcessingProgressJson())
+        // Level channel must never own liveness: no service start/stop intent.
+        assertNull(shadowOf(application).nextStartedService)
+
+        // Latest writer wins (level semantics).
+        val newer = """{"cg":{"done":2,"total":2,"failed":0},"ai":null}"""
+        AndroidServiceStateCoordinator.syncNativeProcessingProgress(context, newer)
+        assertEquals(newer, AndroidServiceStateCoordinator.getProcessingProgressJson())
+    }
+
+    @Test
+    fun processing_stop_edge_clears_progress_snapshot() {
+        val context = getApplicationContext<Context>()
+        val application = getApplicationContext<android.app.Application>()
+
+        AndroidServiceStateCoordinator.clearProcessingState()
+        AndroidServiceStateCoordinator.syncNativeProcessingState(context, true, null)
+        AndroidServiceStateCoordinator.syncNativeProcessingProgress(
+            context,
+            """{"cg":{"done":1,"total":2,"failed":0},"ai":null}""",
+        )
+        assertNotNull(AndroidServiceStateCoordinator.getProcessingProgressJson())
+
+        shadowOf(application).clearStartedServices()
+
+        // Stop edge (active=false). Even though no service instance exists
+        // (early-return path), the snapshot must be dropped so a later
+        // service start never renders stale numbers.
+        AndroidServiceStateCoordinator.syncNativeProcessingState(context, false, null)
+
+        assertNull(AndroidServiceStateCoordinator.getProcessingProgressJson())
+        assertFalse(AndroidServiceStateCoordinator.getProcessingActive())
+    }
+
+    @Test
+    fun processing_start_edge_carries_snapshot_with_floor_semantics() {
+        val context = getApplicationContext<Context>()
+
+        AndroidServiceStateCoordinator.clearProcessingState()
+        // Start edge carrying a snapshot adopts it when none exists (renders
+        // progress on the very first notification).
+        val edgeJson = """{"cg":{"done":0,"total":3,"failed":0},"ai":null}"""
+        AndroidServiceStateCoordinator.syncNativeProcessingState(context, true, edgeJson)
+        assertEquals(edgeJson, AndroidServiceStateCoordinator.getProcessingProgressJson())
+
+        // A fresher progress push wins; a later start edge must NOT overwrite
+        // it (floor semantics).
+        val newer = """{"cg":{"done":1,"total":3,"failed":0},"ai":null}"""
+        AndroidServiceStateCoordinator.syncNativeProcessingProgress(context, newer)
+        AndroidServiceStateCoordinator.syncNativeProcessingState(context, true, edgeJson)
+        assertEquals(newer, AndroidServiceStateCoordinator.getProcessingProgressJson())
+    }
+
+    @Test
+    fun processing_progress_while_idle_is_discarded() {
+        val context = getApplicationContext<Context>()
+
+        AndroidServiceStateCoordinator.clearProcessingState()
+        // Late progress arriving after the stop edge (idle) must not pollute
+        // the snapshot: the next batch's floor semantics would otherwise keep
+        // the stale cancelled-batch numbers over the fresh {0, N, 0}.
+        AndroidServiceStateCoordinator.syncNativeProcessingProgress(
+            context,
+            """{"cg":{"done":9,"total":9,"failed":0},"ai":null}""",
+        )
+        assertNull(AndroidServiceStateCoordinator.getProcessingProgressJson())
+    }
+
+    @Test
+    fun processing_timeout_clears_progress_snapshot() {
+        val context = getApplicationContext<Context>()
+
+        AndroidServiceStateCoordinator.clearProcessingState()
+        // Active gate: arm processing before pushing the snapshot under test.
+        AndroidServiceStateCoordinator.syncNativeProcessingState(context, true, null)
+        AndroidServiceStateCoordinator.syncNativeProcessingProgress(
+            context,
+            """{"cg":null,"ai":{"done":1,"total":1,"failed":1}}""",
+        )
+        assertNotNull(AndroidServiceStateCoordinator.getProcessingProgressJson())
+
+        // Called from ProcessingForegroundService.onTimeout.
+        AndroidServiceStateCoordinator.clearProcessingState()
+
+        assertNull(AndroidServiceStateCoordinator.getProcessingProgressJson())
+        assertFalse(AndroidServiceStateCoordinator.getProcessingActive())
+    }
+
     private fun readConnectedClients(service: FtpForegroundService): Int {
         return withAccessibleField(service, "connectedClients") { field ->
             field.getInt(service)

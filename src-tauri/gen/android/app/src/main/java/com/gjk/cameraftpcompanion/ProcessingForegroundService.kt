@@ -20,6 +20,7 @@ import android.util.Log
 import androidx.annotation.StringRes
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
+import org.json.JSONObject
 
 /**
  * Foreground service held while color-grading / AI-edit tasks are queued or
@@ -28,13 +29,22 @@ import androidx.core.app.ServiceCompat
  * [AndroidServiceStateCoordinator.syncNativeProcessingState], which is driven
  * from the Rust processing-activity tracker (edge-triggered).
  *
+ * Notification content is refreshed live from the Rust progress payload via
+ * [AndroidServiceStateCoordinator.syncNativeProcessingProgress] (level data,
+ * mirrors FtpForegroundService's stats-sync pattern): single-pipeline shows a
+ * determinate progress bar, dual-pipeline shows both counters joined by a
+ * separator (no bar — two totals cannot share one bar).
+ *
  * Structure mirrors [FtpForegroundService] (singleton instance, ACTION_START /
  * ACTION_STOP, START_NOT_STICKY, double onTimeout override, stale-start
- * defense), with a static notification (no dynamic progress refresh).
+ * defense).
  */
 class ProcessingForegroundService : Service() {
     @Volatile
     private var isInForeground = false
+
+    /** 通知刷新主线程化用（见 refreshProcessingNotification 的竞态论证）。 */
+    private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
 
     companion object {
         const val TAG = "ProcessingForegroundService"
@@ -82,8 +92,9 @@ class ProcessingForegroundService : Service() {
             // contract requires calling startForeground() before stopping,
             // otherwise some API 26+ ROMs throw
             // ForegroundServiceDidNotStartInTimeException even though we are
-            // already stopping. The notification is static (no state deps),
-            // so it builds fine in this stale scenario.
+            // already stopping. The stop edge cleared the progress snapshot,
+            // so buildNotification() falls back to static text and builds
+            // fine in this stale scenario.
             startForegroundWithType(buildNotification())
             stopForegroundServiceNow("stale start while idle")
             return START_NOT_STICKY
@@ -92,6 +103,11 @@ class ProcessingForegroundService : Service() {
         // CRITICAL: Must call startForeground() within 5 seconds of startForegroundService()
         // Otherwise, Android will throw ForegroundServiceDidNotStartInTimeException and crash the app
         startForegroundWithType(buildNotification())
+        // 补一次刷新：进度快照若在 buildNotification 与 startForeground 完成
+        // 之间到达，refreshProcessingNotification 会因 isInForeground 尚未
+        // 置位而丢弃该更新，静态文案滞留到下一个进度事件。此刻已置位，
+        // 用最新快照重渲染一次（无新快照时为幂等同内容重发）。
+        refreshProcessingNotification()
 
         return START_NOT_STICKY
     }
@@ -100,6 +116,13 @@ class ProcessingForegroundService : Service() {
         Log.d(TAG, "onDestroy: cleaning up service")
         instance = null
         isInForeground = false
+        // 兜底：任何路径在 stopForeground(REMOVE) 之后重发布了通知（历史竞态），
+        // 显式 cancel 确保服务销毁后不残留游离的普通通知。
+        try {
+            (getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager).cancel(NOTIFICATION_ID)
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to cancel notification on destroy", e)
+        }
         super.onDestroy()
     }
 
@@ -200,14 +223,22 @@ class ProcessingForegroundService : Service() {
 
     /**
      * Build notification for the processing state.
-     * Static text only — no dynamic progress refresh by design.
+     *
+     * Content is composed from the coordinator's latest progress snapshot
+     * (pushed by Rust at every progress-event emit point, and also carried by
+     * the start edge so the very first notification renders numbers):
+     * - single pipeline: "RAW 调色：1 / 2" (+ "（失败 N）" when failed>0)
+     * - dual pipeline: both counters joined by " | "
+     * - no/invalid snapshot: static fallback text (previous behavior).
+     * Pure-text style matching the FTP FGS notification: no progress bar,
+     * no BigTextStyle. onStartCommand's start path calls this too, so a
+     * progress payload that raced ahead of the service start is rendered
+     * without an extra refresh.
      */
     private fun buildNotification(): Notification {
         val title = getStringOrFallback(R.string.processing_notification_title, "Camera FTP companion | Processing")
-        val content = getStringOrFallback(
-            R.string.processing_notification_content,
-            "Processing photos (color grading & AI edit)",
-        )
+        val progress = parseProgressSnapshot()
+        val content = buildProgressContent(progress)
 
         // Intent to open MainActivity when tapped
         // Fallback to explicit intent if package manager returns null
@@ -222,7 +253,7 @@ class ProcessingForegroundService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        return NotificationCompat.Builder(this, CHANNEL_ID)
+        val builder = NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle(title)
             .setContentText(content)
             .setSmallIcon(R.drawable.tray_active)
@@ -234,7 +265,101 @@ class ProcessingForegroundService : Service() {
             .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
             .setOnlyAlertOnce(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)
-            .build()
+
+        // 纯文字样式（对齐 FTP FGS 通知）：不使用进度条与 BigTextStyle。
+        return builder.build()
+    }
+
+    /** Parsed progress snapshot: (color grading, AI edit); null = use fallback. */
+    private data class PipelineProgressLine(val done: Int, val total: Int, val failed: Int)
+
+    private fun parseProgressSnapshot(): Pair<PipelineProgressLine?, PipelineProgressLine?>? {
+        val raw = AndroidServiceStateCoordinator.getProcessingProgressJson() ?: return null
+        return try {
+            val root = JSONObject(raw)
+            Pair(parseProgressLine(root, "cg"), parseProgressLine(root, "ai"))
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to parse processing progress JSON: $raw", e)
+            null
+        }
+    }
+
+    private fun parseProgressLine(root: JSONObject, key: String): PipelineProgressLine? {
+        val obj = root.optJSONObject(key) ?: return null
+        return PipelineProgressLine(
+            obj.optInt("done", 0),
+            obj.optInt("total", 0),
+            obj.optInt("failed", 0),
+        )
+    }
+
+    private fun buildProgressContent(
+        progress: Pair<PipelineProgressLine?, PipelineProgressLine?>?,
+    ): String {
+        if (progress == null) {
+            return getStringOrFallback(
+                R.string.processing_notification_content,
+                "Processing photos (color grading & AI edit)",
+            )
+        }
+
+        val (cg, ai) = progress
+        val parts = mutableListOf<String>()
+        cg?.let { parts.add(formatPipelineLine(R.string.processing_progress_cg, "RAW grading: %1\$d / %2\$d", it)) }
+        ai?.let { parts.add(formatPipelineLine(R.string.processing_progress_ai, "AI edit: %1\$d / %2\$d", it)) }
+        if (parts.isEmpty()) {
+            // Both pipelines idle in the snapshot: fall back to static text.
+            return getStringOrFallback(
+                R.string.processing_notification_content,
+                "Processing photos (color grading & AI edit)",
+            )
+        }
+        val separator = getStringOrFallback(R.string.processing_progress_separator, " | ")
+        return parts.joinToString(separator)
+    }
+
+    private fun formatPipelineLine(
+        @StringRes resId: Int,
+        fallback: String,
+        p: PipelineProgressLine,
+    ): String {
+        val base = getStringOrFallback(resId, fallback, p.done, p.total)
+        return if (p.failed > 0) {
+            base + getStringOrFallback(
+                R.string.processing_progress_failed_suffix,
+                " (%1\$d failed)",
+                p.failed,
+            )
+        } else {
+            base
+        }
+    }
+
+    /**
+     * Re-post the notification with the latest progress snapshot.
+     * Called from AndroidServiceStateCoordinator (Rust progress pushes);
+     * no-op unless the service is already in the foreground — liveness is
+     * owned by the start/stop edge channel.
+     */
+    fun refreshProcessingNotification() {
+        if (!isInForeground) {
+            return
+        }
+        // 主线程化：守卫与 notify 在主线程原子执行，消除「JNI 线程读到
+        // isInForeground==true 后、主线程 stopForeground(REMOVE) 完成前」
+        // 的重发布竞态（该竞态会在服务停止后把通知重新 post 成普通通知，
+        // 造成取消批次后通知残留——真机偶发复现）。
+        mainHandler.post {
+            if (!isInForeground) {
+                return@post
+            }
+            try {
+                val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+                notificationManager.notify(NOTIFICATION_ID, buildNotification())
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to update processing notification", e)
+            }
+        }
     }
 
     private fun getStringOrFallback(@StringRes resId: Int, fallback: String): String {
@@ -242,6 +367,18 @@ class ProcessingForegroundService : Service() {
             getString(resId)
         } catch (_: Exception) {
             fallback
+        }
+    }
+
+    private fun getStringOrFallback(
+        @StringRes resId: Int,
+        fallback: String,
+        vararg formatArgs: Any,
+    ): String {
+        return try {
+            getString(resId, *formatArgs)
+        } catch (_: Exception) {
+            String.format(fallback, *formatArgs)
         }
     }
 }

@@ -142,6 +142,15 @@ impl ColorGradingService {
         let sender = self.ensure_worker().await;
         let total = file_paths.len() as u32;
         self.queue_depth.add(total);
+        // 先入槽初始进度再触发忙边沿：启停边沿会搭载当前快照，若此刻槽位
+        // 仍为空，边沿会携带 {"cg":null,"ai":null}，首帧通知走静态回退分支
+        // （真机实测偶发「无数字的旧样式通知」即此竞态）。入槽先于边沿，
+        // 保证边沿必携 {0, total, 0}。
+        processing_activity::notify_cg_progress(processing_activity::PipelineProgress {
+            done: 0,
+            total,
+            failed: 0,
+        });
         // 先上报忙再发送：保证「激活」严格先于 worker 对这些任务的任何
         // 「空闲」上报（enqueue→send→recv 的 happens-before 链），避免
         // 快速任务完成后的 false 覆盖尚未落地的 true。

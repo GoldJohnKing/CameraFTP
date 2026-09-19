@@ -107,22 +107,40 @@ object AndroidServiceStateCoordinator {
     private var processingActive = false
 
     /**
+     * Latest processing progress JSON payload pushed from Rust
+     * ({"cg":{...}|null,"ai":{...}|null}). Level data — last writer wins.
+     * Cleared on stop edge and onTimeout, same as the active flag.
+     */
+    @Volatile
+    private var processingProgressJson: String? = null
+
+    /**
      * JNI entrypoint (called from Rust via class-name string lookup).
      * Edge semantics: false→true starts the foreground service when it is
      * not already running; true→false sends ACTION_STOP. Synchronized so
      * concurrent true/false transitions cannot reorder.
      */
     @JvmStatic
-    fun syncNativeProcessingState(callerContext: Context, active: Boolean) {
+    fun syncNativeProcessingState(callerContext: Context, active: Boolean, progressJson: String?) {
         val appContext = callerContext.applicationContext
         synchronized(processingLock) {
             val previous = processingActive
             processingActive = active
             if (active) {
+                // Start edge carries the current progress snapshot so the very
+                // first notification can render numbers (closes the race where
+                // notification construction beat the first progress JNI).
+                // Floor semantics: never overwrite a fresher progress snapshot.
+                if (processingProgressJson == null && progressJson != null) {
+                    processingProgressJson = progressJson
+                }
                 if (!previous || ProcessingForegroundService.getInstance() == null) {
                     startProcessingForegroundService(appContext)
                 }
             } else if (previous) {
+                // Stop edge: drop the progress snapshot together with the
+                // flag so a later service start never renders stale numbers.
+                processingProgressJson = null
                 if (ProcessingForegroundService.getInstance() == null) {
                     // Service not created yet: its onStartCommand stale-start
                     // defense (getProcessingActive()==false) will stop it.
@@ -133,13 +151,36 @@ object AndroidServiceStateCoordinator {
         }
     }
 
+    /**
+     * JNI entrypoint (called from Rust via class-name string lookup).
+     * Level semantics: stores the latest progress snapshot and refreshes the
+     * notification of an ALREADY-RUNNING service. Never starts the service —
+     * liveness is owned exclusively by the start/stop edge channel above.
+     */
+    @JvmStatic
+    fun syncNativeProcessingProgress(callerContext: Context, progressJson: String) {
+        synchronized(processingLock) {
+            // 空闲期丢弃：停止边沿之后的迟到进度不落快照，否则会污染下一次
+            // 批次的 floor 语义（新鲜数字被拒收、显示旧数字）。
+            if (!processingActive) {
+                return
+            }
+            processingProgressJson = progressJson
+        }
+        ProcessingForegroundService.getInstance()?.refreshProcessingNotification()
+    }
+
     /** Read by ProcessingForegroundService.onStartCommand for stale-start defense. */
     fun getProcessingActive(): Boolean = processingActive
+
+    /** Read by ProcessingForegroundService.buildNotification for live progress. */
+    fun getProcessingProgressJson(): String? = processingProgressJson
 
     /** Called from ProcessingForegroundService.onTimeout. */
     fun clearProcessingState() {
         synchronized(processingLock) {
             processingActive = false
+            processingProgressJson = null
         }
     }
 

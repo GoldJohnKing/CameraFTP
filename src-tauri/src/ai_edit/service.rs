@@ -118,6 +118,13 @@ impl AiEditService {
 
         let (_, auto_sender) = self.ensure_worker().await;
         self.queue_depth.add(1);
+        // 先入槽初始进度再触发忙边沿（同 CG 侧论证：边沿需搭载非空快照，
+        // 否则首帧通知偶发走静态回退分支）。
+        processing_activity::notify_ai_progress(processing_activity::PipelineProgress {
+            done: 0,
+            total: 1,
+            failed: 0,
+        });
         // 先上报忙再发送：保证「激活」严格先于 worker 对该任务的任何
         // 「空闲」上报（enqueue→send→recv 的 happens-before 链）。
         processing_activity::notify_ai(true);
@@ -152,6 +159,15 @@ impl AiEditService {
             ) {
                 warn!(error = %emit_err, "Failed to emit ai-edit-progress QueuedDropped event");
             }
+            // 通知进度 hook：与 QueuedDropped 事件同源（queue_depth）。depth==0
+            // 时管线已因回滚上报失活（槽位被清空），不再写入 0/0 假进度。
+            if depth > 0 {
+                processing_activity::notify_ai_progress(processing_activity::PipelineProgress {
+                    done: 0,
+                    total: depth,
+                    failed: 0,
+                });
+            }
         } else {
             self.emit_queued();
         }
@@ -166,6 +182,13 @@ impl AiEditService {
     ) -> Result<(), AppError> {
         let (manual_sender, _) = self.ensure_worker().await;
         self.queue_depth.add(1);
+        // 先入槽初始进度再触发忙边沿（同 CG 侧论证：边沿需搭载非空快照，
+        // 否则首帧通知偶发走静态回退分支）。
+        processing_activity::notify_ai_progress(processing_activity::PipelineProgress {
+            done: 0,
+            total: 1,
+            failed: 0,
+        });
         // 先上报忙再发送（同 on_file_uploaded 的顺序论证）。
         processing_activity::notify_ai(true);
         if let Err(e) = manual_sender
@@ -202,6 +225,15 @@ impl AiEditService {
             &super::progress::AiEditProgressEvent::Queued { queue_depth: depth },
         ) {
             warn!(error = %e, "Failed to emit ai-edit-progress Queued event");
+        }
+        // 通知进度 hook：与 Queued 事件同源（queue_depth）；depth==0（worker
+        // 已瞬时取走）不上报，维持「无任务 = 槽位空」。
+        if depth > 0 {
+            processing_activity::notify_ai_progress(processing_activity::PipelineProgress {
+                done: 0,
+                total: depth,
+                failed: 0,
+            });
         }
     }
 }
@@ -291,6 +323,18 @@ async fn worker_loop<R: tauri::Runtime>(
         ) {
             warn!(error = %e, "Failed to emit ai-edit-progress Done event");
         }
+        // 通知进度 hook：与 Done 事件同数值（批次收尾，done=total）。
+        // 紧随其后的失活上报（循环顶 notify_ai(false)）会清空槽位。
+        // Cancelled/ShutDown 分支可能 0 处理即收批（事件仍发给前端复位
+        // UI），0/0 快照无展示价值，跳过以免闪烁——数值仍取同一
+        // processed_count。
+        if state.processed_count() > 0 {
+            processing_activity::notify_ai_progress(processing_activity::PipelineProgress {
+                done: state.processed_count(),
+                total: state.processed_count(),
+                failed: state.failed_count,
+            });
+        }
 
         state.reset();
     }
@@ -371,6 +415,12 @@ async fn worker_loop<R: tauri::Runtime>(
         ) {
             warn!(error = %e, "Failed to emit ai-edit-progress Progress event");
         }
+        // 通知进度 hook：与 Progress 事件同数值（current = 正在处理的序号）。
+        processing_activity::notify_ai_progress(processing_activity::PipelineProgress {
+            done: current,
+            total,
+            failed: state.failed_count,
+        });
 
         // Process task with cancel awareness: abort current task on cancel
         let result = tokio::select! {
@@ -408,6 +458,12 @@ async fn worker_loop<R: tauri::Runtime>(
                 ) {
                     warn!(error = %e, "Failed to emit ai-edit-progress Completed event");
                 }
+                // 通知进度 hook：与 Completed 事件同数值。
+                processing_activity::notify_ai_progress(processing_activity::PipelineProgress {
+                    done: state.processed_count(),
+                    total: state.processed_count() + remaining,
+                    failed: state.failed_count,
+                });
             }
             Some(Err(ref e)) => {
                 debug!(input = %task.file_path.display(), error = %e, "AI edit failed");
@@ -428,6 +484,12 @@ async fn worker_loop<R: tauri::Runtime>(
                 ) {
                     warn!(error = %e, "Failed to emit ai-edit-progress Failed event");
                 }
+                // 通知进度 hook：与 Failed 事件同数值（failed 计数已含本文件）。
+                processing_activity::notify_ai_progress(processing_activity::PipelineProgress {
+                    done: state.processed_count(),
+                    total: state.processed_count() + remaining,
+                    failed: state.failed_count,
+                });
             }
             None => {
                 // Task was cancelled during processing

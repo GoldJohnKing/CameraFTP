@@ -11,4 +11,8 @@
     <string name="processing_service_channel_description">调色与AI修图后台处理状态</string>
     <string name="processing_notification_title">图传伴侣 | 处理中</string>
     <string name="processing_notification_content">正在处理照片：调色与AI修图</string>
+    <string name="processing_progress_cg">RAW 调色：%1$d / %2$d</string>
+    <string name="processing_progress_ai">AI 修图：%1$d / %2$d</string>
+    <string name="processing_progress_failed_suffix">（失败 %1$d）</string>
+    <string name="processing_progress_separator"> | </string>
 </resources>
