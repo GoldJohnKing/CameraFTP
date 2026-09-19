@@ -418,17 +418,17 @@ export const GalleryCard = memo(function GalleryCard() {
           onClick={() => void handleOpenDateJump()}
           disabled={titleMs == null}
           data-testid="gallery-date-title"
-          className="flex min-w-0 items-center gap-1 text-lg font-semibold text-gray-900 transition-colors hover:text-blue-600 active:text-blue-700 disabled:opacity-50"
+          className="flex min-w-0 items-center gap-1.5 text-xl font-semibold text-gray-900 transition-colors hover:text-blue-600 active:text-blue-700 disabled:opacity-50"
         >
           <span className="truncate">
             {titleMs != null ? formatDateTitle(titleMs) : '图库'}
           </span>
-          <ChevronDown className="h-4 w-4 shrink-0 text-gray-400" />
+          <ChevronDown className="h-5 w-5 shrink-0 text-gray-400" />
         </button>
         <RefreshButton onClick={handleRefresh} isLoading={isRefreshing} />
       </div>
       {/* Extension filter — only categories with loaded files get a button */}
-      <div className="flex items-center gap-1.5 shrink-0 overflow-x-auto py-1.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+      <div className="flex items-center gap-2 shrink-0 overflow-x-auto pt-1.5 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         {(['all', ...FILTER_CATEGORY_ORDER.filter((c) => availableCategories.has(c))] as GalleryFilterMode[]).map((mode) => {
           const label = mode === 'all' ? '全部' : FILTER_CATEGORY_LABEL[mode];
           const active = filterMode === mode;
@@ -438,7 +438,7 @@ export const GalleryCard = memo(function GalleryCard() {
               type="button"
               onClick={() => setFilterMode(mode)}
               data-testid={`gallery-filter-${mode}`}
-              className={`shrink-0 px-3 py-1 rounded-full text-xs font-medium transition-colors ${active ? 'bg-blue-500 text-white' : 'bg-white text-gray-600 border border-gray-200'}`}
+              className={`shrink-0 px-3 py-1 rounded-full text-sm font-medium transition-colors ${active ? 'bg-blue-500 text-white' : 'bg-white text-gray-600 border border-gray-200'}`}
             >
               {label}
             </button>
@@ -447,7 +447,7 @@ export const GalleryCard = memo(function GalleryCard() {
       </div>
 
       {/* Virtualized image grid */}
-      <div className="flex-1 min-h-0 mt-2">
+      <div className="flex-1 min-h-0 mt-1">
         <VirtualGalleryGrid
           ref={gridRef}
           items={filteredItems}
