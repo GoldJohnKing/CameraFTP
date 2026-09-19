@@ -302,6 +302,14 @@ ndk-context itself:
 removed** (Kotlin declaration + onCreate call + the Rust init block in `utils/jni.rs`): the
 `catch_unwind` guards against double-init, but the workaround should not outlive its upstream fix.
 
+#### JS bridge methods must be invoked receiver-bound (`window.Bridge.method(...)`)
+
+`@JavascriptInterface` methods accessed via a detached reference (`const f = window.Bridge?.method;
+f(...)`) lose their receiver and the WebView JavaBridge rejects the call with
+`Java bridge method can't be invoked on a non-injected object` (verified on MIUI/Android 16).
+Always call inline (`window.Bridge?.method?.(...)`) or re-bind explicitly. `typeof` probing may
+detached-read safely — only the *invocation* must be receiver-bound.
+
 ---
 
 ## References

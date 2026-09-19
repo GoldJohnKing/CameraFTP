@@ -108,6 +108,15 @@ mediaProcessing → dataSync fallback ladder. Once a future androidx release add
 to the mask, the ladder can collapse back to a single ServiceCompat call. Note the dataSync rung
 inherits the 6h/24h FGS quota (targetSdk 35+); `onTimeout` is already implemented.
 
+## 11. AI-edit gallery enqueue still resolves file paths one-by-one
+
+`useGallerySelection.ts` (~:285) still uses the per-file `resolveFilePath` bridge loop that made
+batch color grading's FGS notification lag ~7s behind task creation (measured tap→enqueue on a
+real device; fixed for color grading via the batch `resolveFilePaths` bridge in
+`ImageViewerBridge`). Migrate it to `resolveFilePaths` when AI-edit batch enqueue UX is next
+touched — the bridge, TS declaration, and receiver-bound invocation pattern are already in place
+from the color-grading fix.
+
 ## 9. ndk-context self-initialization workaround (tauri 2.11.x / tao 0.35.3 regression)
 
 **Root cause**: the a5458cb dependency-stack upgrade (tauri 2.11.5 → tauri-runtime-wry 2.11.4 →
