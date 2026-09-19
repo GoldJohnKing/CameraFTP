@@ -213,10 +213,30 @@ export const GalleryCard = memo(function GalleryCard() {
 
   const handleColorGradingConfirm = useCallback(async (lutId: string, meteringMode: string, evOffset: number) => {
     setShowColorGradingDialog(false);
-    const filePaths = Array.from(selectedIds)
-      .map(id => pager.items.find(item => item.mediaId === id))
-      .filter((item): item is NonNullable<typeof item> => item != null)
-      .map(item => window.ImageViewerAndroid?.resolveFilePath?.(item.uri) ?? item.uri);
+    // 单次 O(n) 建立 mediaId → uri 索引，替代逐选中项 pager.items.find 的
+    // O(selected×n) 全列表扫描。
+    const uriByMediaId = new Map(pager.items.map((item) => [item.mediaId, item]));
+    const uris = Array.from(selectedIds)
+      .map((id) => uriByMediaId.get(id)?.uri)
+      .filter((uri): uri is string => uri != null);
+    // 根因（真机实测）：此前对每个选中文件逐个同步调用 resolveFilePath ——
+    // 每张照片一次 WebView JS→JavaBridge 同步往返（JS 线程 park）+ 一次
+    // MediaStore 查询，7 张即产生约 7.3 秒空窗（tap → 入队），期间队列未建立、
+    // FGS 通知无法出现。批量版在单次桥调用内完成全部解析，消除该通知延迟。
+    const batchResolve = window.ImageViewerAndroid?.resolveFilePaths;
+    const filePaths =
+      // 注意：JavaBridge 方法必须以内联接收者绑定形式调用（window.xxx.method()）。
+      // 先摘取到局部变量再裸调用会丢失 this，WebView JavaBridge 会以
+      // "non-injected object" 拒绝（真机实测）。故此处 typeof 探测后仍内联回对象调用。
+      typeof batchResolve === 'function'
+        ? // 批量分支：桥侧失败项为 null，按失败语义过滤（与单文件版一致，
+          // 不回退 item.uri）。
+          (JSON.parse(
+            window.ImageViewerAndroid!.resolveFilePaths!(JSON.stringify(uris)),
+          ) as (string | null)[]).filter((path): path is string => path != null)
+        : // 回退分支：Android 旧注入（无批量方法）或桌面端无桥 —— 保持
+          // resolveFilePath ?? item.uri 语义（桌面端最终 fallback 到 item.uri）。
+          uris.map((uri) => window.ImageViewerAndroid?.resolveFilePath?.(uri) ?? uri);
     if (filePaths.length > 0) {
       await enqueueColorGrading(filePaths, lutId, meteringMode, evOffset);
     }

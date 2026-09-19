@@ -10,6 +10,7 @@ import android.util.Log
 import com.gjk.cameraftpcompanion.ImageViewerActivity
 import com.gjk.cameraftpcompanion.MainActivity
 import org.json.JSONArray
+import org.json.JSONObject
 
 sealed class TaskProgressState {
     data object Idle : TaskProgressState()
@@ -79,7 +80,67 @@ class ImageViewerBridge(activity: android.app.Activity) : BaseJsBridge(activity)
      */
     @android.webkit.JavascriptInterface
     fun resolveFilePath(uri: String): String? {
+        return resolveUriToPathInternal(uri)
+    }
+
+    /**
+     * Shared resolution logic behind [resolveFilePath] and [resolveFilePaths].
+     * Per-item failures are mapped to null by
+     * [ImageViewerActivity.resolveUriToFilePath] (same failure semantics for
+     * both bridge entry points).
+     */
+    private fun resolveUriToPathInternal(uri: String): String? {
         return ImageViewerActivity.resolveUriToFilePath(activity, uri)
+    }
+
+    /**
+     * Batch variant of [resolveFilePath]: resolves many URIs in a single bridge
+     * call, replacing the JS-side per-file synchronous round trips. Each round
+     * trip parks the JS thread while the JavaBridge thread runs a MediaStore
+     * query — N files used to mean N fixed round-trip overheads plus N
+     * MediaStore queries, measured at ~7.3s for one batch confirm before the
+     * color-grading queue (and therefore the FGS notification) could be
+     * created.
+     *
+     * Thread model matches [resolveFilePath]: runs synchronously on the
+     * JavaBridge thread.
+     *
+     * @param urisJson JSON array of URI strings
+     * @returns JSON array string of resolved paths, with null for entries that
+     *          fail (same failure semantics as [resolveFilePath]). On any
+     *          unexpected exception an all-null array of matching length is
+     *          returned (empty when even parsing failed) — never throws to JS.
+     */
+    @android.webkit.JavascriptInterface
+    fun resolveFilePaths(urisJson: String): String {
+        // Parse first so any later failure can fall back to an all-null array
+        // of matching length (unknown only when even parsing failed → empty).
+        val uris: List<String> = try {
+            JSONArray(urisJson).let { json ->
+                (0 until json.length()).map { json.getString(it) }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "resolveFilePaths: invalid urisJson", e)
+            emptyList()
+        }
+        return try {
+            val result = JSONArray()
+            for (uri in uris) {
+                val resolved = try {
+                    resolveUriToPathInternal(uri)
+                } catch (e: Exception) {
+                    // resolveUriToPathInternal already maps per-item failures to
+                    // null; this guards anything it might let escape.
+                    Log.e(TAG, "resolveFilePaths: resolve failed for uri=$uri", e)
+                    null
+                }
+                result.put(resolved ?: JSONObject.NULL)
+            }
+            result.toString()
+        } catch (e: Exception) {
+            Log.e(TAG, "resolveFilePaths error", e)
+            JSONArray(uris.map { JSONObject.NULL }).toString()
+        }
     }
 
     /**

@@ -196,6 +196,18 @@ interface ImageViewerAndroid {
   resolveFilePath(uri: string): string | null;
 
   /**
+   * Resolve multiple URIs to real file system paths in a single bridge call
+   * (replaces per-file synchronous round trips: each round trip parks the JS
+   * thread and runs a MediaStore query; N files = N fixed overheads + N queries)
+   * Optional because older Android injections predate it — check availability
+   * before use and fall back to per-file resolveFilePath calls.
+   * @param urisJson JSON array of content URIs or file paths
+   * @returns JSON array string; each entry is the resolved path or null on
+   *          failure (same per-item failure semantics as resolveFilePath)
+   */
+  resolveFilePaths?(urisJson: string): string;
+
+  /**
    * Callback from Tauri IPC when EXIF data is fetched for a specific position
    * @param position Adapter position of the image
    * @param exifJson JSON string of ExifInfo, or null
