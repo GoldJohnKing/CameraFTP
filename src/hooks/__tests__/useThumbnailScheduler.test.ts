@@ -274,6 +274,119 @@ describe('useThumbnailScheduler', () => {
     });
   });
 
+  it('re-requests a cached thumbnail when dateModifiedMs changes (content key mismatch)', async () => {
+    // 内容键缓存：同路径文件被重新上传（同 mediaId、新 mtime）时，旧缓存
+    // 缩略图的内容键不再匹配，下一次 viewport 处理必须重新请求并替换 URL。
+    const { result } = renderHook(() => useThumbnailScheduler({ debounceMs: TEST_DEBOUNCE }));
+
+    act(() => {
+      result.current.registerMedia([makeMedia('1', 1000)]);
+    });
+    act(() => {
+      result.current.updateViewport(['1'], []);
+    });
+    await flushDebounce();
+
+    const firstReqs = vi.mocked(enqueueThumbnails).mock.calls[0][0] as ThumbRequest[];
+    const listener = getRegisteredListener();
+    await act(async () => {
+      listener(makeReadyResult(firstReqs[0].requestId, '1', '/cache/thumb_1.jpg'));
+    });
+    expect(result.current.thumbnails.get('1')).toBe('asset://localhost/cache/thumb_1.jpg');
+
+    // 模拟 SWR reload 送回更新后的元数据（mtime 变了）。
+    act(() => {
+      result.current.registerMedia([makeMedia('1', 2000)]);
+    });
+    act(() => {
+      result.current.updateViewport(['1'], []);
+    });
+    await flushDebounce();
+
+    // 内容键不匹配 → 必须重新请求。
+    expect(enqueueThumbnails).toHaveBeenCalledTimes(2);
+    const secondReqs = vi.mocked(enqueueThumbnails).mock.calls[1][0] as ThumbRequest[];
+    expect(secondReqs.map((r) => r.mediaId)).toEqual(['1']);
+
+    await act(async () => {
+      listener(makeReadyResult(secondReqs[0].requestId, '1', '/cache/thumb_1_v2.jpg'));
+    });
+    expect(result.current.thumbnails.get('1')).toBe('asset://localhost/cache/thumb_1_v2.jpg');
+  });
+
+  it('does not re-request a cached thumbnail whose content key is unchanged', async () => {
+    // 内容键未变（同 mediaId、同 mtime）：缓存命中，viewport 再次经过时
+    // 不得重复请求。
+    const { result } = renderHook(() => useThumbnailScheduler({ debounceMs: TEST_DEBOUNCE }));
+
+    act(() => {
+      result.current.registerMedia([makeMedia('1', 1000)]);
+    });
+    act(() => {
+      result.current.updateViewport(['1'], []);
+    });
+    await flushDebounce();
+
+    const firstReqs = vi.mocked(enqueueThumbnails).mock.calls[0][0] as ThumbRequest[];
+    const listener = getRegisteredListener();
+    await act(async () => {
+      listener(makeReadyResult(firstReqs[0].requestId, '1', '/cache/thumb_1.jpg'));
+    });
+    expect(result.current.thumbnails.has('1')).toBe(true);
+
+    // 同一元数据再次注册 + viewport 重扫：无新请求。
+    act(() => {
+      result.current.registerMedia([makeMedia('1', 1000)]);
+    });
+    act(() => {
+      result.current.updateViewport(['1'], []);
+    });
+    await flushDebounce();
+
+    expect(enqueueThumbnails).toHaveBeenCalledTimes(1);
+  });
+
+  it('resetFailures clears permanent failures so the item is requested again', async () => {
+    // 手动刷新语义：resetFailures 只清永久失败标记 —— 此前解码失败的
+    // 缩略图在下一次 viewport 处理时重试；缓存/loading/媒体表不受影响。
+    const { result } = renderHook(() => useThumbnailScheduler({ debounceMs: TEST_DEBOUNCE }));
+
+    act(() => {
+      result.current.registerMedia([makeMedia('1')]);
+    });
+    act(() => {
+      result.current.updateViewport(['1'], []);
+    });
+    await flushDebounce();
+
+    const firstReqs = vi.mocked(enqueueThumbnails).mock.calls[0][0] as ThumbRequest[];
+    const listener = getRegisteredListener();
+    await act(async () => {
+      listener(makeFailedResult(firstReqs[0].requestId, '1', 'decode_corrupt'));
+    });
+    expect(result.current.loadingThumbs.has('1')).toBe(false);
+
+    // 永久失败：不重试（保持既有语义）。
+    act(() => {
+      result.current.updateViewport(['1'], []);
+    });
+    await flushDebounce();
+    expect(enqueueThumbnails).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      result.current.resetFailures();
+    });
+
+    act(() => {
+      result.current.updateViewport(['1'], []);
+    });
+    await flushDebounce();
+
+    expect(enqueueThumbnails).toHaveBeenCalledTimes(2);
+    const secondReqs = vi.mocked(enqueueThumbnails).mock.calls[1][0] as ThumbRequest[];
+    expect(secondReqs.map((r) => r.mediaId)).toEqual(['1']);
+  });
+
   it('removeThumbs clears state and cancels active requests', async () => {
     const { result } = renderHook(() => useThumbnailScheduler({ debounceMs: TEST_DEBOUNCE }));
 

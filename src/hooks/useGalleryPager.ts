@@ -29,6 +29,12 @@ interface UseGalleryPagerResult {
   isLoading: boolean;
   error: string | null;
   loadNextPage: () => Promise<void>;
+  /**
+   * SWR（stale-while-revalidate）式刷新：刷新期间旧 items 保持可见，
+   * 新首页返回后一次性原子替换（不再"先清空再回填"，消除刷新白屏闪烁）。
+   * 在飞窗口内并发的增量更新（addItems/removeItems）会被合并进替换结果，
+   * 而不是被整表重建清掉。
+   */
   reload: () => Promise<void>;
   /**
    * Load remaining pages. Without options, loads until the cursor is
@@ -79,6 +85,12 @@ export function useGalleryPager(): UseGalleryPagerResult {
   // `items` 状态的 ref 镜像：稳定回调（loadNextPage 守卫等）需读"当前值"，
   // 避免闭包里的陈旧快照。所有 items 变更点同步维护此 ref。
   const itemsRef = useRef<MediaItemDto[]>([]);
+  // reload 在飞窗口内的增量更新跟踪：addItems/removeItems 发生在首页查询
+  // 已发出、结果尚未落地之间时，除照常写入当前 state 外还记录到这里，
+  // 供 reload 完成时的原子替换合并 —— 否则"用新页整表替换"会把并发增量
+  // 清掉（旧实现先清空列表时此问题被掩盖）。
+  const addedDuringReloadRef = useRef<MediaItemDto[]>([]);
+  const removedDuringReloadRef = useRef<Set<string>>(new Set());
 
   const fetchPage = useCallback(async (pageCursor: MediaCursor, revision: number): Promise<MediaPageResponse | null> => {
     const response = await listMediaPage({
@@ -88,8 +100,8 @@ export function useGalleryPager(): UseGalleryPagerResult {
     });
 
     if (revision !== revisionRef.current) {
-      // 已被更新的 reload/loadAll 取代：state 归新刷新所有，此处写入会把
-      // 过时的分页数据拼回新列表（seenMediaIds 也已随之重置）。
+      // 已被更新的 reload/loadAll 取代：reload 落地时会整表重建列表与
+      // seenMediaIds，此处写入会把过时的分页数据拼回新列表。
       return null;
     }
 
@@ -157,14 +169,17 @@ export function useGalleryPager(): UseGalleryPagerResult {
     } finally {
       pageInflightRef.current = false;
       // isLoading 由"最新代际"的操作负责复位：若已被 reload/loadAll 取代，
-      // 复位会侵吞取代者的加载窗口（items 已被重置为 []，loading 掉线会
-      // 让空态判断闪烁）。
+      // 复位会侵吞取代者的加载窗口（其结果落地前旧数据仍在屏，loading 掉
+      // 线会让空态/加载态判断闪烁）。
       if (revision === revisionRef.current) {
         setIsLoading(false);
       }
     }
   }, [cursor, isLoading, fetchPage]);
 
+  // SWR 式刷新：不清空任何列表状态（items/cursor/totalCount/seenMediaIds
+  // 均保持），旧数据在首页返回前持续可见；新首页落地时一次性原子替换。
+  // 旧实现先 setItems([]) 再 fetchPage 追加，刷新瞬间整个网格白屏回填。
   const reload = useCallback(async () => {
     if (reloadInflightRef.current) {
       return;
@@ -176,26 +191,59 @@ export function useGalleryPager(): UseGalleryPagerResult {
     reloadInflightRef.current = true;
     setIsLoading(true);
     setError(null);
-    setItems([]);
-    itemsRef.current = [];
-    setCursor(null);
-    cursorRef.current = null;
-    setTotalCount(0);
-    seenMediaIdsRef.current = new Set();
 
     try {
-      await fetchPage(null, revision);
+      // 直连服务而非 fetchPage：fetchPage 会向 itemsRef 追加（分页语义），
+      // 而这里要的是"整页替换"。查询在旧的列表状态下发出。
+      const response = await listMediaPage({
+        cursor: null,
+        pageSize: GALLERY_PAGE_SIZE,
+        sort: 'dateDesc',
+      });
+
+      if (revision !== revisionRef.current) {
+        // 已被更新的 reload/loadAll 取代：丢弃本次结果。finally 仍会复位
+        // inflight 与跟踪 refs —— 在飞期间的 addItems 自身已写入 state，
+        // 不会丢数据。
+        return;
+      }
+
+      // 原子替换，同时合入在飞窗口内的并发增量：
+      // - removedDuringReload：窗口内 removeItems 标记的删除，从新页过滤，
+      //   防止已删项被新页数据"复活"；
+      // - addedDuringReload：窗口内 addItems 插入、且新页未包含的项
+      //   （其媒体库扫描在本查询之后完成）——dateDesc 下它们是最新的，
+      //   前插以对齐 addItems 的语义。
+      const removed = removedDuringReloadRef.current;
+      const pageItems = response.items.filter((i) => !removed.has(i.mediaId));
+      const pageIds = new Set(pageItems.map((i) => i.mediaId));
+      const preservedAdds = addedDuringReloadRef.current.filter(
+        (i) => !pageIds.has(i.mediaId) && !removed.has(i.mediaId),
+      );
+
+      const nextItems = [...preservedAdds, ...pageItems];
+      itemsRef.current = nextItems;
+      setItems(nextItems);
+      cursorRef.current = response.nextCursor;
+      setCursor(response.nextCursor);
+      setTotalCount(response.totalCount + preservedAdds.length);
+      seenMediaIdsRef.current = new Set(nextItems.map((i) => i.mediaId));
     } catch (err) {
+      // SWR：失败时旧数据保留在屏（不清空 items），仅记录错误。
       if (revision === revisionRef.current) {
         setError(err instanceof Error ? err.message : 'Failed to load page');
       }
     } finally {
       reloadInflightRef.current = false;
+      // 跟踪 refs 无论成功/被取代一律复位：成功路径已在上面消费；被取代
+      // 路径中 addItems 自身已把数据写入 live state，无需（也不得）再补。
+      addedDuringReloadRef.current = [];
+      removedDuringReloadRef.current = new Set();
       if (revision === revisionRef.current) {
         setIsLoading(false);
       }
     }
-  }, [fetchPage]);
+  }, []);
 
   // Load remaining pages until the cursor is exhausted — or, when `untilMs`
   // is given, until the loaded range covers the target capture day plus a
@@ -275,6 +323,12 @@ export function useGalleryPager(): UseGalleryPagerResult {
       return;
     }
 
+    // reload 在飞：额外记录删除 id，reload 完成时的原子替换会从新页里
+    // 过滤掉它们，防止已删除项被即将落地的新首页复活。
+    if (reloadInflightRef.current) {
+      mediaIds.forEach((id) => removedDuringReloadRef.current.add(id));
+    }
+
     const previous = itemsRef.current;
     const next = previous.filter((item) => !mediaIds.has(item.mediaId));
     const removedCount = previous.length - next.length;
@@ -303,6 +357,12 @@ export function useGalleryPager(): UseGalleryPagerResult {
     });
 
     if (itemsToAdd.length > 0) {
+      // reload 在飞：额外记录到合并缓冲 —— reload 完成时的原子替换若发现
+      // 这些项不在新页里（其媒体库扫描在查询之后完成）则前插保留，防止
+      // 整表替换把并发插入清掉。下方照常写入当前 state（立即上屏）。
+      if (reloadInflightRef.current) {
+        addedDuringReloadRef.current.push(...itemsToAdd);
+      }
       const next = [...itemsToAdd, ...itemsRef.current];
       itemsRef.current = next;
       setItems(next);

@@ -83,6 +83,19 @@ export function createTaskProgressService<TEvent extends { type: string }>(
 
   let listenerRegistered = false;
   let storedUnlisten: (() => void) | null = null;
+  let galleryRefreshTimer: ReturnType<typeof setTimeout> | null = null;
+
+  /** Trailing debounce: collapse back-to-back per-file/done completions into
+   *  a single gallery refresh (single-file batches emit Completed then Done). */
+  function scheduleGalleryRefresh() {
+    if (galleryRefreshTimer !== null) {
+      clearTimeout(galleryRefreshTimer);
+    }
+    galleryRefreshTimer = setTimeout(() => {
+      galleryRefreshTimer = null;
+      requestMediaLibraryRefresh({ reason: config.refreshReason });
+    }, GALLERY_REFRESH_DELAY_MS);
+  }
 
   function scanOutputFiles(outputFiles: string[]) {
     for (const filePath of outputFiles) {
@@ -148,14 +161,16 @@ export function createTaskProgressService<TEvent extends { type: string }>(
         syncNativeProgress();
         break;
       case 'completed': {
-        // Per-file completion: scan immediately and refresh after a short delay
-        // so the gallery updates as each image is produced, not only when the batch ends.
+        // Per-file completion: scan immediately — the MediaStore insert drives
+        // the gallery's incremental `gallery-items-added` insert, which is what
+        // makes each image appear progressively. The trailing-debounced full
+        // refresh (scheduleGalleryRefresh) is only the final safety net; a
+        // per-file arm followed by the batch's Done (single-file batches emit
+        // Completed then Done) collapses into a single refresh.
         const completedOutputPath = mapped.outputPath;
         if (completedOutputPath) {
           scanOutputFiles([completedOutputPath]);
-          setTimeout(() => {
-            requestMediaLibraryRefresh({ reason: config.refreshReason });
-          }, GALLERY_REFRESH_DELAY_MS);
+          scheduleGalleryRefresh();
         }
         store.setState({
           current: mapped.current,
@@ -173,9 +188,8 @@ export function createTaskProgressService<TEvent extends { type: string }>(
           store.setState({ ...initialTaskProgressState });
           config.onAfterUpdate?.(mapped, store);
           scanOutputFiles(outputFiles);
-          setTimeout(() => {
-            requestMediaLibraryRefresh({ reason: config.refreshReason });
-          }, GALLERY_REFRESH_DELAY_MS);
+          // Coalesced with any still-pending per-file refresh arm above.
+          scheduleGalleryRefresh();
           finishNativeDone(mapped);
           config.onDone?.(mapped);
           break;
@@ -191,12 +205,13 @@ export function createTaskProgressService<TEvent extends { type: string }>(
 
         config.onAfterUpdate?.(mapped, store);
 
-        // Final batch-level scan for any files not yet scanned (edge cases),
-        // plus a concluding refresh to ensure the gallery is fully up-to-date.
+        // Final batch-level scan for any files not yet scanned (edge cases).
+        // The concluding refresh is trailing-debounced: it collapses with any
+        // per-file arm still pending (single-file batches emit Completed then
+        // Done within the window), so the gallery gets exactly one full
+        // refresh instead of duplicate back-to-back ones.
         scanOutputFiles(outputFiles);
-        setTimeout(() => {
-          requestMediaLibraryRefresh({ reason: config.refreshReason });
-        }, GALLERY_REFRESH_DELAY_MS);
+        scheduleGalleryRefresh();
 
         finishNativeDone(mapped);
         config.onDone?.(mapped);

@@ -36,6 +36,7 @@ vi.mock('../../hooks/useGalleryPager', () => ({
 const mockUpdateViewport = vi.fn();
 const mockRemoveThumbs = vi.fn();
 const mockCleanup = vi.fn();
+const mockResetFailures = vi.fn();
 const mockRegisterMedia = vi.fn();
 
 vi.mock('../../hooks/useThumbnailScheduler', () => ({
@@ -45,6 +46,7 @@ vi.mock('../../hooks/useThumbnailScheduler', () => ({
     updateViewport: mockUpdateViewport,
     removeThumbs: mockRemoveThumbs,
     cleanup: mockCleanup,
+    resetFailures: mockResetFailures,
     registerMedia: mockRegisterMedia,
   }),
 }));
@@ -113,6 +115,7 @@ describe('GalleryCard (virtualized)', () => {
     mockUpdateViewport.mockClear();
     mockRemoveThumbs.mockClear();
     mockCleanup.mockClear();
+    mockResetFailures.mockClear();
     mockRegisterMedia.mockClear();
     mockIsLoading = false;
     mockError = null;
@@ -220,7 +223,9 @@ describe('GalleryCard (virtualized)', () => {
     expect(Array.isArray(call[1])).toBe(true);
   });
 
-  it('calls reload and cleanup on refresh', async () => {
+  it('calls reload and resetFailures (not cleanup) on refresh', async () => {
+    // 刷新流：reload 照常执行；缩略图调度器只清除永久失败标记
+    // （resetFailures），不再 cleanup 清空整个缓存。
     await act(async () => {
       getRoot().render(<GalleryCard />);
       await flush();
@@ -237,7 +242,8 @@ describe('GalleryCard (virtualized)', () => {
     });
 
     expect(mockReload).toHaveBeenCalledTimes(1);
-    expect(mockCleanup).toHaveBeenCalledTimes(1);
+    expect(mockResetFailures).toHaveBeenCalledTimes(1);
+    expect(mockCleanup).not.toHaveBeenCalled();
   });
 
   it('calls removeItems and removeThumbs on delete', async () => {

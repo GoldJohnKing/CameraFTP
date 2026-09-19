@@ -118,6 +118,12 @@ export function useThumbnailScheduler(opts?: UseThumbnailSchedulerOptions) {
   const activeRequestsRef = useRef<Map<string, ActiveRequest>>(new Map());
   const mediaMapRef = useRef<Map<string, ThumbnailSchedulerMedia>>(new Map());
   const failedMediaRef = useRef<Set<string>>(new Set());
+  // 内容键缓存（mediaId → wantedKey，即 mediaId|dateModifiedMs|sizeBucket）：
+  // 缩略图 URL 缓存只按 mediaId 命中，无法感知同路径文件被重新上传
+  // （同 mediaId、新 mtime）的情况。记录每条缓存由哪个内容键生成后，
+  // tryEnqueue 就能识别"缓存键已变"并重新请求，让缩略图缓存得以在
+  // SWR 式 reload（不清空缓存）下保持内容正确。
+  const cachedKeysRef = useRef<Map<string, string>>(new Map());
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingRef = useRef<{ visibleIds: string[]; nearbyIds: string[] } | null>(null);
   const debounceMsRef = useRef(debounceMs);
@@ -150,6 +156,9 @@ export function useThumbnailScheduler(opts?: UseThumbnailSchedulerOptions) {
       if (active.wantedKey !== currentWantedKey) return;
 
       if (result.status === 'ready' && result.localPath) {
+        // 记录本条缓存缩略图的内容键（非 RAW 与 RAW 两条路径都会落地
+        // URL，此处统一先行记录），供 tryEnqueue 做内容键比对。
+        cachedKeysRef.current.set(result.mediaId, active.wantedKey);
         const isRaw = media.filePath ? isRawFile(media.filePath) : false;
         if (isRaw && media.filePath) {
           // Defer cleanup to the async orientation fix
@@ -259,8 +268,11 @@ export function useThumbnailScheduler(opts?: UseThumbnailSchedulerOptions) {
           if (req.mediaId === mediaId && req.wantedKey === wantedKey) return;
         }
 
-        // Already have a thumbnail loaded
-        if (thumbnailsRef.current.has(mediaId)) return;
+        // Already have a thumbnail loaded — and it was built from the SAME
+        // content key. A cached thumb whose mediaId|dateModifiedMs|sizeBucket
+        // changed (e.g. FTP re-upload of the same path → same mediaId, new
+        // mtime) is re-requested; upsertThumbnailEntry replaces the URL.
+        if (thumbnailsRef.current.has(mediaId) && cachedKeysRef.current.get(mediaId) === wantedKey) return;
 
         const requestId = `${mediaId}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
         activeRequestsRef.current.set(requestId, { requestId, mediaId, wantedKey });
@@ -352,6 +364,7 @@ export function useThumbnailScheduler(opts?: UseThumbnailSchedulerOptions) {
     for (const id of mediaIds) {
       mediaMapRef.current.delete(id);
       failedMediaRef.current.delete(id);
+      cachedKeysRef.current.delete(id);
     }
   }, []);
 
@@ -374,6 +387,16 @@ export function useThumbnailScheduler(opts?: UseThumbnailSchedulerOptions) {
     setThumbnails(new Map());
     mediaMapRef.current.clear();
     setLoadingThumbs(new Set());
+    cachedKeysRef.current.clear();
+  }, []);
+
+  /**
+   * 仅清除"永久失败"标记，不清空缩略图缓存、loading 集合与媒体表：
+   * 手动刷新时借此重试此前解码/权限永久失败的缩略图；已缓存的缩略图
+   * 按内容键存续（内容未变即无需重取），可安全跨 reload 保留。
+   */
+  const resetFailures = useCallback(() => {
+    failedMediaRef.current.clear();
   }, []);
 
   useEffect(() => {
@@ -387,8 +410,9 @@ export function useThumbnailScheduler(opts?: UseThumbnailSchedulerOptions) {
       updateViewport,
       removeThumbs,
       cleanup,
+      resetFailures,
       registerMedia,
     }),
-    [thumbnails, loadingThumbs, updateViewport, removeThumbs, cleanup, registerMedia],
+    [thumbnails, loadingThumbs, updateViewport, removeThumbs, cleanup, resetFailures, registerMedia],
   );
 }

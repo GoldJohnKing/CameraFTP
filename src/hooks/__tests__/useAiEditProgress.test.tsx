@@ -111,6 +111,60 @@ describe('useAiEditProgress', () => {
       await flush();
     });
 
+    expect(requestMediaLibraryRefreshMock).toHaveBeenCalledTimes(1);
+    expect(requestMediaLibraryRefreshMock).toHaveBeenCalledWith({ reason: 'ai-edit' });
+
+    vi.useRealTimers();
+  });
+
+  it('completed followed by done within the window coalesces into one refresh', async () => {
+    // 尾随去抖：单文件批次先发 Completed 再发 Done，两次完成事件在
+    // 500ms 窗口内合并为恰好一次全量刷新（旧实现连发两个定时器）。
+    vi.useFakeTimers();
+
+    eventHandler!({
+      type: 'completed',
+      current: 1,
+      total: 1,
+      fileName: 'photo.jpg',
+      failedCount: 0,
+      outputPath: '/tmp/out1.jpg',
+    });
+    await act(async () => { await flush(); });
+    eventHandler!(doneEvent());
+    await act(async () => { await flush(); });
+
+    await act(async () => {
+      vi.advanceTimersByTime(500);
+      await flush();
+    });
+
+    expect(requestMediaLibraryRefreshMock).toHaveBeenCalledTimes(1);
+    expect(requestMediaLibraryRefreshMock).toHaveBeenCalledWith({ reason: 'ai-edit' });
+
+    vi.useRealTimers();
+  });
+
+  it('completed alone still yields one refresh after the delay', async () => {
+    // 多文件批次的逐文件完成：单个 Completed 在 500ms 后仍派发一次刷新。
+    vi.useFakeTimers();
+
+    eventHandler!({
+      type: 'completed',
+      current: 1,
+      total: 2,
+      fileName: 'photo.jpg',
+      failedCount: 0,
+      outputPath: '/tmp/out1.jpg',
+    });
+    await act(async () => { await flush(); });
+
+    await act(async () => {
+      vi.advanceTimersByTime(500);
+      await flush();
+    });
+
+    expect(requestMediaLibraryRefreshMock).toHaveBeenCalledTimes(1);
     expect(requestMediaLibraryRefreshMock).toHaveBeenCalledWith({ reason: 'ai-edit' });
 
     vi.useRealTimers();

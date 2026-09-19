@@ -37,6 +37,9 @@ function buildItems(): MediaItemDto[] {
 
 let mockItems = buildItems();
 const mockReload = vi.fn(async () => {});
+const mockThumbnails = new Map<string, string>();
+const mockResetFailures = vi.fn();
+const mockCleanup = vi.fn();
 
 vi.mock('../../hooks/useGalleryPager', () => ({
   useGalleryPager: () => ({
@@ -55,11 +58,12 @@ vi.mock('../../hooks/useGalleryPager', () => ({
 
 vi.mock('../../hooks/useThumbnailScheduler', () => ({
   useThumbnailScheduler: () => ({
-    thumbnails: new Map<string, string>(),
+    thumbnails: mockThumbnails,
     loadingThumbs: new Set<string>(),
     updateViewport: vi.fn(),
     removeThumbs: vi.fn(),
-    cleanup: vi.fn(),
+    cleanup: mockCleanup,
+    resetFailures: mockResetFailures,
     registerMedia: vi.fn(),
   }),
 }));
@@ -142,6 +146,13 @@ describe('GalleryCard extension filter', () => {
     window.ResizeObserver = resizeMock.MockResizeObserver as unknown as typeof ResizeObserver;
     mockItems = buildItems();
     mockReload.mockClear();
+    mockResetFailures.mockClear();
+    mockCleanup.mockClear();
+    // 模拟已加载的缩略图缓存（每项一条）。
+    mockThumbnails.clear();
+    for (const item of mockItems) {
+      mockThumbnails.set(item.mediaId, `asset://localhost/cache/${item.mediaId}.jpg`);
+    }
   });
 
   afterEach(() => {
@@ -245,7 +256,7 @@ describe('GalleryCard extension filter', () => {
     expect(c.querySelector('[data-testid="date-jump-dialog"]')).toBeNull();
   });
 
-  it('resets the filter to 全部 when the refresh button is tapped', async () => {
+  it('keeps the current filter when the refresh button is tapped', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
     try {
       await act(async () => {
@@ -270,8 +281,54 @@ describe('GalleryCard extension filter', () => {
       });
 
       expect(mockReload).toHaveBeenCalledTimes(1);
-      expect(activeFilterMode(c)).toBe('all');
+      // 刷新不再重置筛选：RAW 模式保持，网格仍只显示 RAW 项。
+      expect(activeFilterMode(c)).toBe('raw');
+      expect(cellIds(c).sort()).toEqual(['cr3-a']);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('refresh does not blank the grid or nuke cached thumbnails', async () => {
+    // 刷新流：SWR reload 不清空列表 + GalleryCard 不再 cleanup 缩略图缓存
+    // （仅 resetFailures 重试永久失败项）—— 网格与已缓存缩略图全程可见。
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+    try {
+      await act(async () => {
+        getRoot().render(<GalleryCard />);
+        await flush();
+      });
+      const c = getContainer();
+
+      const cellImgSrc = (mediaId: string) =>
+        c.querySelector(`[data-media-id="${mediaId}"] img`)?.getAttribute('src') ?? null;
+
       expect(cellIds(c).sort()).toEqual(['cr3-a', 'heic-a', 'jpg-a', 'png-a']);
+      expect(cellImgSrc('jpg-a')).toBe('asset://localhost/cache/jpg-a.jpg');
+
+      // Tap refresh; withMinDuration holds the refresh "in flight" for 200ms.
+      // Mid-refresh (t=100ms): items and cached thumbnails must still render.
+      await act(async () => {
+        c.querySelector('[data-testid="refresh-button"]')!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        await vi.advanceTimersByTimeAsync(100);
+        await flush();
+      });
+
+      expect(cellIds(c).sort()).toEqual(['cr3-a', 'heic-a', 'jpg-a', 'png-a']);
+      expect(cellImgSrc('jpg-a')).toBe('asset://localhost/cache/jpg-a.jpg');
+
+      // Drain the min-duration window.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(200);
+        await flush();
+      });
+
+      expect(mockReload).toHaveBeenCalledTimes(1);
+      // 只清除永久失败标记，不再清空缩略图缓存。
+      expect(mockResetFailures).toHaveBeenCalledTimes(1);
+      expect(mockCleanup).not.toHaveBeenCalled();
+      expect(cellIds(c).sort()).toEqual(['cr3-a', 'heic-a', 'jpg-a', 'png-a']);
+      expect(cellImgSrc('jpg-a')).toBe('asset://localhost/cache/jpg-a.jpg');
     } finally {
       vi.useRealTimers();
     }

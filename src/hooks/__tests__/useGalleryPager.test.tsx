@@ -205,7 +205,7 @@ describe('useGalleryPager', () => {
     expect(getContainer().querySelector('[data-testid="cursor"]')?.textContent).toBe(nextCursor ?? 'null');
   });
 
-  it('resets everything on reload', async () => {
+  it('replaces items atomically on reload (old items stay until page 1 lands)', async () => {
     listMediaPageMock.mockResolvedValueOnce(
       makePage([makeItem('media-1')], 'cursor-1', 'rev-1'),
     );
@@ -232,6 +232,236 @@ describe('useGalleryPager', () => {
     });
     expect(getContainer().querySelector('[data-testid="count"]')?.textContent).toBe('2');
     expect(getContainer().querySelector('[data-testid="cursor"]')?.textContent).toBe('cursor-new');
+    // 原子替换：旧页内容（media-1）被新首页整体取代，而非追加。
+    expect(latestResult!.items.map((i) => i.mediaId)).toEqual(['media-10', 'media-11']);
+  });
+
+  it('keeps old items visible while reload is in flight (SWR)', async () => {
+    // SWR 语义：刷新在飞期间不清空列表 —— 旧数据保持可见，直到新首页
+    // 落地才一次性替换（消除"先白屏再回填"的闪烁）。
+    listMediaPageMock.mockResolvedValueOnce(
+      makePage([makeItem('media-1'), makeItem('media-2')], 'cursor-1', 'rev-1'),
+    );
+
+    await renderHarness();
+    await clickLoadNext(getContainer);
+    expect(getContainer().querySelector('[data-testid="count"]')?.textContent).toBe('2');
+
+    let resolveReload!: (value: MediaPageResponse) => void;
+    const reloadPromise = new Promise<MediaPageResponse>((res) => {
+      resolveReload = res;
+    });
+    listMediaPageMock.mockReturnValueOnce(reloadPromise);
+
+    await act(async () => {
+      getContainer().querySelector('[data-testid="reload"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    // 在飞：旧 items 原样可见，loading 置位，无错误。
+    expect(getContainer().querySelector('[data-testid="count"]')?.textContent).toBe('2');
+    expect(latestResult!.items.map((i) => i.mediaId)).toEqual(['media-1', 'media-2']);
+    expect(getContainer().querySelector('[data-testid="loading"]')?.textContent).toBe('yes');
+    expect(getContainer().querySelector('[data-testid="error"]')?.textContent).toBe('');
+
+    await act(async () => {
+      resolveReload(makePage([makeItem('media-9')], 'cursor-new', 'rev-2'));
+      await flush();
+      await flush();
+    });
+
+    expect(getContainer().querySelector('[data-testid="count"]')?.textContent).toBe('1');
+    expect(latestResult!.items.map((i) => i.mediaId)).toEqual(['media-9']);
+    expect(getContainer().querySelector('[data-testid="cursor"]')?.textContent).toBe('cursor-new');
+    expect(getContainer().querySelector('[data-testid="loading"]')?.textContent).toBe('no');
+  });
+
+  it('reload error keeps old items visible and sets error (SWR)', async () => {
+    listMediaPageMock.mockResolvedValueOnce(
+      makePage([makeItem('media-1')], 'cursor-1', 'rev-1'),
+    );
+
+    await renderHarness();
+    await clickLoadNext(getContainer);
+    expect(getContainer().querySelector('[data-testid="count"]')?.textContent).toBe('1');
+
+    listMediaPageMock.mockRejectedValueOnce(new Error('Network timeout'));
+
+    await act(async () => {
+      getContainer().querySelector('[data-testid="reload"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      await flush();
+      await flush();
+    });
+
+    // SWR：刷新失败不清空旧数据，仅记录错误。
+    expect(getContainer().querySelector('[data-testid="error"]')?.textContent).toBe('Network timeout');
+    expect(getContainer().querySelector('[data-testid="count"]')?.textContent).toBe('1');
+    expect(latestResult!.items.map((i) => i.mediaId)).toEqual(['media-1']);
+    expect(getContainer().querySelector('[data-testid="loading"]')?.textContent).toBe('no');
+  });
+
+  it('addItems during in-flight reload survives the replace when absent from the fetched page', async () => {
+    // FTP 增量插入落在刷新在飞窗口内、且其媒体库扫描晚于首页查询完成：
+    // 原子替换不得把这条并发插入清掉，应前插保留（对齐 addItems 语义）。
+    listMediaPageMock.mockResolvedValueOnce(
+      makePage([makeItem('media-1')], 'cursor-1', 'rev-1'),
+    );
+
+    await renderHarness();
+    await clickLoadNext(getContainer);
+    expect(getContainer().querySelector('[data-testid="count"]')?.textContent).toBe('1');
+
+    let resolveReload!: (value: MediaPageResponse) => void;
+    const reloadPromise = new Promise<MediaPageResponse>((res) => {
+      resolveReload = res;
+    });
+    listMediaPageMock.mockReturnValueOnce(reloadPromise);
+
+    await act(async () => {
+      getContainer().querySelector('[data-testid="reload"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    await act(async () => {
+      latestResult!.addItems([makeItem('media-new')]);
+      await flush();
+    });
+    // addItems 立即上屏（前插）。
+    expect(latestResult!.items.map((i) => i.mediaId)).toEqual(['media-new', 'media-1']);
+
+    // 新首页不含 media-new（扫描晚于查询）。
+    await act(async () => {
+      resolveReload(makePage([makeItem('media-1'), makeItem('media-10')], 'cursor-new', 'rev-2', 2));
+      await flush();
+      await flush();
+    });
+
+    expect(latestResult!.items.map((i) => i.mediaId)).toEqual(['media-new', 'media-1', 'media-10']);
+    expect(getContainer().querySelector('[data-testid="count"]')?.textContent).toBe('3');
+    expect(getContainer().querySelector('[data-testid="total-count"]')?.textContent).toBe('3');
+    expect(getContainer().querySelector('[data-testid="cursor"]')?.textContent).toBe('cursor-new');
+  });
+
+  it('addItems during in-flight reload is deduped when present in the fetched page', async () => {
+    // 增量项的扫描早于首页查询完成（出现在新页里）：替换时按页内数据去
+    // 重，不得出现两条同 mediaId。
+    listMediaPageMock.mockResolvedValueOnce(
+      makePage([makeItem('media-1')], 'cursor-1', 'rev-1'),
+    );
+
+    await renderHarness();
+    await clickLoadNext(getContainer);
+
+    let resolveReload!: (value: MediaPageResponse) => void;
+    const reloadPromise = new Promise<MediaPageResponse>((res) => {
+      resolveReload = res;
+    });
+    listMediaPageMock.mockReturnValueOnce(reloadPromise);
+
+    await act(async () => {
+      getContainer().querySelector('[data-testid="reload"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    await act(async () => {
+      latestResult!.addItems([makeItem('media-10')]);
+      await flush();
+    });
+    expect(latestResult!.items.map((i) => i.mediaId)).toEqual(['media-10', 'media-1']);
+
+    await act(async () => {
+      resolveReload(makePage([makeItem('media-10'), makeItem('media-1')], 'cursor-new', 'rev-2', 2));
+      await flush();
+      await flush();
+    });
+
+    expect(latestResult!.items.map((i) => i.mediaId)).toEqual(['media-10', 'media-1']);
+    expect(getContainer().querySelector('[data-testid="count"]')?.textContent).toBe('2');
+    expect(getContainer().querySelector('[data-testid="total-count"]')?.textContent).toBe('2');
+  });
+
+  it('removeItems during in-flight reload filters the replacement', async () => {
+    // 刷新在飞窗口内的删除必须作用于即将落地的新首页，防止已删项复活。
+    listMediaPageMock.mockResolvedValueOnce(
+      makePage([makeItem('media-1'), makeItem('media-2'), makeItem('media-3')], 'cursor-1', 'rev-1', 3),
+    );
+
+    await renderHarness();
+    await clickLoadNext(getContainer);
+    expect(getContainer().querySelector('[data-testid="count"]')?.textContent).toBe('3');
+
+    let resolveReload!: (value: MediaPageResponse) => void;
+    const reloadPromise = new Promise<MediaPageResponse>((res) => {
+      resolveReload = res;
+    });
+    listMediaPageMock.mockReturnValueOnce(reloadPromise);
+
+    await act(async () => {
+      getContainer().querySelector('[data-testid="reload"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    await act(async () => {
+      latestResult!.removeItems(new Set(['media-2']));
+      await flush();
+    });
+    expect(latestResult!.items.map((i) => i.mediaId)).toEqual(['media-1', 'media-3']);
+
+    // 新首页仍含 media-2（查询先于删除传播完成）—— 替换时须过滤。
+    await act(async () => {
+      resolveReload(makePage([makeItem('media-1'), makeItem('media-2'), makeItem('media-3'), makeItem('media-4')], 'cursor-new', 'rev-2', 4));
+      await flush();
+      await flush();
+    });
+
+    expect(latestResult!.items.map((i) => i.mediaId)).toEqual(['media-1', 'media-3', 'media-4']);
+    expect(getContainer().querySelector('[data-testid="count"]')?.textContent).toBe('3');
+  });
+
+  it('superseded in-flight reload result is discarded (loadAll bumps the revision)', async () => {
+    // reload 在飞时 loadAll 递增代际：reload 的响应 resolve 后按代际检查
+    // 丢弃，不得写入 state；loadAll 的结果完整保留。
+    listMediaPageMock.mockResolvedValueOnce(
+      makePage([makeItem('media-1')], 'cursor-1', 'rev-1'),
+    );
+
+    await renderHarness();
+    await clickLoadNext(getContainer);
+
+    let resolveReload!: (value: MediaPageResponse) => void;
+    const reloadPromise = new Promise<MediaPageResponse>((res) => {
+      resolveReload = res;
+    });
+    listMediaPageMock.mockReturnValueOnce(reloadPromise);
+
+    await act(async () => {
+      getContainer().querySelector('[data-testid="reload"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+    expect(getContainer().querySelector('[data-testid="loading"]')?.textContent).toBe('yes');
+
+    // loadAll 取代在飞的 reload：从保留的 cursor-1 续拉到游标耗尽。
+    listMediaPageMock.mockResolvedValueOnce(
+      makePage([makeItem('media-2')], null, 'rev-3'),
+    );
+
+    await act(async () => {
+      getContainer().querySelector('[data-testid="load-all"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      await flush();
+      await flush();
+      await flush();
+    });
+
+    // 被取代的 reload 响应此刻才 resolve —— 不得写入 state。
+    await act(async () => {
+      resolveReload(makePage([makeItem('media-r1'), makeItem('media-r2')], 'cursor-r1', 'rev-2'));
+      await flush();
+      await flush();
+    });
+
+    expect(latestResult!.items.map((i) => i.mediaId)).toEqual(['media-1', 'media-2']);
+    expect(getContainer().querySelector('[data-testid="cursor"]')?.textContent).toBe('null');
+    expect(getContainer().querySelector('[data-testid="loading"]')?.textContent).toBe('no');
   });
 
   it('removes items by mediaId', async () => {

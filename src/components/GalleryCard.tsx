@@ -193,8 +193,9 @@ export const GalleryCard = memo(function GalleryCard() {
     try {
       await withMinDuration(async () => {
         handleRefreshStart();
-        // Reset the extension filter so a refresh always starts from "全部".
-        setFilterMode('all');
+        // 刷新保持当前筛选模式（新图片到达/手动刷新不重置视图）：
+        // 筛选是纯客户端过滤，不参与查询；分类变空时由下方的
+        // availableCategories 自动回退守卫处理。
         // 经 schedulerRef 读取（对齐 gallery-items-deleted 监听器）：scheduler
         // 对象身份随缩略图批变化，直接闭包引用会让 handleRefresh（以及挂着
         // 它的 GALLERY_REFRESH_REQUESTED_EVENT 监听器）每批缩略图重挂。

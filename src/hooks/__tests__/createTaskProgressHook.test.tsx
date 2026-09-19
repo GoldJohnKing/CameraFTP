@@ -9,19 +9,19 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { flush } from '../../test-utils/flush';
 import { setupReactRoot } from '../../test-utils/react-root';
 
-const { listenMock, capturedHandler } = vi.hoisted(() => {
+const { listenMock, capturedHandler, requestMediaLibraryRefreshMock } = vi.hoisted(() => {
   const captured: { current: ((payload: unknown) => void) | undefined } = { current: undefined };
   const mock = vi.fn().mockImplementation(async (_name: string, handler: (e: { payload: unknown }) => void) => {
     captured.current = (payload: unknown) => handler({ payload });
     return vi.fn();
   });
-  return { listenMock: mock, capturedHandler: captured };
+  return { listenMock: mock, capturedHandler: captured, requestMediaLibraryRefreshMock: vi.fn() };
 });
 
 vi.mock('@tauri-apps/api/event', () => ({ listen: listenMock }));
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
 vi.mock('../../utils/gallery-refresh', () => ({
-  requestMediaLibraryRefresh: vi.fn(),
+  requestMediaLibraryRefresh: requestMediaLibraryRefreshMock,
   GALLERY_REFRESH_REQUESTED_EVENT: 'gallery-refresh-requested',
   LATEST_PHOTO_REFRESH_REQUESTED_EVENT: 'latest-photo-refresh-requested',
 }));
@@ -29,12 +29,13 @@ vi.mock('../../utils/gallery-refresh', () => ({
 import { createTaskProgressHook } from '../createTaskProgressHook';
 
 interface TestEvent {
-  type: 'progress' | 'done' | 'other';
+  type: 'progress' | 'completed' | 'done' | 'other';
   current?: number;
   total?: number;
   fileName?: string;
   failedCount?: number;
   failedFiles?: string[];
+  outputPath?: string;
   outputFiles?: string[];
   cancelled?: boolean;
 }
@@ -47,6 +48,8 @@ const testHook = createTaskProgressHook<TestEvent>({
     switch (event.type) {
       case 'progress':
         return { type: 'progress', current: event.current!, total: event.total!, fileName: event.fileName ?? '', failedCount: event.failedCount ?? 0 };
+      case 'completed':
+        return { type: 'completed', current: event.current!, total: event.total!, fileName: event.fileName ?? '', failedCount: event.failedCount ?? 0, outputPath: event.outputPath };
       case 'done':
         return { type: 'done', total: event.total!, failedCount: event.failedCount ?? 0, failedFiles: event.failedFiles ?? [], outputFiles: event.outputFiles ?? [], cancelled: event.cancelled ?? false };
       default:
@@ -72,6 +75,7 @@ describe('createTaskProgressHook', () => {
 
   beforeEach(async () => {
     testHook.dismissDone();
+    requestMediaLibraryRefreshMock.mockClear();
     await act(async () => {
       getRoot().render(<Harness />);
       await flush();
@@ -157,5 +161,94 @@ describe('createTaskProgressHook', () => {
     });
     expect(getText('is-active')).toBe('no');
     expect(getText('is-done')).toBe('no');
+  });
+
+  it('done event triggers exactly one debounced gallery refresh', async () => {
+    // 尾随去抖：done 只安排一次 500ms 全量刷新，到期前不派发。
+    vi.useFakeTimers();
+    try {
+      await act(async () => {
+        capturedHandler.current!({ type: 'done', total: 3, failedCount: 0, failedFiles: [], outputFiles: ['/out.jpg'], cancelled: false });
+        await flush();
+      });
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(499);
+      });
+      expect(requestMediaLibraryRefreshMock).not.toHaveBeenCalled();
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1);
+      });
+      expect(requestMediaLibraryRefreshMock).toHaveBeenCalledTimes(1);
+      expect(requestMediaLibraryRefreshMock).toHaveBeenCalledWith({ reason: 'ai-edit' });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('completed followed by done within the window coalesces into a single refresh', async () => {
+    // 单文件批次先发 Completed 再发 Done：两次完成事件在去抖窗口内必须
+    // 合并为恰好一次全量刷新（旧实现会连发两个 500ms 定时器）。
+    vi.useFakeTimers();
+    try {
+      await act(async () => {
+        capturedHandler.current!({ type: 'completed', current: 1, total: 1, fileName: 'a.jpg', failedCount: 0, outputPath: '/out.jpg' });
+        await flush();
+      });
+      await act(async () => {
+        capturedHandler.current!({ type: 'done', total: 1, failedCount: 0, failedFiles: [], outputFiles: ['/out.jpg'], cancelled: false });
+        await flush();
+      });
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(500);
+      });
+
+      expect(requestMediaLibraryRefreshMock).toHaveBeenCalledTimes(1);
+      expect(requestMediaLibraryRefreshMock).toHaveBeenCalledWith({ reason: 'ai-edit' });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('completed alone still yields one refresh after the delay', async () => {
+    // 多文件批次的逐文件完成：单个 Completed（无紧随的 Done）在 500ms
+    // 后仍要派发一次刷新 —— 去抖不能吞掉唯一的完成事件。
+    vi.useFakeTimers();
+    try {
+      await act(async () => {
+        capturedHandler.current!({ type: 'completed', current: 1, total: 2, fileName: 'a.jpg', failedCount: 0, outputPath: '/out-a.jpg' });
+        await flush();
+      });
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(500);
+      });
+
+      expect(requestMediaLibraryRefreshMock).toHaveBeenCalledTimes(1);
+      expect(requestMediaLibraryRefreshMock).toHaveBeenCalledWith({ reason: 'ai-edit' });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('completed without outputPath does not schedule a refresh', async () => {
+    // 无输出路径的完成事件（如纯计数更新）不安排刷新。
+    vi.useFakeTimers();
+    try {
+      await act(async () => {
+        capturedHandler.current!({ type: 'completed', current: 1, total: 1, fileName: 'a.jpg', failedCount: 0 });
+        await flush();
+      });
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(600);
+      });
+
+      expect(requestMediaLibraryRefreshMock).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

@@ -242,21 +242,11 @@ internal class NativeColorGradingPreviewBridge(
 
         activity.runOnUiThread {
             if (result.isSuccess) {
-                // Gallery refresh via WebView (best-effort)
-                val mainActivity = MainActivity.instance
-                mainActivity?.getWebView()?.evaluateJavascript(
-                    """(function(){
-                        setTimeout(function(){
-                            window.dispatchEvent(new CustomEvent('gallery-refresh-requested',{detail:{reason:'color-grading'}}));
-                            window.dispatchEvent(new CustomEvent('latest-photo-refresh-requested',{detail:{reason:'color-grading'}}));
-                        },500);
-                    })();""",
-                    null
-                )
-
                 // Close immediately — batch processing continues in background.
                 // Progress shown via TaskProgressPanel in ImageViewerActivity.
-                // On completion: scanNewFile → insertImage + MediaStore scan.
+                // On completion the frontend task-progress service handles
+                // scanNewFile (insertImage + MediaStore scan) and schedules the
+                // gallery refresh — no WebView event injection needed here.
                 activity.finish()
             } else {
                 activity.isSaving = false
