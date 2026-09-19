@@ -39,7 +39,10 @@ class ProcessingForegroundService : Service() {
     companion object {
         const val TAG = "ProcessingForegroundService"
         const val NOTIFICATION_ID = 1002
-        const val CHANNEL_ID = "processing_service_channel"
+        // v2：Android 对"删除后以相同 ID 重建"的渠道恢复旧 importance（文档化行为），
+        // 升级 importance 必须换新 ID。见 createNotificationChannel 注释。
+        const val CHANNEL_ID = "processing_service_channel_v2"
+        private const val LEGACY_CHANNEL_ID = "processing_service_channel"
 
         // Actions
         const val ACTION_START = "com.gjk.cameraftpcompanion.PROCESSING_START_SERVICE"
@@ -168,22 +171,31 @@ class ProcessingForegroundService : Service() {
      * Create notification channel for the processing service notification.
      */
     private fun createNotificationChannel() {
+        // IMPORTANCE_DEFAULT（而非 LOW）：LOW/静默渠道在 HyperOS 上会折叠置底并对
+        // 已下拉的通知栏延迟渲染，造成"任务已开始但通知迟迟不出现"的观感（真机实测
+        // 通知 posted 时刻仅滞后入队 18ms）。DEFAULT 首发弹出 heads-up、置顶排布；
+        // setSound(null) 保持静音避免声音打扰。
         val channel = NotificationChannel(
             CHANNEL_ID,
             getStringOrFallback(R.string.processing_service_channel_name, "Photo processing"),
-            NotificationManager.IMPORTANCE_LOW
+            NotificationManager.IMPORTANCE_DEFAULT
         ).apply {
             description = getStringOrFallback(
                 R.string.processing_service_channel_description,
                 "Keeps photo processing (color grading & AI edit) running in the foreground",
             )
             setShowBadge(false)
+            setSound(null, null)
             lockscreenVisibility = Notification.VISIBILITY_PUBLIC
         }
 
         val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        // v2 渠道：Android 对"删除后以相同 ID 重建"的渠道会恢复旧 importance（文档化
+        // 行为，防止应用重置用户设置），故升级重要性必须换新 ID；deleteNotificationChannel
+        // 对不存在的 ID 是无害 no-op，顺带清理旧渠道。
+        notificationManager.deleteNotificationChannel(LEGACY_CHANNEL_ID)
         notificationManager.createNotificationChannel(channel)
-        Log.d(TAG, "createNotificationChannel: created notification channel")
+        Log.d(TAG, "createNotificationChannel: created notification channel (v2)")
     }
 
     /**
@@ -216,6 +228,10 @@ class ProcessingForegroundService : Service() {
             .setSmallIcon(R.drawable.tray_active)
             .setContentIntent(pendingIntent)
             .setOngoing(true)
+            // Android 13+ 默认推迟前台服务的通知显示（应用在前台时视为冗余），
+            // 造成"任务已开始但通知迟迟不显示"；IMMEDIATE 覆盖该默认（真机验证：
+            // 入队→通知 posted 仅 +11ms，但可见性被系统推迟）。
+            .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
             .setOnlyAlertOnce(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .build()

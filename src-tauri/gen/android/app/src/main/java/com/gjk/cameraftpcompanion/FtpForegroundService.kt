@@ -28,7 +28,10 @@ class FtpForegroundService : Service() {
     companion object {
         const val TAG = "FtpForegroundService"
         const val NOTIFICATION_ID = 1001
-        const val CHANNEL_ID = "ftp_service_channel"
+        // v2：Android 对"删除后以相同 ID 重建"的渠道恢复旧 importance（文档化行为），
+        // 升级 importance 必须换新 ID。见 createNotificationChannel 注释。
+        const val CHANNEL_ID = "ftp_service_channel_v2"
+        private const val LEGACY_CHANNEL_ID = "ftp_service_channel"
 
         // Actions
         const val ACTION_START = "com.gjk.cameraftpcompanion.START_SERVICE"
@@ -144,22 +147,29 @@ class FtpForegroundService : Service() {
      * Create notification channel for foreground service notification.
      */
     private fun createNotificationChannel() {
+        // IMPORTANCE_DEFAULT（而非 LOW）：与 ProcessingForegroundService 同理——LOW/
+        // 静默渠道在 HyperOS 上折叠置底且延迟渲染；DEFAULT 置顶排布 + 静音。
         val channel = NotificationChannel(
             CHANNEL_ID,
             getStringOrFallback(R.string.ftp_service_channel_name, "FTP service"),
-            NotificationManager.IMPORTANCE_LOW
+            NotificationManager.IMPORTANCE_DEFAULT
         ).apply {
             description = getStringOrFallback(
                 R.string.ftp_service_channel_description,
                 "Keeps FTP transfers running in the foreground",
             )
             setShowBadge(false)
+            setSound(null, null)
             lockscreenVisibility = Notification.VISIBILITY_PUBLIC
         }
 
         val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        // v2 渠道：Android 对"删除后以相同 ID 重建"的渠道会恢复旧 importance（文档化
+        // 行为，防止应用重置用户设置），故升级重要性必须换新 ID；deleteNotificationChannel
+        // 对不存在的 ID 是无害 no-op，顺带清理旧渠道。
+        notificationManager.deleteNotificationChannel(LEGACY_CHANNEL_ID)
         notificationManager.createNotificationChannel(channel)
-        Log.d(TAG, "createNotificationChannel: created notification channel")
+        Log.d(TAG, "createNotificationChannel: created notification channel (v2)")
     }
 
     /**
@@ -192,6 +202,9 @@ class FtpForegroundService : Service() {
             .setSmallIcon(iconRes)
             .setContentIntent(pendingIntent)
             .setOngoing(true)
+            // Android 13+ 默认推迟前台服务的通知显示（应用在前台时视为冗余）；
+            // IMMEDIATE 覆盖该默认，与 ProcessingForegroundService 保持一致。
+            .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
             .setOnlyAlertOnce(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .build()
