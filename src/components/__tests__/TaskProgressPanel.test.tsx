@@ -114,7 +114,7 @@ describe('TaskProgressPanel', () => {
     });
     render();
     const html = getContainer().textContent ?? '';
-    expect(html).toContain('AI修图');
+    expect(html).toContain('AI 修图');
     expect(html).toContain('2 / 4');
     expect(html).toContain('全部取消');
   });
@@ -127,7 +127,7 @@ describe('TaskProgressPanel', () => {
     });
     render();
     const html = getContainer().textContent ?? '';
-    expect(html).toContain('调色');
+    expect(html).toContain('RAW 调色');
     expect(html).toContain('1 / 3');
   });
 
@@ -136,8 +136,8 @@ describe('TaskProgressPanel', () => {
     Object.assign(mockCgState, { isProcessing: true, current: 3, total: 5 });
     render();
     const html = getContainer().textContent ?? '';
-    expect(html).toContain('AI修图');
-    expect(html).toContain('调色');
+    expect(html).toContain('AI 修图');
+    expect(html).toContain('RAW 调色');
     expect(html).toContain('1 / 2');
     expect(html).toContain('3 / 5');
   });
@@ -165,7 +165,7 @@ describe('TaskProgressPanel', () => {
   it('calls cancelAiEdit when × clicked on AI edit row', () => {
     Object.assign(mockAiEditState, { isEditing: true, current: 1, total: 2 });
     render();
-    const btn = getContainer().querySelector('button[aria-label="取消AI修图"]');
+    const btn = getContainer().querySelector('button[aria-label="取消 AI 修图"]');
     expect(btn).toBeTruthy();
     act(() => {
       btn!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
@@ -189,7 +189,7 @@ describe('TaskProgressPanel', () => {
   it('hides × button on done rows', () => {
     Object.assign(mockAiEditState, { isDone: true, total: 2, current: 2 });
     render();
-    const cancelBtn = getContainer().querySelector('button[aria-label="取消AI修图"]');
+    const cancelBtn = getContainer().querySelector('button[aria-label="取消 AI 修图"]');
     expect(cancelBtn).toBeNull();
   });
 

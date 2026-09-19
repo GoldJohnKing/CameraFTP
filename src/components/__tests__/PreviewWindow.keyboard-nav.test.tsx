@@ -198,7 +198,7 @@ describe('PreviewWindow keyboard navigation', () => {
   it('suppresses navigation while the AI edit dialog is open and Escape closes it', async () => {
     await renderWindow();
 
-    const aiButton = getContainer().querySelector('button[title="AI修图"]') as HTMLButtonElement;
+    const aiButton = getContainer().querySelector('button[title="AI 修图"]') as HTMLButtonElement;
     expect(aiButton).toBeTruthy();
     await act(async () => {
       aiButton.click();
@@ -227,7 +227,7 @@ describe('PreviewWindow keyboard navigation', () => {
     lifecycleState.currentImage = '/tmp/example.dng';
     await renderWindow();
 
-    const colorButton = getContainer().querySelector('button[title="调色"]') as HTMLButtonElement;
+    const colorButton = getContainer().querySelector('button[title="RAW 调色"]') as HTMLButtonElement;
     expect(colorButton).toBeTruthy();
     expect(colorButton.disabled).toBe(false);
 
@@ -235,11 +235,11 @@ describe('PreviewWindow keyboard navigation', () => {
       colorButton.click();
       await flush();
     });
-    expect(within(getContainer()).getByText('调色')).toBeTruthy();
+    expect(within(getContainer()).getByText('RAW 调色')).toBeTruthy();
 
     // First Escape only closes the dialog; fullscreen must be untouched.
     await pressKey('Escape');
-    expect(within(getContainer()).queryByText('调色')).toBeNull();
+    expect(within(getContainer()).queryByText('RAW 调色')).toBeNull();
     expect(setFullscreenMock).not.toHaveBeenCalled();
 
     // Second Escape (no dialog open) exits fullscreen.

@@ -65,7 +65,7 @@ export function ColorGradingDialog({ isOpen, colorGradingPresets, onConfirm, onC
     try {
       await onConfirm(selectedId, meteringMode, evOffset);
     } catch (err) {
-      toast.error('调色失败：' + formatError(err));
+      toast.error('RAW 调色失败：' + formatError(err));
     }
   };
 
@@ -82,7 +82,7 @@ export function ColorGradingDialog({ isOpen, colorGradingPresets, onConfirm, onC
     <Dialog
       isOpen={isOpen}
       onClose={onCancel}
-      title="调色"
+      title="RAW 调色"
       subtitle="使用胶片模拟调色处理 RAW 照片"
       icon={
         <div className="w-10 h-10 bg-gray-100 rounded-lg flex items-center justify-center">
@@ -94,7 +94,7 @@ export function ColorGradingDialog({ isOpen, colorGradingPresets, onConfirm, onC
           {autoColorGradingEnabled ? (
             <div className="flex items-center gap-2 cursor-pointer select-none">
               <ToggleSwitch enabled={syncToAuto} onChange={setSyncToAuto} />
-              <span className="text-sm font-medium text-gray-700">同步到自动调色</span>
+              <span className="text-sm font-medium text-gray-700">同步到自动 RAW 调色</span>
             </div>
           ) : (
             <div />
@@ -119,7 +119,7 @@ export function ColorGradingDialog({ isOpen, colorGradingPresets, onConfirm, onC
     >
       <div className="space-y-3" onKeyDown={handleKeyDown}>
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">调色预设</label>
+          <label className="block text-sm font-medium text-gray-700 mb-1">RAW 调色预设</label>
           <Select
             value={selectedId}
             options={options}

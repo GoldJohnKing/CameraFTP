@@ -174,7 +174,7 @@ describe('AiEditConfigPanel local state sync', () => {
     const config = makeConfig({ autoEdit: false });
     await renderPanel(config);
 
-    const toggle = getContainer().querySelector('button[aria-label="自动修图"]') as HTMLButtonElement;
+    const toggle = getContainer().querySelector('button[aria-label="自动 AI 修图"]') as HTMLButtonElement;
     expect(toggle).toBeTruthy();
 
     await act(async () => {

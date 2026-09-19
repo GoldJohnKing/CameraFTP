@@ -79,9 +79,9 @@ describe('AutoColorGradingConfigCard', () => {
     await act(async () => { await flush(); });
     await act(async () => { await flush(); });
 
-    const toggle = getContainer().querySelector('button[aria-label="自动调色"]') as HTMLButtonElement;
+    const toggle = getContainer().querySelector('button[aria-label="自动 RAW 调色"]') as HTMLButtonElement;
     expect(toggle.getAttribute('aria-pressed')).toBe('false');
-    expect(getContainer().textContent).not.toContain('调色预设');
+    expect(getContainer().textContent).not.toContain('RAW 调色预设');
 
     // Click flips enabled in the draft via updateDraft; remount to observe the
     // conditional section. （组件是 memo 且 mock store 不建立订阅，对同组件的
@@ -98,10 +98,10 @@ describe('AutoColorGradingConfigCard', () => {
     });
     await act(async () => { await flush(); });
 
-    const enabledToggle = getContainer().querySelector('button[aria-label="自动调色"]') as HTMLButtonElement;
+    const enabledToggle = getContainer().querySelector('button[aria-label="自动 RAW 调色"]') as HTMLButtonElement;
     expect(enabledToggle.getAttribute('aria-pressed')).toBe('true');
     const text = getContainer().textContent ?? '';
-    expect(text).toContain('调色预设');
+    expect(text).toContain('RAW 调色预设');
     expect(text).toContain('曝光偏移');
     expect(text).toContain('测光模式');
 
@@ -118,7 +118,7 @@ describe('AutoColorGradingConfigCard', () => {
     });
     await act(async () => { await flush(); });
 
-    expect(getContainer().textContent).not.toContain('调色预设');
+    expect(getContainer().textContent).not.toContain('RAW 调色预设');
   });
 
   it('toggles enabled state on toggle click', async () => {
@@ -133,7 +133,7 @@ describe('AutoColorGradingConfigCard', () => {
     await act(async () => { await flush(); });
     await act(async () => { await flush(); });
 
-    const toggle = getContainer().querySelector('button[aria-label="自动调色"]');
+    const toggle = getContainer().querySelector('button[aria-label="自动 RAW 调色"]');
     await act(async () => {
       (toggle as HTMLElement)!.click();
       await flush();

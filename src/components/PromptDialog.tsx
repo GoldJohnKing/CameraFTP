@@ -86,7 +86,7 @@ export function PromptDialog({ isOpen, defaultPrompt, defaultModel, autoEditEnab
           {autoEditEnabled && (
             <div className="flex items-center gap-2 cursor-pointer select-none" onClick={() => setSaveAsAutoEdit(!saveAsAutoEdit)}>
               <ToggleSwitch enabled={saveAsAutoEdit} onChange={setSaveAsAutoEdit} />
-              <span className="text-sm font-medium text-gray-700">保存为自动修图设置</span>
+              <span className="text-sm font-medium text-gray-700">保存为自动 AI 修图设置</span>
             </div>
           )}
           {!autoEditEnabled && <div />}

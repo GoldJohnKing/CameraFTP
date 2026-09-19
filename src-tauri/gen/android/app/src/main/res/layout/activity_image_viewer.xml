@@ -53,7 +53,7 @@
                 android:layout_height="wrap_content"
                 android:textColor="#60A5FA"
                 android:textSize="12sp"
-                android:text="AI修图：" />
+                android:text="AI 修图：" />
 
             <TextView
                 android:id="@+id/task_ai_edit_count"
@@ -100,7 +100,7 @@
                 android:layout_height="wrap_content"
                 android:textColor="#A78BFA"
                 android:textSize="12sp"
-                android:text="调色：" />
+                android:text="RAW 调色：" />
 
             <TextView
                 android:id="@+id/task_cg_count"

@@ -138,7 +138,7 @@ class WebViewOverlayController(private val activity: ImageViewerActivity) {
         val saveToggleHtml = if (autoEditEnabled) {
             """<div class="save-toggle" onclick="toggleSave()">
                     <div class="toggle" id="saveToggle"></div>
-                    <span>保存为自动修图设置</span>
+                    <span>保存为自动 AI 修图设置</span>
                   </div>"""
         } else ""
 

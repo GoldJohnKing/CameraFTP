@@ -198,7 +198,10 @@ export const GalleryCard = memo(function GalleryCard() {
         // 经 schedulerRef 读取（对齐 gallery-items-deleted 监听器）：scheduler
         // 对象身份随缩略图批变化，直接闭包引用会让 handleRefresh（以及挂着
         // 它的 GALLERY_REFRESH_REQUESTED_EVENT 监听器）每批缩略图重挂。
-        schedulerRef.current.cleanup();
+        // 此处只清除永久失败标记：刷新时重试此前解码/权限失败的缩略图；
+        // 已缓存的缩略图按内容键（mediaId|mtime|sizeBucket）存续，reload
+        // 不再清空缓存（改用 SWR 原子替换），故无需 cleanup 重建。
+        schedulerRef.current.resetFailures();
         await pager.reload();
       });
     } finally {
@@ -470,7 +473,7 @@ export const GalleryCard = memo(function GalleryCard() {
         <div className="fixed bottom-20 right-4 z-50" ref={menuRef}>
           {/* Menu */}
           {showMenu && (
-            <div className="absolute bottom-16 right-0 bg-white rounded-xl shadow-xl min-w-[140px] overflow-hidden mb-2 select-none">
+            <div className="absolute bottom-16 right-0 bg-white rounded-xl shadow-xl min-w-[140px] w-max whitespace-nowrap overflow-hidden mb-2 select-none">
               <button
                 onClick={() => void handleDelete()}
                 disabled={selectedIds.size === 0}
@@ -493,7 +496,7 @@ export const GalleryCard = memo(function GalleryCard() {
                 className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed border-t border-gray-100"
               >
                   <Sparkles className="w-5 h-5 text-amber-600" />
-                  <span>修图({selectedIds.size})</span>
+                  <span>AI 修图({selectedIds.size})</span>
                 </button>
               <button
                 onClick={handleColorGrading}
@@ -501,7 +504,7 @@ export const GalleryCard = memo(function GalleryCard() {
                 className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed border-t border-gray-100"
               >
                 <Palette className="w-5 h-5 text-violet-600" />
-                <span>调色({selectedIds.size})</span>
+                <span>RAW 调色({selectedIds.size})</span>
               </button>
               <button
                 onClick={handleCancelSelection}

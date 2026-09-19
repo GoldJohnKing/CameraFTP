@@ -130,14 +130,14 @@ export function AiEditConfigPanel({
             textareaRef.current = el;
             autoResize(el);
           },
-          error: promptInput.trim() ? undefined : '自动修图需要配置提示词才能生效',
+          error: promptInput.trim() ? undefined : '自动 AI 修图需要配置提示词才能生效',
         } : null}
       >
         {/* 自动触发开关 */}
         <ToggleSwitch
           enabled={config.aiEdit.autoEdit}
           onChange={handleAutoEditToggle}
-          label="自动修图"
+          label="自动 AI 修图"
           description="接收到图片后自动运行 AI 修图"
           disabled={isLoading || disabled}
         />

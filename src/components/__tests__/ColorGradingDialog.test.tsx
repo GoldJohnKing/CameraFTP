@@ -84,8 +84,8 @@ describe('ColorGradingDialog', () => {
     renderDialog(true);
     await act(async () => { await flush(); });
 
-    expect(getContainer().textContent).toContain('调色预设');
-    expect(getContainer().textContent).toContain('调色');
+    expect(getContainer().textContent).toContain('RAW 调色预设');
+    expect(getContainer().textContent).toContain('RAW 调色');
   });
 
   it('always shows metering mode and EV offset slider', async () => {
@@ -132,7 +132,7 @@ describe('ColorGradingDialog', () => {
     });
 
     expect(onConfirm).toHaveBeenCalledWith('fujifilm-provia', 'matrix', 0);
-    expect(toastErrorMock).toHaveBeenCalledWith('调色失败：enqueue failed');
+    expect(toastErrorMock).toHaveBeenCalledWith('RAW 调色失败：enqueue failed');
   });
 
   it('calls onCancel when cancel button is clicked', async () => {

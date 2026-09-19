@@ -28,7 +28,7 @@
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="AI修图"
+            android:text="AI 修图"
             android:textColor="#E5E7EB"
             android:textSize="15sp"
             android:layout_marginStart="10dp" />
@@ -56,7 +56,7 @@
             android:id="@+id/menu_item_color_grading_text"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="调色"
+            android:text="RAW 调色"
             android:textColor="#E5E7EB"
             android:textSize="15sp"
             android:layout_marginStart="10dp" />

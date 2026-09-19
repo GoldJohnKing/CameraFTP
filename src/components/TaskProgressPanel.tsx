@@ -80,7 +80,7 @@ export function TaskProgressPanel({ position }: TaskProgressPanelProps) {
         {/* AI Edit row */}
         {aiEditVisible && (
           <div className="flex items-center px-3 py-1.5 gap-1">
-            <span className="text-blue-400 text-xs shrink-0">AI修图：</span>
+            <span className="text-blue-400 text-xs shrink-0">AI 修图：</span>
             <span className="text-white/70 text-xs tabular-nums">
               {aiEdit.isDone ? aiEdit.total : aiEdit.current} / {aiEdit.total}
             </span>
@@ -93,7 +93,7 @@ export function TaskProgressPanel({ position }: TaskProgressPanelProps) {
               <button
                 onClick={handleCancelAiEdit}
                 className="ml-auto text-white/40 hover:text-white text-xs p-0.5 shrink-0"
-                aria-label="取消AI修图"
+                aria-label="取消 AI 修图"
               >
                 ×
               </button>
@@ -104,7 +104,7 @@ export function TaskProgressPanel({ position }: TaskProgressPanelProps) {
         {/* Color Grading row */}
         {cgVisible && (
           <div className="flex items-center px-3 py-1.5 gap-1">
-            <span className="text-violet-400 text-xs shrink-0">调色：</span>
+            <span className="text-violet-400 text-xs shrink-0">RAW 调色：</span>
             <span className="text-white/70 text-xs tabular-nums">
               {colorGrading.isDone ? colorGrading.total : colorGrading.current} / {colorGrading.total}
             </span>
@@ -117,7 +117,7 @@ export function TaskProgressPanel({ position }: TaskProgressPanelProps) {
               <button
                 onClick={handleCancelColorGrading}
                 className="ml-auto text-white/40 hover:text-white text-xs p-0.5 shrink-0"
-                aria-label="取消调色"
+                aria-label="取消 RAW 调色"
               >
                 ×
               </button>

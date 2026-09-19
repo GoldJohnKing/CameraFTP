@@ -71,8 +71,8 @@ export const AutoColorGradingConfigCard = memo(function AutoColorGradingConfigCa
   return (
     <Card>
       <CardHeader
-        title="自动调色"
-        description="接收到 RAW 文件后自动应用调色"
+        title="自动 RAW 调色"
+        description="接收到 RAW 文件后自动应用 RAW 调色"
         icon={<Palette className="w-5 h-5 text-violet-600" />}
       />
 
@@ -80,7 +80,7 @@ export const AutoColorGradingConfigCard = memo(function AutoColorGradingConfigCa
         <ToggleSwitch
           enabled={draft.autoColorGrading.enabled}
           onChange={handleToggle}
-          label="自动调色"
+          label="自动 RAW 调色"
           description="RAW 文件上传后自动转为带胶片模拟调色的 JPEG"
           disabled={isLoading}
         />
@@ -89,7 +89,7 @@ export const AutoColorGradingConfigCard = memo(function AutoColorGradingConfigCa
           <div className="space-y-4">
             <div className="space-y-2">
               <label className="block text-sm font-medium text-gray-700">
-                调色预设
+                RAW 调色预设
               </label>
               <Select
                 value={draft.autoColorGrading.presetId}
@@ -98,7 +98,7 @@ export const AutoColorGradingConfigCard = memo(function AutoColorGradingConfigCa
                 disabled={isLoading}
               />
               {!draft.autoColorGrading.presetId && (
-                <p className="text-xs text-red-500">请选择调色预设</p>
+                <p className="text-xs text-red-500">请选择 RAW 调色预设</p>
               )}
             </div>
 
