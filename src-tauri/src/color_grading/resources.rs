@@ -54,6 +54,7 @@ pub fn get_resources() -> Result<&'static ResourcePaths, AppError> {
 /// The models are embedded at compile time (build.rs gzips them into
 /// `OUT_DIR/nn_models/`). For the legacy variant build.rs writes empty gzip
 /// placeholders so this still compiles; they decompress to empty → `None`.
+#[cfg(nn_demosaic)]
 pub fn nn_model_bytes() -> (Option<Vec<u8>>, Option<Vec<u8>>) {
     (
         decompress_nn_model(include_bytes!(concat!(
@@ -67,6 +68,19 @@ pub fn nn_model_bytes() -> (Option<Vec<u8>>, Option<Vec<u8>>) {
     )
 }
 
+/// Legacy variant (`CAMERAFTP_NN_DEMOSAIC=0`): no models are embedded (the
+/// build script never writes the gzips) and the C++ core is compiled without
+/// `RA_ENABLE_NN_DEMOSAIC`, so it exports no NN symbols and there is nothing
+/// to inject. `None` keeps bootstrap's Option-guards uniform across variants
+/// and — importantly — keeps `include_bytes!` out of this cfg entirely, so a
+/// clean legacy build does not depend on OUT_DIR leftovers from a previous
+/// NN build (the pre-existing fragility this stub removes).
+#[cfg(not(nn_demosaic))]
+pub fn nn_model_bytes() -> (Option<Vec<u8>>, Option<Vec<u8>>) {
+    (None, None)
+}
+
+#[cfg(nn_demosaic)]
 fn decompress_nn_model(compressed: &[u8]) -> Option<Vec<u8>> {
     use flate2::read::GzDecoder;
     use std::io::Read;
@@ -81,19 +95,27 @@ fn decompress_nn_model(compressed: &[u8]) -> Option<Vec<u8>> {
 /// Decompressed FastDenoise v4 (RGB-domain denoise) weights, handed to the
 /// C++ core via `ra_set_nn_model(kind=2)`. Same embedding pipeline as the
 /// demosaic models: gzip in `OUT_DIR/nn_models/` at build time, in-memory
-/// injection at startup; `None` in legacy-variant builds (placeholder gzip)
-/// or on decompress failure, in which case the C++ side ignores
-/// `denoiseStrength` and the variant keeps its classical raw-domain denoise.
+/// injection at startup. `None` on decompress failure, in which case the
+/// C++ side ignores `denoiseStrength` and the variant keeps its classical
+/// raw-domain denoise.
 ///
 /// Provenance: vendored from upstream Raw-Alchemy (AGPL-3.0, self-designed
 /// dense-conv DML-friendly arch) — see
 /// `resources/models/fastdenoise/README.md`. Unlike the x-veon demosaic
 /// weights, redistribution is license-compatible.
+#[cfg(nn_demosaic)]
 pub fn fastdenoise_model_bytes() -> Option<Vec<u8>> {
     decompress_nn_model(include_bytes!(concat!(
         env!("OUT_DIR"),
         "/nn_models/fastdenoise.onnx.gz"
     )))
+}
+
+/// Legacy variant: nothing embedded, nothing to inject (see
+/// [`nn_model_bytes`]'s legacy stub for the rationale).
+#[cfg(not(nn_demosaic))]
+pub fn fastdenoise_model_bytes() -> Option<Vec<u8>> {
+    None
 }
 
 /// QNN context-cache dir (Android only at runtime — the C++ core only consumes

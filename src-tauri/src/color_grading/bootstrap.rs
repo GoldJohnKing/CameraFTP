@@ -45,6 +45,7 @@ pub fn init(app: &tauri::AppHandle, config_service: &std::sync::Arc<ConfigServic
             // deep-copies both, so the caller's buffers may be freed right
             // after. MUST run before the warmup / lazy init below.
             let (bayer_bytes, xtrans_bytes) = color_grading::resources::nn_model_bytes();
+            let fastdenoise_bytes = color_grading::resources::fastdenoise_model_bytes();
             if let Some(b) = &bayer_bytes {
                 if let Err(e) = lib.set_nn_model(0, b) {
                     tracing::error!("ra_set_nn_model(bayer) failed: {}", e);
@@ -59,7 +60,7 @@ pub fn init(app: &tauri::AppHandle, config_service: &std::sync::Arc<ConfigServic
             // model — AGPL-compatible, unlike the x-veon demosaic weights).
             // Absent in legacy-variant builds → the C++ side ignores
             // denoiseStrength and keeps classical raw-domain denoise.
-            if let Some(fd) = &color_grading::resources::fastdenoise_model_bytes() {
+            if let Some(fd) = &fastdenoise_bytes {
                 if let Err(e) = lib.set_nn_model(2, fd) {
                     tracing::error!("ra_set_nn_model(fastdenoise) failed: {}", e);
                 }
@@ -125,9 +126,10 @@ pub fn init(app: &tauri::AppHandle, config_service: &std::sync::Arc<ConfigServic
             // Log whether models were embedded. (Android → logcat via the
             // android_logging subscriber; desktop → app.log.)
             tracing::info!(
-                "NN models: bayer={} xtrans={}",
+                "NN models: bayer={} xtrans={} fastdenoise={}",
                 bayer_bytes.is_some(),
-                xtrans_bytes.is_some()
+                xtrans_bytes.is_some(),
+                fastdenoise_bytes.is_some()
             );
             // Eagerly compile/warm the NN session on a background thread on ALL
             // platforms (Android QNN ~2s, Windows DirectML ~hundreds of ms, Linux

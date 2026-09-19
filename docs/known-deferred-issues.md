@@ -174,3 +174,29 @@ only meaningful against exact upstream bytes; (d) `cfa_residue_suppression` (per
 elimination after x-veon NN demosaic) runs unconditionally, costing −6dB at period-4 detail even
 with denoise off — a chroma-only or energy-gated refinement is the follow-up if fine texture
 softening is ever reported.
+
+## 13. Android exit-path: QNN HTP static-destructor crash; legacy variant clean-build fragility (2026-09-19)
+
+Two issues found while verifying the NN-variant denoise on a real device (Xiaomi ishtar,
+SM8550, Android 16):
+
+1. **Exit-time SIGABRT after QNN use** — every app close after QNN graphs were initialized
+   crashed in `exit → __cxa_finalize → libQnnHtpPrepare.so GraphPrepare::~GraphPrepare`
+   (Scudo "invalid chunk state"; observed 2026-09-18/19 across pre- and post-merge builds,
+   so not caused by the FastDenoise merge). Root cause chain: tao 0.35.3's Android backend
+   terminates the process via `std::process::exit` when its event loop ends
+   (`platform_impl/android/mod.rs`, `EventLoop::run`) → libc exit runs QNN's static
+   destructors → QNN/Scudo teardown bug (in-process FastRPC teardown on this SoC is also
+   known to hang — §8). Mitigation: `-Wl,--wrap=exit` (build.rs, Android only) routes every
+   `exit()` from this library to `__wrap_exit` (`src/platform/android.rs`), which flushes
+   stdio and `_exit()`s directly — no atexit, no `__cxa_finalize`, no QNN/FastRPC
+   destructors; the kernel reclaims everything as a SIGKILL would. **Removal condition**:
+   drop the link arg + `__wrap_exit` when tao/tauri stop terminating Android via libc
+   `exit`, or QNN fixes the destructor; revisit on tauri ≥ 2.12 / tao ≥ 0.36 upgrades.
+2. **Legacy-variant clean-build breakage (fixed)** — `color_grading/resources.rs` had no
+   `cfg(nn_demosaic)` gating despite build.rs documenting stubs: legacy builds compiled the
+   `include_bytes!` of `OUT_DIR/nn_models/*.gz` only because a previous NN build's files
+   lingered in the shared OUT_DIR — a clean legacy build would fail to compile, and legacy
+   APKs silently embedded ~29 MB of dead model bytes. Now properly gated with
+   `cfg(not(nn_demosaic))` stubs returning `None` (models are neither embedded nor
+   referenced in legacy builds).

@@ -25,6 +25,25 @@ fn main() {
         "build-windows-dll"
     };
 
+    // Android exit() interposition: tao's Android backend terminates the
+    // process with std::process::exit when its event loop ends
+    // (tao-0.35.3 platform_impl/android/mod.rs, EventLoop::run) — i.e. on
+    // every app close. libc exit() then runs __cxa_finalize, where QNN
+    // HTP's libQnnHtpPrepare.so GraphPrepare static destructor reliably
+    // aborts under Scudo ("invalid chunk state"; observed on Xiaomi ishtar/
+    // SM8550/Android 16 on every exit after QNN graphs were used, and the
+    // FastRPC teardown on this SoC is also known to hang — see
+    // docs/known-deferred-issues.md §8). --wrap=exit routes every exit()
+    // call from this library to __wrap_exit (src/platform/android.rs),
+    // which flushes stdio and _exit()s directly: no atexit handlers, no
+    // __cxa_finalize, no QNN/FastRPC destructors. Leak-on-exit by design;
+    // the kernel reclaims everything exactly as a task-removal SIGKILL
+    // would. Remove together with __wrap_exit once the Android exit path
+    // no longer runs QNN's destructor.
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("android") {
+        println!("cargo:rustc-link-arg=-Wl,--wrap=exit");
+    }
+
     pack_lut_zip();
     compress_lensfun_db();
     compress_raw_alchemy_dll(nn_build_subdir);
