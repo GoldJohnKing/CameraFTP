@@ -55,6 +55,15 @@ pub fn init(app: &tauri::AppHandle, config_service: &std::sync::Arc<ConfigServic
                     tracing::error!("ra_set_nn_model(xtrans) failed: {}", e);
                 }
             }
+            // FastDenoise v4 RGB-denoise weights (kind=2, upstream Raw-Alchemy
+            // model — AGPL-compatible, unlike the x-veon demosaic weights).
+            // Absent in legacy-variant builds → the C++ side ignores
+            // denoiseStrength and keeps classical raw-domain denoise.
+            if let Some(fd) = &color_grading::resources::fastdenoise_model_bytes() {
+                if let Err(e) = lib.set_nn_model(2, fd) {
+                    tracing::error!("ra_set_nn_model(fastdenoise) failed: {}", e);
+                }
+            }
 
             {
                 use color_grading::ffi::RaNnConfig;

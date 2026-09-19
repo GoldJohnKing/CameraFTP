@@ -536,12 +536,16 @@ fn compress_nn_models() {
     let models_out = out_dir.join("nn_models");
     fs::create_dir_all(&models_out).expect("Failed to create nn_models output directory in OUT_DIR — check disk space and write permissions");
 
-    let models_src = std::path::Path::new("resources/models/xveon");
+    let models_src = std::path::Path::new("resources/models");
 
-    // (source filename, output filename)
+    // (source path relative to resources/models, output filename)
     let targets: &[(&str, &str)] = &[
-        ("bayer.onnx", "bayer.onnx.gz"),
-        ("xtrans.onnx", "xtrans.onnx.gz"),
+        ("xveon/bayer.onnx", "bayer.onnx.gz"),
+        ("xveon/xtrans.onnx", "xtrans.onnx.gz"),
+        (
+            "fastdenoise/fastdenoise_v4_512_fp16.onnx",
+            "fastdenoise.onnx.gz",
+        ),
     ];
 
     for &(src_name, out_name) in targets {

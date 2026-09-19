@@ -77,6 +77,7 @@ impl ColorGradingPreviewState {
                     half_size,
                     max_preview_width,
                     max_preview_height,
+                    super::ffi::NN_RGB_DENOISE_STRENGTH,
                 )
             }
         })

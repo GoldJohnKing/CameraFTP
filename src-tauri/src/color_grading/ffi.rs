@@ -13,6 +13,22 @@ use crate::error::AppError;
 const DEFAULT_JPEG_QUALITY: c_int = 95;
 const ENABLE_LENS_CORRECTION: c_int = 1;
 
+/// RGB-domain (FastDenoise v4) denoise strength passed to the C++ core.
+///
+/// 0.05, chosen from the measured σ-scan grey-drift curve (warm tungsten
+/// Sample.NEF): σ≤0.05 stays inside the ±5% neutral-grey drift gate
+/// (+2.94% B/G at 0.05, +1.16% at 0.01), while σ∈[0.10,0.35] fails it
+/// (+7.5%~+11.8%, worst at upstream's own 0.25 default) and σ=0.5 only
+/// squeaks by (+3.49%). Verified identical in the upstream reference
+/// (parity 1.34e-4), i.e. the drift is the upstream model's own chroma
+/// behavior — our default simply avoids it. The C++ side clips (0,1] to
+/// [0.01, 0.5] internally; 0 disables RGB denoise entirely. Only the
+/// neural-variant DLL acts on it — the legacy variant ignores the parameter
+/// and keeps its classical raw-domain denoise, per the variant split.
+/// Re-calibrate when an X-Trans RAF sample joins the harness (single-sample
+/// data today).
+pub(crate) const NN_RGB_DENOISE_STRENGTH: c_float = 0.05;
+
 /// Marshal an optional Rust string into an optional C string for the FFI
 /// boundary: `None` stays `None` (callers pass a null pointer for it), while
 /// an interior NUL byte becomes a descriptive error. `what` labels the field
@@ -365,6 +381,7 @@ type RaProcessFileWithLUTFn = unsafe extern "C" fn(
     c_int,          // enableLensCorrection
     *const c_char,  // customLensfunDb
     c_int,          // enableNnDemosaic
+    c_float,        // denoiseStrength (RGB-domain FastDenoise v4; 0=off)
 ) -> c_int;
 
 type RaGetLastErrorFn = unsafe extern "C" fn() -> *const c_char;
@@ -391,6 +408,7 @@ type RaBeginPreviewSessionFn = unsafe extern "C" fn(
     c_int,                 // maxPreviewWidth
     c_int,                 // maxPreviewHeight
     *mut RaPreviewSession, // outSession
+    c_float,               // denoiseStrength (RGB-domain; applied at decode time)
 ) -> c_int;
 
 type RaApplyPreviewGradingFn = unsafe extern "C" fn(
@@ -460,7 +478,8 @@ type RaSetLogFileFn = unsafe extern "C" fn(*const c_char);
 
 // ra_set_nn_model supplies an NN model's ONNX weights as an in-memory byte
 // buffer (Option D: ORT loads from memory, no on-disk file). kind: 0=bayer,
-// 1=xtrans. The C side deep-copies, so the caller's buffer may be freed
+// 1=xtrans, 2=fastdenoise (RGB-domain denoise, upstream Raw-Alchemy model).
+// The C side deep-copies, so the caller's buffer may be freed
 // immediately. Optional like the other NN symbols.
 type RaSetNnModelFn =
     unsafe extern "C" fn(kind: c_int, data: *const std::ffi::c_void, len: usize) -> c_int;
@@ -733,6 +752,7 @@ impl RawAlchemyLib {
         ev_offset: f32,
         metering_mode: &str,
         enable_nn_demosaic: bool,
+        denoise_strength: f32,
     ) -> Result<(), AppError> {
         let input_c = std::ffi::CString::new(input_path.to_string_lossy().into_owned())
             .map_err(|e| AppError::ColorGradingError(format!("Invalid input path: {}", e)))?;
@@ -763,6 +783,7 @@ impl RawAlchemyLib {
                     .map(|c| c.as_ptr())
                     .unwrap_or(std::ptr::null()),
                 if enable_nn_demosaic { 1 } else { 0 },
+                denoise_strength,
             )
         };
 
@@ -873,6 +894,7 @@ impl RawAlchemyLib {
         half_size: bool,
         max_preview_width: u32,
         max_preview_height: u32,
+        denoise_strength: f32,
     ) -> Result<RaPreviewSession, AppError> {
         let input_c = std::ffi::CString::new(input_path.to_string_lossy().into_owned())
             .map_err(|e| AppError::ColorGradingError(format!("Invalid input path: {}", e)))?;
@@ -894,6 +916,7 @@ impl RawAlchemyLib {
                 max_preview_width as c_int,
                 max_preview_height as c_int,
                 &mut session,
+                denoise_strength,
             )
         };
 

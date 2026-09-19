@@ -80,20 +80,26 @@ Also accepted-as-is: on 6h `mediaProcessing` timeout the Kotlin flag clears but 
 `SYNCED_COMBINED_ACTIVE` stays true, so a later real activation edge produces no JNI sync; under
 system-enforced timeout semantics (process likely killed) this is acceptable.
 
-## 8. Upstream Raw-Alchemy absorption follow-ups (adversarially adjudicated 2026-09)
+## 8. Upstream Raw-Alchemy absorption follow-ups (adversarially adjudicated 2026-09; item b completed 2026-09-19)
 
-Deferred items from the upstream comparison, post-adjudication: (a) hot-pixel median-filter fix
-(upstream 44c2d21/1b0ad6d) is the only genuine algorithm gap — port a darktable-style Bayer-only
-fix if long-exposure samples ever show stuck pixels; (b) when reviewing/merging the already
-implemented `feat/rgb-denoise` submodule branch, run a σ-scan neutral-gray drift test on our own
-x-veon models (upstream's σ≤0.5 clip is FastDenoise-v4-specific, not transferable) and skim upstream
-`cc3871f` (v14 raw-main denoise) and `c982314` (pre7, touches 4 algorithm files) for reference;
-(c) fold SHA-256(model bytes) into the QNN ctx cache key opportunistically next time `nn_session`
-is touched (weights are compile-time embedded, so this is dev-workflow hardening, not a live bug);
-(d) optional: latch NN run-failure after N consecutive failures in the grading service to avoid
-paying a failed NN attempt per file in long batches. Session-idle unloading (upstream 3314f5c)
-stays rejected: FastRPC teardown loops hang on SM8550 per our own code comments, and QNN HTP graph
-memory lives in cDSP-side ion buffers that barely count toward app PSS.
+Remaining deferred items: (a) hot-pixel median-filter fix (upstream 44c2d21/1b0ad6d) is the
+only genuine algorithm gap — upstream's `fix_hot_pixels` is CFA-pattern-generic (Bayer 2×2 and
+X-Trans 6×6), port if long-exposure samples ever show stuck pixels; (c) fold SHA-256(model bytes)
+into the QNN ctx cache key opportunistically next time `nn_session` is touched (three models are
+now compile-time embedded — bayer, xtrans, fastdenoise — so this is dev-workflow hardening, not a
+live bug); (d) optional: latch NN run-failure after N consecutive failures in the grading service
+to avoid paying a failed NN attempt per file in long batches. Session-idle unloading (upstream
+3314f5c) stays rejected: FastRPC teardown loops hang on SM8550 per our own code comments, and QNN
+HTP graph memory lives in cDSP-side ion buffers that barely count toward app PSS.
+
+Completed (b) 2026-09-19: `feat/rgb-denoise` merged into the submodule (RGB-domain FastDenoise v4
+as the sole NN-variant denoise; raw-domain denoise disabled by default in neural builds, legacy
+variant bit-identical to before). σ-scan neutral-grey drift test executed — see §12 for the
+findings that changed the shipped default. Upstream `cc3871f`/`c982314` skimmed as directed:
+c982314 (pre7) is session/memory engineering only (free-dim override, stale-session latch, chunked
+61MP accumulation) with zero algorithm delta; cc3871f is the dormant unshipped v14 raw-domain
+model path. Pipeline placement fixed to upstream op order (denoise first, lens second — submodule
+d4e1c77); C++↔upstream parity 1.34e-4 across all σ.
 
 ## 10. Processing FGS: androidx ServiceCompat masks out mediaProcessing (type-none crash)
 
@@ -145,3 +151,26 @@ guided `AppError` ("MainActivity.initNdkContext must run first").
 (keepalive statics, `init_ndk_context`, `run_ndk_context_init`, the JNI entrypoint, and the
 AGENTS.md pitfall entry) once tauri ≥ 2.12 ships (or the resolved stack contains tao ≥ 0.36).
 The `catch_unwind` makes coexistence safe, but the workaround must not outlive its upstream fix.
+
+## 12. RGB denoise (FastDenoise v4): σ-dependent chroma drift and calibration limits (2026-09-19)
+
+The merged RGB denoise (NN variant's sole denoise; legacy variant keeps raw-domain) has a
+σ-dependent, non-monotonic neutral-grey drift on warm scenes — measured on the tungsten-lit
+Sample.NEF through the shipped pipeline: B/G drift +1.16% @σ0.01, +2.94% @0.05, +7.50% @0.10,
++11.81% @0.25 (upstream's own default — the worst point), +9.57% @0.35, +3.49% @0.5 (R/G stays
+within ±3.5% throughout). C++↔upstream parity is 1.34e-4 at every σ, so this is the upstream
+model's own chroma behavior, not a porting bug; upstream never characterized the mid-σ range on
+real warm samples (their σ≤0.5 clip came from the σ>0.5 green-shift boundary only). Shipped
+default is therefore 0.05 (`NN_RGB_DENOISE_STRENGTH` in `color_grading/ffi.rs`), inside the
+verified-safe zone with margin against the ±5% gate.
+
+Calibration limits (revisit when conditions change): (a) single-sample data — one warm Bayer NEF,
+no X-Trans RAF exists in `Test/` (harness takes `--sample`, auto-selects the X-Trans path);
+re-run the σ-scan when an RAF lands; (b) cross-validation runs CPU EP on both sides — the
+Android QNN HTP fp16 denoise path has no on-device parity smoke yet (compare a dump vs CPU
+reference at ~1e-2 tolerance when convenient); (c) if upstream re-trains FastDenoise, re-vendor
+bit-identical bytes (`resources/models/fastdenoise/`) and re-run the σ-scan — parity numbers are
+only meaningful against exact upstream bytes; (d) `cfa_residue_suppression` (period-2 residue
+elimination after x-veon NN demosaic) runs unconditionally, costing −6dB at period-4 detail even
+with denoise off — a chroma-only or energy-gated refinement is the follow-up if fine texture
+softening is ever reported.

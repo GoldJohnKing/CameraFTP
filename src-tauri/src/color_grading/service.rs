@@ -175,6 +175,16 @@ impl ColorGradingService {
             "color-grading-progress",
             &ColorGradingEvent::Queued { queue_depth: depth },
         );
+        // 通知进度 hook：与 Queued 事件同源（queue_depth），done/failed 尚无
+        // 既定值（BatchState 属 worker），按「刚入队」语义取 0。depth==0
+        // （极端竞态下 worker 已瞬时取走）不上报，维持「无任务 = 槽位空」。
+        if depth > 0 {
+            processing_activity::notify_cg_progress(processing_activity::PipelineProgress {
+                done: 0,
+                total: depth,
+                failed: 0,
+            });
+        }
 
         Ok(())
     }
@@ -265,6 +275,17 @@ async fn worker_loop<R: tauri::Runtime>(
                 cancelled,
             },
         );
+        // 通知进度 hook：与 Done 事件同数值（批次收尾，done=total）。
+        // 紧随其后的失活上报（循环顶 notify_cg(false)）会清空槽位。
+        // Cancelled 分支可能 0 处理即收批（事件仍发给前端复位 UI），0/0
+        // 快照无展示价值，跳过以免闪烁——数值仍取同一 processed_count。
+        if state.processed_count() > 0 {
+            processing_activity::notify_cg_progress(processing_activity::PipelineProgress {
+                done: state.processed_count(),
+                total: state.processed_count(),
+                failed: state.failed_count,
+            });
+        }
         state.reset();
     }
 
@@ -331,6 +352,12 @@ async fn worker_loop<R: tauri::Runtime>(
                 failed_count: state.failed_count,
             },
         );
+        // 通知进度 hook：与 Progress 事件同数值（current = 正在处理的序号）。
+        processing_activity::notify_cg_progress(processing_activity::PipelineProgress {
+            done: current,
+            total,
+            failed: state.failed_count,
+        });
 
         let result = tokio::select! {
             r = process_single_file(&task, &nn_enabled) => Some(r),
@@ -357,6 +384,12 @@ async fn worker_loop<R: tauri::Runtime>(
                         output_path,
                     },
                 );
+                // 通知进度 hook：与 Completed 事件同数值。
+                processing_activity::notify_cg_progress(processing_activity::PipelineProgress {
+                    done: state.processed_count(),
+                    total: state.processed_count() + remaining,
+                    failed: state.failed_count,
+                });
             }
             Some(Err(ref e)) => {
                 tracing::error!(input = %task.input_path.display(), error = %e, "Color grading failed");
@@ -374,6 +407,12 @@ async fn worker_loop<R: tauri::Runtime>(
                         failed_count: state.failed_count,
                     },
                 );
+                // 通知进度 hook：与 Failed 事件同数值（failed 计数已含本文件）。
+                processing_activity::notify_cg_progress(processing_activity::PipelineProgress {
+                    done: state.processed_count(),
+                    total: state.processed_count() + remaining,
+                    failed: state.failed_count,
+                });
             }
             None => {
                 drain_pending_tasks(&mut receiver, &queue_depth);
@@ -512,6 +551,7 @@ async fn decode_once(
             ev_offset,
             &metering_mode,
             enable_nn,
+            super::ffi::NN_RGB_DENOISE_STRENGTH,
         )
     })
     .await

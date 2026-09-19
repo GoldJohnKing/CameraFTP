@@ -78,6 +78,24 @@ fn decompress_nn_model(compressed: &[u8]) -> Option<Vec<u8>> {
     }
 }
 
+/// Decompressed FastDenoise v4 (RGB-domain denoise) weights, handed to the
+/// C++ core via `ra_set_nn_model(kind=2)`. Same embedding pipeline as the
+/// demosaic models: gzip in `OUT_DIR/nn_models/` at build time, in-memory
+/// injection at startup; `None` in legacy-variant builds (placeholder gzip)
+/// or on decompress failure, in which case the C++ side ignores
+/// `denoiseStrength` and the variant keeps its classical raw-domain denoise.
+///
+/// Provenance: vendored from upstream Raw-Alchemy (AGPL-3.0, self-designed
+/// dense-conv DML-friendly arch) — see
+/// `resources/models/fastdenoise/README.md`. Unlike the x-veon demosaic
+/// weights, redistribution is license-compatible.
+pub fn fastdenoise_model_bytes() -> Option<Vec<u8>> {
+    decompress_nn_model(include_bytes!(concat!(
+        env!("OUT_DIR"),
+        "/nn_models/fastdenoise.onnx.gz"
+    )))
+}
+
 /// QNN context-cache dir (Android only at runtime — the C++ core only consumes
 /// it on Android). This is the one NN artifact that still lives on disk: the
 /// *compiled QNN graph* (context binary), distinct from the model weights (now
