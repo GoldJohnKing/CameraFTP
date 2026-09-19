@@ -319,3 +319,10 @@ detached-read safely — only the *invocation* must be receiver-bound.
 - [React](https://react.dev/)
 - [TailwindCSS](https://tailwindcss.com/)
 - [libunftp](https://docs.rs/libunftp/)
+
+## Cloned Dependency Source
+
+Read-only dependency source repositories are available under
+`.slim/clonedeps/repos/` for inspection. Do not edit these clones.
+
+- `.slim/clonedeps/repos/shenmintao__raw-alchemy/` - `shenmintao/Raw-Alchemy` (Python upstream of the RawAlchemyCpp submodule) at studio branch 533059c plus `origin/main` and `origin/feat/integrate-v14-denoiser`; useful when comparing the C++ port against upstream features/perf work.

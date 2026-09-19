@@ -101,3 +101,6 @@ config.json
 .superpowers/
 # build artifacts (build.sh output)
 out/
+# BEGIN oh-my-opencode-slim clonedeps
+.slim/clonedeps/repos/
+# END oh-my-opencode-slim clonedeps
