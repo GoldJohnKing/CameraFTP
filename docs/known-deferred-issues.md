@@ -94,3 +94,45 @@ is touched (weights are compile-time embedded, so this is dev-workflow hardening
 paying a failed NN attempt per file in long batches. Session-idle unloading (upstream 3314f5c)
 stays rejected: FastRPC teardown loops hang on SM8550 per our own code comments, and QNN HTP graph
 memory lives in cDSP-side ion buffers that barely count toward app PSS.
+
+## 10. Processing FGS: androidx ServiceCompat masks out mediaProcessing (type-none crash)
+
+`ServiceCompat.startForeground` (androidx.core, Api34Impl on API 34+) ANDs the requested type with
+`FOREGROUND_SERVICE_TYPE_ALLOWED_SINCE_U`, a compile-time mask that still does not include
+`FOREGROUND_SERVICE_TYPE_MEDIA_PROCESSING` (verified against androidx-main, 2026-09). Requesting
+mediaProcessing through ServiceCompat therefore reaches the platform as type 0, and with
+targetSdk >= 34 AMS throws `InvalidForegroundServiceTypeException "Starting FGS with type none"`
+— this crashed the app on the service's first real-device run (Xiaomi ishtar, Android 16).
+`ProcessingForegroundService` now calls the platform `startForeground` directly with a
+mediaProcessing → dataSync fallback ladder. Once a future androidx release adds mediaProcessing
+to the mask, the ladder can collapse back to a single ServiceCompat call. Note the dataSync rung
+inherits the 6h/24h FGS quota (targetSdk 35+); `onTimeout` is already implemented.
+
+## 9. ndk-context self-initialization workaround (tauri 2.11.x / tao 0.35.3 regression)
+
+**Root cause**: the a5458cb dependency-stack upgrade (tauri 2.11.5 → tauri-runtime-wry 2.11.4 →
+tao 0.35.3) pulled an upstream regression where tao no longer initializes
+[ndk-context](https://crates.io/crates/ndk-context) (tao#1220/#1266; fixed in tao 0.36, which
+tauri 2.12 — unreleased at fix time — will pick up). Every Rust→JNI call goes through
+`src-tauri/src/utils/jni.rs` `java_vm()`/`android_context()` → `ndk_context::android_context()`,
+which panics when uninitialized. **Symptoms**: FTP MediaStore bridge fully broken (LIST silently
+returns an empty listing, STOR fails with 550) and Android service-state sync dead (neither FGS
+notification ever appears).
+
+**Fix**: the app now initializes ndk-context itself — `MainActivity.onCreate` calls
+`initNdkContext(applicationContext)` immediately after `super.onCreate()` (the native library is
+already loaded inside `super.onCreate` via `WryActivity.onCreate → Rust.onActivityCreate →
+System.loadLibrary`). The Rust handler
+`Java_com_gjk_cameraftpcompanion_MainActivity_initNdkContext` in `utils/jni.rs` stores a
+process-lifetime `GlobalRef` of the Application context (never deleted — ndk-context keeps the
+raw pointer forever) plus the `JavaVM` raw pointer, guarded by a `std::sync::Once` for activity
+re-creation and a `catch_unwind` around `initialize_android_context` (ndk-context 0.1.1 asserts
+on double-init; first initializer wins, later one is harmlessly ignored — and because 0.1.1
+replaces-then-asserts, the keepalive ref is retained on both paths). The
+`java_vm()`/`android_context()` helpers additionally convert the uninitialized-panic into a
+guided `AppError` ("MainActivity.initNdkContext must run first").
+
+**Removal condition**: delete the Kotlin declaration + onCreate call + the Rust init block
+(keepalive statics, `init_ndk_context`, `run_ndk_context_init`, the JNI entrypoint, and the
+AGENTS.md pitfall entry) once tauri ≥ 2.12 ships (or the resolved stack contains tao ≥ 0.36).
+The `catch_unwind` makes coexistence safe, but the workaround must not outlive its upstream fix.

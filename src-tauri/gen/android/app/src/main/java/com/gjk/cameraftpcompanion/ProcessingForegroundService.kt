@@ -113,24 +113,46 @@ class ProcessingForegroundService : Service() {
     }
 
     /**
-     * Start foreground service with the mediaProcessing type on API 35+
-     * (targetSdk 36 semantics: media processing is the correct type for
-     * photo editing pipelines), falling back to dataSync on older systems.
+     * Start foreground service by trying candidate FGS types in priority
+     * order (mediaProcessing then dataSync on API 35+; dataSync only on
+     * older systems). Calls the platform startForeground directly instead
+     * of ServiceCompat so no androidx masking layer can drop the requested
+     * type bits. A type-negotiation failure must never escape as an
+     * uncaught exception on the main thread.
      */
     private fun startForegroundWithType(notification: Notification) {
-        val fgsType = if (Build.VERSION.SDK_INT >= 35) {
-            ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROCESSING
+        // 类型回退梯：androidx ServiceCompat.startForeground 的 Api34Impl 会把
+        // 请求类型与 FOREGROUND_SERVICE_TYPE_ALLOWED_SINCE_U 掩码按位与，该掩码
+        // 至今不含 MEDIA_PROCESSING → 0x2000 被归零 → targetSdk≥34 直接
+        // "type none" 崩溃（真机 Xiaomi Android 16 实测，AOSP/androidx 源码级
+        // 确认，见 known-deferred-issues #10）。故此处直调平台 startForeground
+        // 并按优先级逐类型回退；全部失败则记录并 stopSelf——绝不让 FGS 类型
+        // 协商失败演变成主线程未捕获异常。
+        val candidates: List<Int> = if (Build.VERSION.SDK_INT >= 35) {
+            listOf(ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROCESSING,
+                   ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
         } else {
-            ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+            listOf(ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
         }
-        ServiceCompat.startForeground(
-            this,
-            NOTIFICATION_ID,
-            notification,
-            fgsType
-        )
-        isInForeground = true
-        Log.d(TAG, "startForegroundWithType: started with fgsType=$fgsType")
+        var lastError: Exception? = null
+        for (type in candidates) {
+            try {
+                if (Build.VERSION.SDK_INT >= 29) {
+                    startForeground(NOTIFICATION_ID, notification, type)
+                } else {
+                    @Suppress("DEPRECATION")
+                    startForeground(NOTIFICATION_ID, notification)
+                }
+                isInForeground = true
+                Log.d(TAG, "startForegroundWithType: engaged with fgsType=$type (ladder)")
+                return
+            } catch (e: Exception) {
+                lastError = e
+                Log.w(TAG, "startForegroundWithType: fgsType=$type rejected: $e; trying next rung")
+            }
+        }
+        Log.e(TAG, "startForegroundWithType: all rungs failed", lastError)
+        stopForegroundServiceNow("fgs type ladder exhausted")
     }
 
     private fun stopForegroundServiceNow(reason: String) {
