@@ -142,15 +142,10 @@ impl ColorGradingService {
         let sender = self.ensure_worker().await;
         let total = file_paths.len() as u32;
         self.queue_depth.add(total);
-        // 先入槽初始进度再触发忙边沿：启停边沿会搭载当前快照，若此刻槽位
-        // 仍为空，边沿会携带 {"cg":null,"ai":null}，首帧通知走静态回退分支
-        // （真机实测偶发「无数字的旧样式通知」即此竞态）。入槽先于边沿，
-        // 保证边沿必携 {0, total, 0}。
-        processing_activity::notify_cg_progress(processing_activity::PipelineProgress {
-            done: 0,
-            total,
-            failed: 0,
-        });
+        // 入槽合并进度再触发忙边沿：空槽即 {0, depth}（保证边沿必携非空
+        // 快照，消除首帧静态回退竞态）；运行中追加则保留已完成/失败计数、
+        // total 随之增长（追加不得把 done 清零）。
+        processing_activity::notify_cg_enqueued(self.queue_depth.get());
         // 先上报忙再发送：保证「激活」严格先于 worker 对这些任务的任何
         // 「空闲」上报（enqueue→send→recv 的 happens-before 链），避免
         // 快速任务完成后的 false 覆盖尚未落地的 true。
@@ -184,15 +179,11 @@ impl ColorGradingService {
             "color-grading-progress",
             &ColorGradingEvent::Queued { queue_depth: depth },
         );
-        // 通知进度 hook：与 Queued 事件同源（queue_depth），done/failed 尚无
-        // 既定值（BatchState 属 worker），按「刚入队」语义取 0。depth==0
-        // （极端竞态下 worker 已瞬时取走）不上报，维持「无任务 = 槽位空」。
+        // 通知进度 hook：与 Queued 事件同源（queue_depth），合并语义——
+        // 保留运行中批次的已完成/失败计数。depth==0（极端竞态下 worker 已
+        // 瞬时取走）不上报，维持「无任务 = 槽位空」。
         if depth > 0 {
-            processing_activity::notify_cg_progress(processing_activity::PipelineProgress {
-                done: 0,
-                total: depth,
-                failed: 0,
-            });
+            processing_activity::notify_cg_enqueued(depth);
         }
 
         Ok(())

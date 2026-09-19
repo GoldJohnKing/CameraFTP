@@ -73,6 +73,35 @@ pub fn notify_ai_progress(progress: PipelineProgress) {
     notify_progress(&AI_PROGRESS, progress);
 }
 
+/// 入队合并推送（调色）：保留槽内 done/failed（运行中批次的已完成/失败
+/// 计数），total = done + depth。空槽（空闲起步）时即 {0, depth, 0}。
+/// 用于 enqueue 路径——运行中途追加任务时通知的 done 不得回零、total
+/// 随之增长（修复：此前裸覆盖 {0, N}，追加图片后已完成数被清零）。
+pub fn notify_cg_enqueued(depth: u32) {
+    notify_enqueued(&CG_PROGRESS, depth);
+}
+
+/// 入队合并推送（AI 修图），语义同 [`notify_cg_enqueued`]。
+pub fn notify_ai_enqueued(depth: u32) {
+    notify_enqueued(&AI_PROGRESS, depth);
+}
+
+fn notify_enqueued(slot: &Mutex<Option<PipelineProgress>>, depth: u32) {
+    let cur = read_progress(slot).unwrap_or(PipelineProgress {
+        done: 0,
+        total: 0,
+        failed: 0,
+    });
+    notify_progress(
+        slot,
+        PipelineProgress {
+            done: cur.done,
+            total: cur.done + depth,
+            failed: cur.failed,
+        },
+    );
+}
+
 /// 存入进度槽位；仅在组合活跃已同步为 true 时分发（服务未启动不刷——
 /// 启停生命周期完全由边沿通道管，进度通道绝不拉起服务）。
 fn notify_progress(slot: &Mutex<Option<PipelineProgress>>, progress: PipelineProgress) {
@@ -186,6 +215,29 @@ mod tests {
 
     // 只测纯函数与独立的槽位读写辅助：notify_* 系列触碰全局静态且
     // dispatch 依赖平台，由 Kotlin 侧测试与 worker 集成路径覆盖。
+
+    #[test]
+    fn notify_enqueued_merges_running_batch_and_bootstraps_empty_slot() {
+        // 运行中追加：保留 done/failed，total = done + depth。
+        let slot = Mutex::new(Some(PipelineProgress {
+            done: 2,
+            total: 5,
+            failed: 1,
+        }));
+        notify_enqueued(&slot, 6);
+        let merged = read_progress(&slot).unwrap();
+        assert_eq!(merged.done, 2);
+        assert_eq!(merged.total, 8);
+        assert_eq!(merged.failed, 1);
+
+        // 空闲起步：{0, depth, 0}。
+        let fresh = Mutex::new(None);
+        notify_enqueued(&fresh, 3);
+        let boot = read_progress(&fresh).unwrap();
+        assert_eq!(boot.done, 0);
+        assert_eq!(boot.total, 3);
+        assert_eq!(boot.failed, 0);
+    }
 
     #[test]
     fn combine_progress_json_renders_null_and_objects() {

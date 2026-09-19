@@ -118,13 +118,10 @@ impl AiEditService {
 
         let (_, auto_sender) = self.ensure_worker().await;
         self.queue_depth.add(1);
-        // 先入槽初始进度再触发忙边沿（同 CG 侧论证：边沿需搭载非空快照，
-        // 否则首帧通知偶发走静态回退分支）。
-        processing_activity::notify_ai_progress(processing_activity::PipelineProgress {
-            done: 0,
-            total: 1,
-            failed: 0,
-        });
+        // 入槽合并进度再触发忙边沿：空槽即 {0, depth}；运行中追加则保留
+        // 已完成/失败计数、total 随之增长（边沿需搭载非空快照，且追加
+        // 不得把 done 清零）。
+        processing_activity::notify_ai_enqueued(self.queue_depth.get());
         // 先上报忙再发送：保证「激活」严格先于 worker 对该任务的任何
         // 「空闲」上报（enqueue→send→recv 的 happens-before 链）。
         processing_activity::notify_ai(true);
@@ -162,11 +159,7 @@ impl AiEditService {
             // 通知进度 hook：与 QueuedDropped 事件同源（queue_depth）。depth==0
             // 时管线已因回滚上报失活（槽位被清空），不再写入 0/0 假进度。
             if depth > 0 {
-                processing_activity::notify_ai_progress(processing_activity::PipelineProgress {
-                    done: 0,
-                    total: depth,
-                    failed: 0,
-                });
+                processing_activity::notify_ai_enqueued(depth);
             }
         } else {
             self.emit_queued();
@@ -182,13 +175,8 @@ impl AiEditService {
     ) -> Result<(), AppError> {
         let (manual_sender, _) = self.ensure_worker().await;
         self.queue_depth.add(1);
-        // 先入槽初始进度再触发忙边沿（同 CG 侧论证：边沿需搭载非空快照，
-        // 否则首帧通知偶发走静态回退分支）。
-        processing_activity::notify_ai_progress(processing_activity::PipelineProgress {
-            done: 0,
-            total: 1,
-            failed: 0,
-        });
+        // 入槽合并进度再触发忙边沿（同 on_file_uploaded 的合并语义论证）。
+        processing_activity::notify_ai_enqueued(self.queue_depth.get());
         // 先上报忙再发送（同 on_file_uploaded 的顺序论证）。
         processing_activity::notify_ai(true);
         if let Err(e) = manual_sender
@@ -226,14 +214,11 @@ impl AiEditService {
         ) {
             warn!(error = %e, "Failed to emit ai-edit-progress Queued event");
         }
-        // 通知进度 hook：与 Queued 事件同源（queue_depth）；depth==0（worker
-        // 已瞬时取走）不上报，维持「无任务 = 槽位空」。
+        // 通知进度 hook：与 Queued 事件同源（queue_depth），合并语义（保留
+        // 运行中批次的已完成计数）；depth==0（worker 已瞬时取走）不上报，
+        // 维持「无任务 = 槽位空」。
         if depth > 0 {
-            processing_activity::notify_ai_progress(processing_activity::PipelineProgress {
-                done: 0,
-                total: depth,
-                failed: 0,
-            });
+            processing_activity::notify_ai_enqueued(depth);
         }
     }
 }
