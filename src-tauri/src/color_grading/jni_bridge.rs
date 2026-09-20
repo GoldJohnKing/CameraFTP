@@ -293,8 +293,52 @@ pub unsafe extern "C" fn Java_com_gjk_cameraftpcompanion_bridges_ColorGradingJni
     }
 }
 
+/// Validate the LUT id for a batch enqueue synchronously (on the JNI thread).
+///
+/// Mirrors the `find_preset` check inside `ColorGradingService::enqueue` so an
+/// unknown LUT id keeps failing fast with the exact same error message the
+/// service produced historically — callers see the error JSON immediately
+/// instead of only finding out after a thread hand-off.
+#[cfg(any(target_os = "android", test))]
+fn validate_enqueue_lut(lut_id: &str) -> Result<(), crate::error::AppError> {
+    crate::color_grading::presets::find_preset(lut_id)
+        .map(|_| ())
+        .ok_or_else(|| {
+            crate::error::AppError::ColorGradingError(format!("Unknown LUT preset: {}", lut_id))
+        })
+}
+
+/// Spawn a detached one-shot worker thread for fire-and-forget JNI work.
+///
+/// Uses `thread::Builder` (not `std::thread::spawn`) so an OS-level spawn
+/// failure surfaces as `Err` instead of a panic — a panic here would cross
+/// the JNI boundary and abort the process.
+///
+/// The closure must be `Send + 'static` and must not capture JNI local
+/// references (`JNIEnv`/`JString`): convert them to owned Rust values on the
+/// JNI thread before calling this.
+#[cfg(any(target_os = "android", test))]
+fn spawn_jni_worker<F>(label: &str, f: F) -> Result<(), String>
+where
+    F: FnOnce() + Send + 'static,
+{
+    std::thread::Builder::new()
+        .name(format!("jni-{label}"))
+        .spawn(f)
+        .map(|_| ())
+        .map_err(|e| format!("Failed to spawn {label} thread: {e}"))
+}
+
 /// JNI: Enqueue a single file for batch color grading via the existing worker.
-/// Returns JSON: `{"ok":true}` or `{"ok":false,"error":"message"}`
+///
+/// Synchronously validates arguments (unknown LUT id → error JSON), then hands
+/// the actual enqueue — whose mpsc `send().await` may block on backpressure
+/// while the auto-grading queue (capacity 16) is saturated — to a detached
+/// thread. Returns JSON:
+/// - `{"ok":true}` = task **accepted** (NOT "queued instantly"; subsequent
+///   progress/failure is delivered via the batch worker's
+///   `color-grading-progress` events / FGS notification)
+/// - `{"ok":false,"error":"..."}` = invalid arguments or thread-spawn failure
 #[cfg(target_os = "android")]
 #[no_mangle]
 pub unsafe extern "C" fn Java_com_gjk_cameraftpcompanion_bridges_ColorGradingJniBridge_nativeEnqueueBatch(
@@ -328,16 +372,100 @@ pub unsafe extern "C" fn Java_com_gjk_cameraftpcompanion_bridges_ColorGradingJni
         }
     };
 
-    let service = crate::color_grading::service::ColorGradingService::get_global();
-    let result = run_blocking(service.enqueue(
-        vec![std::path::PathBuf::from(path_str)],
-        lut_id_str,
-        metering_str,
-        ev_offset,
-    ));
+    // Validate synchronously: unknown LUT ids must keep returning the
+    // historical error JSON on the calling thread (fail fast, no spawn).
+    if let Err(e) = validate_enqueue_lut(&lut_id_str) {
+        return json_error(&mut env, &e.to_string());
+    }
 
-    match result {
+    // The actual enqueue — including the mpsc backpressure wait when the
+    // auto-grading queue is saturated — must NOT run on the WebView
+    // JavaBridge thread: a full queue would freeze the save button for as
+    // long as an in-flight RAW+NN task holds a slot. Hand the work to a
+    // detached thread and report "accepted" immediately.
+    //
+    // Thread boundary: only owned Rust values (String/f32) are captured —
+    // no JNIEnv/JString local references cross it. Inside the thread the
+    // service global is re-acquired and the future is driven via
+    // `run_blocking` exactly like the previous synchronous implementation,
+    // so the enqueue semantics are unchanged. The only post-spawn failure
+    // mode is channel shutdown during worker teardown (process exit) — the
+    // caller was already told "accepted", so log instead of answering a
+    // question nobody is still asking.
+    let spawn_result = spawn_jni_worker("cg-enqueue", move || {
+        let service = crate::color_grading::service::ColorGradingService::get_global();
+        if let Err(e) = run_blocking(service.enqueue(
+            vec![std::path::PathBuf::from(path_str)],
+            lut_id_str,
+            metering_str,
+            ev_offset,
+        )) {
+            tracing::warn!("JNI enqueueBatch: background enqueue failed after acceptance: {e}");
+        }
+    });
+
+    match spawn_result {
         Ok(()) => new_json_string(&mut env, r#"{"ok":true}"#),
-        Err(e) => json_error(&mut env, &e.to_string()),
+        Err(msg) => json_error(&mut env, &msg),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    // Host-side tests for the hand-off helpers. The JNI entry points are
+    // `#[cfg(target_os = "android")]` and only run on a device; these tests
+    // pin the two properties the fix depends on:
+    // (1) unknown-LUT validation fails fast with the exact historical error
+    //     message (Kotlin shows it verbatim in a Toast), and
+    // (2) the enqueue hand-off returns before the closure finishes and runs
+    //     it on another thread — never on the calling (JavaBridge) thread.
+
+    use super::*;
+
+    #[test]
+    fn validate_enqueue_lut_accepts_known_preset() {
+        assert!(validate_enqueue_lut("fujifilm-classic-neg").is_ok());
+    }
+
+    #[test]
+    fn validate_enqueue_lut_unknown_preset_keeps_historical_error_message() {
+        let err = validate_enqueue_lut("no-such-lut").unwrap_err();
+        // Byte-identical to what ColorGradingService::enqueue returned before
+        // the work moved off the JNI thread (thiserror Display prefix +
+        // service message).
+        assert_eq!(err.to_string(), "调色错误: Unknown LUT preset: no-such-lut");
+    }
+
+    #[test]
+    fn spawn_jni_worker_returns_before_closure_completes_and_off_thread() {
+        use std::sync::mpsc;
+        use std::time::Duration;
+
+        let caller_thread = std::thread::current().id();
+        let (closure_thread_tx, closure_thread_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel::<()>();
+
+        // Simulates an enqueue stuck waiting on mpsc backpressure: the
+        // closure cannot finish until the test releases it.
+        let spawn_result = spawn_jni_worker("test-cg-enqueue", move || {
+            let _ = closure_thread_tx.send(std::thread::current().id());
+            let _ = release_rx.recv();
+        });
+
+        // spawn_jni_worker must return Ok without waiting for the closure.
+        assert!(spawn_result.is_ok(), "unexpected spawn failure");
+
+        let closure_thread = closure_thread_rx
+            .recv_timeout(Duration::from_secs(10))
+            .expect("closure must run on the spawned thread");
+        assert_ne!(
+            closure_thread, caller_thread,
+            "closure must not run on the calling (JavaBridge) thread"
+        );
+
+        // Deterministic proof of non-blocking: the closure is still parked on
+        // release_rx at this point, yet spawn_jni_worker has already returned
+        // (otherwise this send would come before the function could return).
+        let _ = release_tx.send(());
     }
 }

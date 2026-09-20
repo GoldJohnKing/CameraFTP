@@ -161,6 +161,18 @@ class ColorGradingActivity : AppCompatActivity() {
 internal class NativeColorGradingPreviewBridge(
     activity: ColorGradingActivity,
     private val filePath: String,
+    // JNI seams with production defaults. The lambdas defer
+    // ColorGradingJniBridge class initialization until invocation, so JVM
+    // unit tests can inject fakes without triggering System.loadLibrary.
+    private val endPreviewOp: () -> Unit = { ColorGradingJniBridge.endPreview() },
+    private val saveLastUsedOp: (String, String, Float) -> Result<Unit> =
+        { presetId, meteringMode, evOffset ->
+            ColorGradingJniBridge.saveLastUsed(presetId, meteringMode, evOffset)
+        },
+    private val enqueueBatchOp: (String, String, String, Float) -> Result<Unit> =
+        { path, lutId, meteringMode, evOffset ->
+            ColorGradingJniBridge.enqueueBatch(path, lutId, meteringMode, evOffset)
+        },
 ) {
     private val activityRef: WeakReference<ColorGradingActivity> = WeakReference(activity)
 
@@ -229,16 +241,28 @@ internal class NativeColorGradingPreviewBridge(
         // Release preview buffer — no longer needed after save
         activity.previewJpegBytes = null
 
-        // Save last-used config via JNI
-        ColorGradingJniBridge.saveLastUsed(lutId, meteringMode, evOffset)
+        // Persist last-used config off the JavaBridge thread (fire-and-forget:
+        // the result is not consulted by any later logic in this save, and
+        // nothing below reads the persisted value back).
+        Thread {
+            saveLastUsedOp(lutId, meteringMode, evOffset).onFailure { e ->
+                Log.w(TAG, "save: saveLastUsed failed", e)
+            }
+        }.start()
 
         // End preview session in background (non-blocking)
-        Thread { ColorGradingJniBridge.endPreview() }.start()
+        Thread { endPreviewOp() }.start()
         activity.isSessionActive = false
 
         // Enqueue full-resolution processing via ColorGradingService worker.
-        // enqueue() only sends to mpsc channel — returns in ~1ms.
-        val result = ColorGradingJniBridge.enqueueBatch(filePath, lutId, meteringMode, evOffset)
+        // Rust validates the LUT id synchronously, then moves the actual
+        // enqueue — whose mpsc send may wait for backpressure while the
+        // auto-grading queue is saturated — onto a dedicated thread before
+        // returning. Success here means "task accepted", not "queued
+        // instantly"; processing progress and failures after acceptance are
+        // surfaced via the batch worker's progress events (TaskProgressPanel /
+        // FGS notification), not through this result.
+        val result = enqueueBatchOp(filePath, lutId, meteringMode, evOffset)
 
         activity.runOnUiThread {
             if (result.isSuccess) {
