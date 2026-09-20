@@ -125,6 +125,18 @@ export function useGalleryPager(): UseGalleryPagerResult {
   }, []);
 
   const loadNextPage = useCallback(async () => {
+    // reload/loadAll 在飞时禁止翻页：isLoading 是渲染闭包值（滞后一拍），
+    // reload 已发出但 setIsLoading(true) 尚未提交到旧闭包的窗口内，补跑的
+    // 近底 effect 会以旧闭包闯入此处 —— 它捕获的代际已是 reload 递增后的
+    // 新值，代际检查拦不住"同代际但游标起点已被整表替换"的旧游标分页；若
+    // 该请求晚于 reload 落地 resolve，会把旧游标页拼进新列表并覆写
+    // cursorRef（深滚动跳页断层）。落地后无需补偿：reload/loadAll 必然产生
+    // 新 items 引用，依赖 items 的近底 effect 会重跑，仍近底则再次触发本
+    // 函数（此时守卫已放行）。经 ref 读当前值，不受闭包陈旧影响。
+    if (reloadInflightRef.current || loadAllInflightRef.current) {
+      return;
+    }
+
     if (isLoading || pageInflightRef.current) {
       return;
     }

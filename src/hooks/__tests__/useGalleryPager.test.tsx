@@ -629,6 +629,71 @@ describe('useGalleryPager', () => {
     expect(getContainer().querySelector('[data-testid="loading"]')?.textContent).toBe('no');
   });
 
+  it('blocks stale-closure loadNextPage while reload is in flight and pages from the new cursor after reload lands', async () => {
+    // React 18 时序：reload 已发出但 setIsLoading(true) 尚未提交到旧闭包的
+    // 窗口内，补跑的近底 effect 以旧闭包（isLoading=false）调用 loadNextPage
+    // —— 旧闭包捕获的代际已是 reload 递增后的新值，fetchPage 的代际检查拦
+    // 不住它（同代际但游标起点已被整表替换）。入口必须经 reloadInflightRef
+    // 拦截；reload 落地产生新 items 引用后，近底 effect 重跑触发翻页，应从
+    // reload 后的新游标续拉（无需任何补偿逻辑）。
+    listMediaPageMock.mockResolvedValueOnce(
+      makePage([makeItem('media-1')], 'cursor-1', 'rev-1'),
+    );
+
+    await renderHarness();
+    await clickLoadNext(getContainer);
+    expect(listMediaPageMock).toHaveBeenCalledTimes(1);
+
+    // 近底 effect 将使用的旧闭包：reload 前最后一次提交的 loadNextPage
+    // （其 isLoading=false，尚不知晓即将到来的 reload）。
+    const staleLoadNext = latestResult!.loadNextPage;
+
+    let resolveReload!: (value: MediaPageResponse) => void;
+    const reloadPromise = new Promise<MediaPageResponse>((res) => {
+      resolveReload = res;
+    });
+    listMediaPageMock.mockReturnValueOnce(reloadPromise);
+
+    await act(async () => {
+      getContainer().querySelector('[data-testid="reload"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+    expect(getContainer().querySelector('[data-testid="loading"]')?.textContent).toBe('yes');
+
+    // reload 在飞窗口内以旧闭包触发（等价于补跑的 pending 近底 effect）：
+    // 不得产生新的 listMediaPage 调用。
+    await act(async () => {
+      await staleLoadNext();
+      await flush();
+    });
+    expect(listMediaPageMock).toHaveBeenCalledTimes(2);
+
+    // reload 落地：items 整表替换为新首页，游标换新。
+    await act(async () => {
+      resolveReload(makePage([makeItem('media-r1'), makeItem('media-r2')], 'cursor-new', 'rev-2'));
+      await flush();
+      await flush();
+    });
+    expect(latestResult!.items.map((i) => i.mediaId)).toEqual(['media-r1', 'media-r2']);
+    expect(getContainer().querySelector('[data-testid="cursor"]')?.textContent).toBe('cursor-new');
+    expect(getContainer().querySelector('[data-testid="loading"]')?.textContent).toBe('no');
+
+    // reload 落地后（items 引用变化使近底 effect 重跑）再次触发：正常翻页，
+    // 且使用 reload 后的新游标 —— 不得从旧 cursor-1 续拉造成跳页断层。
+    listMediaPageMock.mockResolvedValueOnce(
+      makePage([makeItem('media-r3')], null, 'rev-2'),
+    );
+    await clickLoadNext(getContainer);
+
+    expect(listMediaPageMock).toHaveBeenCalledTimes(3);
+    expect(listMediaPageMock).toHaveBeenLastCalledWith({
+      cursor: 'cursor-new',
+      pageSize: 120,
+      sort: 'dateDesc',
+    });
+    expect(latestResult!.items.map((i) => i.mediaId)).toEqual(['media-r1', 'media-r2', 'media-r3']);
+  });
+
   it('loadAll proceeds while loadNextPage is in flight and completes without loss', async () => {
     // 取代语义：loadAll 不被在飞分页吞掉，且完成后全量数据完整；
     // 旧分页结果 resolve 后被丢弃。
