@@ -27,6 +27,11 @@ use tauri::Emitter;
 pub struct FileIndexService {
     index: RwLock<FileIndex>,
     save_path: RwLock<PathBuf>,
+    /// 扫描代数（陈旧提交守卫）：update_save_path 切根前递增；
+    /// scan_directory 起点与提交点各读一次，不一致即丢弃整个提交，
+    /// 防止旧根扫描结果并集污染切根后的新索引（见 scan_directory
+    /// 与 update_save_path 内注释）。
+    scan_generation: std::sync::atomic::AtomicU64,
     #[cfg(target_os = "windows")]
     watcher: Mutex<Option<FileWatcher>>,
     app_handle: Arc<RwLock<Option<tauri::AppHandle>>>,
@@ -34,6 +39,15 @@ pub struct FileIndexService {
     /// 用它在真实索引行为之外断言"恰好一次合并重扫"。
     #[cfg(test)]
     scan_call_count: std::sync::atomic::AtomicU64,
+    /// 测试 seam（一次性门闸）：陈旧提交守卫测试用它把旧根扫描卡在
+    /// 快照点（起点代数与根路径已捕获）。默认未装门闸，非相关测试
+    /// 零感知。见 scan_directory 内注释。
+    #[cfg(test)]
+    scan_gate: tokio::sync::Mutex<Option<tokio::sync::watch::Sender<bool>>>,
+    /// 测试 seam：与 scan_gate 配对，通知"首个扫描已到达门闸"。
+    /// Notify 的 permit 语义保证"先通知后等待"也能唤醒。
+    #[cfg(test)]
+    scan_gate_reached: std::sync::Arc<tokio::sync::Notify>,
 }
 
 impl FileIndexService {
@@ -46,11 +60,16 @@ impl FileIndexService {
         Self {
             index: RwLock::new(FileIndex::new()),
             save_path: RwLock::new(save_path.clone()),
+            scan_generation: std::sync::atomic::AtomicU64::new(0),
             #[cfg(target_os = "windows")]
             watcher: Mutex::new(Some(FileWatcher::new(save_path))),
             app_handle: Arc::new(RwLock::new(None)),
             #[cfg(test)]
             scan_call_count: std::sync::atomic::AtomicU64::new(0),
+            #[cfg(test)]
+            scan_gate: tokio::sync::Mutex::new(None),
+            #[cfg(test)]
+            scan_gate_reached: std::sync::Arc::new(tokio::sync::Notify::new()),
         }
     }
 
@@ -173,6 +192,17 @@ impl FileIndexService {
         self.scan_call_count
             .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
 
+        // 陈旧提交守卫（起点读数）：scan_directory 没有调用方串行化
+        //（启动后台扫描 / watcher 溢出合并重扫 / get_latest_file 空索引
+        // 回退 / update_save_path 自身重扫均 fire-and-forget）。若旧根
+        // 扫描晚于切根提交，merge_scan_result 的保留规则会保留新根条目
+        // 并把旧根条目全部并入（并集污染）——幽灵条目滞留至重启，且新
+        // watcher 只盯新根不产生清理事件。update_save_path 切根前递增
+        // scan_generation；此处记录起点代数，提交点复核。
+        let scan_generation = self
+            .scan_generation
+            .load(std::sync::atomic::Ordering::SeqCst);
+
         let save_path = self.save_path.read().await.clone();
         info!("Starting directory scan: {:?}", save_path);
 
@@ -182,6 +212,25 @@ impl FileIndexService {
             let index = self.index.read().await;
             index.path_set.clone()
         };
+
+        // 测试 seam（一次性门闸）：首个到达此处的扫描在此等待放行
+        //（此时起点代数与根路径均已捕获）。陈旧提交守卫测试用它把旧根
+        // 扫描卡在切根前；其后的扫描（含 update_save_path 的重扫）不受
+        // 影响。默认未装门闸，非相关测试零感知。test_hold_index_read 的
+        // 读锁在此不适用——update_save_path 自身的重扫也要拿写锁，会
+        // 与之互锁。
+        //（门闸 Mutex 守卫必须先经 let 绑定释放，不能留在 if let 的
+        // scrutinee 临时里——否则等待放行期间持锁，update_save_path
+        // 的重扫会在 take() 处互锁死锁。）
+        #[cfg(test)]
+        {
+            let gate = self.scan_gate.lock().await.take();
+            if let Some(gate) = gate {
+                self.scan_gate_reached.notify_one();
+                let mut rx = gate.subscribe();
+                let _ = rx.wait_for(|open| *open).await;
+            }
+        }
 
         let paths = self.collect_image_paths(&save_path).await?;
 
@@ -222,6 +271,25 @@ impl FileIndexService {
             .collect();
 
         let mut index = self.index.write().await;
+
+        // 陈旧提交守卫（提交点复核）。钉子：这次读取必须位于
+        // index.write() 获取之后——若提前到写锁获取之前，切根可滑入两次
+        // 读取之间，守卫失效。不一致 → 静默丢弃整个提交并返回 Ok(())
+        //（丢弃的本来就是陈旧根的结果：get_latest_file 返回 None、溢出
+        // 重扫以 Ok(()) 清 needs_rescan 标志，调用方语义均可接受）；
+        // 索引保持切根方（update_save_path 自身重扫）的提交结果。
+        let generation_now = self
+            .scan_generation
+            .load(std::sync::atomic::Ordering::SeqCst);
+        if generation_now != scan_generation {
+            info!(
+                generation_at_start = scan_generation,
+                generation_now,
+                "Discarding stale scan commit: save_path was switched during this scan"
+            );
+            return Ok(());
+        }
+
         // merge_scan_result 内部会整体排序，此处无需预排序；
         // existing 只被只读借用，克隆外层 Arc 即可，避免整份 Vec 深拷贝
         let existing = Arc::clone(index.files());
@@ -684,6 +752,31 @@ impl FileIndexService {
             .load(std::sync::atomic::Ordering::SeqCst)
     }
 
+    /// 测试 seam：装上一次性扫描门闸（初始关闭）。下一个到达快照点的
+    /// scan_directory 将在门闸处等待 send(true) 放行；其后的扫描不再
+    /// 受影响（门闸一次性）。返回放行端。
+    #[cfg(test)]
+    pub(crate) async fn test_arm_scan_gate(&self) -> tokio::sync::watch::Sender<bool> {
+        let (open_tx, _rx) = tokio::sync::watch::channel(false);
+        *self.scan_gate.lock().await = Some(open_tx.clone());
+        open_tx
+    }
+
+    /// 测试 seam：等待首个扫描到达门闸（此时它已捕获起点代数与根
+    /// 路径）。Notify 的 permit 语义保证"先通知后等待"也能唤醒。
+    #[cfg(test)]
+    pub(crate) async fn test_wait_scan_at_gate(&self) {
+        self.scan_gate_reached.notified().await;
+    }
+
+    /// 测试 seam：watcher 槽位是否持有实例。update_save_path 重排测试
+    /// 用它断言"扫描失败后 watcher 已在新根重启"。watcher 字段平台
+    /// 限定，本 seam 同样仅 Windows 存在。
+    #[cfg(all(test, target_os = "windows"))]
+    pub(crate) async fn test_watcher_present(&self) -> bool {
+        self.watcher.lock().await.is_some()
+    }
+
     #[cfg(test)]
     pub async fn set_test_files(&self, files: Vec<FileInfo>) {
         let mut index = self.index.write().await;
@@ -704,6 +797,10 @@ impl FileIndexService {
         self.index.read().await
     }
 
+    /// 切换索引根目录：停 watcher → 递增扫描代数 → 切换 save_path →
+    /// 在新根重启 watcher → 重扫新根。扫描/启动失败仍经 `?` 向上传播，
+    /// 但传播前 watcher 已完成重启——旧序（scan 成功才 start）下扫描
+    /// 瞬时失败会让本会话 watcher 永久停摆。
     pub async fn update_save_path(self: Arc<Self>, new_path: PathBuf) -> Result<(), AppError> {
         let current_path = self.save_path.read().await.clone();
         if current_path == new_path {
@@ -716,9 +813,20 @@ impl FileIndexService {
         );
 
         self.stop_watcher().await;
+        // 切根前递增扫描代数：使仍在途的旧根扫描在提交点被守卫丢弃
+        //（见 scan_directory）。必须先于 save_path 换入——递增本身即
+        // 宣告"旧代数扫描全部作废"，任何在换入之后到达的旧根提交都
+        // 必然观察到新代数；反之（先换路径后递增）存在两次读数都落在
+        // 旧代数上的窗口。
+        self.scan_generation
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         *self.save_path.write().await = new_path;
-        self.scan_directory().await?;
+        // watcher 先于扫描重启：扫描错误经 `?` 向上传播时，watcher 已在
+        // 新根上运行，不会永久停摆。扫描启动后新到的文件由
+        // merge_scan_result 的"扫描期间新增保留"规则合并，先启 watcher
+        // 不产生重复或丢失。
         Self::start_watcher(Arc::clone(&self)).await?;
+        self.scan_directory().await?;
 
         Ok(())
     }
@@ -1535,5 +1643,97 @@ mod tests {
             files[0].exif_time.is_some(),
             "stable re-probe must backfill EXIF for the degraded entry"
         );
+    }
+
+    // ---- 陈旧扫描提交守卫（#2）& update_save_path 重排（#4）----
+
+    #[tokio::test]
+    async fn scan_commit_discarded_when_save_path_switched_during_scan() {
+        // 复现并集污染窗口：旧根扫描在途时切根。无守卫时，旧根扫描的
+        // 提交会把幽灵条目并入新索引（merge 保留新根条目 + 旧根扫描
+        // 条目 = 并集）；有守卫时旧根提交被丢弃，索引只含新根条目。
+        let temp_dir = tempdir().expect("failed to create temp dir");
+        let old_root = temp_dir.path().join("old_root");
+        let new_root = temp_dir.path().join("new_root");
+        std::fs::create_dir_all(&old_root).expect("create old root");
+        std::fs::create_dir_all(&new_root).expect("create new root");
+        std::fs::write(old_root.join("ghost.jpg"), b"jpeg").expect("write old-root image");
+        std::fs::write(new_root.join("fresh.jpg"), b"jpeg").expect("write new-root image");
+
+        let service = Arc::new(service_with_save_path(&old_root));
+
+        // 1) 关闭门闸并放出旧根扫描：它在捕获起点代数（=0）与旧根
+        //    路径后停在门闸处
+        let gate = service.test_arm_scan_gate().await;
+        let stale_scan = {
+            let service = Arc::clone(&service);
+            tokio::spawn(async move { service.scan_directory().await })
+        };
+        service.test_wait_scan_at_gate().await;
+
+        // 2) 期间切根（真实生产路径：递增代数 → 切换 → 重启 watcher →
+        //    重扫新根并提交）
+        Arc::clone(&service)
+            .update_save_path(new_root.clone())
+            .await
+            .expect("update_save_path must succeed");
+
+        // 3) 放行旧根扫描：它遍历旧根（文件仍在，模拟旧根扫描晚到）
+        //    并到达提交点
+        gate.send(true).expect("open scan gate");
+        stale_scan
+            .await
+            .expect("stale scan task must not panic")
+            .expect("stale scan commit must be discarded silently (Ok)");
+
+        // 4) 索引只含新根条目——旧根提交被守卫丢弃，无幽灵条目
+        let files = service.get_files().await;
+        let paths: Vec<&Path> = files.iter().map(|f| f.path.as_path()).collect();
+        assert_eq!(
+            files.len(),
+            1,
+            "index must hold only new-root entries: {paths:?}"
+        );
+        assert!(
+            files[0].path.starts_with(&new_root),
+            "remaining entry must be the new-root file: {paths:?}"
+        );
+
+        // 清理：停掉新根上的 watcher，让事件循环任务随通道关闭退出
+        service.stop_watcher().await;
+    }
+
+    #[cfg(target_os = "windows")]
+    #[tokio::test]
+    async fn update_save_path_scan_failure_still_restarts_watcher() {
+        // #4 连环坑钉住：新根瞬时不可读（普通文件冒充目录）→ 扫描失败
+        // 经 `?` 向上传播，但 watcher 必须已在新根重启（旧序 scan→start
+        // 会让本会话 watcher 永久停摆）。
+        // 注：依赖 notify 可监听单个既有文件（Windows 后端对非目录自动
+        // 降级为非递归监听）；若该假设不成立，下方错误信息断言会以
+        // "Failed to start watcher" 的失败形态明确暴露。
+        let temp_dir = tempdir().expect("failed to create temp dir");
+        let old_root = temp_dir.path().join("old_root");
+        std::fs::create_dir_all(&old_root).expect("create old root");
+        let bad_root = temp_dir.path().join("bad_root");
+        std::fs::write(&bad_root, b"not a directory").expect("write blocker file");
+
+        let service = Arc::new(service_with_save_path(&old_root));
+
+        let result = Arc::clone(&service)
+            .update_save_path(bad_root.clone())
+            .await;
+        let err = result.expect_err("scan of a non-directory root must fail");
+        assert!(
+            err.to_string().contains("Failed to read dir"),
+            "failure must originate from the scan step (i.e. watcher restart already happened), got: {err}"
+        );
+        assert!(
+            service.test_watcher_present().await,
+            "watcher must be restarted on the new root even though the scan failed"
+        );
+
+        // 清理：停掉 watcher（其 watch 目标是文件，事件循环空转）
+        service.stop_watcher().await;
     }
 }

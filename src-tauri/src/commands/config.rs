@@ -106,14 +106,25 @@ pub fn load_config(config_service: State<'_, Arc<ConfigService>>) -> AppConfig {
 /// 目录，而上传仍写入旧根目录——文件落盘却在图库中不可见（唯一痕迹是
 /// add_file 的越界路径拒绝日志）。UI 侧同步禁用目录选择器，本守卫是
 /// 后端兜底（托盘/并发窗口等绕过 UI 的写者同样被拦截）。
-async fn ensure_save_path_change_allowed(
+///
+/// 返回持锁守卫（收窄方案 A）：save_path 实际变化且槽位为 None 时返回
+/// `Some(槽位锁守卫)`——调用方（save_config）把「落盘 + 内存换入」
+/// 关进同一段临界区，与 start_server 的认领（claim_start_slot，同一把
+/// 锁）互斥，封死"守卫放行 → 并发 start 以旧配置认领启动 → persist
+/// 才换入新配置"的 TOCTOU（服务器 root 钉死旧根，上传落旧根被
+/// add_file 拒绝）。调用方在 persist 完成后即释放，绝不把
+/// update_save_path（秒级扫描）纳入持锁段——那会阻塞 start/stop/托盘
+/// 整段扫描时长；update_save_path 不触碰槽位锁，无锁序反转。
+/// save_path 未变化时返回 None（不触碰槽位锁，高频配置写不受串行化
+/// 影响）。
+async fn ensure_save_path_change_allowed<'a>(
     config_service: &ConfigService,
-    ftp_state: &FtpServerState,
+    ftp_state: &'a FtpServerState,
     incoming: &AppConfig,
-) -> Result<(), AppError> {
+) -> Result<Option<tokio::sync::MutexGuard<'a, FtpServerSlot>>, AppError> {
     let current_save_path = config_service.get_or_default().save_path;
     if incoming.save_path == current_save_path {
-        return Ok(());
+        return Ok(None);
     }
 
     // 只看槽位状态（None 之外一律视为活动），不与服务器通信——
@@ -131,7 +142,7 @@ async fn ensure_save_path_change_allowed(
                 .to_string(),
         ));
     }
-    Ok(())
+    Ok(Some(slot))
 }
 
 #[command]
@@ -143,7 +154,13 @@ pub async fn save_config(
     file_index: State<'_, Arc<FileIndexService>>,
     ftp_state: State<'_, FtpServerState>,
 ) -> Result<(), AppError> {
-    ensure_save_path_change_allowed(config_service.inner(), ftp_state.inner(), &config).await?;
+    // 守卫在 save_path 实际变化时返回持槽位锁的守卫：下方
+    // mutate_and_persist_async（blocking 池 + fsync 数十 ms）全程与
+    // start_server 的认领互斥，杜绝"守卫放行后、内存换入前"窗口内并发
+    // 启动以旧配置认领（见守卫 doc）。save_path 未变化时为 None，
+    // 配置写不被串行化。
+    let slot_guard =
+        ensure_save_path_change_allowed(config_service.inner(), ftp_state.inner(), &config).await?;
 
     let (old_save_path, new_save_path) = config_service
         .mutate_and_persist_async(move |current| {
@@ -155,6 +172,11 @@ pub async fn save_config(
         })
         .await?;
 
+    // persist 已完成（mutate_and_persist_async 的返回点即内存换入点）：
+    // 立刻释放槽位锁。后续 update_save_path 含秒级扫描，绝不放回持锁段
+    // ——否则 start/stop/托盘会被阻塞整个扫描时长。
+    drop(slot_guard);
+
     tracing::info!("Configuration saved successfully");
 
     if old_save_path != new_save_path {
@@ -163,18 +185,30 @@ pub async fn save_config(
             old_save_path,
             new_save_path
         );
-        // 先扩展 asset protocol scope（幂等且廉价）：若放在 update_save_path
-        // 之后，其内部 scan_directory 失败经 ? 短路返回会让本会话的 scope
-        // 永远缺失新目录（预览窗口直到重启都不可用）
+        // 先扩展 asset protocol scope（幂等且廉价）：必须先于
+        // update_save_path 执行——索引切换失败时本会话的 scope 仍已
+        // 就绪，预览窗口不因切换失败而缺失新目录（直到重启）
         if let Err(e) = app
             .asset_protocol_scope()
             .allow_directory(&new_save_path, true)
         {
             tracing::warn!(error = %e, "Failed to extend asset protocol scope for new save_path");
         }
-        Arc::clone(&file_index)
+        // 索引切换失败不得让 save_config 返回 Err：config 已成功落盘，
+        // 前端会把 Err 当"保存失败"处理（toast + 不更新 state.config），
+        // 与磁盘上已生效的新配置分叉。失败仅记日志——索引滞留旧根由
+        // get_latest_file 的空索引回退扫描与重启自愈，不向前端伪造
+        // 保存失败。
+        if let Err(e) = Arc::clone(&file_index)
             .update_save_path(new_save_path.clone())
-            .await?;
+            .await
+        {
+            tracing::error!(
+                error = %e,
+                "Failed to switch file index to new save_path after config persisted; \
+                 the persisted config remains authoritative"
+            );
+        }
     }
 
     Ok(())
@@ -566,5 +600,48 @@ mod tests {
         super::ensure_save_path_change_allowed(&service, &state, &unchanged)
             .await
             .expect("saves that keep save_path must pass even while server active");
+    }
+
+    #[tokio::test]
+    async fn save_path_change_holds_slot_lock_until_persist_completes() {
+        // #5 TOCTOU（收窄方案 A）时序钉住：守卫放行后持槽位锁跨越
+        // persist 窗口——持锁期间并发认领（start_server 的
+        // claim_start_slot 第一步，同一把锁）必须被挡住；守卫释放后
+        // 认领才能进行（届时内存配置已换入，认领后的启动读到新配置）。
+        // 注：未注入 persist 延迟钩子（ConfigService 无此设施且不在本
+        // 车道域内）——互斥阻塞是逻辑必然而非时序概率，超时仅作断言
+        // 载体，无 flaky 风险。
+        let temp_dir = tempdir().expect("failed to create temp dir");
+        let service = guard_test_config_service(temp_dir.path());
+        service
+            .mutate_and_persist(|config| config.save_path = PathBuf::from("D:/photos/old-root"))
+            .expect("seed current save_path");
+        let incoming = incoming_with_save_path("D:/photos/new-root");
+        let state = ftp_state_with_slot(FtpServerSlot::None);
+
+        let guard = super::ensure_save_path_change_allowed(&service, &state, &incoming)
+            .await
+            .expect("guard must pass while slot is None")
+            .expect("guard must hold the slot lock when save_path changes");
+
+        // 持锁窗口内的并发认领：模拟 claim_start_slot 的"锁内占位"
+        let mut claim = tokio::spawn({
+            let slot_mutex = std::sync::Arc::clone(&state.0);
+            async move {
+                let mut slot = slot_mutex.lock().await;
+                *slot = FtpServerSlot::Starting;
+            }
+        });
+        assert!(
+            tokio::time::timeout(std::time::Duration::from_millis(100), &mut claim)
+                .await
+                .is_err(),
+            "concurrent slot claim must be blocked while save_config holds the guard"
+        );
+
+        // persist 完成（守卫释放）后认领必须能继续
+        drop(guard);
+        claim.await.expect("claim task must not panic");
+        assert!(matches!(*state.0.lock().await, FtpServerSlot::Starting));
     }
 }
