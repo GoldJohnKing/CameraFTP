@@ -564,9 +564,9 @@ show_help() {
     echo ""
     local VERSION
     VERSION=$(get_version)
-    echo "输出位置 (默认=传统算法无后缀，NN 变体=_nn-demosaic，Debug=d):"
-    echo "  Release: out/CameraFTP_v${VERSION}.apk / out/CameraFTP_v${VERSION}_nn-demosaic.apk"
-    echo "  Debug:   out/CameraFTP_v${VERSION}d.apk / out/CameraFTP_v${VERSION}d_nn-demosaic.apk"
+    echo "输出位置 (默认=传统算法无后缀，NN 变体=_nn，Debug=d):"
+    echo "  Release: out/CameraFTP_v${VERSION}.apk / out/CameraFTP_v${VERSION}_nn.apk"
+    echo "  Debug:   out/CameraFTP_v${VERSION}d.apk / out/CameraFTP_v${VERSION}d_nn.apk"
     echo ""
     echo "注意: 推荐使用 ./build.sh android 进行构建，会自动生成类型绑定"
 }

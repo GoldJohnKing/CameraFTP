@@ -136,10 +136,10 @@ show_help() {
     echo ""
     local VERSION
     VERSION=$(get_version)
-    echo "输出位置 (默认=传统算法无后缀，NN 变体=_nn-demosaic，Debug=d):"
+    echo "输出位置 (默认=传统算法无后缀，NN 变体=_nn，Debug=d):"
     echo "  Release: out/CameraFTP_v${VERSION}.exe             (传统算法)"
-    echo "           out/CameraFTP_v${VERSION}_nn-demosaic.exe (神经网络解马赛克)"
-    echo "  Debug:   out/CameraFTP_v${VERSION}d.exe / out/CameraFTP_v${VERSION}d_nn-demosaic.exe"
+    echo "           out/CameraFTP_v${VERSION}_nn.exe (神经网络解马赛克)"
+    echo "  Debug:   out/CameraFTP_v${VERSION}d.exe / out/CameraFTP_v${VERSION}d_nn.exe"
     echo ""
     echo "注意: 推荐使用 ./build.sh windows 进行构建，会自动生成类型绑定"
 }

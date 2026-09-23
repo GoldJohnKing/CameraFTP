@@ -24,15 +24,15 @@ get_version() {
 }
 
 # Debug 标记直接贴合版本号：debug → "d"，release → ""。
-# 对应命名规范：<产物名>_v<版本>[d][_nn-demosaic].<扩展名>
+# 对应命名规范：<产物名>_v<版本>[d][_nn].<扩展名>
 version_marker() {
     [ "${1:-}" = "debug" ] && echo "d" || echo ""
 }
 
-# 变体后缀：neural → "_nn-demosaic"（NN 解马赛克版本），legacy/默认 → ""。
+# 变体后缀：neural → "_nn"（NN 解马赛克版本），legacy/默认 → ""。
 # 下划线将变体字段与版本字段分隔（见命名规范）。
 variant_suffix() {
-    [ "${1:-}" = "neural" ] && echo "_nn-demosaic" || echo ""
+    [ "${1:-}" = "neural" ] && echo "_nn" || echo ""
 }
 
 # 构建目标配置
@@ -503,14 +503,14 @@ show_build_help() {
   ./$script_name windows android --serial     # 串行编译
   ./$script_name gen-types                    # 仅生成类型绑定
 
-输出位置 (默认=传统算法无后缀，NN 变体=_nn-demosaic，Debug=d):
+输出位置 (默认=传统算法无后缀，NN 变体=_nn，Debug=d):
   Windows: out/CameraFTP_v${VERSION}.exe              (传统算法, Release)
            out/CameraFTP_v${VERSION}d.exe             (传统算法, Debug)
-           out/CameraFTP_v${VERSION}_nn-demosaic.exe  (神经网络解马赛克, Release)
-           out/CameraFTP_v${VERSION}d_nn-demosaic.exe (神经网络解马赛克, Debug)
+           out/CameraFTP_v${VERSION}_nn.exe  (神经网络解马赛克, Release)
+           out/CameraFTP_v${VERSION}d_nn.exe (神经网络解马赛克, Debug)
   Android: out/CameraFTP_v${VERSION}.apk              (传统算法, Release — 其它设备)
            out/CameraFTP_v${VERSION}d.apk             (传统算法, Debug)
-           out/CameraFTP_v${VERSION}_nn-demosaic.apk  (神经网络解马赛克, Release — 骁龙8 Gen2+)
-           out/CameraFTP_v${VERSION}d_nn-demosaic.apk (神经网络解马赛克, Debug)
+           out/CameraFTP_v${VERSION}_nn.apk  (神经网络解马赛克, Release — 骁龙8 Gen2+)
+           out/CameraFTP_v${VERSION}d_nn.apk (神经网络解马赛克, Debug)
 EOF
 }
