@@ -173,6 +173,7 @@ async fn start_ftp_server_claimed(
     // 注意：PASV 端口使用 libunftp 默认范围 49152-65535（无需手动配置）
     let server_config = ServerConfig {
         port,
+        bind_ip: None,
         root_path: save_path.clone(),
         idle_timeout_seconds: IDLE_TIMEOUT_SECONDS,
         auth: if config.advanced_connection.enabled {
@@ -327,10 +328,25 @@ mod tests {
     fn test_config(port: u16, root_path: &Path) -> ServerConfig {
         ServerConfig {
             port,
+            // 测试只绑回环地址：0.0.0.0 监听会触发 Windows 防火墙放通弹窗
+            // （见 resolve_bind_addr 文档说明）
+            bind_ip: Some(std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST)),
             root_path: root_path.to_path_buf(),
             idle_timeout_seconds: 900,
             auth: FtpAuthConfig::default(),
         }
+    }
+
+    /// 回归防护：测试配置必须绑定回环地址，
+    /// 否则真实监听测试会在 Windows 宿主上反复触发防火墙放通弹窗。
+    #[test]
+    fn test_config_binds_loopback_to_avoid_firewall_prompts() {
+        let cfg = test_config(2121, Path::new("unused"));
+
+        assert_eq!(
+            cfg.bind_ip,
+            Some(std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST))
+        );
     }
 
     /// 测试用启动路径：复用生产的 认领 → Actor 启动 → 提交/回滚 全套状态机，

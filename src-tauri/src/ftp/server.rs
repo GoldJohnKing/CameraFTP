@@ -354,7 +354,7 @@ impl FtpServerActor {
     ) -> AppResult<SpawnedServer> {
         let authenticator = Arc::new(CustomAuthenticator::new(config.auth.clone()));
         let root_path = config.root_path.clone();
-        let bind_addr: SocketAddr = ([0, 0, 0, 0], port).into();
+        let bind_addr: SocketAddr = resolve_bind_addr(config.bind_ip, port);
         let bind_str = bind_addr.to_string();
         let (startup_tx, startup_rx) = oneshot::channel();
 
@@ -661,6 +661,13 @@ impl FtpServerActor {
     }
 }
 
+/// 解析监听地址：`None` = 所有接口 (0.0.0.0)（生产默认）。
+/// 测试注入回环地址，避免 0.0.0.0 监听触发 Windows 防火墙放通弹窗。
+fn resolve_bind_addr(bind_ip: Option<std::net::IpAddr>, port: u16) -> SocketAddr {
+    let ip = bind_ip.unwrap_or(std::net::IpAddr::V4(std::net::Ipv4Addr::UNSPECIFIED));
+    SocketAddr::new(ip, port)
+}
+
 fn advertised_server_addr(bind_addr: SocketAddr, recommended_ip: Option<String>) -> String {
     let ip = recommended_ip.unwrap_or_else(|| match bind_addr.ip() {
         std::net::IpAddr::V4(ip) if ip.is_unspecified() => "127.0.0.1".to_string(),
@@ -738,6 +745,22 @@ mod tests {
         assert_eq!(
             advertised_server_addr(bind_addr, Some("::1".to_string())),
             "127.0.0.1:2121"
+        );
+    }
+
+    #[test]
+    fn resolve_bind_addr_defaults_to_unspecified_for_production() {
+        assert_eq!(
+            resolve_bind_addr(None, 2121),
+            ([0, 0, 0, 0], 2121).into()
+        );
+    }
+
+    #[test]
+    fn resolve_bind_addr_honors_explicit_loopback_for_tests() {
+        assert_eq!(
+            resolve_bind_addr(Some(std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST)), 2121),
+            ([127, 0, 0, 1], 2121).into()
         );
     }
 

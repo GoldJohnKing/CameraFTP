@@ -82,6 +82,10 @@ impl FtpAuthConfig {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub(crate) struct ServerConfig {
     pub port: u16,
+    /// 监听 IP；None = 所有接口 (0.0.0.0)，生产默认。
+    /// 测试注入回环地址 127.0.0.1：回环监听不触发 Windows 防火墙放通弹窗
+    /// （版本号变更会改变测试二进制文件名哈希，导致 0.0.0.0 监听反复弹窗）。
+    pub bind_ip: Option<std::net::IpAddr>,
     pub root_path: PathBuf,
     pub idle_timeout_seconds: u64,
     pub auth: FtpAuthConfig,
